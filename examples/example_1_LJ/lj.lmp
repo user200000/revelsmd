@@ -1,0 +1,43 @@
+# use LJ units
+
+variable T equal 1.35
+variable eps equal 1.0
+variable sig equal 1.0
+variable rcut equal 4
+
+units           lj
+dimension       3
+boundary        p p p
+atom_style      full
+
+region mybox block 0 14.227 0 14.227 0 14.227
+create_box 2 mybox
+create_atoms 1 random 2304 789 NULL
+create_atoms 2 random 576 67544 NULL
+pair_style      lj/cut 3.5
+mass 1 1
+mass 2 1
+pair_coeff      1 1 ${eps} ${sig} ${rcut}
+pair_coeff      1 2 ${eps} ${sig} ${rcut}
+pair_coeff      2 2 ${eps} ${sig} ${rcut}
+
+neighbor        0.3 bin
+neigh_modify    delay 0 every 20 check no
+
+timestep        0.001
+run_style       verlet
+
+
+velocity        all create $T 1511 dist gaussian
+
+fix             stat all nvt temp  $T $T 0.1
+thermo_style multi
+thermo 1000
+minimize 1.0e-4 1.0e-6 100 1000
+
+write_data data.min.nh
+run 100000
+dump 1 all custom 1000 dump.nh.lammps id mass type x y z fx fy fz vx vy vz
+dump_modify 1 sort id
+run 50000
+write_data data.fin.nh
