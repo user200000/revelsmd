@@ -42,16 +42,18 @@ class Revels3D:
                 self.binsx=np.arange(0,TS.box_x+lx,lx)
                 self.binsy=np.arange(0,TS.box_y+ly,ly)
                 self.binsz=np.arange(0,TS.box_z+lz,lz)
+                self.voxel_volume=np.prod(self.box_array)/np.prod([nbinsx,nbinsy,nbinsz])
             else:
                 lx=1/nbinsx
                 ly=1/nbinsy
                 lz=1/nbinsz
-                self.binsx=np.arange(0,TS.box_x+lx,lx)
-                self.binsy=np.arange(0,TS.box_y+ly,ly)
-                self.binsz=np.arange(0,TS.box_z+lz,lz)
+                self.binsx=np.arange(0,1+lx,lx)
+                self.binsy=np.arange(0,1+ly,ly)
+                self.binsz=np.arange(0,1+lz,lz)
                 self.lattice=TS.lattice
-            if TS.variety == 'vasp':
-                self.cell=TS.Vasprun.start.lattice.matrix
+                if TS.variety == 'vasp':
+                    self.cell=TS.Vasprun.start.lattice.matrix
+                self.voxel_volume=self.lattice.volume/np.prod([nbinsx,nbinsy,nbinsz])
             self.temperature=temperature
             self.lx=lx
             self.ly=ly
@@ -180,12 +182,13 @@ class Revels3D:
                 return
             # Perfom the forward fourier transforms of the force density, after having normalised
             with np.errstate(divide='ignore',invalid='ignore'):
-                forceX=np.fft.fftn(self.forceX/self.lx/self.ly/self.lz/self.count)
-                forceY=np.fft.fftn(self.forceY/self.lx/self.ly/self.lz/self.count)
-                forceZ=np.fft.fftn(self.forceZ/self.lx/self.ly/self.lz/self.count)
+                forceX=np.fft.fftn(self.forceX/self.count/self.voxel_volume)
+                forceY=np.fft.fftn(self.forceY/self.count/self.voxel_volume)
+                forceZ=np.fft.fftn(self.forceZ/self.count/self.voxel_volume)
             #prepare the k vectors
-            xrep, yrep, zrep = self.get_kvectors()
+            
             if self.orthogonal:
+                xrep, yrep, zrep = self.get_kvectors()
                 for n in range(len(xrep)):
                     forceX[n,:,:] = xrep[n] * forceX[n,:,:] # perform a row wise dot product for the x dimension
                 for m in range(len(yrep)):
@@ -197,8 +200,29 @@ class Revels3D:
                     self.del_rho_k = (complex(0,1) / (self.temperature*generate_boltzmann(self.units)*self.get_ksquared()) * (forceX + forceY + forceZ))
             else:
                 xrep, yrep, zrep = self.get_kvectors_no_right()
-                self.del_rho_k = (complex(0,1) / (self.temperature*generate_boltzmann(self.units)*(xrep**2+yrep**2+zrep**2)) * (xrep*forceX + yrep*forceY + zrep*forceZ))
-                
+                xforceX=forceX
+                xforceY=forceY
+                xforceZ=forceZ
+                yforceX=forceX
+                yforceY=forceY
+                yforceZ=forceZ
+                zforceX=forceX
+                zforceY=forceY
+                zforceZ=forceZ
+                for n in range(len(xrep[0])):
+                    xforceX[n,:,:] = xrep[0][n] * xforceX[n,:,:] # perform a row wise dot product for the x dimension
+                    xforceY[n,:,:] = xrep[1][n] * xforceY[n,:,:] # perform a row wise dot product for the x dimension
+                    xforceZ[n,:,:] = xrep[2][n] * xforceZ[n,:,:] # perform a row wise dot product for the x dimension
+                for m in range(len(yrep)):
+                    yforceX[:,m,:] = yrep[0][m] * yforceX[:,m,:] # perform a row wise dot product for the x dimension
+                    yforceY[:,m,:] = yrep[1][m] * yforceY[:,m,:] # perform a row wise dot product for the x dimension
+                    yforceZ[:,m,:] = yrep[2][m] * yforceZ[:,m,:] # perform a row wise dot product for the x dimension
+                for l in range(len(zrep)):
+                    zforceX[:,:,l] = zrep[0][l] * zforceX[:,:,l] # perform a row wise dot product for the z dimension
+                    zforceY[:,:,l] = zrep[1][l] * zforceY[:,:,l] # perform a row wise dot product for the z dimension
+                    zforceZ[:,:,l] = zrep[2][l] * zforceZ[:,:,l] # perform a row wise dot product for the z dimension
+                with np.errstate(divide='ignore',invalid='ignore'):
+                    self.del_rho_k = (complex(0,1) / (self.temperature*generate_boltzmann(self.units)*self.get_ksquared_no_right()) * (xforceX + xforceY + xforceZ+ yforceX + yforceY + yforceZ + zforceX + zforceY + zforceZ))
             self.del_rho_k[0,0,0] = 0
             del_rho_n = np.fft.ifftn(self.del_rho_k) #inverse fast fourier transform back to real space.
             self.del_rho_n = -1*np.real(del_rho_n)
@@ -214,27 +238,33 @@ class Revels3D:
                 print("You must run make_force_grid before attempting to obtain a density")
                 return
             with np.errstate(divide='ignore',invalid='ignore'):
-                self.particle_density=self.counter/self.lx/self.ly/self.lz/self.count
+                self.particle_density=self.counter/self.voxel_volume/self.count
         
         def get_kvectors(self):
+            '''
+            Generates kvectors for a cubic cell
+            '''
             xrep = 2*np.pi*np.fft.fftfreq(self.nbinsx, d=self.lx)
             yrep = 2*np.pi*np.fft.fftfreq(self.nbinsy, d=self.ly)
             zrep = 2*np.pi*np.fft.fftfreq(self.nbinsz, d=self.lz)
             return xrep, yrep, zrep
         
         def get_kvectors_no_right(self):
-            xunit=np.cross(self.cell[:,1],self.cell[:,2])/np.dot(self.cell[:,0],np.cross(self.cell[:,1],self.cell[:,2]))*2*np.pi
-            yunit=np.cross(self.cell[:,2],self.cell[:,0])/np.dot(self.cell[:,1],np.cross(self.cell[:,2],self.cell[:,0]))*2*np.pi
-            zunit=np.cross(self.cell[:,0],self.cell[:,1])/np.dot(self.cell[:,2],np.cross(self.cell[:,0],self.cell[:,1]))*2*np.pi
-            xrep = np.array([np.nan_to_num(np.fft.fftfreq(self.nbinsx, d=xunit[0]),0),np.nan_to_num(np.fft.fftfreq(self.nbinsx, d=xunit[1]),0),np.nan_to_num(np.fft.fftfreq(self.nbinsx, d=xunit[2]),0)])
-            yrep = np.array([np.nan_to_num(np.fft.fftfreq(self.nbinsy, d=yunit[0]),0),np.nan_to_num(np.fft.fftfreq(self.nbinsy, d=yunit[1]),0),np.nan_to_num(np.fft.fftfreq(self.nbinsy, d=yunit[2]),0)])
-            zrep = np.array([np.nan_to_num(np.fft.fftfreq(self.nbinsz, d=zunit[0]),0),np.nan_to_num(np.fft.fftfreq(self.nbinsz, d=zunit[1]),0),np.nan_to_num(np.fft.fftfreq(self.nbinsz, d=zunit[2]),0)])
+            '''
+            Generates kvectors for a non cubic cell
+            '''
+            rep_matrix = self.lattice.reciprocal_lattice.matrix
+            xrep=np.array([rep_matrix[0][0]*np.fft.fftfreq(self.nbinsx,1/self.nbinsx),rep_matrix[0][1]*np.fft.fftfreq(self.nbinsx,1/self.nbinsx),rep_matrix[0][0]*np.fft.fftfreq(self.nbinsx,1/self.nbinsx)])
+            yrep=np.array([rep_matrix[1][0]*np.fft.fftfreq(self.nbinsy,1/self.nbinsy),rep_matrix[1][1]*np.fft.fftfreq(self.nbinsy,1/self.nbinsy),rep_matrix[1][0]*np.fft.fftfreq(self.nbinsy,1/self.nbinsy)])
+            zrep=np.array([rep_matrix[2][0]*np.fft.fftfreq(self.nbinsz,1/self.nbinsz),rep_matrix[2][1]*np.fft.fftfreq(self.nbinsz,1/self.nbinsz),rep_matrix[2][0]*np.fft.fftfreq(self.nbinsz,1/self.nbinsz)])
             return xrep, yrep, zrep
 
 
         def get_ksquared(self):
+            '''
+            Generates the ksquared array for a cubic cell, the code does this only when needed due to memory conservation
+            '''
             xrep, yrep, zrep = self.get_kvectors()
-
             # Propagation to 2D
             xrep = np.repeat(xrep[:, np.newaxis, np.newaxis], self.nbinsy, axis=1)
             zrep = np.repeat(zrep[np.newaxis, np.newaxis, :], self.nbinsx, axis=0)
@@ -244,9 +274,35 @@ class Revels3D:
             xrep = np.repeat(xrep[:, :, :], self.nbinsz, axis=2)
             yrep = np.repeat(yrep[:, :, :], self.nbinsz, axis=2)
             zrep = np.repeat(zrep[:, :, :], self.nbinsy, axis=1)
-           return (xrep*xrep)+(yrep*yrep)+(zrep*zrep) # generate the square of kvectorsa
+            return (xrep*xrep)+(yrep*yrep)+(zrep*zrep) # generate the square of kvectors
         
-        def get_ksquared(self):
+        def get_ksquared_no_right(self):
+            '''
+            Generates the ksquared array for a non cubic cell, the code does this only when needed due to memory conservation
+            '''
+            xrep, yrep, zrep = self.get_kvectors_no_right()
+            xrepa = np.repeat(xrep[0][:, np.newaxis, np.newaxis], self.nbinsy, axis=1)
+            xrepb = np.repeat(xrep[1][:, np.newaxis, np.newaxis], self.nbinsy, axis=1)
+            xrepc = np.repeat(xrep[2][:, np.newaxis, np.newaxis], self.nbinsy, axis=1)
+            zrepa = np.repeat(zrep[0][np.newaxis, np.newaxis, :], self.nbinsx, axis=0)
+            zrepb = np.repeat(zrep[1][np.newaxis, np.newaxis, :], self.nbinsx, axis=0)
+            zrepc = np.repeat(zrep[2][np.newaxis, np.newaxis, :], self.nbinsx, axis=0)
+            yrepa = np.repeat(yrep[0][np.newaxis, :, np.newaxis], self.nbinsx, axis=0)
+            yrepb = np.repeat(yrep[1][np.newaxis, :, np.newaxis], self.nbinsx, axis=0)
+            yrepc = np.repeat(yrep[2][np.newaxis, :, np.newaxis], self.nbinsx, axis=0)
+
+    
+            # Propagation to 3D
+            xrepa = np.repeat(xrepa[:, :, :], self.nbinsz, axis=2)
+            xrepb = np.repeat(xrepb[:, :, :], self.nbinsz, axis=2)
+            xrepc = np.repeat(xrepc[:, :, :], self.nbinsz, axis=2)
+            yrepa = np.repeat(yrepa[:, :, :], self.nbinsz, axis=2)
+            yrepb = np.repeat(yrepb[:, :, :], self.nbinsz, axis=2)
+            yrepc = np.repeat(yrepc[:, :, :], self.nbinsz, axis=2)
+            zrepa = np.repeat(zrepa[:, :, :], self.nbinsy, axis=1) 
+            zrepb = np.repeat(zrepb[:, :, :], self.nbinsy, axis=1)
+            zrepc = np.repeat(zrepc[:, :, :], self.nbinsy, axis=1)           
+            return (xrepa*xrepa)+(xrepb*xrepb)+(xrepc*xrepc)+(yrepa*yrepa)+(yrepb*yrepb)+(yrepc*yrepc)+(zrepa*zrepa)+(zrepb*zrepb)+(zrepc*zrepc) # generate the square of kvectors
 
         def write_to_cube(self, structure, grid, filename, convert_pmg=True):
             """Write 3D density to a .cube file.
