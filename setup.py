@@ -2,7 +2,7 @@
 """
 setup.py for revelsmd
 
-@author: Andrew R. McCluskey (andrew.mccluskey@ess.eu)
+@author: Samuel W Coles (swc57@bath.ac.uk)
 """
 
 # System imports
