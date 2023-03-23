@@ -13,4 +13,4 @@ The code is currently in a pre release state and can be installed after cloning 
 ```
 pip install .
 ```
-The code may at this stage be best installed in its own conda or pyenv environment.
+The code is best installed in its own conda or pyenv environment.
