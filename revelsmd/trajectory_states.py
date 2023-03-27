@@ -30,7 +30,6 @@ class MDATrajectoryState:
         self.mdanalysis_universe=mdanalysis_universe
         self.frames=len(mdanalysis_universe.trajectory)
         self.charge_and_mass=True
-        self.orthogonal=True
         self.units='mda'
 
     def get_indicies(self,atype):
@@ -67,7 +66,6 @@ class NumpyTrajectoryState:
         self.units = units
         self.frames=np.shape(positions)[0]
         self.charge_and_mass=True
-        self.orthogonal=True
         if charge_list == False:
             self.charge_and_mass=False
         else:
@@ -103,8 +101,6 @@ class LammpsTrajectoryState:
         self.mdanalysis_universe=mdanalysis_universe
         self.charge_and_mass=charge_and_mass
         self.units = units
-        self.orthogonal=True
-
 
     def get_indicies(self,atype):
         return self.mdanalysis_universe.select_atoms('type '+str(atype)).ids-1
@@ -133,10 +129,8 @@ class VaspTrajectoryState:
                 self.box_x=self.Vasprun.start.lattice.matrix[0,0]
                 self.box_y=self.Vasprun.start.lattice.matrix[1,1]
                 self.box_z=self.Vasprun.start.lattice.matrix[2,2]
-                self.orthogonal=True
             else:
-                self.orthogonal=False
-                self.lattice=self.Vasprun.start.lattice
+                print("cell not cubic/orthorombic, code presently operates solely in this case do not continue unless deviation is miniscule")
             self.units = 'metal'
             self.charge_and_mass=False
             self.variety='vasp'
@@ -163,10 +157,8 @@ class VaspTrajectoryState:
                 self.box_x=self.Vasprun.start.lattice.matrix[0,0]
                 self.box_y=self.Vasprun.start.lattice.matrix[1,1]
                 self.box_z=self.Vasprun.start.lattice.matrix[2,2]
-                self.orthogonal=True
             else:
-                self.orthogonal=False
-                self.lattice=self.Vasprun.start.lattice
+                print("cell not cubic/orthorombic, code presently operates solely in this case do not continue unless deviation is miniscule")
             self.units = 'metal'
             self.charge_and_mass=False
             self.variety='vasp'
