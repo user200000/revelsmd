@@ -131,6 +131,9 @@ class VaspTrajectoryState:
                 self.box_z=self.Vasprun.start.lattice.matrix[2,2]
             else:
                 print("cell not cubic/orthorombic, code presently operates solely in this case do not continue unless deviation is miniscule")
+                self.box_x=self.Vasprun.start.lattice.matrix[0,0]
+                self.box_y=self.Vasprun.start.lattice.matrix[1,1]
+                self.box_z=self.Vasprun.start.lattice.matrix[2,2]
             self.units = 'metal'
             self.charge_and_mass=False
             self.variety='vasp'
