@@ -1,7 +1,8 @@
 API
 ===
 
-.. autosummary::
-   :toctree: generated
+.. toctree::
+   :caption: API documentation
+   :maxdepth: 3
 
-   revelsMD
+   modules
