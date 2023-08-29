@@ -13,7 +13,6 @@ Contents
 --------
 
 .. toctree::
-
    history
    usage
    api
