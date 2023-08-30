@@ -1,6 +1,6 @@
 revelsmd\.revels_3D
 --------------------
-.. autoclass:: revelsmd.revels_3D.Revels3D.GridState
+.. automodule:: revelsmd.revels_3D
     :members:
-    :undoc-members:
+    :no-undoc-members:
     :show-inheritance:
