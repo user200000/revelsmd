@@ -8,3 +8,4 @@ tqdm
 lxml
 MDanalysis>=2.4.2
 recommonmark
+revelsmd
