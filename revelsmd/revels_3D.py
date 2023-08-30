@@ -12,7 +12,6 @@ from revelsmd.revels_tools.conversion_factors import generate_boltzmann
 
 class Revels3D:
     class GridState:
-        def __init__(self,TS,density_type,temperature,nbins=100,nbinsx=False,nbinsy=False,nbinsz=False):
             """
             This class is where all the calculations of a 3 dimensional densities are calculated
 
@@ -27,6 +26,8 @@ class Revels3D:
             nbinsz (int): the number of bins in the z direction, overwrites nbins
 
             """
+        def __init__(self,TS,density_type,temperature,nbins=100,nbinsx=False,nbinsy=False,nbinsz=False):
+  
             if nbinsx == False:
                 nbinsx=nbins
             if nbinsy == False:
