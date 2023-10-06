@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 """
-setup.py for revelsmd
+setup.py for revelsMD
 
 @author: Samuel W Coles (swc57@bath.ac.uk)
 """
@@ -9,7 +9,7 @@ setup.py for revelsmd
 import io
 from os import path
 from setuptools import setup, find_packages
-from revelsmd import __version__
+from revelsMD import __version__
 
 PACKAGES = find_packages(exclude=['tests*'])
 
