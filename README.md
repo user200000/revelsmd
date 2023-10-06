@@ -5,5 +5,5 @@ The code can calculate both three-dimensional solvent densities for NVT simulati
 
 
 ```
-pip install revelsmd
+pip install revelsMD
 ```
