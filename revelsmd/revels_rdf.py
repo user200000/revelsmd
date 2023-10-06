@@ -1,6 +1,6 @@
 import numpy as np
-from revelsmd.revels_tools.lammps_parser import define_strngdex,frame_skip,get_a_frame
-from revelsmd.revels_tools.conversion_factors import generate_boltzmann
+from revelsMD.revels_tools.lammps_parser import define_strngdex,frame_skip,get_a_frame
+from revelsMD.revels_tools.conversion_factors import generate_boltzmann
 from tqdm import tqdm
 class RevelsRDF:
     def single_frame_rdf_like(pos_array,force_array,indicies,box_x,box_y,box_z,bins,return_conventional=False):

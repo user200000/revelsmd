@@ -7,25 +7,25 @@ from pymatgen.core import Structure, Lattice
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.io.cube import write_cube
 import copy
-from revelsmd.revels_tools.lammps_parser import define_strngdex,frame_skip,get_a_frame
-from revelsmd.revels_tools.conversion_factors import generate_boltzmann
+from revelsMD.revels_tools.lammps_parser import define_strngdex,frame_skip,get_a_frame
+from revelsMD.revels_tools.conversion_factors import generate_boltzmann
 
 class Revels3D:
     class GridState:
-            """
-            This class is where all the calculations of a 3 dimensional densities are calculated
+        """
+        This class is where all the calculations of a 3 dimensional densities are calculated
 
-            args:
-            TS (A RevelsMD trajectory state object): An object obtaining all of the trajectory paramaters
-            density_type (string): type of density we wish to calculate
-            temperature (float): temperature of the system being modelled
-            kwargs:
-            nbins (int): the number of bins in all directions, can be overwritten by nbinsx, nbinsy and nbinsz
-            nbinsx (int): the number of bins in the x direction, overwrites nbins
-            nbinsy (int): the number of bins in the y direction, overwrites nbins
-            nbinsz (int): the number of bins in the z direction, overwrites nbins
+        args:
+        TS (A RevelsMD trajectory state object): An object obtaining all of the trajectory paramaters
+        density_type (string): type of density we wish to calculate
+        temperature (float): temperature of the system being modelled
+        kwargs:
+        nbins (int): the number of bins in all directions, can be overwritten by nbinsx, nbinsy and nbinsz
+        nbinsx (int): the number of bins in the x direction, overwrites nbins
+        nbinsy (int): the number of bins in the y direction, overwrites nbins
+        nbinsz (int): the number of bins in the z direction, overwrites nbins
 
-            """
+        """
         def __init__(self,TS,density_type,temperature,nbins=100,nbinsx=False,nbinsy=False,nbinsz=False):
   
             if nbinsx == False:
