@@ -6,8 +6,8 @@ from typing import List, Union, Optional, Any, Dict
 from pymatgen.core import Structure, Lattice
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.io.cube import write_cube
-from revelsmd.revels_tools.lammps_parser import first_read
-from revelsmd.revels_tools.vasp_parser import *
+from revelsMD.revels_tools.lammps_parser import first_read
+from revelsMD.revels_tools.vasp_parser import *
 
 class MDATrajectoryState:
     def  __init__(self,trajectory_file,topology_file):
