@@ -1,8 +1,9 @@
 [build-system]
-requires = ["flit_core >=3.2,<4"]
+requires = ["flit_core >=3.2,<4",'numpy', 'ase','pymatgen','scipy>=1.9.3', 'tqdm','lxml','MDanalysis>=2.4.2','recommonmark']
 build-backend = "flit_core.buildapi"
 
 [project]
 name = "revelsMD"
 authors = [{name = "Samuel Coles", email = "swc57@bath.ac.uk"}]
 dynamic = ["version", "description"]
+dependencies = ["flit_core >=3.2,<4",'numpy', 'ase','pymatgen','scipy>=1.9.3', 'tqdm','lxml','MDanalysis>=2.4.2','recommonmark']
