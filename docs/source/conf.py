@@ -3,9 +3,8 @@ import os
 import sys
 
 # Add project root to sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-
-import revelsMD
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from revelsMD import *
 
 # -- Project information -----------------------------------------------------
 project = 'revelsMD'
@@ -41,4 +40,4 @@ epub_show_urls = 'footnote'
 # -- Autodoc settings --------------------------------------------------------
 autodoc_typehints = 'description'
 autosummary_generate = True
-
+autodoc_member_order = 'bysource'

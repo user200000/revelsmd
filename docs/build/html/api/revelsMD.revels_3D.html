@@ -1,0 +1,1443 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Desnity Calculation (revels_3D) &mdash; revelsMD 0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=2709fde1"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Radial Distribution Functions (revels_rdf)" href="revelsMD.revels_rdf.html" />
+    <link rel="prev" title="revelsMD package" href="revelsMD.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            revelsMD
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../history.html">History of force sampling methods</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../usage.html">Usage</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="modules.html">revelsMD</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="revelsMD.html">revelsMD package</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="revelsMD.html#module-revelsMD">Module contents</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="revelsMD.html#submodules">Submodules</a><ul class="current">
+<li class="toctree-l4 current"><a class="current reference internal" href="#">3D Desnity Calculation (revels_3D)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="revelsMD.revels_rdf.html">Radial Distribution Functions (revels_rdf)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="revelsMD.trajectory_states.html">Trajectory States</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="revelsMD.html#subpackages">Subpackages</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">revelsMD</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="modules.html">revelsMD</a></li>
+          <li class="breadcrumb-item"><a href="revelsMD.html">revelsMD package</a></li>
+      <li class="breadcrumb-item active">3D Desnity Calculation (revels_3D)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/revelsMD.revels_3D.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="d-desnity-calculation-revels-3d">
+<h1>3D Desnity Calculation (revels_3D)<a class="headerlink" href="#d-desnity-calculation-revels-3d" title="Link to this heading"></a></h1>
+<p>3D force-density estimators and utilities for RevelsMD.</p>
+<p>This module provides the <cite>Revels3D</cite> functionality based nested classes that operate on
+a trajectory-state object (TS) to build 3D force grids, convert them to real-space
+densities via Fourier-space relations, write densities to .cube files, and compute
+optimal linear combinations (λ-method) of counting and force-based densities.</p>
+<section id="notes">
+<h2>Notes<a class="headerlink" href="#notes" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>The code assumes an <strong>orthorhombic</strong> (or cubic) periodic box.</p></li>
+<li><p>All kernels and gridding logic preserve your existing numerical behavior.</p></li>
+</ul>
+</section>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>3D force-density estimators and utilities for <strong>RevelsMD</strong>.</p>
+<p>This module provides the <a class="reference internal" href="#revelsMD.revels_3D.Revels3D" title="revelsMD.revels_3D.Revels3D"><code class="xref py py-class docutils literal notranslate"><span class="pre">Revels3D</span></code></a> class, which
+builds three-dimensional force and number density fields from MD trajectories
+using the reduced-variance force-sampling framework.</p>
+</section>
+<section id="classes">
+<h2>Classes<a class="headerlink" href="#classes" title="Link to this heading"></a></h2>
+<section id="revels3d">
+<h3>Revels3D<a class="headerlink" href="#revels3d" title="Link to this heading"></a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">revelsMD.revels_3D.</span></span><span class="sig-name descname"><span class="pre">Revels3D</span></span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Namespace wrapper for grid building, estimators, selection state, and helpers.</p>
+<p>The nested classes are:
+- <cite>GridState</cite>: holds voxelized force accumulators and builds densities.
+- <cite>Estimators</cite>: per-frame estimators to deposit forces/weights on the grid.
+- <cite>SelectionState</cite>: encapsulates atom selections, masses/charges, and center logic.
+- <cite>HelperFunctions</cite>: numerics for COMs, dipoles, per-frame processing, kernels.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.GridState">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">GridState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">density_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temperature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbinsx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbinsy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbinsz</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.GridState" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>State for accumulating 3D force fields and converting to densities.</p>
+<section id="parameters">
+<h4>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory-state object providing <cite>box_x</cite>, <cite>box_y</cite>, <cite>box_z</cite>, and <cite>units</cite>.</p>
+</dd>
+<dt>density_type<span class="classifier">{‘number’, ‘charge’, ‘polarisation’}</span></dt><dd><p>Type of density to be constructed (controls the estimator weighting).</p>
+</dd>
+<dt>temperature<span class="classifier">float</span></dt><dd><p>System temperature (K) used for force→density conversion in k-space.</p>
+</dd>
+<dt>nbins<span class="classifier">int, optional</span></dt><dd><p>Default number of voxels per box dimension (overridden by <cite>nbinsx/y/z</cite>).</p>
+</dd>
+<dt>nbinsx, nbinsy, nbinsz<span class="classifier">int or bool, optional</span></dt><dd><p>Explicit voxel counts per dimension. If <cite>False</cite>, fall back to <cite>nbins</cite>.</p>
+</dd>
+</dl>
+</section>
+<section id="attributes">
+<h4>Attributes<a class="headerlink" href="#attributes" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>forceX, forceY, forceZ<span class="classifier">np.ndarray</span></dt><dd><p>Accumulators for voxelized force components (shape: nbinsx×nbinsy×nbinsz).</p>
+</dd>
+<dt>counter<span class="classifier">np.ndarray</span></dt><dd><p>Accumulator for counting-based density (same shape as force accumulators).</p>
+</dd>
+<dt>binsx, binsy, binsz<span class="classifier">np.ndarray</span></dt><dd><p>Bin edges per dimension (inclusive right edge by construction here).</p>
+</dd>
+<dt>lx, ly, lz<span class="classifier">float</span></dt><dd><p>Voxel sizes in x/y/z.</p>
+</dd>
+<dt>voxel_volume<span class="classifier">float</span></dt><dd><p>Volume of a single voxel.</p>
+</dd>
+<dt>count<span class="classifier">int</span></dt><dd><p>Number of processed frames (for normalization).</p>
+</dd>
+<dt>grid_progress<span class="classifier">{‘Generated’, ‘Allocated’, ‘Lambda’}</span></dt><dd><p>Simple state flag used by getters and λ estimator.</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.GridState.make_force_grid">
+<span class="sig-name descname"><span class="pre">make_force_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">atom_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rigid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centre_location</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">polarisation_axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">period</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.GridState.make_force_grid" title="Link to this definition"></a></dt>
+<dd><p>Accumulate per-frame force contributions on the voxel grid.</p>
+<section id="id1">
+<h5>Parameters<a class="headerlink" href="#id1" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory-state object with positions/forces depending on <cite>TS.variety</cite>.</p>
+</dd>
+<dt>atom_names<span class="classifier">str or list of str</span></dt><dd><p>Atom name(s) used for selection (single species or multi-species molecule).</p>
+</dd>
+<dt>rigid<span class="classifier">bool, optional</span></dt><dd><p>Treat listed species as a rigid group and sum forces (default: False).</p>
+</dd>
+<dt>centre_location<span class="classifier">bool or int, optional</span></dt><dd><p>If <cite>True</cite>, use center-of-mass; if <cite>int</cite>, use that atom index within the
+rigid set as the reference position (default: True).</p>
+</dd>
+<dt>kernel<span class="classifier">{‘triangular’,’box’}, optional</span></dt><dd><p>Deposition kernel for grid assignment (default: ‘triangular’).</p>
+</dd>
+<dt>polarisation_axis<span class="classifier">int, optional</span></dt><dd><p>Axis index for polarisation projection if <cite>density_type=’polarisation’</cite>.</p>
+</dd>
+<dt>start<span class="classifier">int, optional</span></dt><dd><p>Start frame index (default: 0).</p>
+</dd>
+<dt>stop<span class="classifier">int, optional</span></dt><dd><p>Stop frame index (default: -1; modulo behavior preserved).</p>
+</dd>
+<dt>period<span class="classifier">int, optional</span></dt><dd><p>Frame stride (default: 1).</p>
+</dd>
+</dl>
+</section>
+<section id="raises">
+<h5>Raises<a class="headerlink" href="#raises" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>On invalid frame selection, unsupported density/kernel combinations,
+or malformed inputs for rigid/centre options.</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>atom_names</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
+<li><p><strong>rigid</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>centre_location</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>kernel</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>polarisation_axis</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>start</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>stop</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>period</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.GridState.get_real_density">
+<span class="sig-name descname"><span class="pre">get_real_density</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.GridState.get_real_density" title="Link to this definition"></a></dt>
+<dd><p>Convert accumulated force field to real-space density via FFT.</p>
+<section id="id2">
+<h5>Notes<a class="headerlink" href="#id2" title="Link to this heading"></a></h5>
+<p>Implements (Borgis et al., <em>Mol. Phys.</em> <strong>111</strong>, 3486–3492 (2013)):
+Δρ(k) = i / (k_B T k^2) * k · F(k), with Δρ(k=0) := 0,
+then ρ(r) = ⟨ρ_count(r)⟩ + ℱ⁻¹[Δρ(k)].</p>
+</section>
+<section id="side-effects">
+<h5>Side Effects<a class="headerlink" href="#side-effects" title="Link to this heading"></a></h5>
+<p>Sets <cite>self.del_rho_k</cite>, <cite>self.del_rho_n</cite>, <cite>self.particle_density</cite>, <cite>self.rho</cite>.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.GridState.get_particle_density">
+<span class="sig-name descname"><span class="pre">get_particle_density</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.GridState.get_particle_density" title="Link to this definition"></a></dt>
+<dd><p>Compute conventional counting-based density from <cite>self.counter</cite>.</p>
+<section id="id3">
+<h5>Side Effects<a class="headerlink" href="#id3" title="Link to this heading"></a></h5>
+<p>Sets <cite>self.particle_density</cite>.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.GridState.get_kvectors">
+<span class="sig-name descname"><span class="pre">get_kvectors</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.GridState.get_kvectors" title="Link to this definition"></a></dt>
+<dd><p>Return the k-vectors (2π * FFT frequencies) per dimension.</p>
+<section id="returns">
+<h5>Returns<a class="headerlink" href="#returns" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>(kx, ky, kz)<span class="classifier">tuple of np.ndarray</span></dt><dd><p>Frequency vectors for x, y, z (units: 1/length).</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><em>Tuple</em></a>[<em>ndarray</em>, <em>ndarray</em>, <em>ndarray</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.GridState.get_ksquared">
+<span class="sig-name descname"><span class="pre">get_ksquared</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.GridState.get_ksquared" title="Link to this definition"></a></dt>
+<dd><p>Return k^2 on the 3D grid (broadcasted from 1D k-vectors).</p>
+<section id="id4">
+<h5>Returns<a class="headerlink" href="#id4" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>np.ndarray</dt><dd><p>k^2 array with shape (nbinsx, nbinsy, nbinsz).</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>ndarray</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.GridState.write_to_cube">
+<span class="sig-name descname"><span class="pre">write_to_cube</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">structure</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filename</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">convert_pmg</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.GridState.write_to_cube" title="Link to this definition"></a></dt>
+<dd><p>Write a 3D density grid to a Gaussian <cite>.cube</cite> file.</p>
+<section id="id5">
+<h5>Parameters<a class="headerlink" href="#id5" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>structure<span class="classifier">pymatgen.Structure or ase.Atoms</span></dt><dd><p>Input structure used to define the cell geometry. If <cite>convert_pmg=True</cite>,
+this is interpreted as a pymatgen <cite>Structure</cite> and converted to ASE <cite>Atoms</cite>.
+If <cite>convert_pmg=False</cite>, it is assumed to be an ASE <cite>Atoms</cite> already.</p>
+</dd>
+<dt>grid<span class="classifier">np.ndarray</span></dt><dd><p>3D grid data to write (shape: nbinsx×nbinsy×nbinsz).</p>
+</dd>
+<dt>filename<span class="classifier">str</span></dt><dd><p>Output filename.</p>
+</dd>
+<dt>convert_pmg<span class="classifier">bool, optional</span></dt><dd><p>If True, convert from pymatgen.Structure → ASE Atoms first, then
+delete any atoms specified by <cite>self.SS.indicies</cite>. If False, assume
+<cite>structure</cite> is already an ASE Atoms and write directly.</p>
+</dd>
+</dl>
+</section>
+<section id="id6">
+<h5>Notes<a class="headerlink" href="#id6" title="Link to this heading"></a></h5>
+<ul class="simple">
+<li><p>Atom deletion occurs <strong>after</strong> conversion from pymatgen to ASE,
+preserving your original intent.</p></li>
+</ul>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>structure</strong> (<em>Structure</em><em> | </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>grid</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>convert_pmg</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.GridState.get_lambda">
+<span class="sig-name descname"><span class="pre">get_lambda</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sections</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.GridState.get_lambda" title="Link to this definition"></a></dt>
+<dd><p>Compute optimal λ(r) to combine counting and force densities.</p>
+<p>Implements the linear-combination approach of:
+J. Chem. Phys. 154, 191101 (2021).</p>
+<section id="id7">
+<h5>Parameters<a class="headerlink" href="#id7" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory-state providing per-frame positions and forces.</p>
+</dd>
+<dt>sections<span class="classifier">int, optional</span></dt><dd><p>Number of interleaved frame-subsets used to accumulate covariance
+buffers. If None, defaults to <cite>TS.frames</cite>.</p>
+</dd>
+</dl>
+</section>
+<section id="id8">
+<h5>Returns<a class="headerlink" href="#id8" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>Revels3D.GridState</dt><dd><p>A deep-copied <cite>GridState</cite> instance with
+<cite>expected_rho</cite>, <cite>expected_particle_density</cite>, <cite>delta</cite>,
+covariance/variance buffers, <cite>combination</cite> (=1−cov_F/var),
+and <cite>optimal_density</cite> populated.</p>
+</dd>
+</dl>
+</section>
+<section id="id9">
+<h5>Raises<a class="headerlink" href="#id9" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>RuntimeError</dt><dd><p>If called before <cite>make_force_grid</cite>.</p>
+</dd>
+<dt>ValueError</dt><dd><p>If called on a grid already produced by <cite>get_lambda</cite>.</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>sections</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#id0" title="revelsMD.revels_3D.Revels3D.GridState"><em>GridState</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>density_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>temperature</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>)</p></li>
+<li><p><strong>nbins</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>nbinsx</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>nbinsy</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>nbinsz</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">Estimators</span></span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Per-frame estimators that compute positions/weights and deposit to the grid.</p>
+<section id="id10">
+<h4>Notes<a class="headerlink" href="#id10" title="Link to this heading"></a></h4>
+<p>All estimators call <cite>HelperFunctions.process_frame(…)</cite> which:
+- Applies periodic imaging to positions
+- Assigns per-atom contributions using a chosen kernel
+- Updates force accumulators (X/Y/Z) and the counting <cite>counter</cite> field</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_number_com_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_number_com_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_number_com_grid" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: number density at COM position; forces summed over rigid members.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_number_atom_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_number_atom_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_number_atom_grid" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: number density at a specific atom’s position; forces summed over rigid members.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_number_many_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_number_many_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_number_many_grid" title="Link to this definition"></a></dt>
+<dd><p>Non-rigid: number density for each species list; deposit per-entry.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_number_single_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_number_single_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_number_single_grid" title="Link to this definition"></a></dt>
+<dd><p>Single species: number density at that species’ positions.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_charge_atom_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_charge_atom_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_charge_atom_grid" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: charge-weighted density at a specific atom’s position.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_charge_many_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_charge_many_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_charge_many_grid" title="Link to this definition"></a></dt>
+<dd><p>Non-rigid: charge-weighted density for each entry.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_charge_single_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_charge_single_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_charge_single_grid" title="Link to this definition"></a></dt>
+<dd><p>Single species: charge-weighted density.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_charge_com_grids">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_charge_com_grids</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_charge_com_grids" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: charge-weighted density at COM.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_polarisation_com_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_polarisation_com_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_polarisation_com_grid" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: polarisation density projected along <cite>SS.polarisation_axis</cite> at COM.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_polarisation_atom_grid">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_polarisation_atom_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.Estimators.single_frame_rigid_polarisation_atom_grid" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: polarisation density projected along <cite>SS.polarisation_axis</cite> at COM (per original code).</p>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.SelectionState">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">SelectionState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">atom_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centre_location</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.SelectionState" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Atom selection, charges/masses, and center choice for grid deposition.</p>
+<section id="id11">
+<h4>Parameters<a class="headerlink" href="#id11" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory-state with index/charge/mass accessors and <cite>charge_and_mass</cite> flag.</p>
+</dd>
+<dt>atom_names<span class="classifier">str or list of str</span></dt><dd><p>For a single species, may be a string or single-element list.
+For a rigid molecule, provide a list of species names in the rigid group.</p>
+</dd>
+<dt>centre_location<span class="classifier">bool or int</span></dt><dd><p>If a rigid group is provided: <cite>True</cite> selects COM; <cite>int</cite> selects one species’
+index within the rigid set as the center.</p>
+</dd>
+</dl>
+</section>
+<section id="id12">
+<h4>Attributes<a class="headerlink" href="#id12" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>indistinguishable_set<span class="classifier">bool</span></dt><dd><p>True if a single species is selected; False for multi-species (rigid).</p>
+</dd>
+<dt>indicies<span class="classifier">np.ndarray or list of np.ndarray</span></dt><dd><p>Atom indices of the selection (kept name for compatibility).</p>
+</dd>
+<dt>charges, masses<span class="classifier">list or np.ndarray</span></dt><dd><p>Per-species arrays (rigid) or single array (single species) if available.</p>
+</dd>
+<dt>polarisation_axis<span class="classifier">int</span></dt><dd><p>Axis for polarisation projection (set by GridState when needed).</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.SelectionState.position_centre">
+<span class="sig-name descname"><span class="pre">position_centre</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">species_number</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.SelectionState.position_centre" title="Link to this definition"></a></dt>
+<dd><p>Set the active species index within a rigid group as the position center.</p>
+<section id="id13">
+<h5>Parameters<a class="headerlink" href="#id13" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>species_number<span class="classifier">int</span></dt><dd><p>Index into the multi-species selection list.</p>
+</dd>
+</dl>
+</section>
+<section id="id14">
+<h5>Raises<a class="headerlink" href="#id14" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If <cite>species_number</cite> is out of range for the current selection.</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>species_number</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>atom_names</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
+<li><p><strong>centre_location</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.HelperFunctions">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">HelperFunctions</span></span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.HelperFunctions" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Helper numerics for per-frame deposition, COMs, dipoles, and rigid sums.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.HelperFunctions.process_frame">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">process_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.HelperFunctions.process_frame" title="Link to this definition"></a></dt>
+<dd><p>Deposit a frame’s positions/forces to the grid using a given kernel.</p>
+<section id="id15">
+<h4>Parameters<a class="headerlink" href="#id15" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory state (box lengths used here).</p>
+</dd>
+<dt>GS<span class="classifier">GridState</span></dt><dd><p>Grid accumulators and bin geometry.</p>
+</dd>
+<dt>positions<span class="classifier">(N, 3) np.ndarray</span></dt><dd><p>Positions in Cartesian coordinates.</p>
+</dd>
+<dt>forces<span class="classifier">(N, 3) np.ndarray</span></dt><dd><p>Forces corresponding to <cite>positions</cite>.</p>
+</dd>
+<dt>a<span class="classifier">float or np.ndarray, optional</span></dt><dd><p>Scalar or per-particle weight (number/charge/polarisation projection).</p>
+</dd>
+<dt>kernel<span class="classifier">{‘triangular’,’box’}, optional</span></dt><dd><p>Assignment kernel.</p>
+</dd>
+</dl>
+</section>
+<section id="id16">
+<h4>Notes<a class="headerlink" href="#id16" title="Link to this heading"></a></h4>
+<ul class="simple">
+<li><p>Positions are reduced into a primary image by component-wise remainders.</p></li>
+<li><p><cite>np.digitize</cite> is used to map positions to voxel indices; subsequent kernels
+deposit weighted contributions to neighbors (triangular) or the host voxel (box).</p></li>
+</ul>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>GS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>positions</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>forces</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>a</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>)</p></li>
+<li><p><strong>kernel</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.HelperFunctions.box_allocation">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">box_allocation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fox</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">foy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">foz</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.HelperFunctions.box_allocation" title="Link to this definition"></a></dt>
+<dd><p>Deposit contributions to the host voxel (no neighbor spreading).</p>
+<section id="id17">
+<h4>Notes<a class="headerlink" href="#id17" title="Link to this heading"></a></h4>
+<p>This “rapid gridding” path assumes at most one particle per voxel for
+meaningful grids. This is the original behavior and is not enforced here.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>GS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>x</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>y</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>z</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>fox</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>foy</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>foz</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>a</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em> | </em><em>ndarray</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.HelperFunctions.triangular_allocation">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">triangular_allocation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homeX</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homeY</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homeZ</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fox</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">foy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">foz</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.HelperFunctions.triangular_allocation" title="Link to this definition"></a></dt>
+<dd><p>Deposit contributions to the 8 neighboring voxel vertices (CIC/triangular).</p>
+<section id="id18">
+<h4>Notes<a class="headerlink" href="#id18" title="Link to this heading"></a></h4>
+<p>We compute the fractional position of each atom within its voxel and
+distribute weights among the 8 vertices (x±1, y±1, z±1) using trilinear
+factors <cite>f_xyz</cite>. Periodicity is handled by modular wrapping of indices.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>GS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>x</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>y</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>z</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>homeX</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>homeY</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>homeZ</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>fox</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>foy</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>foz</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>a</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em> | </em><em>ndarray</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.HelperFunctions.rigid_check">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">rigid_check</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">SS</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.HelperFunctions.rigid_check" title="Link to this definition"></a></dt>
+<dd><p>Check that all rigid-body species have equal multiplicity.</p>
+<section id="id19">
+<h4>Returns<a class="headerlink" href="#id19" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>bool</dt><dd><p>True if all lengths match; False otherwise.</p>
+</dd>
+</dl>
+</section>
+<section id="id20">
+<h4>Notes<a class="headerlink" href="#id20" title="Link to this heading"></a></h4>
+<p>Original behavior is preserved (early return inside loop).</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>SS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.HelperFunctions.find_coms">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">find_coms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positons</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calc_dipoles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.HelperFunctions.find_coms" title="Link to this definition"></a></dt>
+<dd><p>Compute centers-of-mass (and optionally molecular dipoles) for a rigid set.</p>
+<section id="id21">
+<h4>Parameters<a class="headerlink" href="#id21" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>positons<span class="classifier">(N, 3) np.ndarray</span></dt><dd><p>Cartesian coordinates (typo in name preserved for compatibility).</p>
+</dd>
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory state containing box lengths.</p>
+</dd>
+<dt>GS<span class="classifier">GridState</span></dt><dd><p>Unused numerically here; preserved for signature compatibility.</p>
+</dd>
+<dt>SS<span class="classifier">SelectionState</span></dt><dd><p>Provides <cite>indicies</cite>, <cite>masses</cite>, and <cite>charges</cite> (if available).</p>
+</dd>
+<dt>calc_dipoles<span class="classifier">bool, optional</span></dt><dd><p>If True, also compute per-molecule dipole moments relative to COMs.</p>
+</dd>
+</dl>
+</section>
+<section id="id22">
+<h4>Returns<a class="headerlink" href="#id22" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>coms<span class="classifier">(M, 3) np.ndarray</span></dt><dd><p>Center-of-mass coordinates for M molecules.</p>
+</dd>
+<dt>molecular_dipole<span class="classifier">(M, 3) np.ndarray, optional</span></dt><dd><p>Returned if <cite>calc_dipoles=True</cite>.</p>
+</dd>
+</dl>
+</section>
+<section id="id23">
+<h4>Notes<a class="headerlink" href="#id23" title="Link to this heading"></a></h4>
+<p>Enforces minimum-image displacements when aligning species to a reference
+for COM and dipole accumulation.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>positons</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>GS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>SS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>calc_dipoles</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="revelsMD.revels_3D.Revels3D.HelperFunctions.sum_forces">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sum_forces</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#revelsMD.revels_3D.Revels3D.HelperFunctions.sum_forces" title="Link to this definition"></a></dt>
+<dd><p>Sum forces across a rigid group (species lists).</p>
+<section id="id24">
+<h4>Parameters<a class="headerlink" href="#id24" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>SS<span class="classifier">SelectionState</span></dt><dd><p>Selection containing per-species atom index arrays.</p>
+</dd>
+<dt>forces<span class="classifier">(N, 3) np.ndarray</span></dt><dd><p>Force array for all atoms.</p>
+</dd>
+</dl>
+</section>
+<section id="id25">
+<h4>Returns<a class="headerlink" href="#id25" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>(M, 3) np.ndarray</dt><dd><p>Per-molecule net force for the rigid group (M = multiplicity).</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>SS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>forces</strong> (<em>ndarray</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>ndarray</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="gridstate">
+<h3>GridState<a class="headerlink" href="#gridstate" title="Link to this heading"></a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="id0">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">revelsMD.revels_3D.Revels3D.</span></span><span class="sig-name descname"><span class="pre">GridState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">density_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temperature</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbinsx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbinsy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbinsz</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>State for accumulating 3D force fields and converting to densities.</p>
+<section id="id26">
+<h4>Parameters<a class="headerlink" href="#id26" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory-state object providing <cite>box_x</cite>, <cite>box_y</cite>, <cite>box_z</cite>, and <cite>units</cite>.</p>
+</dd>
+<dt>density_type<span class="classifier">{‘number’, ‘charge’, ‘polarisation’}</span></dt><dd><p>Type of density to be constructed (controls the estimator weighting).</p>
+</dd>
+<dt>temperature<span class="classifier">float</span></dt><dd><p>System temperature (K) used for force→density conversion in k-space.</p>
+</dd>
+<dt>nbins<span class="classifier">int, optional</span></dt><dd><p>Default number of voxels per box dimension (overridden by <cite>nbinsx/y/z</cite>).</p>
+</dd>
+<dt>nbinsx, nbinsy, nbinsz<span class="classifier">int or bool, optional</span></dt><dd><p>Explicit voxel counts per dimension. If <cite>False</cite>, fall back to <cite>nbins</cite>.</p>
+</dd>
+</dl>
+</section>
+<section id="id27">
+<h4>Attributes<a class="headerlink" href="#id27" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>forceX, forceY, forceZ<span class="classifier">np.ndarray</span></dt><dd><p>Accumulators for voxelized force components (shape: nbinsx×nbinsy×nbinsz).</p>
+</dd>
+<dt>counter<span class="classifier">np.ndarray</span></dt><dd><p>Accumulator for counting-based density (same shape as force accumulators).</p>
+</dd>
+<dt>binsx, binsy, binsz<span class="classifier">np.ndarray</span></dt><dd><p>Bin edges per dimension (inclusive right edge by construction here).</p>
+</dd>
+<dt>lx, ly, lz<span class="classifier">float</span></dt><dd><p>Voxel sizes in x/y/z.</p>
+</dd>
+<dt>voxel_volume<span class="classifier">float</span></dt><dd><p>Volume of a single voxel.</p>
+</dd>
+<dt>count<span class="classifier">int</span></dt><dd><p>Number of processed frames (for normalization).</p>
+</dd>
+<dt>grid_progress<span class="classifier">{‘Generated’, ‘Allocated’, ‘Lambda’}</span></dt><dd><p>Simple state flag used by getters and λ estimator.</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="id28">
+<span class="sig-name descname"><span class="pre">get_ksquared</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#id28" title="Link to this definition"></a></dt>
+<dd><p>Return k^2 on the 3D grid (broadcasted from 1D k-vectors).</p>
+<section id="id29">
+<h5>Returns<a class="headerlink" href="#id29" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>np.ndarray</dt><dd><p>k^2 array with shape (nbinsx, nbinsy, nbinsz).</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><em>ndarray</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id30">
+<span class="sig-name descname"><span class="pre">get_kvectors</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#id30" title="Link to this definition"></a></dt>
+<dd><p>Return the k-vectors (2π * FFT frequencies) per dimension.</p>
+<section id="id31">
+<h5>Returns<a class="headerlink" href="#id31" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>(kx, ky, kz)<span class="classifier">tuple of np.ndarray</span></dt><dd><p>Frequency vectors for x, y, z (units: 1/length).</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><em>Tuple</em></a>[<em>ndarray</em>, <em>ndarray</em>, <em>ndarray</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id32">
+<span class="sig-name descname"><span class="pre">get_lambda</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sections</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id32" title="Link to this definition"></a></dt>
+<dd><p>Compute optimal λ(r) to combine counting and force densities.</p>
+<p>Implements the linear-combination approach of:
+J. Chem. Phys. 154, 191101 (2021).</p>
+<section id="id33">
+<h5>Parameters<a class="headerlink" href="#id33" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory-state providing per-frame positions and forces.</p>
+</dd>
+<dt>sections<span class="classifier">int, optional</span></dt><dd><p>Number of interleaved frame-subsets used to accumulate covariance
+buffers. If None, defaults to <cite>TS.frames</cite>.</p>
+</dd>
+</dl>
+</section>
+<section id="id34">
+<h5>Returns<a class="headerlink" href="#id34" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>Revels3D.GridState</dt><dd><p>A deep-copied <cite>GridState</cite> instance with
+<cite>expected_rho</cite>, <cite>expected_particle_density</cite>, <cite>delta</cite>,
+covariance/variance buffers, <cite>combination</cite> (=1−cov_F/var),
+and <cite>optimal_density</cite> populated.</p>
+</dd>
+</dl>
+</section>
+<section id="id35">
+<h5>Raises<a class="headerlink" href="#id35" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>RuntimeError</dt><dd><p>If called before <cite>make_force_grid</cite>.</p>
+</dd>
+<dt>ValueError</dt><dd><p>If called on a grid already produced by <cite>get_lambda</cite>.</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>sections</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#id0" title="revelsMD.revels_3D.Revels3D.GridState"><em>GridState</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id36">
+<span class="sig-name descname"><span class="pre">get_particle_density</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#id36" title="Link to this definition"></a></dt>
+<dd><p>Compute conventional counting-based density from <cite>self.counter</cite>.</p>
+<section id="id37">
+<h5>Side Effects<a class="headerlink" href="#id37" title="Link to this heading"></a></h5>
+<p>Sets <cite>self.particle_density</cite>.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id38">
+<span class="sig-name descname"><span class="pre">get_real_density</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#id38" title="Link to this definition"></a></dt>
+<dd><p>Convert accumulated force field to real-space density via FFT.</p>
+<section id="id39">
+<h5>Notes<a class="headerlink" href="#id39" title="Link to this heading"></a></h5>
+<p>Implements (Borgis et al., <em>Mol. Phys.</em> <strong>111</strong>, 3486–3492 (2013)):
+Δρ(k) = i / (k_B T k^2) * k · F(k), with Δρ(k=0) := 0,
+then ρ(r) = ⟨ρ_count(r)⟩ + ℱ⁻¹[Δρ(k)].</p>
+</section>
+<section id="id40">
+<h5>Side Effects<a class="headerlink" href="#id40" title="Link to this heading"></a></h5>
+<p>Sets <cite>self.del_rho_k</cite>, <cite>self.del_rho_n</cite>, <cite>self.particle_density</cite>, <cite>self.rho</cite>.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id41">
+<span class="sig-name descname"><span class="pre">make_force_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">atom_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rigid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centre_location</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">polarisation_axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">period</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id41" title="Link to this definition"></a></dt>
+<dd><p>Accumulate per-frame force contributions on the voxel grid.</p>
+<section id="id42">
+<h5>Parameters<a class="headerlink" href="#id42" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory-state object with positions/forces depending on <cite>TS.variety</cite>.</p>
+</dd>
+<dt>atom_names<span class="classifier">str or list of str</span></dt><dd><p>Atom name(s) used for selection (single species or multi-species molecule).</p>
+</dd>
+<dt>rigid<span class="classifier">bool, optional</span></dt><dd><p>Treat listed species as a rigid group and sum forces (default: False).</p>
+</dd>
+<dt>centre_location<span class="classifier">bool or int, optional</span></dt><dd><p>If <cite>True</cite>, use center-of-mass; if <cite>int</cite>, use that atom index within the
+rigid set as the reference position (default: True).</p>
+</dd>
+<dt>kernel<span class="classifier">{‘triangular’,’box’}, optional</span></dt><dd><p>Deposition kernel for grid assignment (default: ‘triangular’).</p>
+</dd>
+<dt>polarisation_axis<span class="classifier">int, optional</span></dt><dd><p>Axis index for polarisation projection if <cite>density_type=’polarisation’</cite>.</p>
+</dd>
+<dt>start<span class="classifier">int, optional</span></dt><dd><p>Start frame index (default: 0).</p>
+</dd>
+<dt>stop<span class="classifier">int, optional</span></dt><dd><p>Stop frame index (default: -1; modulo behavior preserved).</p>
+</dd>
+<dt>period<span class="classifier">int, optional</span></dt><dd><p>Frame stride (default: 1).</p>
+</dd>
+</dl>
+</section>
+<section id="id43">
+<h5>Raises<a class="headerlink" href="#id43" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>On invalid frame selection, unsupported density/kernel combinations,
+or malformed inputs for rigid/centre options.</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>atom_names</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
+<li><p><strong>rigid</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>centre_location</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>kernel</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>polarisation_axis</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>start</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>stop</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>period</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id44">
+<span class="sig-name descname"><span class="pre">write_to_cube</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">structure</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filename</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">convert_pmg</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id44" title="Link to this definition"></a></dt>
+<dd><p>Write a 3D density grid to a Gaussian <cite>.cube</cite> file.</p>
+<section id="id45">
+<h5>Parameters<a class="headerlink" href="#id45" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>structure<span class="classifier">pymatgen.Structure or ase.Atoms</span></dt><dd><p>Input structure used to define the cell geometry. If <cite>convert_pmg=True</cite>,
+this is interpreted as a pymatgen <cite>Structure</cite> and converted to ASE <cite>Atoms</cite>.
+If <cite>convert_pmg=False</cite>, it is assumed to be an ASE <cite>Atoms</cite> already.</p>
+</dd>
+<dt>grid<span class="classifier">np.ndarray</span></dt><dd><p>3D grid data to write (shape: nbinsx×nbinsy×nbinsz).</p>
+</dd>
+<dt>filename<span class="classifier">str</span></dt><dd><p>Output filename.</p>
+</dd>
+<dt>convert_pmg<span class="classifier">bool, optional</span></dt><dd><p>If True, convert from pymatgen.Structure → ASE Atoms first, then
+delete any atoms specified by <cite>self.SS.indicies</cite>. If False, assume
+<cite>structure</cite> is already an ASE Atoms and write directly.</p>
+</dd>
+</dl>
+</section>
+<section id="id46">
+<h5>Notes<a class="headerlink" href="#id46" title="Link to this heading"></a></h5>
+<ul class="simple">
+<li><p>Atom deletion occurs <strong>after</strong> conversion from pymatgen to ASE,
+preserving your original intent.</p></li>
+</ul>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>structure</strong> (<em>Structure</em><em> | </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>grid</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>convert_pmg</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>density_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>temperature</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>)</p></li>
+<li><p><strong>nbins</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>nbinsx</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>nbinsy</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>nbinsz</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="estimators">
+<h3>Estimators<a class="headerlink" href="#estimators" title="Link to this heading"></a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="id47">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">revelsMD.revels_3D.Revels3D.</span></span><span class="sig-name descname"><span class="pre">Estimators</span></span><a class="headerlink" href="#id47" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Per-frame estimators that compute positions/weights and deposit to the grid.</p>
+<section id="id48">
+<h4>Notes<a class="headerlink" href="#id48" title="Link to this heading"></a></h4>
+<p>All estimators call <cite>HelperFunctions.process_frame(…)</cite> which:
+- Applies periodic imaging to positions
+- Assigns per-atom contributions using a chosen kernel
+- Updates force accumulators (X/Y/Z) and the counting <cite>counter</cite> field</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="id49">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_charge_many_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id49" title="Link to this definition"></a></dt>
+<dd><p>Non-rigid: charge-weighted density for each entry.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id50">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_charge_single_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id50" title="Link to this definition"></a></dt>
+<dd><p>Single species: charge-weighted density.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id51">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_number_many_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id51" title="Link to this definition"></a></dt>
+<dd><p>Non-rigid: number density for each species list; deposit per-entry.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id52">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_number_single_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id52" title="Link to this definition"></a></dt>
+<dd><p>Single species: number density at that species’ positions.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id53">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_charge_atom_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id53" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: charge-weighted density at a specific atom’s position.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id54">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_charge_com_grids</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id54" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: charge-weighted density at COM.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id55">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_number_atom_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id55" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: number density at a specific atom’s position; forces summed over rigid members.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id56">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_number_com_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id56" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: number density at COM position; forces summed over rigid members.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id57">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_polarisation_atom_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id57" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: polarisation density projected along <cite>SS.polarisation_axis</cite> at COM (per original code).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id58">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">single_frame_rigid_polarisation_com_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id58" title="Link to this definition"></a></dt>
+<dd><p>Rigid molecule: polarisation density projected along <cite>SS.polarisation_axis</cite> at COM.</p>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+</section>
+<section id="selectionstate">
+<h3>SelectionState<a class="headerlink" href="#selectionstate" title="Link to this heading"></a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="id59">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">revelsMD.revels_3D.Revels3D.</span></span><span class="sig-name descname"><span class="pre">SelectionState</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">atom_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centre_location</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id59" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Atom selection, charges/masses, and center choice for grid deposition.</p>
+<section id="id60">
+<h4>Parameters<a class="headerlink" href="#id60" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory-state with index/charge/mass accessors and <cite>charge_and_mass</cite> flag.</p>
+</dd>
+<dt>atom_names<span class="classifier">str or list of str</span></dt><dd><p>For a single species, may be a string or single-element list.
+For a rigid molecule, provide a list of species names in the rigid group.</p>
+</dd>
+<dt>centre_location<span class="classifier">bool or int</span></dt><dd><p>If a rigid group is provided: <cite>True</cite> selects COM; <cite>int</cite> selects one species’
+index within the rigid set as the center.</p>
+</dd>
+</dl>
+</section>
+<section id="id61">
+<h4>Attributes<a class="headerlink" href="#id61" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>indistinguishable_set<span class="classifier">bool</span></dt><dd><p>True if a single species is selected; False for multi-species (rigid).</p>
+</dd>
+<dt>indicies<span class="classifier">np.ndarray or list of np.ndarray</span></dt><dd><p>Atom indices of the selection (kept name for compatibility).</p>
+</dd>
+<dt>charges, masses<span class="classifier">list or np.ndarray</span></dt><dd><p>Per-species arrays (rigid) or single array (single species) if available.</p>
+</dd>
+<dt>polarisation_axis<span class="classifier">int</span></dt><dd><p>Axis for polarisation projection (set by GridState when needed).</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="id62">
+<span class="sig-name descname"><span class="pre">position_centre</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">species_number</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id62" title="Link to this definition"></a></dt>
+<dd><p>Set the active species index within a rigid group as the position center.</p>
+<section id="id63">
+<h5>Parameters<a class="headerlink" href="#id63" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>species_number<span class="classifier">int</span></dt><dd><p>Index into the multi-species selection list.</p>
+</dd>
+</dl>
+</section>
+<section id="id64">
+<h5>Raises<a class="headerlink" href="#id64" title="Link to this heading"></a></h5>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If <cite>species_number</cite> is out of range for the current selection.</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>species_number</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>atom_names</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
+<li><p><strong>centre_location</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="helperfunctions">
+<h3>HelperFunctions<a class="headerlink" href="#helperfunctions" title="Link to this heading"></a></h3>
+<dl class="py class">
+<dt class="sig sig-object py" id="id65">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">revelsMD.revels_3D.Revels3D.</span></span><span class="sig-name descname"><span class="pre">HelperFunctions</span></span><a class="headerlink" href="#id65" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Helper numerics for per-frame deposition, COMs, dipoles, and rigid sums.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="id66">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">box_allocation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fox</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">foy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">foz</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id66" title="Link to this definition"></a></dt>
+<dd><p>Deposit contributions to the host voxel (no neighbor spreading).</p>
+<section id="id67">
+<h4>Notes<a class="headerlink" href="#id67" title="Link to this heading"></a></h4>
+<p>This “rapid gridding” path assumes at most one particle per voxel for
+meaningful grids. This is the original behavior and is not enforced here.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>GS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>x</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>y</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>z</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>fox</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>foy</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>foz</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>a</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em> | </em><em>ndarray</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id68">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">find_coms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">positons</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calc_dipoles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id68" title="Link to this definition"></a></dt>
+<dd><p>Compute centers-of-mass (and optionally molecular dipoles) for a rigid set.</p>
+<section id="id69">
+<h4>Parameters<a class="headerlink" href="#id69" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>positons<span class="classifier">(N, 3) np.ndarray</span></dt><dd><p>Cartesian coordinates (typo in name preserved for compatibility).</p>
+</dd>
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory state containing box lengths.</p>
+</dd>
+<dt>GS<span class="classifier">GridState</span></dt><dd><p>Unused numerically here; preserved for signature compatibility.</p>
+</dd>
+<dt>SS<span class="classifier">SelectionState</span></dt><dd><p>Provides <cite>indicies</cite>, <cite>masses</cite>, and <cite>charges</cite> (if available).</p>
+</dd>
+<dt>calc_dipoles<span class="classifier">bool, optional</span></dt><dd><p>If True, also compute per-molecule dipole moments relative to COMs.</p>
+</dd>
+</dl>
+</section>
+<section id="id70">
+<h4>Returns<a class="headerlink" href="#id70" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>coms<span class="classifier">(M, 3) np.ndarray</span></dt><dd><p>Center-of-mass coordinates for M molecules.</p>
+</dd>
+<dt>molecular_dipole<span class="classifier">(M, 3) np.ndarray, optional</span></dt><dd><p>Returned if <cite>calc_dipoles=True</cite>.</p>
+</dd>
+</dl>
+</section>
+<section id="id71">
+<h4>Notes<a class="headerlink" href="#id71" title="Link to this heading"></a></h4>
+<p>Enforces minimum-image displacements when aligning species to a reference
+for COM and dipole accumulation.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>positons</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>GS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>SS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>calc_dipoles</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id72">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">process_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">TS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">positions</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'triangular'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id72" title="Link to this definition"></a></dt>
+<dd><p>Deposit a frame’s positions/forces to the grid using a given kernel.</p>
+<section id="id73">
+<h4>Parameters<a class="headerlink" href="#id73" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>TS<span class="classifier">object</span></dt><dd><p>Trajectory state (box lengths used here).</p>
+</dd>
+<dt>GS<span class="classifier">GridState</span></dt><dd><p>Grid accumulators and bin geometry.</p>
+</dd>
+<dt>positions<span class="classifier">(N, 3) np.ndarray</span></dt><dd><p>Positions in Cartesian coordinates.</p>
+</dd>
+<dt>forces<span class="classifier">(N, 3) np.ndarray</span></dt><dd><p>Forces corresponding to <cite>positions</cite>.</p>
+</dd>
+<dt>a<span class="classifier">float or np.ndarray, optional</span></dt><dd><p>Scalar or per-particle weight (number/charge/polarisation projection).</p>
+</dd>
+<dt>kernel<span class="classifier">{‘triangular’,’box’}, optional</span></dt><dd><p>Assignment kernel.</p>
+</dd>
+</dl>
+</section>
+<section id="id74">
+<h4>Notes<a class="headerlink" href="#id74" title="Link to this heading"></a></h4>
+<ul class="simple">
+<li><p>Positions are reduced into a primary image by component-wise remainders.</p></li>
+<li><p><cite>np.digitize</cite> is used to map positions to voxel indices; subsequent kernels
+deposit weighted contributions to neighbors (triangular) or the host voxel (box).</p></li>
+</ul>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>TS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>GS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>positions</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>forces</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>a</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>)</p></li>
+<li><p><strong>kernel</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id75">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">rigid_check</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">SS</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id75" title="Link to this definition"></a></dt>
+<dd><p>Check that all rigid-body species have equal multiplicity.</p>
+<section id="id76">
+<h4>Returns<a class="headerlink" href="#id76" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>bool</dt><dd><p>True if all lengths match; False otherwise.</p>
+</dd>
+</dl>
+</section>
+<section id="id77">
+<h4>Notes<a class="headerlink" href="#id77" title="Link to this heading"></a></h4>
+<p>Original behavior is preserved (early return inside loop).</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>SS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id78">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sum_forces</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">SS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forces</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id78" title="Link to this definition"></a></dt>
+<dd><p>Sum forces across a rigid group (species lists).</p>
+<section id="id79">
+<h4>Parameters<a class="headerlink" href="#id79" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>SS<span class="classifier">SelectionState</span></dt><dd><p>Selection containing per-species atom index arrays.</p>
+</dd>
+<dt>forces<span class="classifier">(N, 3) np.ndarray</span></dt><dd><p>Force array for all atoms.</p>
+</dd>
+</dl>
+</section>
+<section id="id80">
+<h4>Returns<a class="headerlink" href="#id80" title="Link to this heading"></a></h4>
+<dl class="simple">
+<dt>(M, 3) np.ndarray</dt><dd><p>Per-molecule net force for the rigid group (M = multiplicity).</p>
+</dd>
+</dl>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>SS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>forces</strong> (<em>ndarray</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><em>ndarray</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="id81">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">triangular_allocation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">GS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homeX</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homeY</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">homeZ</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fox</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">foy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">foz</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id81" title="Link to this definition"></a></dt>
+<dd><p>Deposit contributions to the 8 neighboring voxel vertices (CIC/triangular).</p>
+<section id="id82">
+<h4>Notes<a class="headerlink" href="#id82" title="Link to this heading"></a></h4>
+<p>We compute the fractional position of each atom within its voxel and
+distribute weights among the 8 vertices (x±1, y±1, z±1) using trilinear
+factors <cite>f_xyz</cite>. Periodicity is handled by modular wrapping of indices.</p>
+</section>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>GS</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+<li><p><strong>x</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>y</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>z</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>homeX</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>homeY</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>homeZ</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>fox</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>foy</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>foz</strong> (<em>ndarray</em>)</p></li>
+<li><p><strong>a</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em> | </em><em>ndarray</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="revelsMD.html" class="btn btn-neutral float-left" title="revelsMD package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="revelsMD.revels_rdf.html" class="btn btn-neutral float-right" title="Radial Distribution Functions (revels_rdf)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Samuel Coles.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
