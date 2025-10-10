@@ -1,25 +1,27 @@
 # Configuration file for the Sphinx documentation builder.
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../../'))
-import revelsmd
-# -- Project information
 
-project = 'revelsmd'
-copyright = '2022, Samuel Coles'
+# Add project root to sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+import revelsMD
+
+# -- Project information -----------------------------------------------------
+project = 'revelsMD'
+copyright = '2025, Samuel Coles'
 author = 'Samuel Coles'
-
 release = '0.1'
 version = '0.1.0'
 
-# -- General configuration
-
+# -- General configuration ---------------------------------------------------
 extensions = [
     'sphinx.ext.duration',
     'sphinx.ext.doctest',
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
+    'sphinx_rtd_theme',
 ]
 
 intersphinx_mapping = {
@@ -30,9 +32,13 @@ intersphinx_disabled_domains = ['std']
 
 templates_path = ['_templates']
 
-# -- Options for HTML output
-
+# -- Options for HTML output -------------------------------------------------
 html_theme = 'sphinx_rtd_theme'
 
-# -- Options for EPUB output
+# -- Options for EPUB output -------------------------------------------------
 epub_show_urls = 'footnote'
+
+# -- Autodoc settings --------------------------------------------------------
+autodoc_typehints = 'description'
+autosummary_generate = True
+
