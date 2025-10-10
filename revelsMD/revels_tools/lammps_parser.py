@@ -1,95 +1,168 @@
+"""
+LAMMPS trajectory parser utilities for RevelsMD.
+
+Provides helper functions to read, interpret, and step through
+LAMMPS custom dump files. The parser assumes each frame has a
+consistent header structure.
+
+Notes
+-----
+- Supports ASCII text LAMMPS dump format (``ITEM:`` headers).
+- Box dimensions are assumed orthorhombic (``pp pp pp`` periodicity).
+- The parser reads one or multiple frames sequentially for analysis.
+"""
+
 import numpy as np
-def first_read(dumpFile): #This reads the information from the file header and lets us work out what's going on
-    """
-    A function which performs a first read of a lammps custom dump file in order to discover the values for each collumn
-    and the number of atoms in the trajector, the number of frames and the size of the header.
-    args:
-    dumpFile: an open unparsed file in read mode
-    returns:
-    frames(int): The number of frames in the trajectory file
-    num_ats(int): The number of atoms recorded in the trajectory file
-    dic(list of strings): The values recorded in each sucessive collumn as named in the header
-    header_length(int): length of the header placed every frame prior to the positions
-    dimgrid(np.array(3,2)): returns the box size of the first frame
-    """
-    header_length=0 #Buffer for the length of the header
-    dimgrid=np.zeros((3,2))
-    closer=0 #Binary buffer tell us whever or not we've reached the last header line
-    f= open(dumpFile,'r') #File opens here
-    num_ats=0 #set atom number buffer
-    while closer==0: #Using out boolian type buffer to keep process going till we reach the first line of atoms
-        currentString= f.readline() #Read a line as a string
-        if currentString[6:11]=="ATOMS": # Search for the header of the last line before the ascii componant of the first frame 
-            dic=currentString.split() #we want to grab this line to allow for the automation of the later stage
-            closer=1 # end the code by setting to one the binary buffer
-        if currentString=='ITEM: NUMBER OF ATOMS\n': #we need to keep a look out for the number of atoms in the input file
-            header_length+=1 #were going to get another line in a minute so lets iterrate the headerline reader
-            currentString= f.readline() # read in another line in order to ge the number of atoms
-            num_ats=int(currentString) # rip number of atoms in dump from file
-        header_length+=1 # increase the header counter for each headerline read
-        if currentString=='ITEM: BOX BOUNDS pp pp pp\n': #we need to keep a look out for the number of atoms in the input file
-            header_length+=3 #were going to get another line in a minute so lets iterrate the headerline reader
-            currentString= f.readline() # read in another line in order to ge the number of atoms
-            dimgrid[0,:]= np.array(currentString.split())
-            currentString= f.readline() # read in another line in order to ge the number of atoms
-            dimgrid[1,:]= np.array(currentString.split())
-            currentString= f.readline() # read in another line in order to ge the number of atoms
-            dimgrid[2,:]= np.array(currentString.split())
-    f.close() # close the file
-    f=open(dumpFile,'r') # Open the dumpfile again
-    numLines = sum(1 for line in open(dumpFile)) # count number of lines
-    frames=numLines/float(num_ats+header_length) # calculate the number of frames
-    if frames%1!=0: # check that the number of calculate frames is integer. this will not be correct if the header length varies or the dump stopped writing mid step
-        print ("ERROR file incomplete or header unharmonious WARNING WARNING!!! Parser will fail at EOF") # error for the frame length fail
-    return frames,num_ats,dic,header_length,dimgrid # send out stuff we need
 
 
-def get_a_frame(f,num_ats,header_length,strngdex): # this a single frame parser can be interdigtated into the text. The file needs to be open
+# -----------------------------------------------------------------------------
+# Header Parsing
+# -----------------------------------------------------------------------------
+def first_read(dumpFile: str):
     """
-    A function which gets a single frame of information from a lammps custom dumps.
-    args:
-    f: an open file in read mode in the process of being parsed
-    num_ats(int): The number of atoms recorded in the trajectory file
-    header_length(int): length of the header placed every frame prior to the positions
-    strgdex(np.array): collums to be returned in the array
-    returns:
-    vars_trest(np.array): a table of atoms from the trajectory with collums define by the strindex
-    """
-    vars_trest=np.zeros((num_ats,len(strngdex))) # create a storage array
-    for line in range(header_length): # read the 
-        currentString= f.readline()
-    for line in range(num_ats):
-        currentString= f.readline()
-        currentString=currentString.split()
-        col=0
-        for k in strngdex:
-            vars_trest[line,col]=float(currentString[k])
-            col+=1
-    return  vars_trest
+    Perform an initial read of a LAMMPS custom dump file to extract header metadata.
 
-def define_strngdex(our_string,dic):
-    """
-    A function whithin the parser which assocates the requested constants in a lammps custom dump with the collumns in which they are requested:
-    our_string(str): a list of strings which lable the collumns wanted from the lammps custom dump file
-    dic(TrajectoryState.dic): a trajectory state dic object containing the relevant information regarding the trajectory
-    returns:
-    strngdex(np.array): an numpy arry of collumn headings in order in the list in our_string
-    """
-    strngdex=[None]*len(our_string)
-    eledex=0
-    for ele in our_string:
-        strngdex[eledex]=int((dic.index(ele))-2)
-        eledex+=1
-    return strngdex
+    Parameters
+    ----------
+    dumpFile : str
+        Path to the LAMMPS dump file.
 
-def frame_skip(f,num_ats,num_skip,header_length):
+    Returns
+    -------
+    frames : int
+        Number of trajectory frames.
+    num_ats : int
+        Number of atoms per frame.
+    dic : list of str
+        Column headers extracted from the ``ITEM: ATOMS`` line.
+    header_length : int
+        Number of header lines per frame (before atom coordinates start).
+    dimgrid : numpy.ndarray of shape (3, 2)
+        Box boundaries (x, y, z) for the first frame.
+
+    Notes
+    -----
+    This function assumes:
+    - Box bounds are printed as ``ITEM: BOX BOUNDS pp pp pp``.
+    - The number of atoms and header structure remain constant across all frames.
+    - If the total line count does not divide evenly into frames, a warning is printed.
     """
-    A function which skips a certain number of frames from an open file in the process of being read
-    args:
-    f: an open file in read mode in the process of being parsed
-    num_ats(int): The number of atoms recorded in the trajectory file
-    num_skip(int): a function which skips a certain number of frames
-    header_length(int): length of the header placed every frame prior to the positions
+    header_length = 0
+    dimgrid = np.zeros((3, 2))
+    closer = 0
+    num_ats = 0
+
+    with open(dumpFile, "r") as f:
+        while closer == 0:
+            currentString = f.readline()
+            if not currentString:
+                raise ValueError("Unexpected EOF while parsing header.")
+            if currentString.startswith("ITEM: ATOMS"):
+                dic = currentString.split()
+                closer = 1
+            if currentString.strip() == "ITEM: NUMBER OF ATOMS":
+                header_length += 1
+                currentString = f.readline()
+                num_ats = int(currentString)
+            header_length += 1
+            if currentString.strip().startswith("ITEM: BOX BOUNDS"):
+                header_length += 3
+                dimgrid[0, :] = np.array(f.readline().split(), dtype=float)
+                dimgrid[1, :] = np.array(f.readline().split(), dtype=float)
+                dimgrid[2, :] = np.array(f.readline().split(), dtype=float)
+
+    numLines = sum(1 for _ in open(dumpFile))
+    frames = numLines / float(num_ats + header_length)
+    if frames % 1 != 0:
+        print("WARNING: Non-integer frame count — incomplete file or inconsistent headers.")
+    return int(frames), num_ats, dic, header_length, dimgrid
+
+
+# -----------------------------------------------------------------------------
+# Frame Extraction
+# -----------------------------------------------------------------------------
+def get_a_frame(f, num_ats: int, header_length: int, strngdex: list[int]) -> np.ndarray:
     """
-    for toSkip in range(num_skip*(num_ats+header_length)):
-        ignore=f.readline()
+    Extract a single frame of atomic data from an open LAMMPS dump file.
+
+    Parameters
+    ----------
+    f : file object
+        Open trajectory file (text mode).
+    num_ats : int
+        Number of atoms per frame.
+    header_length : int
+        Number of header lines preceding atomic data.
+    strngdex : list of int
+        Column indices to extract (relative to the start of atom data).
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of shape ``(num_ats, len(strngdex))`` containing the requested
+        columns (e.g. coordinates, forces, velocities).
+    """
+    vars_trest = np.zeros((num_ats, len(strngdex)))
+    for _ in range(header_length):
+        f.readline()
+    for i in range(num_ats):
+        currentString = f.readline().split()
+        for j, k in enumerate(strngdex):
+            vars_trest[i, j] = float(currentString[k])
+    return vars_trest
+
+
+# -----------------------------------------------------------------------------
+# Column Index Mapping
+# -----------------------------------------------------------------------------
+def define_strngdex(our_string: list[str], dic: list[str]) -> list[int]:
+    """
+    Map requested LAMMPS quantities to their corresponding column indices.
+
+    Parameters
+    ----------
+    our_string : list of str
+        Names of quantities to extract (e.g. ``['x', 'y', 'z', 'fx', 'fy', 'fz']``).
+    dic : list of str
+        Column header list from the LAMMPS dump (``ITEM: ATOMS ...`` line).
+
+    Returns
+    -------
+    list of int
+        Column indices corresponding to the requested quantities.
+
+    Examples
+    --------
+    >>> dic = ['ITEM:', 'ATOMS', 'id', 'type', 'x', 'y', 'z', 'fx', 'fy', 'fz']
+    >>> define_strngdex(['x', 'z'], dic)
+    [3, 5]
+    """
+    return [int(dic.index(ele) - 2) for ele in our_string]
+
+
+# -----------------------------------------------------------------------------
+# Frame Skipping
+# -----------------------------------------------------------------------------
+def frame_skip(f, num_ats: int, num_skip: int, header_length: int):
+    """
+    Skip a specified number of frames in an open trajectory file.
+
+    Parameters
+    ----------
+    f : file object
+        Open trajectory file in text mode.
+    num_ats : int
+        Number of atoms per frame.
+    num_skip : int
+        Number of frames to skip.
+    header_length : int
+        Number of header lines per frame.
+
+    Notes
+    -----
+    This function simply advances the file pointer by reading and discarding
+    the appropriate number of lines, based on the known frame structure.
+    """
+    for _ in range(num_skip * (num_ats + header_length)):
+        f.readline()
+
