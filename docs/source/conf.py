@@ -20,7 +20,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
-    'sphinx_rtd_theme',
+    'myst_nb',
 ]
 
 intersphinx_mapping = {
@@ -41,3 +41,7 @@ epub_show_urls = 'footnote'
 autodoc_typehints = 'description'
 autosummary_generate = True
 autodoc_member_order = 'bysource'
+exclude_patterns = ['_build', '**.ipynb_checkpoints', 'Thumbs.db', '.DS_Store']
+nbsphinx_execute = 'never'
+source_suffix = ['.rst', '.ipynb', '.md']
+nb_execution_mode = "off"
