@@ -18,5 +18,6 @@ Contents
 
    history
    usage
+   tutorials
    api/modules
 
