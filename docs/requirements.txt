@@ -9,3 +9,5 @@ lxml
 MDanalysis>=2.4.2
 recommonmark
 revelsMD
+pip install nbsphinx nbconvert
+myst_nb
