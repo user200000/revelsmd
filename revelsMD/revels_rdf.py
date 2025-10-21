@@ -51,7 +51,7 @@ class RevelsRDF:
     def single_frame_rdf_like(
         pos_array: np.ndarray,
         force_array: np.ndarray,
-        indicies: np.ndarray,
+        indices: np.ndarray,
         box_x: float,
         box_y: float,
         box_z: float,
@@ -67,7 +67,7 @@ class RevelsRDF:
             Atomic positions in Cartesian coordinates.
         force_array : (N, 3) np.ndarray
             Atomic forces in Cartesian coordinates.
-        indicies : np.ndarray
+        indices : np.ndarray
             Indices of atoms belonging to the species of interest.
         box_x, box_y, box_z : float
             Orthorhombic cell lengths.
@@ -84,10 +84,10 @@ class RevelsRDF:
         n_bins = np.size(bins)
         if n_bins == 0:
             return np.zeros(1, dtype=np.longdouble)
-        pos_ang = pos_array[indicies, :]
-        force_total = force_array[indicies, :]
+        pos_ang = pos_array[indices, :]
+        force_total = force_array[indices, :]
         storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
-        ns = len(indicies)
+        ns = len(indices)
 
         # Pairwise displacements and force components
         rx = np.zeros((ns, ns))
@@ -144,7 +144,7 @@ class RevelsRDF:
     def single_frame_rdf_unlike(
         pos_array: np.ndarray,
         force_array: np.ndarray,
-        indicies: Sequence[np.ndarray],
+        indices: Sequence[np.ndarray],
         box_x: float,
         box_y: float,
         box_z: float,
@@ -160,7 +160,7 @@ class RevelsRDF:
             Atomic positions in Cartesian coordinates.
         force_array : (N, 3) np.ndarray
             Atomic forces in Cartesian coordinates.
-        indicies : sequence of two np.ndarray
+        indices : sequence of two np.ndarray
             `[indices_species_A, indices_species_B]`.
         box_x, box_y, box_z : float
             Orthorhombic cell lengths.
@@ -177,14 +177,14 @@ class RevelsRDF:
         n_bins = np.size(bins)
         if n_bins == 0:
             return np.zeros(1, dtype=np.longdouble)
-        pos_ang_1 = pos_array[indicies[0], :]
-        force_total_1 = force_array[indicies[0], :]
-        pos_ang_2 = pos_array[indicies[1], :]
-        force_total_2 = force_array[indicies[1], :]
+        pos_ang_1 = pos_array[indices[0], :]
+        force_total_1 = force_array[indices[0], :]
+        pos_ang_2 = pos_array[indices[1], :]
+        force_total_2 = force_array[indices[1], :]
 
         storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
-        n1 = len(indicies[0])
-        n2 = len(indicies[1])
+        n1 = len(indices[0])
+        n2 = len(indices[1])
 
         rx = np.zeros((n2, n1))
         ry = np.zeros((n2, n1))
@@ -281,12 +281,12 @@ class RevelsRDF:
         """
         if atom_a == atom_b:
             single_frame_function = RevelsRDF.single_frame_rdf_like
-            indicies = TS.get_indicies(atom_a)
-            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indicies)) * float(len(indicies) - 1))
+            indices = TS.get_indices(atom_a)
+            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indices)) * float(len(indices) - 1))
         else:
-            indicies = [np.array(TS.get_indicies(atom_a)), np.array(TS.get_indicies(atom_b))]
+            indices = [np.array(TS.get_indices(atom_a)), np.array(TS.get_indices(atom_b))]
             single_frame_function = RevelsRDF.single_frame_rdf_unlike
-            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indicies[1])) * float(len(indicies[0])))/2
+            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
 
         if start > TS.frames:
             print("First frame index exceeds frames in trajectory")
@@ -321,7 +321,7 @@ class RevelsRDF:
             for frame_count in tqdm(to_run):
                 vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
                 accumulated_storage_array += single_frame_function(
-                    vars_trest[:, :3], vars_trest[:, 3:], indicies, TS.box_x, TS.box_y, TS.box_z, bins
+                    vars_trest[:, :3], vars_trest[:, 3:], indices, TS.box_x, TS.box_y, TS.box_z, bins
                 )
                 frame_skip(f, TS.num_ats, period - 1, TS.header_length)
 
@@ -330,7 +330,7 @@ class RevelsRDF:
                 accumulated_storage_array += single_frame_function(
                     TS.mdanalysis_universe.trajectory.atoms.positions,
                     TS.mdanalysis_universe.trajectory.atoms.forces,
-                    indicies,
+                    indices,
                     TS.box_x,
                     TS.box_y,
                     TS.box_z,
@@ -340,13 +340,13 @@ class RevelsRDF:
         elif TS.variety == "vasp":
             for frame_count in tqdm(to_run):
                 accumulated_storage_array += single_frame_function(
-                    TS.positions[frame_count], TS.forces[frame_count], indicies, TS.box_x, TS.box_y, TS.box_z, bins
+                    TS.positions[frame_count], TS.forces[frame_count], indices, TS.box_x, TS.box_y, TS.box_z, bins
                 )
 
         elif TS.variety == "numpy":
             for frame_count in tqdm(to_run):
                 accumulated_storage_array += single_frame_function(
-                    TS.positions[frame_count], TS.forces[frame_count], indicies, TS.box_x, TS.box_y, TS.box_z, bins
+                    TS.positions[frame_count], TS.forces[frame_count], indices, TS.box_x, TS.box_y, TS.box_z, bins
                 )
 
         # Scale and integrate
@@ -407,12 +407,12 @@ class RevelsRDF:
         """
         if atom_a == atom_b:
             single_frame_function = RevelsRDF.single_frame_rdf_like
-            indicies = TS.get_indicies(atom_a)
-            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indicies)) * float(len(indicies) - 1))
+            indices = TS.get_indices(atom_a)
+            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indices)) * float(len(indices) - 1))
         else:
-            indicies = [TS.get_indicies(atom_a), TS.get_indicies(atom_b)]
+            indices = [TS.get_indices(atom_a), TS.get_indices(atom_b)]
             single_frame_function = RevelsRDF.single_frame_rdf_unlike
-            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indicies[1])) * float(len(indicies[0])))/2
+            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
 
         if start > TS.frames:
             print("First frame index exceeds frames in trajectory")
@@ -448,7 +448,7 @@ class RevelsRDF:
             for frame_count in tqdm(to_run):
                 vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
                 this_frame = single_frame_function(
-                    vars_trest[:, :3], vars_trest[:, 3:], indicies, TS.box_x, TS.box_y, TS.box_z, bins
+                    vars_trest[:, :3], vars_trest[:, 3:], indices, TS.box_x, TS.box_y, TS.box_z, bins
                 )
                 accumulated_storage_array += this_frame
                 list_store.append(this_frame)
@@ -459,7 +459,7 @@ class RevelsRDF:
                 this_frame = single_frame_function(
                     TS.mdanalysis_universe.atoms.positions,
                     TS.mdanalysis_universe.atoms.forces,
-                    indicies,
+                    indices,
                     TS.box_x,
                     TS.box_y,
                     TS.box_z,
@@ -471,7 +471,7 @@ class RevelsRDF:
         elif TS.variety == "vasp":
             for frame_count in tqdm(to_run):
                 this_frame = single_frame_function(
-                    TS.positions[frame_count], TS.forces[frame_count], indicies, TS.box_x, TS.box_y, TS.box_z, bins
+                    TS.positions[frame_count], TS.forces[frame_count], indices, TS.box_x, TS.box_y, TS.box_z, bins
                 )
                 accumulated_storage_array += this_frame
                 list_store.append(this_frame)
@@ -479,7 +479,7 @@ class RevelsRDF:
         elif TS.variety == "numpy":
             for frame_count in tqdm(to_run):
                 this_frame = single_frame_function(
-                    TS.positions[frame_count], TS.forces[frame_count], indicies, TS.box_x, TS.box_y, TS.box_z, bins
+                    TS.positions[frame_count], TS.forces[frame_count], indices, TS.box_x, TS.box_y, TS.box_z, bins
                 )
                 accumulated_storage_array += this_frame
                 list_store.append(this_frame)

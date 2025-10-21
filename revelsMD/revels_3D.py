@@ -389,7 +389,7 @@ class Revels3D:
                 Output filename.
             convert_pmg : bool, optional
                 If True, convert from pymatgen.Structure → ASE Atoms first, then
-                delete any atoms specified by `self.SS.indicies`. If False, assume
+                delete any atoms specified by `self.SS.indices`. If False, assume
                 `structure` is already an ASE Atoms and write directly.
 
             Notes
@@ -404,10 +404,10 @@ class Revels3D:
                 atoms = structure
 
             # Optional removal (e.g., to drop solute atoms from density writeout)
-            # Keep attribute name `indicies` for backward compatibility
-            if hasattr(self, "SS") and hasattr(self.SS, "indicies") and self.SS.indicies is not None:
+            # Keep attribute name `indices` for backward compatibility
+            if hasattr(self, "SS") and hasattr(self.SS, "indices") and self.SS.indices is not None:
                 try:
-                    del atoms[np.array(self.SS.indicies)]
+                    del atoms[np.array(self.SS.indices)]
                 except Exception:
                     # If selection is a list of arrays (multi-species), do nothing silently
                     pass
@@ -551,42 +551,42 @@ class Revels3D:
         def single_frame_rigid_number_atom_grid(positions, forces, TS, GS, SS, kernel="triangular"):
             """Rigid molecule: number density at a specific atom’s position; forces summed over rigid members."""
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
-            Revels3D.HelperFunctions.process_frame(TS, GS, positions[SS.indicies[SS.centre_location], :], rigid_forces, kernel=kernel)
+            Revels3D.HelperFunctions.process_frame(TS, GS, positions[SS.indices[SS.centre_location], :], rigid_forces, kernel=kernel)
 
         @staticmethod
         def single_frame_number_many_grid(positions, forces, TS, GS, SS, kernel="triangular"):
             """Non-rigid: number density for each species list; deposit per-entry."""
-            for count in range(len(SS.indicies)):
+            for count in range(len(SS.indices)):
                 Revels3D.HelperFunctions.process_frame(
-                    TS, GS, positions[SS.indicies[count], :], forces[SS.indicies[count], :], kernel=kernel
+                    TS, GS, positions[SS.indices[count], :], forces[SS.indices[count], :], kernel=kernel
                 )
 
         @staticmethod
         def single_frame_number_single_grid(positions, forces, TS, GS, SS, kernel="triangular"):
             """Single species: number density at that species’ positions."""
-            Revels3D.HelperFunctions.process_frame(TS, GS, positions[SS.indicies, :], forces[SS.indicies, :], kernel=kernel)
+            Revels3D.HelperFunctions.process_frame(TS, GS, positions[SS.indices, :], forces[SS.indices, :], kernel=kernel)
 
         @staticmethod
         def single_frame_rigid_charge_atom_grid(positions, forces, TS, GS, SS, kernel="triangular"):
             """Rigid molecule: charge-weighted density at a specific atom’s position."""
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
             Revels3D.HelperFunctions.process_frame(
-                TS, GS, positions[SS.indicies[SS.centre_location], :], rigid_forces, a=SS.charges[SS.centre_location], kernel=kernel
+                TS, GS, positions[SS.indices[SS.centre_location], :], rigid_forces, a=SS.charges[SS.centre_location], kernel=kernel
             )
 
         @staticmethod
         def single_frame_charge_many_grid(positions, forces, TS, GS, SS, kernel="triangular"):
             """Non-rigid: charge-weighted density for each entry."""
-            for count in range(len(SS.indicies)):
+            for count in range(len(SS.indices)):
                 Revels3D.HelperFunctions.process_frame(
-                    TS, GS, positions[SS.indicies[count], :], forces[SS.indicies[count], :], a=SS.charges[count], kernel=kernel
+                    TS, GS, positions[SS.indices[count], :], forces[SS.indices[count], :], a=SS.charges[count], kernel=kernel
                 )
 
         @staticmethod
         def single_frame_charge_single_grid(positions, forces, TS, GS, SS, kernel="triangular"):
             """Single species: charge-weighted density."""
             Revels3D.HelperFunctions.process_frame(
-                TS, GS, positions[SS.indicies, :], forces[SS.indicies, :], a=SS.charges, kernel=kernel
+                TS, GS, positions[SS.indices, :], forces[SS.indices, :], a=SS.charges, kernel=kernel
             )
 
         @staticmethod
@@ -633,7 +633,7 @@ class Revels3D:
         ----------
         indistinguishable_set : bool
             True if a single species is selected; False for multi-species (rigid).
-        indicies : np.ndarray or list of np.ndarray
+        indices : np.ndarray or list of np.ndarray
             Atom indices of the selection (kept name for compatibility).
         charges, masses : list or np.ndarray
             Per-species arrays (rigid) or single array (single species) if available.
@@ -644,12 +644,12 @@ class Revels3D:
         def __init__(self, TS: Any, atom_names: Union[str, List[str]], centre_location: Union[bool, int]):
             if isinstance(atom_names, list) and len(atom_names) > 1:
                 self.indistinguishable_set = False
-                self.indicies: List[np.ndarray] = []
+                self.indices: List[np.ndarray] = []
                 self.charges: List[np.ndarray] = []
                 self.masses: List[np.ndarray] = []
                 for atom in atom_names:
                     # Uses TS.get_indices (alias exists) for compatibility
-                    self.indicies.append(TS.get_indices(atom))
+                    self.indices.append(TS.get_indices(atom))
                     if TS.charge_and_mass is True:
                         self.charges.append(TS.get_charges(atom))
                         self.masses.append(TS.get_masses(atom))
@@ -664,7 +664,7 @@ class Revels3D:
                 if isinstance(atom_names, list):
                     atom_names = atom_names[0]
                 self.indistinguishable_set = True
-                self.indicies = TS.get_indices(atom_names)
+                self.indices = TS.get_indices(atom_names)
                 if TS.charge_and_mass is True:
                     self.charges = TS.get_charges(atom_names)
                     self.masses = TS.get_masses(atom_names)
@@ -683,7 +683,7 @@ class Revels3D:
             ValueError
                 If `species_number` is out of range for the current selection.
             """
-            if isinstance(self.indicies, list) and species_number < len(self.indicies):
+            if isinstance(self.indices, list) and species_number < len(self.indices):
                 self.species_number = species_number
             else:
                 raise ValueError("species_number out of range for current selection.")
@@ -859,9 +859,9 @@ class Revels3D:
             Original behavior is preserved (early return inside loop).
             """
             if SS.indistinguishable_set is False:
-                for element in SS.indicies[1:]:
+                for element in SS.indices[1:]:
                     failure_state = 1
-                    failure_state *= SS.indicies[1] == element
+                    failure_state *= SS.indices[1] == element
                     if failure_state != 1:
                         print("error: all atom types in a rigid molecule must have the same length")
                         return False
@@ -882,7 +882,7 @@ class Revels3D:
             GS : GridState
                 Unused numerically here; preserved for signature compatibility.
             SS : SelectionState
-                Provides `indicies`, `masses`, and `charges` (if available).
+                Provides `indices`, `masses`, and `charges` (if available).
             calc_dipoles : bool, optional
                 If True, also compute per-molecule dipole moments relative to COMs.
 
@@ -899,9 +899,9 @@ class Revels3D:
             for COM and dipole accumulation.
             """
             mass_tot = SS.masses[0]
-            mass_cumulant = positons[SS.indicies[0]] * SS.masses[0][:, np.newaxis]
-            for species_index in range(1, len(SS.indicies)):
-                diffs = positons[SS.indicies[0]] - positons[SS.indicies[species_index]]
+            mass_cumulant = positons[SS.indices[0]] * SS.masses[0][:, np.newaxis]
+            for species_index in range(1, len(SS.indices)):
+                diffs = positons[SS.indices[0]] - positons[SS.indices[species_index]]
                 logical_diffs = np.transpose(
                     np.array(
                         [
@@ -913,14 +913,14 @@ class Revels3D:
                 )
                 diffs += logical_diffs
                 mass_tot += SS.masses[species_index]
-                mass_cumulant += positons[SS.indicies[species_index]] * SS.masses[species_index][:, np.newaxis]
+                mass_cumulant += positons[SS.indices[species_index]] * SS.masses[species_index][:, np.newaxis]
             coms = mass_cumulant / mass_tot[:, np.newaxis]
 
             if calc_dipoles:
                 charges = GS.SS.charges[0]
-                charges_cumulant = charges[:, np.newaxis] * (positons[SS.indicies[0]] - coms)
-                for species_index in range(1, len(SS.indicies)):
-                    seperation = (positons[SS.indicies[species_index]] - coms)
+                charges_cumulant = charges[:, np.newaxis] * (positons[SS.indices[0]] - coms)
+                for species_index in range(1, len(SS.indices)):
+                    seperation = (positons[SS.indices[species_index]] - coms)
                     # Minimum-image correction component-wise
                     seperation[:, 0] -= (np.ceil((np.abs(seperation[:, 0]) - TS.box_x / 2) / TS.box_x)) * (TS.box_x) * np.sign(seperation[:, 0])
                     seperation[:, 1] -= (np.ceil((np.abs(seperation[:, 1]) - TS.box_y / 2) / TS.box_y)) * (TS.box_y) * np.sign(seperation[:, 1])
@@ -948,8 +948,8 @@ class Revels3D:
             (M, 3) np.ndarray
                 Per-molecule net force for the rigid group (M = multiplicity).
             """
-            rigid_forces = forces[SS.indicies[0], :]
-            for rigid_body_component in SS.indicies[1:]:
+            rigid_forces = forces[SS.indices[0], :]
+            for rigid_body_component in SS.indices[1:]:
                 rigid_forces += forces[rigid_body_component, :]
             return rigid_forces
 
