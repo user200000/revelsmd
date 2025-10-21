@@ -150,6 +150,8 @@ class Revels3D:
                 Atom name(s) used for selection (single species or multi-species molecule).
             rigid : bool, optional
                 Treat listed species as a rigid group and sum forces (default: False).
+		For a species to be treated as rigid each atom in the molecule must have a different name.
+		
             centre_location : bool or int, optional
                 If `True`, use center-of-mass; if `int`, use that atom index within the
                 rigid set as the reference position (default: True).
@@ -170,6 +172,18 @@ class Revels3D:
                 On invalid frame selection, unsupported density/kernel combinations,
                 or malformed inputs for rigid/centre options.
             """
+			# --- Validate atom_names ---
+			if isinstance(atom_names, str):
+				# Split string by common delimiters (spaces, commas)
+				atom_list = atom_names.replace(',', ' ').split()
+				if len(atom_list) != len(set(atom_list)):
+					raise ValueError(f"Duplicate atom names detected in input string: {atom_names!r}")
+			elif isinstance(atom_names, list):
+				if len(atom_names) != len(set(atom_names)):
+					raise ValueError(f"Duplicate atom names detected in list: {atom_names!r}")
+			else:
+				raise ValueError("`atom_names` must be a string or list of strings.")
+
             # Validate frame bounds with original modulo semantics
             if start > TS.frames:
                 raise ValueError("First frame index exceeds frames in trajectory.")
@@ -641,24 +655,35 @@ class Revels3D:
             Axis for polarisation projection (set by GridState when needed).
         """
 
-        def __init__(self, TS: Any, atom_names: Union[str, List[str]], centre_location: Union[bool, int]):
-            if isinstance(atom_names, list) and len(atom_names) > 1:
-                self.indistinguishable_set = False
-                self.indices: List[np.ndarray] = []
-                self.charges: List[np.ndarray] = []
-                self.masses: List[np.ndarray] = []
-                for atom in atom_names:
-                    # Uses TS.get_indices (alias exists) for compatibility
-                    self.indices.append(TS.get_indices(atom))
-                    if TS.charge_and_mass is True:
-                        self.charges.append(TS.get_charges(atom))
-                        self.masses.append(TS.get_masses(atom))
-                if isinstance(centre_location, bool) or isinstance(centre_location, int):
-                    if isinstance(centre_location, int) and centre_location >= len(atom_names):
-                        raise ValueError("centre_location index exceeds number of provided atom names.")
-                    self.centre_location = centre_location
-                else:
-                    raise ValueError("centre_location must be True (COM) or an integer index.")
+		def __init__(self, TS: Any, atom_names: Union[str, List[str]], centre_location: Union[bool, int], rigid: bool = False):
+			if isinstance(atom_names, list) and len(atom_names) > 1:
+				self.indistinguishable_set = False
+				self.indices: List[np.ndarray] = []
+				self.charges: List[np.ndarray] = []
+				self.masses: List[np.ndarray] = []
+				for atom in atom_names:
+				    # Uses TS.get_indices (alias exists) for compatibility
+				    self.indices.append(TS.get_indices(atom))
+				    if TS.charge_and_mass is True:
+				        self.charges.append(TS.get_charges(atom))
+				        self.masses.append(TS.get_masses(atom))
+
+				if rigid:
+				    lengths = [len(idx) for idx in self.indices]
+				    if len(set(lengths)) != 1:
+				        raise ValueError(
+				            f"When 'rigid=True', all atom selections must have the same number of indices, "
+				            f"but got lengths {lengths} for atoms {atom_names}."
+				        )
+
+        # --- Centre location validation ---
+        if isinstance(centre_location, (bool, int)):
+            if isinstance(centre_location, int) and centre_location >= len(atom_names):
+                raise ValueError("centre_location index exceeds number of provided atom names.")
+            self.centre_location = centre_location
+        else:
+            raise ValueError("centre_location must be True (COM) or an integer index.")
+
             else:
                 # Single species
                 if isinstance(atom_names, list):
@@ -844,29 +869,6 @@ class Revels3D:
             GS.counter[gx[1], gy[1], gz[0]] += f_110 * a
             GS.counter[gx[1], gy[1], gz[1]] += f_111 * a
 
-        @staticmethod
-        def rigid_check(SS: Any) -> bool:
-            """
-            Check that all rigid-body species have equal multiplicity.
-
-            Returns
-            -------
-            bool
-                True if all lengths match; False otherwise.
-
-            Notes
-            -----
-            Original behavior is preserved (early return inside loop).
-            """
-            if SS.indistinguishable_set is False:
-                for element in SS.indices[1:]:
-                    failure_state = 1
-                    failure_state *= SS.indices[1] == element
-                    if failure_state != 1:
-                        print("error: all atom types in a rigid molecule must have the same length")
-                        return False
-                    return True
-            return True
 
         @staticmethod
         def find_coms(positons: np.ndarray, TS: Any, GS: Any, SS: Any, calc_dipoles: bool = False):
