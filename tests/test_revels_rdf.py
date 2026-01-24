@@ -414,3 +414,175 @@ class TestForceProjection:
         assert result[0] == 0, "Perpendicular force should give zero contribution"
         assert result[1] == 0
 
+
+class TestUnlikePairRDF:
+    """
+    Test single_frame_rdf_unlike correctness.
+
+    Unlike pairs use force differences: (F[A] - F[B]) · r_AB / |r|³
+    where r_AB = pos[A] - pos[B] (species A position minus species B position).
+
+    Each (A,B) cross-pair contributes once (no double-counting like in like-pairs).
+    """
+
+    def test_direct_distance_no_wrapping(self):
+        """
+        One atom of species A at x=1, one atom of species B at x=4.
+        Separation r=3 along x-axis.
+        """
+        box = 20.0
+        r = 3.0
+        # Atom 0 is species A, atom 1 is species B
+        positions = np.array([[1.0, 5.0, 5.0], [4.0, 5.0, 5.0]])
+        # Forces pointing toward each other
+        forces = np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+        indices = [np.array([0]), np.array([1])]
+
+        bins = np.array([r - 0.5, r + 0.5, r + 1.5])
+
+        result = RevelsRDF.single_frame_rdf_unlike(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        # r_AB = pos[A] - pos[B] = (1,5,5) - (4,5,5) = (-3, 0, 0)
+        # F_diff = F[A] - F[B] = (1,0,0) - (-1,0,0) = (2, 0, 0)
+        # dot = 2 * (-3) = -6
+        # contribution = -6 / 27 = -2/9
+        expected = -2.0 / (r * r)
+        assert np.isclose(result[0], expected), f"Expected {expected}, got {result[0]}"
+
+    def test_wrapped_distance_across_boundary(self):
+        """
+        Species A at x=1, species B at x=19 in box of 20.
+        MIC distance should be 2.
+        """
+        box = 20.0
+        mic_r = 2.0
+        positions = np.array([[1.0, 5.0, 5.0], [19.0, 5.0, 5.0]])
+        # Forces pointing toward each other through the boundary
+        forces = np.array([[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        indices = [np.array([0]), np.array([1])]
+
+        bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
+
+        result = RevelsRDF.single_frame_rdf_unlike(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        # After MIC: r_AB = pos[A] - pos[B] wraps to (+2, 0, 0)
+        # F_diff = F[A] - F[B] = (-1,0,0) - (1,0,0) = (-2, 0, 0)
+        # dot = (-2)*(+2) = -4
+        # contribution = -4 / 8 = -0.5
+        expected = -0.5
+        assert np.isclose(result[0], expected), \
+            f"Expected {expected}, got {result[0]}"
+
+    @pytest.mark.parametrize("axis", [0, 1, 2])
+    def test_wrapping_each_axis(self, axis):
+        """Test MIC wrapping for unlike pairs works on each axis."""
+        box = 20.0
+        mic_r = 2.0
+
+        pos_a = [10.0, 10.0, 10.0]
+        pos_b = [10.0, 10.0, 10.0]
+        pos_a[axis] = 1.0
+        pos_b[axis] = 19.0
+        positions = np.array([pos_a, pos_b])
+
+        # Forces pointing toward each other through the boundary
+        f_a = [0.0, 0.0, 0.0]
+        f_b = [0.0, 0.0, 0.0]
+        f_a[axis] = -1.0
+        f_b[axis] = 1.0
+        forces = np.array([f_a, f_b])
+
+        indices = [np.array([0]), np.array([1])]
+        bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
+
+        result = RevelsRDF.single_frame_rdf_unlike(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        # After MIC: r_AB[axis] = pos[A] - pos[B] wraps to +2
+        # F_diff[axis] = F[A] - F[B] = -1 - 1 = -2
+        # dot = (-2)*(+2) = -4
+        # contribution = -4 / 8 = -0.5
+        expected = -0.5
+        assert np.isclose(result[0], expected), \
+            f"Axis {axis}: expected {expected}, got {result[0]}"
+
+    def test_multiple_atoms_per_species(self):
+        """
+        Two atoms of species A, one atom of species B.
+        Should sum contributions from both A-B pairs.
+        """
+        box = 20.0
+        r = 2.0
+        # A atoms at x=0 and x=4, B atom at x=2
+        positions = np.array([
+            [0.0, 5.0, 5.0],  # A[0]
+            [4.0, 5.0, 5.0],  # A[1]
+            [2.0, 5.0, 5.0],  # B[0]
+        ])
+        # All forces along x-axis pointing inward
+        forces = np.array([
+            [1.0, 0.0, 0.0],   # A[0] pushes right
+            [-1.0, 0.0, 0.0],  # A[1] pushes left
+            [0.0, 0.0, 0.0],   # B[0] no force
+        ])
+        indices = [np.array([0, 1]), np.array([2])]
+
+        bins = np.array([r - 0.5, r + 0.5, r + 1.5])
+
+        result = RevelsRDF.single_frame_rdf_unlike(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        # Pair (A[0], B[0]): r = (0,5,5) - (2,5,5) = (-2,0,0)
+        #   F_diff = (1,0,0) - (0,0,0) = (1,0,0)
+        #   dot = 1*(-2) = -2, contrib = -2/8 = -0.25
+        # Pair (A[1], B[0]): r = (4,5,5) - (2,5,5) = (2,0,0)
+        #   F_diff = (-1,0,0) - (0,0,0) = (-1,0,0)
+        #   dot = (-1)*2 = -2, contrib = -2/8 = -0.25
+        # Total = -0.5
+        expected = -0.5
+        assert np.isclose(result[0], expected), f"Expected {expected}, got {result[0]}"
+
+    def test_perpendicular_force_no_contribution(self):
+        """Force perpendicular to separation gives zero contribution."""
+        box = 20.0
+        r = 3.0
+        positions = np.array([[0.0, 5.0, 5.0], [3.0, 5.0, 5.0]])
+        # Forces along y, separation along x
+        forces = np.array([[0.0, 1.0, 0.0], [0.0, -1.0, 0.0]])
+        indices = [np.array([0]), np.array([1])]
+
+        bins = np.array([r - 0.5, r + 0.5, r + 1.5])
+
+        result = RevelsRDF.single_frame_rdf_unlike(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        assert result[0] == 0, "Perpendicular force should give zero contribution"
+
+    def test_non_cubic_box(self):
+        """Test MIC with different box dimensions for unlike pairs."""
+        box_x, box_y, box_z = 20.0, 30.0, 40.0
+        mic_r = 2.0
+
+        positions = np.array([[1.0, 15.0, 20.0], [19.0, 15.0, 20.0]])
+        forces = np.array([[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        indices = [np.array([0]), np.array([1])]
+
+        bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
+
+        result = RevelsRDF.single_frame_rdf_unlike(
+            positions, forces, indices, box_x, box_y, box_z, bins
+        )
+
+        # After MIC: r_AB = pos[A] - pos[B] wraps to (+2, 0, 0)
+        # F_diff = F[A] - F[B] = (-1,0,0) - (1,0,0) = (-2, 0, 0)
+        # dot = (-2)*(+2) = -4, contrib = -4/8 = -0.5
+        expected = -0.5
+        assert np.isclose(result[0], expected), \
+            f"Non-cubic box: expected {expected}, got {result[0]}"
