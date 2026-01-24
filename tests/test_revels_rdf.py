@@ -166,3 +166,251 @@ def test_run_rdf_lambda_like(ts):
     assert np.all(np.isfinite(result))
     assert np.all((result[:, 2] >= -1) & (result[:, 2] <= 2))  # λ values roughly bounded
 
+
+# -------------------------------
+# MIC / distance correctness tests
+# -------------------------------
+
+class TestMinimumImageConvention:
+    """
+    Test that pairwise distances are computed correctly under periodic boundaries.
+
+    These tests use single_frame_rdf_like with two atoms at known positions.
+    The RDF estimator computes F[j]·r_ij/|r|³ for each pair (i,j), where
+    r_ij = pos[j] - pos[i]. We verify both that contributions land in the
+    correct bin AND have the expected magnitude.
+
+    Sign convention: for pair (i,j), r_ij points from i to j. If F[j] points
+    in the opposite direction (toward i), the dot product is negative.
+    """
+
+    def test_direct_distance_no_wrapping(self):
+        """Two atoms separated by 3.0 in x, well within half-box."""
+        box = 20.0
+        r = 3.0
+        positions = np.array([[1.0, 5.0, 5.0], [4.0, 5.0, 5.0]])
+        # Forces pointing toward each other (attractive)
+        # Atom 0 at x=1 pushes right (+x), atom 1 at x=4 pushes left (-x)
+        forces = np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+        indices = np.array([0, 1])
+
+        bins = np.array([r - 0.5, r + 0.5, r + 1.5])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        # Pair (0,1): r_01 = (3,0,0), F[1] = (-1,0,0), dot = -3, contrib = -3/27 = -1/9
+        # Pair (1,0): r_10 = (-3,0,0), F[0] = (1,0,0), dot = -3, contrib = -3/27 = -1/9
+        # Total = -2/9
+        expected = -2.0 / (r * r)
+        assert np.isclose(result[0], expected), f"Expected {expected}, got {result[0]}"
+        assert result[1] == 0, "No contribution expected in second bin"
+
+    def test_wrapped_distance_across_boundary(self):
+        """
+        Two atoms at x=1 and x=19 in a box of 20.
+        Direct distance is 18, but MIC distance should be 2.
+        """
+        box = 20.0
+        mic_r = 2.0  # After MIC wrapping
+        positions = np.array([[1.0, 5.0, 5.0], [19.0, 5.0, 5.0]])
+        # After MIC: atom 1 is effectively at x=-1 (or equivalently, r_01 = (-2,0,0))
+        # Forces pointing toward each other
+        forces = np.array([[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        indices = np.array([0, 1])
+
+        bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        # MIC wraps to r=2. Both pairs contribute -1/r² each.
+        expected = -2.0 / (mic_r * mic_r)
+        assert np.isclose(result[0], expected), \
+            f"MIC distance should be {mic_r}, got contribution {result[0]}"
+        assert result[2] == 0, "No contribution at unwrapped distance"
+
+    def test_wrapped_distance_negative_direction(self):
+        """
+        Two atoms at x=18 and x=2 in a box of 20.
+        Direct distance is 16, but MIC distance should be 4.
+        """
+        box = 20.0
+        mic_r = 4.0
+        positions = np.array([[18.0, 5.0, 5.0], [2.0, 5.0, 5.0]])
+        # After MIC: shortest path is +4 in x (wrapping around)
+        forces = np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+        indices = np.array([0, 1])
+
+        bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        expected = -2.0 / (mic_r * mic_r)
+        assert np.isclose(result[0], expected), \
+            f"Expected {expected}, got {result[0]}"
+
+    def test_3d_diagonal_wrapping(self):
+        """
+        Atoms near opposite corners, requiring wrapping in all dimensions.
+        Positions: (1,1,1) and (19,19,19) in box of 20.
+        Direct distance: sqrt(18² + 18² + 18²) = 31.18
+        MIC distance: sqrt(2² + 2² + 2²) ≈ 3.46
+        """
+        box = 20.0
+        mic_r = np.sqrt(12)  # sqrt(2² + 2² + 2²) ≈ 3.46
+        positions = np.array([[1.0, 1.0, 1.0], [19.0, 19.0, 19.0]])
+        # Unit force along diagonal, pointing toward each other
+        f = 1.0 / np.sqrt(3)
+        forces = np.array([[-f, -f, -f], [f, f, f]])
+        indices = np.array([0, 1])
+
+        bins = np.array([mic_r - 0.5, mic_r + 0.5, 30.0, 35.0])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        expected = -2.0 / (mic_r * mic_r)
+        assert np.isclose(result[0], expected, rtol=1e-10), \
+            f"Expected {expected}, got {result[0]}"
+        assert result[2] == 0, "No contribution at unwrapped distance"
+
+    @pytest.mark.parametrize("axis", [0, 1, 2])
+    def test_wrapping_each_axis(self, axis):
+        """
+        Test MIC wrapping works correctly for each axis independently.
+        Atoms at 1 and 19 along the test axis, centred on other axes.
+        """
+        box = 20.0
+        mic_r = 2.0
+
+        pos0 = [10.0, 10.0, 10.0]
+        pos1 = [10.0, 10.0, 10.0]
+        pos0[axis] = 1.0
+        pos1[axis] = 19.0
+        positions = np.array([pos0, pos1])
+
+        # Forces pointing toward each other along this axis
+        f0 = [0.0, 0.0, 0.0]
+        f1 = [0.0, 0.0, 0.0]
+        f0[axis] = -1.0
+        f1[axis] = 1.0
+        forces = np.array([f0, f1])
+
+        indices = np.array([0, 1])
+        bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        expected = -2.0 / (mic_r * mic_r)
+        assert np.isclose(result[0], expected), \
+            f"Axis {axis}: expected {expected}, got {result[0]}"
+        assert result[2] == 0, f"Axis {axis}: no contribution at unwrapped distance"
+
+    def test_exactly_half_box_boundary(self):
+        """
+        Edge case: atoms separated by exactly half the box length.
+        At r = L/2, the MIC is ambiguous but should still produce a valid result.
+        """
+        box = 20.0
+        half_box = box / 2.0  # r = 10.0
+
+        positions = np.array([[5.0, 10.0, 10.0], [15.0, 10.0, 10.0]])
+        forces = np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+        indices = np.array([0, 1])
+
+        bins = np.array([half_box - 0.5, half_box + 0.5, half_box + 1.5])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        # At exactly half-box, distance should be 10.0
+        expected = -2.0 / (half_box * half_box)
+        assert np.isclose(result[0], expected), \
+            f"Half-box boundary: expected {expected}, got {result[0]}"
+
+    def test_non_cubic_box(self):
+        """
+        Test MIC with different box dimensions in each direction.
+        """
+        box_x, box_y, box_z = 20.0, 30.0, 40.0
+
+        # Atoms requiring wrapping in x (short axis) but not y or z
+        positions = np.array([[1.0, 15.0, 20.0], [19.0, 15.0, 20.0]])
+        forces = np.array([[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        indices = np.array([0, 1])
+
+        mic_r = 2.0  # Wrapped distance in x
+        bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box_x, box_y, box_z, bins
+        )
+
+        expected = -2.0 / (mic_r * mic_r)
+        assert np.isclose(result[0], expected), \
+            f"Non-cubic box: expected {expected}, got {result[0]}"
+
+
+class TestForceProjection:
+    """
+    Test that the force projection (F·r / r³) is computed correctly.
+
+    The RDF estimator uses force-weighted contributions. For pair (i,j):
+    contribution = F[j] · (pos[j] - pos[i]) / |r|³
+    """
+
+    def test_radial_force_contribution(self):
+        """
+        Two atoms separated along x-axis with asymmetric forces.
+
+        Atoms at x=0 and x=2. Force on atom 1 = (-1,0,0), force on atom 0 = (0,0,0).
+        For pair (0,1): r_01 = (2,0,0), F[1] = (-1,0,0)
+            F·r = -2, |r| = 2, F·r/|r|³ = -2/8 = -0.25
+        For pair (1,0): r_10 = (-2,0,0), F[0] = (0,0,0)
+            F·r = 0
+        Total contribution = -0.25
+        """
+        box = 20.0
+        r = 2.0
+        positions = np.array([[0.0, 5.0, 5.0], [2.0, 5.0, 5.0]])
+        forces = np.array([[0.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+        indices = np.array([0, 1])
+
+        bins = np.array([r - 0.5, r + 0.5, r + 1.5])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        expected = -0.25
+        assert np.isclose(result[0], expected), f"Expected {expected}, got {result[0]}"
+
+    def test_perpendicular_force_no_contribution(self):
+        """
+        Force perpendicular to separation should give zero dot product.
+        Atoms separated along x, force along y.
+        """
+        box = 20.0
+        r = 3.0
+        positions = np.array([[0.0, 5.0, 5.0], [3.0, 5.0, 5.0]])
+        forces = np.array([[0.0, 1.0, 0.0], [0.0, -1.0, 0.0]])
+        indices = np.array([0, 1])
+
+        bins = np.array([r - 0.5, r + 0.5, r + 1.5])
+
+        result = RevelsRDF.single_frame_rdf_like(
+            positions, forces, indices, box, box, box, bins
+        )
+
+        assert result[0] == 0, "Perpendicular force should give zero contribution"
+        assert result[1] == 0
+
