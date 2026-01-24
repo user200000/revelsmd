@@ -252,6 +252,58 @@ def test_triangular_weights_sum_to_one():
     assert np.isclose(gs.counter.sum(), 1.0), f"Weights should sum to 1, got {gs.counter.sum()}"
 
 
+def test_triangular_arbitrary_position_weights():
+    """Verify trilinear weights match analytical formula at non-special position."""
+    gs = GridStateMock(nbins=4, box=10.0)
+    lx = 2.5  # voxel size
+
+    # Position (3.0, 4.0, 8.0)
+    homeX = np.array([3.0])
+    homeY = np.array([4.0])
+    homeZ = np.array([8.0])
+
+    x = np.digitize(homeX, gs.binsx)  # returns 2
+    y = np.digitize(homeY, gs.binsy)  # returns 2
+    z = np.digitize(homeZ, gs.binsz)  # returns 4
+
+    # Code computes: frac = 1 + (home - x*lx) / lx
+    # fracx = 1 + (3.0 - 2*2.5) / 2.5 = 1 + (-2.0)/2.5 = 0.2
+    # fracy = 1 + (4.0 - 2*2.5) / 2.5 = 1 + (-1.0)/2.5 = 0.6
+    # fracz = 1 + (8.0 - 4*2.5) / 2.5 = 1 + (-2.0)/2.5 = 0.2
+    fracx, fracy, fracz = 0.2, 0.6, 0.2
+
+    # Expected weights from trilinear formula
+    expected = {
+        (0, 0, 0): (1 - fracx) * (1 - fracy) * (1 - fracz),  # f_000
+        (0, 0, 1): (1 - fracx) * (1 - fracy) * fracz,        # f_001
+        (0, 1, 0): (1 - fracx) * fracy * (1 - fracz),        # f_010
+        (1, 0, 0): fracx * (1 - fracy) * (1 - fracz),        # f_100
+        (1, 0, 1): fracx * (1 - fracy) * fracz,              # f_101
+        (0, 1, 1): (1 - fracx) * fracy * fracz,              # f_011
+        (1, 1, 0): fracx * fracy * (1 - fracz),              # f_110
+        (1, 1, 1): fracx * fracy * fracz,                    # f_111
+    }
+
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([0.0]), foy=np.array([0.0]), foz=np.array([0.0]),
+        a=1.0
+    )
+
+    assert np.isclose(gs.counter.sum(), 1.0)
+
+    # Voxel indices: gx = ((x-1) % 4, x % 4) = (1, 2), gy = (1, 2), gz = (3, 0)
+    # Note: z wraps because digitize returns 4 for position 8.0
+    gx = (1, 2)
+    gy = (1, 2)
+    gz = (3, 0)
+
+    for (dx, dy, dz), expected_weight in expected.items():
+        actual = gs.counter[gx[dx], gy[dy], gz[dz]]
+        assert np.isclose(actual, expected_weight), \
+            f"Weight at offset ({dx},{dy},{dz}) should be {expected_weight:.4f}, got {actual:.4f}"
+
+
 def test_triangular_particle_at_voxel_centre():
     """Particle at voxel centre should distribute weight to surrounding vertices."""
     gs = GridStateMock(nbins=4, box=10.0)
@@ -375,4 +427,130 @@ def test_triangular_multiple_particles():
 
     assert np.isclose(gs.counter.sum(), 3.0), f"Total count should be 3, got {gs.counter.sum()}"
     assert np.isclose(gs.forceX.sum(), 3.0), f"Total forceX should be 3, got {gs.forceX.sum()}"
+
+
+# ---------------------------
+# sum_forces tests
+# ---------------------------
+
+def test_sum_forces_known_value():
+    """Sum forces should add force vectors across rigid body components."""
+    # 2 molecules, each with 3 atoms (A, B, C)
+    # Molecule 0: atoms 0, 2, 4
+    # Molecule 1: atoms 1, 3, 5
+    class SSMock:
+        indices = [np.array([0, 1]), np.array([2, 3]), np.array([4, 5])]
+
+    forces = np.array([
+        [1.0, 0.0, 0.0],  # atom 0 (mol 0, species A)
+        [0.0, 1.0, 0.0],  # atom 1 (mol 1, species A)
+        [2.0, 0.0, 0.0],  # atom 2 (mol 0, species B)
+        [0.0, 2.0, 0.0],  # atom 3 (mol 1, species B)
+        [3.0, 0.0, 0.0],  # atom 4 (mol 0, species C)
+        [0.0, 3.0, 0.0],  # atom 5 (mol 1, species C)
+    ])
+
+    result = Revels3D.HelperFunctions.sum_forces(SSMock(), forces)
+
+    assert result.shape == (2, 3)
+    # Molecule 0: [1,0,0] + [2,0,0] + [3,0,0] = [6,0,0]
+    assert np.allclose(result[0], [6.0, 0.0, 0.0])
+    # Molecule 1: [0,1,0] + [0,2,0] + [0,3,0] = [0,6,0]
+    assert np.allclose(result[1], [0.0, 6.0, 0.0])
+
+
+# ---------------------------
+# find_coms (COM only) tests
+# ---------------------------
+
+def test_find_coms_equal_masses():
+    """COM with equal masses should be geometric centre."""
+    class TSMock:
+        box_x = box_y = box_z = 20.0
+
+    class SSMock:
+        indices = [np.array([0]), np.array([1]), np.array([2])]
+        masses = [np.array([1.0]), np.array([1.0]), np.array([1.0])]
+
+    # 3 atoms in a line: x=0, x=3, x=6
+    positions = np.array([[0, 5, 5], [3, 5, 5], [6, 5, 5]], dtype=float)
+
+    coms = Revels3D.HelperFunctions.find_coms(positions, TSMock(), None, SSMock())
+
+    assert coms.shape == (1, 3)
+    # COM = (0 + 3 + 6) / 3 = 3.0
+    assert np.isclose(coms[0, 0], 3.0)
+    assert np.isclose(coms[0, 1], 5.0)
+    assert np.isclose(coms[0, 2], 5.0)
+
+
+def test_find_coms_unequal_masses():
+    """COM with unequal masses should be mass-weighted."""
+    class TSMock:
+        box_x = box_y = box_z = 20.0
+
+    class SSMock:
+        indices = [np.array([0]), np.array([1])]
+        masses = [np.array([1.0]), np.array([3.0])]
+
+    # 2 atoms: light at x=0, heavy at x=4
+    positions = np.array([[0, 5, 5], [4, 5, 5]], dtype=float)
+
+    coms = Revels3D.HelperFunctions.find_coms(positions, TSMock(), None, SSMock())
+
+    # COM = (1*0 + 3*4) / (1+3) = 12/4 = 3.0
+    assert np.isclose(coms[0, 0], 3.0)
+
+
+# ---------------------------
+# box_allocation tests
+# ---------------------------
+
+def test_box_allocation_single_particle():
+    """Box kernel deposits entirely to one voxel."""
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    homeX = np.array([3.7])
+    homeY = np.array([6.2])
+    homeZ = np.array([1.8])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.box_allocation(
+        gs, x, y, z,
+        fox=np.array([1.5]), foy=np.array([-0.5]), foz=np.array([2.0]),
+        a=1.0
+    )
+
+    assert np.isclose(gs.counter.sum(), 1.0)
+    assert np.count_nonzero(gs.counter) == 1, "Should deposit to exactly 1 voxel"
+    assert np.isclose(gs.forceX.sum(), 1.5)
+    assert np.isclose(gs.forceY.sum(), -0.5)
+    assert np.isclose(gs.forceZ.sum(), 2.0)
+
+
+def test_box_allocation_multiple_particles():
+    """Box kernel accumulates correctly for multiple particles."""
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    homeX = np.array([1.0, 5.0, 8.0])
+    homeY = np.array([1.0, 5.0, 8.0])
+    homeZ = np.array([1.0, 5.0, 8.0])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.box_allocation(
+        gs, x, y, z,
+        fox=np.array([1.0, 2.0, 3.0]),
+        foy=np.array([0.0, 0.0, 0.0]),
+        foz=np.array([0.0, 0.0, 0.0]),
+        a=1.0
+    )
+
+    assert np.isclose(gs.counter.sum(), 3.0)
+    assert np.isclose(gs.forceX.sum(), 6.0)  # 1 + 2 + 3
 
