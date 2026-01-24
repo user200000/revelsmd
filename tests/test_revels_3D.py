@@ -211,3 +211,168 @@ def test_find_coms_dipole_known_value():
     assert np.isclose(dipoles[0, 1], 0.0), f"Dipole y-component should be 0, got {dipoles[0, 1]}"
     assert np.isclose(dipoles[0, 2], 0.0), f"Dipole z-component should be 0, got {dipoles[0, 2]}"
 
+
+# ---------------------------
+# triangular_allocation tests
+# ---------------------------
+
+class GridStateMock:
+    """Minimal GridState mock for testing triangular_allocation."""
+    def __init__(self, nbins=4, box=10.0):
+        self.nbinsx = self.nbinsy = self.nbinsz = nbins
+        self.lx = self.ly = self.lz = box / nbins
+        self.binsx = np.linspace(0, box, nbins + 1)
+        self.binsy = np.linspace(0, box, nbins + 1)
+        self.binsz = np.linspace(0, box, nbins + 1)
+        self.forceX = np.zeros((nbins, nbins, nbins))
+        self.forceY = np.zeros((nbins, nbins, nbins))
+        self.forceZ = np.zeros((nbins, nbins, nbins))
+        self.counter = np.zeros((nbins, nbins, nbins))
+
+
+def test_triangular_weights_sum_to_one():
+    """Trilinear weights from all 8 voxels should sum to 1 for any position."""
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    # Arbitrary position inside the box
+    homeX = np.array([3.7])
+    homeY = np.array([6.2])
+    homeZ = np.array([1.8])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([0.0]), foy=np.array([0.0]), foz=np.array([0.0]),
+        a=1.0
+    )
+
+    assert np.isclose(gs.counter.sum(), 1.0), f"Weights should sum to 1, got {gs.counter.sum()}"
+
+
+def test_triangular_particle_at_voxel_centre():
+    """Particle at voxel centre should distribute weight to surrounding vertices."""
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    # Centre of voxel [1,1,1] is at (3.75, 3.75, 3.75) for box=10, nbins=4
+    # Voxel edges are at 2.5 and 5.0
+    homeX = np.array([3.75])
+    homeY = np.array([3.75])
+    homeZ = np.array([3.75])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([0.0]), foy=np.array([0.0]), foz=np.array([0.0]),
+        a=1.0
+    )
+
+    # At centre, frac = 0.5 in each dimension, so each of 8 corners gets 0.125
+    assert np.isclose(gs.counter.sum(), 1.0)
+    assert np.count_nonzero(gs.counter) == 8, "Should deposit to exactly 8 voxels"
+    assert np.allclose(gs.counter[gs.counter > 0], 0.125), "Each corner should get 1/8"
+
+
+def test_triangular_particle_at_corner():
+    """Particle at voxel corner should go entirely to one voxel."""
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    # Corner at (2.5, 2.5, 2.5) - edge between voxels
+    homeX = np.array([2.5])
+    homeY = np.array([2.5])
+    homeZ = np.array([2.5])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([0.0]), foy=np.array([0.0]), foz=np.array([0.0]),
+        a=1.0
+    )
+
+    # At corner frac=0 or 1, weight goes to single voxel
+    assert np.isclose(gs.counter.sum(), 1.0)
+    assert np.isclose(gs.counter.max(), 1.0), "All weight should go to one voxel"
+
+
+def test_triangular_periodic_boundary():
+    """Particle near box edge should wrap indices correctly."""
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    # Near upper boundary - should wrap to voxel 0
+    homeX = np.array([9.5])
+    homeY = np.array([5.0])
+    homeZ = np.array([5.0])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([0.0]), foy=np.array([0.0]), foz=np.array([0.0]),
+        a=1.0
+    )
+
+    # Should still sum to 1 (no out-of-bounds)
+    assert np.isclose(gs.counter.sum(), 1.0)
+    # Should have deposits in both voxel 3 and voxel 0 (wrapped)
+    assert gs.counter[3, :, :].sum() > 0, "Should deposit to voxel 3"
+    assert gs.counter[0, :, :].sum() > 0, "Should deposit to wrapped voxel 0"
+
+
+def test_triangular_force_direction_preserved():
+    """Force vector components should deposit with correct sign and magnitude."""
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    # At voxel corner so all weight goes to one voxel
+    homeX = np.array([2.5])
+    homeY = np.array([2.5])
+    homeZ = np.array([2.5])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([1.5]), foy=np.array([-2.0]), foz=np.array([0.5]),
+        a=1.0
+    )
+
+    assert np.isclose(gs.forceX.sum(), 1.5), f"forceX should be 1.5, got {gs.forceX.sum()}"
+    assert np.isclose(gs.forceY.sum(), -2.0), f"forceY should be -2.0, got {gs.forceY.sum()}"
+    assert np.isclose(gs.forceZ.sum(), 0.5), f"forceZ should be 0.5, got {gs.forceZ.sum()}"
+
+
+def test_triangular_multiple_particles():
+    """Total counter sum should equal number of particles times weight."""
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    # 3 particles at different positions
+    homeX = np.array([1.0, 5.0, 8.0])
+    homeY = np.array([2.0, 5.0, 7.0])
+    homeZ = np.array([3.0, 5.0, 6.0])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([1.0, 1.0, 1.0]),
+        foy=np.array([0.0, 0.0, 0.0]),
+        foz=np.array([0.0, 0.0, 0.0]),
+        a=1.0
+    )
+
+    assert np.isclose(gs.counter.sum(), 3.0), f"Total count should be 3, got {gs.counter.sum()}"
+    assert np.isclose(gs.forceX.sum(), 3.0), f"Total forceX should be 3, got {gs.forceX.sum()}"
+
