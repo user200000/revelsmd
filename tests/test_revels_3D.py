@@ -164,3 +164,50 @@ def test_get_lambda_basic(ts):
     assert hasattr(gs2, "optimal_density")
     assert gs2.optimal_density.shape == gs2.expected_rho.shape
 
+
+# ---------------------------
+# find_coms with calc_dipoles
+# ---------------------------
+
+def test_find_coms_dipole_known_value():
+    """
+    Test find_coms dipole calculation against a known analytical result.
+
+    Uses a simple 3-atom linear molecule with equal masses:
+      A (-1.0 charge) at x=0, B (+0.5) at x=1, C (+0.5) at x=2
+
+    COM = (0 + 1 + 2) / 3 = 1.0  (equal masses)
+
+    Dipole = sum_i(q_i * (r_i - COM))
+           = -1.0*(0-1) + 0.5*(1-1) + 0.5*(2-1)
+           = 1.0 + 0 + 0.5 = 1.5 in x-direction
+    """
+    class LinearMoleculeMock:
+        def __init__(self):
+            self.box_x = self.box_y = self.box_z = 20.0
+            self.charge_and_mass = True
+
+        def get_indices(self, atype):
+            return {"A": np.array([0]), "B": np.array([1]), "C": np.array([2])}[atype]
+
+        def get_charges(self, atype):
+            return {"A": np.array([-1.0]), "B": np.array([0.5]), "C": np.array([0.5])}[atype]
+
+        def get_masses(self, atype):
+            return {"A": np.array([1.0]), "B": np.array([1.0]), "C": np.array([1.0])}[atype]
+
+    ts = LinearMoleculeMock()
+    positions = np.array([[0, 5, 5], [1, 5, 5], [2, 5, 5]], dtype=float)
+
+    ss = Revels3D.SelectionState(ts, ["A", "B", "C"], centre_location=True, rigid=True)
+    gs = SimpleNamespace(SS=ss)
+
+    coms, dipoles = Revels3D.HelperFunctions.find_coms(positions, ts, gs, ss, calc_dipoles=True)
+
+    assert coms.shape == (1, 3)
+    assert dipoles.shape == (1, 3)
+    assert np.isclose(coms[0, 0], 1.0), f"COM should be at x=1.0, got {coms[0, 0]}"
+    assert np.isclose(dipoles[0, 0], 1.5), f"Dipole x-component should be 1.5, got {dipoles[0, 0]}"
+    assert np.isclose(dipoles[0, 1], 0.0), f"Dipole y-component should be 0, got {dipoles[0, 1]}"
+    assert np.isclose(dipoles[0, 2], 0.0), f"Dipole z-component should be 0, got {dipoles[0, 2]}"
+

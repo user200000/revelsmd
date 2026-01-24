@@ -865,14 +865,14 @@ class Revels3D:
 
 
         @staticmethod
-        def find_coms(positons: np.ndarray, TS: Any, GS: Any, SS: Any, calc_dipoles: bool = False):
+        def find_coms(positions: np.ndarray, TS: Any, GS: Any, SS: Any, calc_dipoles: bool = False):
             """
             Compute centers-of-mass (and optionally molecular dipoles) for a rigid set.
 
             Parameters
             ----------
-            positons : (N, 3) np.ndarray
-                Cartesian coordinates (typo in name preserved for compatibility).
+            positions : (N, 3) np.ndarray
+                Cartesian coordinates.
             TS : object
                 Trajectory state containing box lengths.
             GS : GridState
@@ -895,9 +895,9 @@ class Revels3D:
             for COM and dipole accumulation.
             """
             mass_tot = SS.masses[0]
-            mass_cumulant = positons[SS.indices[0]] * SS.masses[0][:, np.newaxis]
+            mass_cumulant = positions[SS.indices[0]] * SS.masses[0][:, np.newaxis]
             for species_index in range(1, len(SS.indices)):
-                diffs = positons[SS.indices[0]] - positons[SS.indices[species_index]]
+                diffs = positions[SS.indices[0]] - positions[SS.indices[species_index]]
                 logical_diffs = np.transpose(
                     np.array(
                         [
@@ -909,21 +909,20 @@ class Revels3D:
                 )
                 diffs += logical_diffs
                 mass_tot += SS.masses[species_index]
-                mass_cumulant += positons[SS.indices[species_index]] * SS.masses[species_index][:, np.newaxis]
+                mass_cumulant += positions[SS.indices[species_index]] * SS.masses[species_index][:, np.newaxis]
             coms = mass_cumulant / mass_tot[:, np.newaxis]
 
             if calc_dipoles:
-                charges = GS.SS.charges[0]
-                charges_cumulant = charges[:, np.newaxis] * (positons[SS.indices[0]] - coms)
+                charges_cumulant = GS.SS.charges[0][:, np.newaxis] * (positions[SS.indices[0]] - coms)
                 for species_index in range(1, len(SS.indices)):
-                    seperation = (positons[SS.indices[species_index]] - coms)
+                    separation = (positions[SS.indices[species_index]] - coms)
                     # Minimum-image correction component-wise
-                    seperation[:, 0] -= (np.ceil((np.abs(seperation[:, 0]) - TS.box_x / 2) / TS.box_x)) * (TS.box_x) * np.sign(seperation[:, 0])
-                    seperation[:, 1] -= (np.ceil((np.abs(seperation[:, 1]) - TS.box_y / 2) / TS.box_y)) * (TS.box_y) * np.sign(seperation[:, 1])
-                    seperation[:, 2] -= (np.ceil((np.abs(seperation[:, 2]) - TS.box_z / 2) / TS.box_z)) * (TS.box_z) * np.sign(seperation[:, 2])
-                    charges_cumulant += charges[species_index] * seperation
-                    molecular_dipole = charges_cumulant
-                    return coms, molecular_dipole
+                    separation[:, 0] -= (np.ceil((np.abs(separation[:, 0]) - TS.box_x / 2) / TS.box_x)) * (TS.box_x) * np.sign(separation[:, 0])
+                    separation[:, 1] -= (np.ceil((np.abs(separation[:, 1]) - TS.box_y / 2) / TS.box_y)) * (TS.box_y) * np.sign(separation[:, 1])
+                    separation[:, 2] -= (np.ceil((np.abs(separation[:, 2]) - TS.box_z / 2) / TS.box_z)) * (TS.box_z) * np.sign(separation[:, 2])
+                    charges_cumulant += GS.SS.charges[species_index][:, np.newaxis] * separation
+                molecular_dipole = charges_cumulant
+                return coms, molecular_dipole
             else:
                 return coms
 
