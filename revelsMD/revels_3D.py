@@ -251,16 +251,16 @@ class Revels3D:
 
             # Dispatch per TS.variety, reading per-frame positions/forces and depositing
             if TS.variety == "lammps":
-                f = open(TS.trajectory_file)
                 neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
                 stringdex = define_strngdex(neededQuantities, TS.dic)
 
-                for frame_count in tqdm(self.to_run):
-                    vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                    self.single_frame_function(
-                        vars_trest[:, :3], vars_trest[:, 3:], TS, self, self.SS, kernel=self.kernel
-                    )
-                    frame_skip(f, TS.num_ats, period - 1, TS.header_length)
+                with open(TS.trajectory_file) as f:
+                    for frame_count in tqdm(self.to_run):
+                        vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
+                        self.single_frame_function(
+                            vars_trest[:, :3], vars_trest[:, 3:], TS, self, self.SS, kernel=self.kernel
+                        )
+                        frame_skip(f, TS.num_ats, period - 1, TS.header_length)
 
             elif TS.variety == "mda":
                 for frame_count in tqdm(self.to_run):
@@ -493,15 +493,15 @@ class Revels3D:
 
                 # Frame indices for this section (preserve original slicing semantics)
                 if TS.variety == "lammps":
-                    f = open(TS.trajectory_file)
                     neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
                     stringdex = define_strngdex(neededQuantities, TS.dic)
-                    for frame_count in np.array(GS_Lambda.to_run)[np.arange(k, len(GS_Lambda.to_run) // sections, sections)]:
-                        vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                        GS_Lambda.single_frame_function(
-                            vars_trest[:, :3], vars_trest[:, 3:], TS, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
-                        )
-                        frame_skip(f, TS.num_ats, self.period - 1, TS.header_length)
+                    with open(TS.trajectory_file) as f:
+                        for frame_count in np.array(GS_Lambda.to_run)[np.arange(k, len(GS_Lambda.to_run) // sections, sections)]:
+                            vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
+                            GS_Lambda.single_frame_function(
+                                vars_trest[:, :3], vars_trest[:, 3:], TS, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
+                            )
+                            frame_skip(f, TS.num_ats, self.period - 1, TS.header_length)
 
                 elif TS.variety == "mda":
                     for frame_count in (np.array(GS_Lambda.to_run)[

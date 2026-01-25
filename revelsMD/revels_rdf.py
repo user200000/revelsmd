@@ -315,15 +315,15 @@ class RevelsRDF:
         accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
 
         if TS.variety == "lammps":
-            f = open(TS.trajectory_file)
             neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
             stringdex = define_strngdex(neededQuantities, TS.dic)
-            for frame_count in tqdm(to_run):
-                vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                accumulated_storage_array += single_frame_function(
-                    vars_trest[:, :3], vars_trest[:, 3:], indices, TS.box_x, TS.box_y, TS.box_z, bins
-                )
-                frame_skip(f, TS.num_ats, period - 1, TS.header_length)
+            with open(TS.trajectory_file) as f:
+                for frame_count in tqdm(to_run):
+                    vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
+                    accumulated_storage_array += single_frame_function(
+                        vars_trest[:, :3], vars_trest[:, 3:], indices, TS.box_x, TS.box_y, TS.box_z, bins
+                    )
+                    frame_skip(f, TS.num_ats, period - 1, TS.header_length)
 
         elif TS.variety == "mda":
             for frame_count in tqdm(TS.mdanalysis_universe.trajectory[int(start % TS.frames): int(stop % TS.frames): period]):
@@ -442,17 +442,17 @@ class RevelsRDF:
         accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
 
         if TS.variety == "lammps":
-            f = open(TS.trajectory_file)
             neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
             stringdex = define_strngdex(neededQuantities, TS.dic)
-            for frame_count in tqdm(to_run):
-                vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                this_frame = single_frame_function(
-                    vars_trest[:, :3], vars_trest[:, 3:], indices, TS.box_x, TS.box_y, TS.box_z, bins
-                )
-                accumulated_storage_array += this_frame
-                list_store.append(this_frame)
-                frame_skip(f, TS.num_ats, period - 1, TS.header_length)
+            with open(TS.trajectory_file) as f:
+                for frame_count in tqdm(to_run):
+                    vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
+                    this_frame = single_frame_function(
+                        vars_trest[:, :3], vars_trest[:, 3:], indices, TS.box_x, TS.box_y, TS.box_z, bins
+                    )
+                    accumulated_storage_array += this_frame
+                    list_store.append(this_frame)
+                    frame_skip(f, TS.num_ats, period - 1, TS.header_length)
 
         elif TS.variety == "mda":
             for frame_count in tqdm(TS.mdanalysis_universe.trajectory[int(start % TS.frames): int(stop % TS.frames): period]):
