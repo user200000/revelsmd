@@ -2,15 +2,77 @@ import numpy as np
 from tqdm import tqdm
 import MDAnalysis as MD
 from lxml import etree  # type: ignore
-from typing import List, Union, Optional
+from abc import ABC, abstractmethod
+from typing import List, Union, Optional, Iterator, Tuple
 from pymatgen.core import Lattice
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.io.cube import write_cube
-from revelsMD.revels_tools.lammps_parser import first_read
+from revelsMD.revels_tools.lammps_parser import first_read, get_a_frame, define_strngdex, frame_skip
 from revelsMD.revels_tools.vasp_parser import Vasprun
 
 
-class MDATrajectoryState:
+class TrajectoryState(ABC):
+    """
+    Abstract base class defining the interface for trajectory state objects.
+
+    All trajectory backends must implement this interface to ensure consistent
+    access patterns across different file formats and data sources.
+    """
+
+    @abstractmethod
+    def get_indices(self, atype: Union[str, int]) -> np.ndarray:
+        """Return atom indices for a given species or type."""
+        ...
+
+    @abstractmethod
+    def iter_frames(
+        self,
+        start: int = 0,
+        stop: Optional[int] = None,
+        stride: int = 1
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Iterate over trajectory frames, yielding positions and forces.
+
+        Parameters
+        ----------
+        start : int, optional
+            First frame index (default: 0).
+        stop : int, optional
+            Stop iteration before this frame (default: None, meaning all frames).
+        stride : int, optional
+            Step between frames (default: 1).
+
+        Yields
+        ------
+        positions : np.ndarray
+            Atomic positions for the current frame, shape (n_atoms, 3).
+        forces : np.ndarray
+            Atomic forces for the current frame, shape (n_atoms, 3).
+        """
+        ...
+
+    @abstractmethod
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Return positions and forces for a specific frame by index.
+
+        Parameters
+        ----------
+        index : int
+            Frame index to retrieve.
+
+        Returns
+        -------
+        positions : np.ndarray
+            Atomic positions for the frame, shape (n_atoms, 3).
+        forces : np.ndarray
+            Atomic forces for the frame, shape (n_atoms, 3).
+        """
+        ...
+
+
+class MDATrajectoryState(TrajectoryState):
     """
     Represents a molecular dynamics trajectory handled by **MDAnalysis**.
 
@@ -131,8 +193,45 @@ class MDATrajectoryState:
         """
         return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
 
+    def iter_frames(
+        self,
+        start: int = 0,
+        stop: Optional[int] = None,
+        stride: int = 1
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Iterate over trajectory frames, yielding positions and forces.
 
-class NumpyTrajectoryState:
+        MDAnalysis provides lazy iteration, so frames are loaded on demand.
+
+        Parameters
+        ----------
+        start : int, optional
+            First frame index (default: 0).
+        stop : int, optional
+            Stop iteration before this frame (default: None, meaning all frames).
+        stride : int, optional
+            Step between frames (default: 1).
+
+        Yields
+        ------
+        positions : np.ndarray
+            Atomic positions for the current frame, shape (n_atoms, 3).
+        forces : np.ndarray
+            Atomic forces for the current frame, shape (n_atoms, 3).
+        """
+        if stop is None:
+            stop = self.frames
+        for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
+            yield ts.positions.copy(), ts.forces.copy()
+
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Return positions and forces for a specific frame by index."""
+        ts = self.mdanalysis_universe.trajectory[index]
+        return ts.positions.copy(), ts.forces.copy()
+
+
+class NumpyTrajectoryState(TrajectoryState):
     """
     Represents a trajectory stored directly as NumPy arrays.
 
@@ -230,8 +329,42 @@ class NumpyTrajectoryState:
 
     get_indicies = get_indices
 
+    def iter_frames(
+        self,
+        start: int = 0,
+        stop: Optional[int] = None,
+        stride: int = 1
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Iterate over trajectory frames, yielding positions and forces.
 
-class LammpsTrajectoryState:
+        Parameters
+        ----------
+        start : int, optional
+            First frame index (default: 0).
+        stop : int, optional
+            Stop iteration before this frame (default: None, meaning all frames).
+        stride : int, optional
+            Step between frames (default: 1).
+
+        Yields
+        ------
+        positions : np.ndarray
+            Atomic positions for the current frame, shape (n_atoms, 3).
+        forces : np.ndarray
+            Atomic forces for the current frame, shape (n_atoms, 3).
+        """
+        if stop is None:
+            stop = self.frames
+        for i in range(start, stop, stride):
+            yield self.positions[i], self.forces[i]
+
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Return positions and forces for a specific frame by index."""
+        return self.positions[index], self.forces[index]
+
+
+class LammpsTrajectoryState(TrajectoryState):
     """
     Represents a molecular dynamics trajectory obtained from LAMMPS output.
 
@@ -324,8 +457,79 @@ class LammpsTrajectoryState:
         """Return atomic masses for a given LAMMPS atom type."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
 
+    def iter_frames(
+        self,
+        start: int = 0,
+        stop: Optional[int] = None,
+        stride: int = 1
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Iterate over trajectory frames, yielding positions and forces.
 
-class VaspTrajectoryState:
+        LAMMPS trajectories are parsed directly from dump files to extract
+        both positions and forces.
+
+        Parameters
+        ----------
+        start : int, optional
+            First frame index (default: 0).
+        stop : int, optional
+            Stop iteration before this frame (default: None, meaning all frames).
+        stride : int, optional
+            Step between frames (default: 1).
+
+        Yields
+        ------
+        positions : np.ndarray
+            Atomic positions for the current frame, shape (n_atoms, 3).
+        forces : np.ndarray
+            Atomic forces for the current frame, shape (n_atoms, 3).
+        """
+        if stop is None:
+            stop = self.frames
+
+        needed_quantities = ["x", "y", "z", "fx", "fy", "fz"]
+        strngdex = define_strngdex(needed_quantities, self.dic)
+
+        traj_file = self.trajectory_file
+        if isinstance(traj_file, list):
+            traj_file = traj_file[0]
+
+        with open(traj_file) as f:
+            # Skip to start frame
+            if start > 0:
+                frame_skip(f, self.num_ats, start, self.header_length)
+
+            frame_idx = start
+            while frame_idx < stop:
+                data = get_a_frame(f, self.num_ats, self.header_length, strngdex)
+                positions = data[:, :3]
+                forces = data[:, 3:]
+                yield positions, forces
+
+                # Skip (stride - 1) frames before the next read
+                frames_to_skip = stride - 1
+                frame_idx += 1
+                if frame_idx < stop and frames_to_skip > 0:
+                    frame_skip(f, self.num_ats, frames_to_skip, self.header_length)
+                    frame_idx += frames_to_skip
+
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Return positions and forces for a specific frame by index.
+
+        LAMMPS dump files are sequential, so random access requires caching
+        all frames in memory on first call. Subsequent calls use the cache.
+        """
+        # Lazy-load cache on first random access
+        if not hasattr(self, '_frame_cache'):
+            self._frame_cache = list(self.iter_frames())
+
+        positions, forces = self._frame_cache[index]
+        return positions, forces
+
+
+class VaspTrajectoryState(TrajectoryState):
     """
     Represents a molecular dynamics trajectory obtained from VASP ``vasprun.xml`` output.
 
@@ -428,3 +632,36 @@ class VaspTrajectoryState:
         """
         return self.Vasprun.start.indices_from_symbol(atype)
 
+    def iter_frames(
+        self,
+        start: int = 0,
+        stop: Optional[int] = None,
+        stride: int = 1
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Iterate over trajectory frames, yielding positions and forces.
+
+        Parameters
+        ----------
+        start : int, optional
+            First frame index (default: 0).
+        stop : int, optional
+            Stop iteration before this frame (default: None, meaning all frames).
+        stride : int, optional
+            Step between frames (default: 1).
+
+        Yields
+        ------
+        positions : np.ndarray
+            Atomic positions for the current frame, shape (n_atoms, 3).
+        forces : np.ndarray
+            Atomic forces for the current frame, shape (n_atoms, 3).
+        """
+        if stop is None:
+            stop = self.frames
+        for i in range(start, stop, stride):
+            yield self.positions[i], self.forces[i]
+
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Return positions and forces for a specific frame by index."""
+        return self.positions[index], self.forces[index]
