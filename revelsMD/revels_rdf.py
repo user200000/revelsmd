@@ -3,7 +3,7 @@ Force-based radial distribution function (RDF) estimators for RevelsMD.
 
 This module provides the `RevelsRDF` class implementing reduced-variance,
 force-weighted radial distribution functions using atomic positions and
-forces from supported trajectory-state objects (TS).
+forces from trajectory-state objects.
 
 The estimators support both like- and unlike-species RDFs and can compute
 variance-minimized λ-corrected RDFs via a linear combination of forward
@@ -12,19 +12,17 @@ and backward Heaviside integrations.
 Notes
 -----
 - Assumes an orthorhombic (or cubic) periodic simulation cell.
-- Algorithm uses a 1/r³ weighting of projected forces between atom pairs.
-- Supported trajectory varieties: 'lammps', 'mda', 'vasp', 'numpy'.
+- Algorithm uses a 1/r^3 weighting of projected forces between atom pairs.
 - Physical sensibility of results depends on user-supplied forces/units.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Union
 
 import numpy as np
 from tqdm import tqdm
 
-from revelsMD.revels_tools.lammps_parser import define_strngdex, frame_skip, get_a_frame
 from revelsMD.revels_tools.conversion_factors import generate_boltzmann
 
 
@@ -235,13 +233,13 @@ class RevelsRDF:
     # -------------------------------------------------------------------------
     @staticmethod
     def run_rdf(
-        TS,
+        trajectory,
         atom_a: str,
         atom_b: str,
         temp: float,
         delr: float = 0.01,
         start: int = 0,
-        stop: int = -1,
+        stop: Optional[int] = None,
         period: int = 1,
         rmax: Union[bool, float] = True,
         from_zero: bool = True,
@@ -251,21 +249,23 @@ class RevelsRDF:
 
         Parameters
         ----------
-        TS : object
-            Trajectory state (LAMMPS, MDAnalysis, VASP, or NumPy compatible).
+        trajectory : TrajectoryState
+            Trajectory state object providing positions, forces, and box dimensions.
         atom_a, atom_b : str
             Species identifiers. If identical, computes like-pair RDF.
         temp : float
             Temperature in Kelvin.
         delr : float, optional
             Bin spacing in distance (default: 0.01).
-        start, stop : int, optional
-            Frame range for averaging (default: 0 → -1).
+        start : int, optional
+            First frame index (default: 0).
+        stop : int or None, optional
+            Stop frame index (default: None, meaning all frames).
+            Negative indices count from end (e.g., -1 = all but last).
         period : int, optional
             Frame stride (default: 1).
         rmax : bool or float, optional
-            If True, use half-box length (or max half-dimension for LAMMPS);
-            otherwise, set numeric cutoff.
+            If True, use half the minimum box dimension; otherwise, set numeric cutoff.
         from_zero : bool, optional
             If True, integrate from r=0, else from rmax.
 
@@ -273,85 +273,50 @@ class RevelsRDF:
         -------
         numpy.ndarray of shape (2, n) | None
             RDF array ``[r, g(r)]``, or None if invalid frame range specified.
-
-        Notes
-        -----
-        - Preserves original control flow and scaling prefactors.
-        - For LAMMPS backends, reads positions/forces per-frame using helper parser.
         """
         if atom_a == atom_b:
             single_frame_function = RevelsRDF.single_frame_rdf_like
-            indices = TS.get_indices(atom_a)
-            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indices)) * float(len(indices) - 1))
+            indices = trajectory.get_indices(atom_a)
+            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices)) * float(len(indices) - 1))
         else:
-            indices = [np.array(TS.get_indices(atom_a)), np.array(TS.get_indices(atom_b))]
+            indices = [np.array(trajectory.get_indices(atom_a)), np.array(trajectory.get_indices(atom_b))]
             single_frame_function = RevelsRDF.single_frame_rdf_unlike
-            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
+            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
 
-        if start > TS.frames:
+        # Validate frame bounds
+        if start > trajectory.frames:
             print("First frame index exceeds frames in trajectory")
             return None
-        if stop > TS.frames:
+        if stop is not None and stop > trajectory.frames:
             print("Final frame index exceeds frames in trajectory")
             return None
 
-        to_run = range(int(start % TS.frames), int(stop % TS.frames), period)
+        # Calculate frame count for scaling
+        effective_stop = trajectory.frames if stop is None else (trajectory.frames + stop if stop < 0 else stop)
+        norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
+        to_run = range(int(norm_start), int(effective_stop), period)
         if len(to_run) == 0:
-            print("Final frame ocurs before first frame in trajectory")
+            print("Final frame occurs before first frame in trajectory")
             return None
 
-        # Bin grid
-        if TS.variety == "lammps":
-            if rmax:
-                bins = np.arange(0, np.max([TS.box_x / 2, TS.box_y / 2, TS.box_z / 2]), delr)
-            else:
-                bins = np.arange(0, float(rmax), delr)
+        # Bin grid: use half the minimum box dimension
+        if rmax is True:
+            rmax_value = min(trajectory.box_x, trajectory.box_y, trajectory.box_z) / 2
         else:
-            if rmax:
-                bins = np.arange(0, TS.box_x / 2, delr)
-            else:
-                bins = np.arange(0, float(rmax), delr)
+            rmax_value = float(rmax)
+        bins = np.arange(0, rmax_value, delr)
 
         accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
 
-        if TS.variety == "lammps":
-            neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
-            stringdex = define_strngdex(neededQuantities, TS.dic)
-            with open(TS.trajectory_file) as f:
-                for frame_count in tqdm(to_run):
-                    vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                    accumulated_storage_array += single_frame_function(
-                        vars_trest[:, :3], vars_trest[:, 3:], indices, TS.box_x, TS.box_y, TS.box_z, bins
-                    )
-                    frame_skip(f, TS.num_ats, period - 1, TS.header_length)
-
-        elif TS.variety == "mda":
-            for frame_count in tqdm(TS.mdanalysis_universe.trajectory[int(start % TS.frames): int(stop % TS.frames): period]):
-                accumulated_storage_array += single_frame_function(
-                    TS.mdanalysis_universe.trajectory.atoms.positions,
-                    TS.mdanalysis_universe.trajectory.atoms.forces,
-                    indices,
-                    TS.box_x,
-                    TS.box_y,
-                    TS.box_z,
-                    bins,
-                )
-
-        elif TS.variety == "vasp":
-            for frame_count in tqdm(to_run):
-                accumulated_storage_array += single_frame_function(
-                    TS.positions[frame_count], TS.forces[frame_count], indices, TS.box_x, TS.box_y, TS.box_z, bins
-                )
-
-        elif TS.variety == "numpy":
-            for frame_count in tqdm(to_run):
-                accumulated_storage_array += single_frame_function(
-                    TS.positions[frame_count], TS.forces[frame_count], indices, TS.box_x, TS.box_y, TS.box_z, bins
-                )
+        # Unified frame iteration using iter_frames
+        for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
+            accumulated_storage_array += single_frame_function(
+                positions, forces, indices, trajectory.box_x, trajectory.box_y, trajectory.box_z, bins
+            )
 
         # Scale and integrate
         accumulated_storage_array = np.nan_to_num(accumulated_storage_array)
-        accumulated_storage_array *= prefactor / (4 * np.pi * len(to_run) * generate_boltzmann(TS.units) * temp)
+        accumulated_storage_array *= prefactor / (4 * np.pi * len(to_run) * generate_boltzmann(trajectory.units) * temp)
 
         if from_zero is True:
             return np.array([bins, np.cumsum(accumulated_storage_array)])
@@ -363,13 +328,13 @@ class RevelsRDF:
     # -------------------------------------------------------------------------
     @staticmethod
     def run_rdf_lambda(
-        TS,
+        trajectory,
         atom_a: str,
         atom_b: str,
         temp: float,
         delr: float = 0.01,
         start: int = 0,
-        stop: int = -1,
+        stop: Optional[int] = None,
         period: int = 1,
         rmax: Union[bool, float] = True,
     ) -> Optional[np.ndarray]:
@@ -378,21 +343,23 @@ class RevelsRDF:
 
         Parameters
         ----------
-        TS : object
-            Trajectory state (LAMMPS, MDAnalysis, VASP, or NumPy compatible).
+        trajectory : TrajectoryState
+            Trajectory state object providing positions, forces, and box dimensions.
         atom_a, atom_b : str
             Species identifiers. If identical, computes like-pair RDF.
         temp : float
             Temperature in Kelvin.
         delr : float, optional
             Bin spacing in distance (default: 0.01).
-        start, stop : int, optional
-            Frame range for averaging (default: 0 → -1).
+        start : int, optional
+            First frame index (default: 0).
+        stop : int or None, optional
+            Stop frame index (default: None, meaning all frames).
+            Negative indices count from end (e.g., -1 = all but last).
         period : int, optional
             Frame stride (default: 1).
         rmax : bool or float, optional
-            If True, use half-box length (or max half-dimension for LAMMPS);
-            otherwise, set numeric cutoff.
+            If True, use half the minimum box dimension; otherwise, set numeric cutoff.
 
         Returns
         -------
@@ -401,95 +368,58 @@ class RevelsRDF:
 
         Notes
         -----
-        - Preserves original data flow and prefactor usage.
-        - Uses covariance-based λ(r) = cov(delta, g_inf) / var(delta) with
-          delta = g_inf - g_zero from the accumulated estimator.
+        Uses covariance-based λ(r) = cov(delta, g_inf) / var(delta) with
+        delta = g_inf - g_zero from the accumulated estimator.
         """
         if atom_a == atom_b:
             single_frame_function = RevelsRDF.single_frame_rdf_like
-            indices = TS.get_indices(atom_a)
-            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indices)) * float(len(indices) - 1))
+            indices = trajectory.get_indices(atom_a)
+            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices)) * float(len(indices) - 1))
         else:
-            indices = [TS.get_indices(atom_a), TS.get_indices(atom_b)]
+            indices = [trajectory.get_indices(atom_a), trajectory.get_indices(atom_b)]
             single_frame_function = RevelsRDF.single_frame_rdf_unlike
-            prefactor = float(TS.box_x * TS.box_y * TS.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
+            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
 
-        if start > TS.frames:
+        # Validate frame bounds
+        if start > trajectory.frames:
             print("First frame index exceeds frames in trajectory")
             return None
-        if stop > TS.frames:
+        if stop is not None and stop > trajectory.frames:
             print("Final frame index exceeds frames in trajectory")
             return None
 
-        to_run = range(int(start % TS.frames), int(stop % TS.frames), period)
+        # Calculate frame count for scaling
+        effective_stop = trajectory.frames if stop is None else (trajectory.frames + stop if stop < 0 else stop)
+        norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
+        to_run = range(int(norm_start), int(effective_stop), period)
         if len(to_run) == 0:
-            print("Final frame ocurs before first frame in trajectory")
+            print("Final frame occurs before first frame in trajectory")
             return None
 
-        # Bins
-        if TS.variety == "lammps":
-            if rmax:
-                bins = np.arange(0, np.max([TS.box_x / 2, TS.box_y / 2, TS.box_z / 2]), delr)
-            else:
-                bins = np.arange(0, float(rmax), delr)
+        # Bin grid: use half the minimum box dimension
+        if rmax is True:
+            rmax_value = min(trajectory.box_x, trajectory.box_y, trajectory.box_z) / 2
         else:
-            if rmax:
-                bins = np.arange(0, TS.box_x / 2, delr)
-            else:
-                bins = np.arange(0, float(rmax), delr)
+            rmax_value = float(rmax)
+        bins = np.arange(0, rmax_value, delr)
 
         list_store: List[np.ndarray] = []
         accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
 
-        if TS.variety == "lammps":
-            neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
-            stringdex = define_strngdex(neededQuantities, TS.dic)
-            with open(TS.trajectory_file) as f:
-                for frame_count in tqdm(to_run):
-                    vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                    this_frame = single_frame_function(
-                        vars_trest[:, :3], vars_trest[:, 3:], indices, TS.box_x, TS.box_y, TS.box_z, bins
-                    )
-                    accumulated_storage_array += this_frame
-                    list_store.append(this_frame)
-                    frame_skip(f, TS.num_ats, period - 1, TS.header_length)
-
-        elif TS.variety == "mda":
-            for frame_count in tqdm(TS.mdanalysis_universe.trajectory[int(start % TS.frames): int(stop % TS.frames): period]):
-                this_frame = single_frame_function(
-                    TS.mdanalysis_universe.atoms.positions,
-                    TS.mdanalysis_universe.atoms.forces,
-                    indices,
-                    TS.box_x,
-                    TS.box_y,
-                    TS.box_z,
-                    bins,
-                )
-                accumulated_storage_array += this_frame
-                list_store.append(this_frame)
-
-        elif TS.variety == "vasp":
-            for frame_count in tqdm(to_run):
-                this_frame = single_frame_function(
-                    TS.positions[frame_count], TS.forces[frame_count], indices, TS.box_x, TS.box_y, TS.box_z, bins
-                )
-                accumulated_storage_array += this_frame
-                list_store.append(this_frame)
-
-        elif TS.variety == "numpy":
-            for frame_count in tqdm(to_run):
-                this_frame = single_frame_function(
-                    TS.positions[frame_count], TS.forces[frame_count], indices, TS.box_x, TS.box_y, TS.box_z, bins
-                )
-                accumulated_storage_array += this_frame
-                list_store.append(this_frame)
+        # Unified frame iteration using iter_frames
+        for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
+            this_frame = single_frame_function(
+                positions, forces, indices, trajectory.box_x, trajectory.box_y, trajectory.box_z, bins
+            )
+            accumulated_storage_array += this_frame
+            list_store.append(this_frame)
 
         # Build arrays and prefactors
         base_array = np.nan_to_num(np.array(list_store))
-        base_array *= prefactor / (4 * np.pi * generate_boltzmann(TS.units) * temp)
+        base_array *= prefactor / (4 * np.pi * generate_boltzmann(trajectory.units) * temp)
 
         accumulated_storage_array = np.nan_to_num(accumulated_storage_array)
-        accumulated_storage_array *= prefactor / (4 * np.pi * len(to_run) * generate_boltzmann(TS.units) * temp)
+        accumulated_storage_array *= prefactor / (4 * np.pi * len(to_run) * generate_boltzmann(trajectory.units) * temp)
 
         # Expectation curves from accumulated estimator
         exp_zero_rdf = np.array(np.cumsum(accumulated_storage_array)[:-1])
@@ -508,9 +438,7 @@ class RevelsRDF:
         combination = np.divide(cov_inf, var_del_safe)
         combination = np.nan_to_num(combination, nan=0.0, posinf=0.0, neginf=0.0)
 
-
-        g_lambda = np.nan_to_num(np.mean(base_inf_rdf * (1 - combination) + base_zero_rdf * combination, axis=0),nan=0.0,posinf=0.0,neginf=0.0)
-
+        g_lambda = np.nan_to_num(np.mean(base_inf_rdf * (1 - combination) + base_zero_rdf * combination, axis=0), nan=0.0, posinf=0.0, neginf=0.0)
 
         return np.transpose(np.array([bins[1:], g_lambda, combination]))
 
