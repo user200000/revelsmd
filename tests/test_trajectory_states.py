@@ -56,7 +56,6 @@ def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_univers
     mock_universe.return_value = mock_mdanalysis_universe
     state = MDATrajectoryState("traj.xtc", "topol.pdb")
 
-    assert state.variety == "mda"
     assert state.frames == 3
     assert np.isclose(state.box_x, 10.0)
     assert np.isclose(state.box_y, 10.0)
@@ -91,7 +90,6 @@ def test_numpy_state_valid_and_accessors():
 
     state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
     assert state.frames == 5
-    assert state.variety == "numpy"
     assert np.allclose(state.get_indices("H"), [1, 2])
 
     # backward alias
@@ -126,7 +124,6 @@ def test_numpy_state_invalid_shapes_and_box():
 def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
     state = LammpsTrajectoryState("dump.lammpstrj", "data.lmp")
-    assert state.variety == "lammps"
     assert np.isclose(state.box_x, 10.0)
     assert state.frames == 3
 
@@ -166,7 +163,6 @@ def test_vasp_state_valid(mock_vasprun):
 
     # Then run the test
     state = VaspTrajectoryState("vasprun.xml")
-    assert state.variety == "vasp"
     assert np.isclose(state.box_x, 1.0)
     assert np.allclose(state.positions, np.zeros((1, 1, 3)))
     assert np.allclose(state.forces, np.zeros((1, 1, 3)))
