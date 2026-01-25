@@ -622,3 +622,127 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
                         pos, frc = state.get_frame(i)
                         np.testing.assert_array_equal(pos, positions[i])
                         np.testing.assert_array_equal(frc, forces[i])
+
+
+# -----------------------------------------------------------------------------
+# iter_frames - Negative index handling (Pythonic behaviour)
+# -----------------------------------------------------------------------------
+class TestIterFramesNegativeIndices:
+    """Test that iter_frames handles negative indices like Python slices."""
+
+    def test_numpy_negative_stop_excludes_last_frame(self):
+        """stop=-1 should iterate up to but not including the last frame."""
+        n_frames, n_atoms = 5, 2
+        positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
+        forces = np.zeros((n_frames, n_atoms, 3))
+        species = ["A", "B"]
+
+        state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+
+        # stop=-1 means "all but last" -> frames 0, 1, 2, 3
+        frames = list(state.iter_frames(stop=-1))
+        assert len(frames) == 4
+
+        for i, (pos, _) in enumerate(frames):
+            np.testing.assert_array_equal(pos, positions[i])
+
+    def test_numpy_negative_start(self):
+        """start=-3 should start 3 frames from the end."""
+        n_frames, n_atoms = 10, 2
+        positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
+        forces = np.zeros((n_frames, n_atoms, 3))
+        species = ["A", "B"]
+
+        state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+
+        # start=-3 means start at frame 7 (10-3=7)
+        frames = list(state.iter_frames(start=-3))
+        assert len(frames) == 3
+
+        expected_indices = [7, 8, 9]
+        for i, (pos, _) in enumerate(frames):
+            np.testing.assert_array_equal(pos, positions[expected_indices[i]])
+
+    def test_numpy_negative_start_and_stop(self):
+        """Both negative start and stop should work together."""
+        n_frames, n_atoms = 10, 2
+        positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
+        forces = np.zeros((n_frames, n_atoms, 3))
+        species = ["A", "B"]
+
+        state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+
+        # start=-5 (frame 5), stop=-2 (frame 8) -> frames 5, 6, 7
+        frames = list(state.iter_frames(start=-5, stop=-2))
+        assert len(frames) == 3
+
+        expected_indices = [5, 6, 7]
+        for i, (pos, _) in enumerate(frames):
+            np.testing.assert_array_equal(pos, positions[expected_indices[i]])
+
+    def test_numpy_stop_none_means_all_frames(self):
+        """stop=None should iterate through all frames."""
+        n_frames, n_atoms = 5, 2
+        positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
+        forces = np.zeros((n_frames, n_atoms, 3))
+        species = ["A", "B"]
+
+        state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+
+        frames = list(state.iter_frames(stop=None))
+        assert len(frames) == n_frames
+
+    @patch("revelsMD.trajectory_states.Vasprun")
+    def test_vasp_negative_stop(self, mock_vasprun):
+        """VaspTrajectoryState should handle negative stop index."""
+        n_frames, n_atoms = 5, 2
+        positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
+        forces = np.zeros((n_frames, n_atoms, 3))
+
+        mock_instance = mock_vasprun.return_value
+        mock_instance.structures = [MagicMock() for _ in range(n_frames)]
+        mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
+        mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
+        mock_instance.start = mock_instance.structures[0]
+        mock_instance.start.indices_from_symbol.return_value = np.array([0])
+        mock_instance.cart_coords = positions
+        mock_instance.forces = forces
+
+        state = VaspTrajectoryState("vasprun.xml")
+
+        # stop=-1 means all but last -> frames 0, 1, 2, 3
+        frames = list(state.iter_frames(stop=-1))
+        assert len(frames) == 4
+
+    @patch("revelsMD.trajectory_states.MD.Universe")
+    def test_mda_negative_stop(self, mock_universe):
+        """MDATrajectoryState should handle negative stop index."""
+        n_frames, n_atoms = 5, 3
+        positions = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
+        forces = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
+
+        mock_timesteps = []
+        for i in range(n_frames):
+            ts = MagicMock()
+            ts.positions = positions[i]
+            ts.forces = forces[i]
+            mock_timesteps.append(ts)
+
+        mock_trajectory = MagicMock()
+        mock_trajectory.__len__ = MagicMock(return_value=n_frames)
+        # Simulate slicing behaviour
+        mock_trajectory.__getitem__ = MagicMock(
+            side_effect=lambda s: mock_timesteps[s.start:s.stop:s.step] if isinstance(s, slice) else mock_timesteps[s]
+        )
+
+        mock_uni = MagicMock()
+        mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
+        mock_uni.trajectory = mock_trajectory
+        mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
+        mock_universe.return_value = mock_uni
+
+        state = MDATrajectoryState("traj.xtc", "topol.pdb")
+
+        # stop=-1 normalized to 4, so frames 0, 1, 2, 3
+        frames = list(state.iter_frames(stop=-1))
+        assert len(frames) == 4
