@@ -14,7 +14,6 @@ class TSMock:
         self.box_z = 10.0
         self.units = "real"
         self.frames = 2
-        self.variety = "numpy"
         self.charge_and_mass = True
 
         # Two atoms, 2 frames
@@ -46,6 +45,9 @@ class TSMock:
             stop = self.frames
         for i in range(start, stop, stride):
             yield self.positions[i], self.forces[i]
+
+    def get_frame(self, index):
+        return self.positions[index], self.forces[index]
 
 
 @pytest.fixture

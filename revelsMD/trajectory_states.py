@@ -229,8 +229,6 @@ class MDATrajectoryState(TrajectoryState):
 
     Attributes
     ----------
-    variety : str
-        Identifier for trajectory type (`'mda'`).
     frames : int
         Number of trajectory frames.
     box_x, box_y, box_z : float
@@ -257,7 +255,6 @@ class MDATrajectoryState(TrajectoryState):
         if not topology_file:
             raise ValueError("A topology file is required for MDAnalysis trajectories.")
 
-        self.variety = 'mda'
         self.trajectory_file = trajectory_file
         self.topology_file = topology_file
 
@@ -404,7 +401,6 @@ class NumpyTrajectoryState(TrajectoryState):
         if not all(val > 0 for val in (box_x, box_y, box_z)):
             raise ValueError("Box dimensions must all be positive values.")
 
-        self.variety = 'numpy'
         self.positions = positions
         self.forces = forces
         self.species_string = species_list
@@ -511,7 +507,6 @@ class LammpsTrajectoryState(TrajectoryState):
         atom_style: str = 'full',
         charge_and_mass: bool = True,
     ):
-        self.variety = 'lammps'
         self.trajectory_file = trajectory_file
         self.topology_file = topology_file
         self.units = units
@@ -625,8 +620,6 @@ class VaspTrajectoryState(TrajectoryState):
 
     Attributes
     ----------
-    variety : str
-        Identifier (`'vasp'`).
     frames : int
         Total number of time steps across all vasprun files.
     box_x, box_y, box_z : float
@@ -648,7 +641,6 @@ class VaspTrajectoryState(TrajectoryState):
     """
 
     def __init__(self, trajectory_file: Union[str, List[str]]):
-        self.variety = 'vasp'
         self.units = 'metal'
         self.charge_and_mass = False
         self.trajectory_file: Union[str, List[str]] = trajectory_file
