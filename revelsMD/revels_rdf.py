@@ -243,7 +243,7 @@ class RevelsRDF:
         period: int = 1,
         rmax: Union[bool, float] = True,
         from_zero: bool = True,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray:
         """
         Compute the force-weighted RDF across multiple frames.
 
@@ -271,8 +271,14 @@ class RevelsRDF:
 
         Returns
         -------
-        numpy.ndarray of shape (2, n) | None
-            RDF array ``[r, g(r)]``, or None if invalid frame range specified.
+        numpy.ndarray of shape (2, n)
+            RDF array ``[r, g(r)]``.
+
+        Raises
+        ------
+        ValueError
+            If frame bounds are invalid (start/stop exceed trajectory length,
+            or the frame range is empty).
         """
         if atom_a == atom_b:
             single_frame_function = RevelsRDF.single_frame_rdf_like
@@ -285,19 +291,16 @@ class RevelsRDF:
 
         # Validate frame bounds
         if start > trajectory.frames:
-            print("First frame index exceeds frames in trajectory")
-            return None
+            raise ValueError("First frame index exceeds frames in trajectory.")
         if stop is not None and stop > trajectory.frames:
-            print("Final frame index exceeds frames in trajectory")
-            return None
+            raise ValueError("Final frame index exceeds frames in trajectory.")
 
         # Calculate frame count for scaling
         effective_stop = trajectory.frames if stop is None else (trajectory.frames + stop if stop < 0 else stop)
         norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
         to_run = range(int(norm_start), int(effective_stop), period)
         if len(to_run) == 0:
-            print("Final frame occurs before first frame in trajectory")
-            return None
+            raise ValueError("Final frame occurs before first frame in trajectory.")
 
         # Bin grid: use half the minimum box dimension
         if rmax is True:
@@ -337,7 +340,7 @@ class RevelsRDF:
         stop: Optional[int] = None,
         period: int = 1,
         rmax: Union[bool, float] = True,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray:
         """
         Compute the λ-corrected RDF by combining forward and backward estimates.
 
@@ -363,8 +366,14 @@ class RevelsRDF:
 
         Returns
         -------
-        numpy.ndarray of shape (n, 3) | None
-            Columns: `[r, g_lambda(r), lambda(r)]`, or None if invalid frame range.
+        numpy.ndarray of shape (n, 3)
+            Columns: `[r, g_lambda(r), lambda(r)]`.
+
+        Raises
+        ------
+        ValueError
+            If frame bounds are invalid (start/stop exceed trajectory length,
+            or the frame range is empty).
 
         Notes
         -----
@@ -382,19 +391,16 @@ class RevelsRDF:
 
         # Validate frame bounds
         if start > trajectory.frames:
-            print("First frame index exceeds frames in trajectory")
-            return None
+            raise ValueError("First frame index exceeds frames in trajectory.")
         if stop is not None and stop > trajectory.frames:
-            print("Final frame index exceeds frames in trajectory")
-            return None
+            raise ValueError("Final frame index exceeds frames in trajectory.")
 
         # Calculate frame count for scaling
         effective_stop = trajectory.frames if stop is None else (trajectory.frames + stop if stop < 0 else stop)
         norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
         to_run = range(int(norm_start), int(effective_stop), period)
         if len(to_run) == 0:
-            print("Final frame occurs before first frame in trajectory")
-            return None
+            raise ValueError("Final frame occurs before first frame in trajectory.")
 
         # Bin grid: use half the minimum box dimension
         if rmax is True:
