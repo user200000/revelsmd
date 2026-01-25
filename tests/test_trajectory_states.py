@@ -223,6 +223,63 @@ def test_concrete_classes_are_subclasses():
 
 
 # -----------------------------------------------------------------------------
+# TrajectoryState ABC - Shared validation helpers
+# -----------------------------------------------------------------------------
+class TestValidateOrthorhombic:
+    """Tests for _validate_orthorhombic shared helper."""
+
+    def test_valid_orthorhombic_angles(self):
+        """Should not raise for 90 degree angles."""
+        # No exception expected
+        TrajectoryState._validate_orthorhombic([90.0, 90.0, 90.0])
+
+    def test_valid_orthorhombic_angles_within_tolerance(self):
+        """Should accept angles within tolerance of 90 degrees."""
+        TrajectoryState._validate_orthorhombic([90.0001, 89.9999, 90.0])
+
+    def test_invalid_non_orthorhombic_angles(self):
+        """Should raise ValueError for non-orthorhombic angles."""
+        with pytest.raises(ValueError, match="orthorhombic"):
+            TrajectoryState._validate_orthorhombic([90.0, 95.0, 90.0])
+
+    def test_invalid_triclinic_angles(self):
+        """Should raise ValueError for triclinic cell angles."""
+        with pytest.raises(ValueError, match="orthorhombic"):
+            TrajectoryState._validate_orthorhombic([80.0, 85.0, 70.0])
+
+
+class TestValidateBoxDimensions:
+    """Tests for _validate_box_dimensions shared helper."""
+
+    def test_valid_positive_dimensions(self):
+        """Should return dimensions for valid positive values."""
+        lx, ly, lz = TrajectoryState._validate_box_dimensions(10.0, 20.0, 30.0)
+        assert lx == 10.0
+        assert ly == 20.0
+        assert lz == 30.0
+
+    def test_invalid_zero_dimension(self):
+        """Should raise ValueError if any dimension is zero."""
+        with pytest.raises(ValueError, match="positive"):
+            TrajectoryState._validate_box_dimensions(10.0, 0.0, 30.0)
+
+    def test_invalid_negative_dimension(self):
+        """Should raise ValueError if any dimension is negative."""
+        with pytest.raises(ValueError, match="positive"):
+            TrajectoryState._validate_box_dimensions(10.0, -5.0, 30.0)
+
+    def test_invalid_non_finite_dimension(self):
+        """Should raise ValueError if any dimension is non-finite."""
+        with pytest.raises(ValueError, match="finite"):
+            TrajectoryState._validate_box_dimensions(10.0, np.inf, 30.0)
+
+    def test_invalid_nan_dimension(self):
+        """Should raise ValueError if any dimension is NaN."""
+        with pytest.raises(ValueError, match="finite"):
+            TrajectoryState._validate_box_dimensions(np.nan, 20.0, 30.0)
+
+
+# -----------------------------------------------------------------------------
 # iter_frames - NumpyTrajectoryState
 # -----------------------------------------------------------------------------
 def test_numpy_iter_frames_yields_all_frames():

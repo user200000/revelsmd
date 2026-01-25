@@ -85,6 +85,56 @@ class TrajectoryState(ABC):
 
         return start, stop, stride
 
+    @staticmethod
+    def _validate_orthorhombic(angles: List[float], atol: float = 1e-3) -> None:
+        """
+        Validate that cell angles are orthorhombic (all 90 degrees).
+
+        Parameters
+        ----------
+        angles : list of float
+            The three cell angles [alpha, beta, gamma] in degrees.
+        atol : float, optional
+            Absolute tolerance for comparison to 90 degrees (default: 1e-3).
+
+        Raises
+        ------
+        ValueError
+            If any angle is not within tolerance of 90 degrees.
+        """
+        if not np.allclose(angles, 90.0, atol=atol):
+            raise ValueError(
+                "Only orthorhombic or cubic cells are supported. "
+                f"Got angles: {angles}"
+            )
+
+    @staticmethod
+    def _validate_box_dimensions(lx: float, ly: float, lz: float) -> Tuple[float, float, float]:
+        """
+        Validate that box dimensions are positive and finite.
+
+        Parameters
+        ----------
+        lx, ly, lz : float
+            Box dimensions in each Cartesian direction.
+
+        Returns
+        -------
+        tuple of (float, float, float)
+            The validated box dimensions.
+
+        Raises
+        ------
+        ValueError
+            If any dimension is not positive or not finite.
+        """
+        dims = [lx, ly, lz]
+        if not all(np.isfinite(dims)):
+            raise ValueError(f"Box dimensions must be finite. Got: ({lx}, {ly}, {lz})")
+        if not all(d > 0 for d in dims):
+            raise ValueError(f"Box dimensions must be positive. Got: ({lx}, {ly}, {lz})")
+        return lx, ly, lz
+
     @abstractmethod
     def get_indices(self, atype: Union[str, int]) -> np.ndarray:
         """Return atom indices for a given species or type."""
@@ -227,12 +277,10 @@ class MDATrajectoryState(TrajectoryState):
 
         # Safe unpack for older trajectories lacking angular information
         lx, ly, lz = dims[:3]
-        alpha, beta, gamma = dims[3:6] if len(dims) >= 6 else (90.0, 90.0, 90.0)
+        angles = list(dims[3:6]) if len(dims) >= 6 else [90.0, 90.0, 90.0]
 
-        if not np.allclose([alpha, beta, gamma], 90.0, atol=1e-3):
-            raise ValueError("Only orthorhombic or cubic cells are supported.")
-
-        self.box_x, self.box_y, self.box_z = lx, ly, lz
+        self._validate_orthorhombic(angles)
+        self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
@@ -498,13 +546,8 @@ class LammpsTrajectoryState(TrajectoryState):
 
         lx, ly, lz, alpha, beta, gamma = dims[:6]
 
-        if not np.allclose([alpha, beta, gamma], 90.0, atol=1e-3):
-            raise ValueError("Only orthorhombic or cubic boxes are supported.")
-
-        if not all(np.isfinite([lx, ly, lz])) or not all(val > 0 for val in (lx, ly, lz)):
-            raise ValueError(f"Invalid box dimensions: ({lx}, {ly}, {lz})")
-
-        self.box_x, self.box_y, self.box_z = lx, ly, lz
+        self._validate_orthorhombic([alpha, beta, gamma])
+        self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
 
     def get_indices(self, atype: Union[int, str]) -> np.ndarray:
         """Return atom indices for a given LAMMPS atom type."""
@@ -649,11 +692,7 @@ class VaspTrajectoryState(TrajectoryState):
     @staticmethod
     def _validate_cell(lattice: Lattice):
         """Validate that the VASP lattice is orthorhombic."""
-        if not np.allclose(lattice.angles, 90.0, atol=1e-3):
-            raise ValueError(
-                "Non-orthorhombic or non-cubic cell detected. "
-                "Only orthorhombic/cubic cells are supported."
-            )
+        TrajectoryState._validate_orthorhombic(list(lattice.angles))
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
