@@ -21,7 +21,6 @@ from pymatgen.core import Structure, Lattice
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.io.cube import write_cube
 import copy
-from revelsMD.revels_tools.lammps_parser import define_strngdex, frame_skip, get_a_frame
 from revelsMD.revels_tools.conversion_factors import generate_boltzmann
 
 
@@ -465,39 +464,15 @@ class Revels3D:
                 GS_Lambda.rho *= 0
                 GS_Lambda.count *= 0
 
-                # Frame indices for this section (preserve original slicing semantics)
-                if TS.variety == "lammps":
-                    neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
-                    stringdex = define_strngdex(neededQuantities, TS.dic)
-                    with open(TS.trajectory_file) as f:
-                        for frame_count in np.array(GS_Lambda.to_run)[np.arange(k, len(GS_Lambda.to_run) // sections, sections)]:
-                            vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                            GS_Lambda.single_frame_function(
-                                vars_trest[:, :3], vars_trest[:, 3:], TS, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
-                            )
-                            frame_skip(f, TS.num_ats, self.period - 1, TS.header_length)
-
-                elif TS.variety == "mda":
-                    for frame_count in (np.array(GS_Lambda.to_run)[
-                        np.arange(k, sections * (len(GS_Lambda.to_run) // sections), sections)
-                    ]):
-                        fr = TS.mdanalysis_universe.trajectory[frame_count]
-                        GS_Lambda.single_frame_function(
-                            fr.positions, fr.forces, TS, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
-                        )
-
-                elif TS.variety == "vasp":
-                    for frame_count in (np.array(GS_Lambda.to_run)[
-                        np.arange(k, sections * (len(GS_Lambda.to_run) // sections), sections)
-                    ]):
-                        GS_Lambda.single_frame_function(
-                            TS.positions[frame_count],
-                            TS.forces[frame_count],
-                            TS,
-                            GS_Lambda,
-                            GS_Lambda.SS,
-                            kernel=GS_Lambda.kernel,
-                        )
+                # Frame indices for this section (interleaved sampling)
+                frame_indices = np.array(GS_Lambda.to_run)[
+                    np.arange(k, sections * (len(GS_Lambda.to_run) // sections), sections)
+                ]
+                for frame_idx in frame_indices:
+                    positions, forces = TS.get_frame(frame_idx)
+                    GS_Lambda.single_frame_function(
+                        positions, forces, TS, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
+                    )
 
                 # Compute densities for this section and accumulate statistics
                 GS_Lambda.get_real_density()
