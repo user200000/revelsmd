@@ -152,10 +152,22 @@ def test_run_rdf_unlike_pairs(ts):
 # run_rdf edge conditions
 # -------------------------------
 
-def test_run_rdf_invalid_frame(ts, capsys):
-    out = RevelsRDF.run_rdf(ts, "H", "O", 300, start=10, stop=2)
-    captured = capsys.readouterr()
-    assert "First frame index" in captured.out or out is None
+def test_run_rdf_start_exceeds_frames(ts):
+    """run_rdf should raise ValueError when start exceeds trajectory frames."""
+    with pytest.raises(ValueError, match="First frame index exceeds"):
+        RevelsRDF.run_rdf(ts, "H", "O", 300, start=10)
+
+
+def test_run_rdf_stop_exceeds_frames(ts):
+    """run_rdf should raise ValueError when stop exceeds trajectory frames."""
+    with pytest.raises(ValueError, match="Final frame index exceeds"):
+        RevelsRDF.run_rdf(ts, "H", "O", 300, stop=10)
+
+
+def test_run_rdf_empty_frame_range(ts):
+    """run_rdf should raise ValueError when frame range is empty."""
+    with pytest.raises(ValueError, match="Final frame occurs before"):
+        RevelsRDF.run_rdf(ts, "H", "O", 300, start=2, stop=1)
 
 
 # -------------------------------
@@ -179,6 +191,28 @@ def test_run_rdf_lambda_like(ts):
     assert result.shape[1] == 3
     assert np.all(np.isfinite(result))
     assert np.all((result[:, 2] >= -1) & (result[:, 2] <= 2))  # λ values roughly bounded
+
+
+# -------------------------------
+# run_rdf_lambda edge conditions
+# -------------------------------
+
+def test_run_rdf_lambda_start_exceeds_frames(ts):
+    """run_rdf_lambda should raise ValueError when start exceeds trajectory frames."""
+    with pytest.raises(ValueError, match="First frame index exceeds"):
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, start=10)
+
+
+def test_run_rdf_lambda_stop_exceeds_frames(ts):
+    """run_rdf_lambda should raise ValueError when stop exceeds trajectory frames."""
+    with pytest.raises(ValueError, match="Final frame index exceeds"):
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, stop=10)
+
+
+def test_run_rdf_lambda_empty_frame_range(ts):
+    """run_rdf_lambda should raise ValueError when frame range is empty."""
+    with pytest.raises(ValueError, match="Final frame occurs before"):
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, start=2, stop=1)
 
 
 # -------------------------------
