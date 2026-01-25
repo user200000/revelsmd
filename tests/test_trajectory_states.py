@@ -9,6 +9,7 @@ from revelsMD.trajectory_states import (
     NumpyTrajectoryState,
     LammpsTrajectoryState,
     VaspTrajectoryState,
+    DataUnavailableError,
 )
 
 
@@ -715,26 +716,26 @@ def test_numpy_get_masses_returns_correct_values():
 
 
 def test_numpy_get_charges_raises_without_charge_data():
-    """get_charges should raise ValueError when charge data is not available."""
+    """get_charges should raise DataUnavailableError when charge data is not available."""
     positions = np.zeros((5, 3, 3))
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
     state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
 
-    with pytest.raises(ValueError, match="Charge data not available"):
+    with pytest.raises(DataUnavailableError, match="Charge data not available"):
         state.get_charges("O")
 
 
 def test_numpy_get_masses_raises_without_mass_data():
-    """get_masses should raise ValueError when mass data is not available."""
+    """get_masses should raise DataUnavailableError when mass data is not available."""
     positions = np.zeros((5, 3, 3))
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
     state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
 
-    with pytest.raises(ValueError, match="Mass data not available"):
+    with pytest.raises(DataUnavailableError, match="Mass data not available"):
         state.get_masses("O")
 
 
@@ -743,7 +744,7 @@ def test_numpy_get_masses_raises_without_mass_data():
 # -----------------------------------------------------------------------------
 @patch("revelsMD.trajectory_states.Vasprun")
 def test_vasp_get_charges_raises_error(mock_vasprun):
-    """get_charges should raise ValueError for VASP trajectories."""
+    """get_charges should raise DataUnavailableError for VASP trajectories."""
     mock_instance = mock_vasprun.return_value
     mock_instance.structures = [MagicMock()]
     mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
@@ -755,13 +756,13 @@ def test_vasp_get_charges_raises_error(mock_vasprun):
 
     state = VaspTrajectoryState("vasprun.xml")
 
-    with pytest.raises(ValueError, match="Charge data not available"):
+    with pytest.raises(DataUnavailableError, match="Charge data not available"):
         state.get_charges("H")
 
 
 @patch("revelsMD.trajectory_states.Vasprun")
 def test_vasp_get_masses_raises_error(mock_vasprun):
-    """get_masses should raise ValueError for VASP trajectories."""
+    """get_masses should raise DataUnavailableError for VASP trajectories."""
     mock_instance = mock_vasprun.return_value
     mock_instance.structures = [MagicMock()]
     mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
@@ -773,7 +774,7 @@ def test_vasp_get_masses_raises_error(mock_vasprun):
 
     state = VaspTrajectoryState("vasprun.xml")
 
-    with pytest.raises(ValueError, match="Mass data not available"):
+    with pytest.raises(DataUnavailableError, match="Mass data not available"):
         state.get_masses("H")
 
 

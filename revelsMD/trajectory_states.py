@@ -11,6 +11,11 @@ from revelsMD.revels_tools.lammps_parser import first_read, get_a_frame, define_
 from revelsMD.revels_tools.vasp_parser import Vasprun
 
 
+class DataUnavailableError(Exception):
+    """Raised when requested data (charges, masses) is not available for a trajectory type."""
+    pass
+
+
 class TrajectoryState(ABC):
     """
     Abstract base class defining the interface for trajectory state objects.
@@ -26,8 +31,6 @@ class TrajectoryState(ABC):
         Simulation box dimensions in each Cartesian direction.
     units : str
         Unit system identifier (e.g., 'real', 'metal', 'mda').
-    charge_and_mass : bool
-        Whether charge and mass data are available for this trajectory.
     """
 
     # Required attributes - subclasses must set these
@@ -36,7 +39,6 @@ class TrajectoryState(ABC):
     box_y: float
     box_z: float
     units: str
-    charge_and_mass: bool
 
     def _normalize_bounds(
         self, start: int, stop: Optional[int], stride: int
@@ -140,15 +142,21 @@ class TrajectoryState(ABC):
         """Return atom indices for a given species or type."""
         ...
 
-    @abstractmethod
     def get_charges(self, atype: str) -> np.ndarray:
-        """Return atomic charges for atoms of a given species or type."""
-        ...
+        """Return atomic charges for atoms of a given species or type.
 
-    @abstractmethod
+        Subclasses should override this method if charge data is available.
+        The default implementation raises DataUnavailableError.
+        """
+        raise DataUnavailableError("Charge data not available for this trajectory type.")
+
     def get_masses(self, atype: str) -> np.ndarray:
-        """Return atomic masses for atoms of a given species or type."""
-        ...
+        """Return atomic masses for atoms of a given species or type.
+
+        Subclasses should override this method if mass data is available.
+        The default implementation raises DataUnavailableError.
+        """
+        raise DataUnavailableError("Mass data not available for this trajectory type.")
 
     def iter_frames(
         self,
@@ -235,8 +243,6 @@ class MDATrajectoryState(TrajectoryState):
         Orthorhombic simulation box dimensions in each Cartesian direction.
     units : str
         Unit system identifier (`'mda'`).
-    charge_and_mass : bool
-        Indicates whether charge and mass data are accessible.
 
     Raises
     ------
@@ -265,7 +271,6 @@ class MDATrajectoryState(TrajectoryState):
 
         self.mdanalysis_universe = mdanalysis_universe
         self.frames = len(mdanalysis_universe.trajectory)
-        self.charge_and_mass = True
         self.units = 'mda'
 
         dims = mdanalysis_universe.dimensions
@@ -409,7 +414,6 @@ class NumpyTrajectoryState(TrajectoryState):
         self.box_z = box_z
         self.units = units
         self.frames = positions.shape[0]
-        self.charge_and_mass = bool(charge_list is not None and mass_list is not None)
 
         if charge_list is not None:
             self.charge_list = charge_list
@@ -444,15 +448,15 @@ class NumpyTrajectoryState(TrajectoryState):
 
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for atoms of a given species."""
-        if not self.charge_and_mass:
-            raise ValueError("Charge data not available for this trajectory.")
+        if not hasattr(self, 'charge_list'):
+            raise DataUnavailableError("Charge data not available for this trajectory.")
         indices = self.get_indices(atype)
         return self.charge_list[indices]
 
     def get_masses(self, atype: str) -> np.ndarray:
         """Return atomic masses for atoms of a given species."""
-        if not self.charge_and_mass:
-            raise ValueError("Mass data not available for this trajectory.")
+        if not hasattr(self, 'mass_list'):
+            raise DataUnavailableError("Mass data not available for this trajectory.")
         indices = self.get_indices(atype)
         return self.mass_list[indices]
 
@@ -488,8 +492,6 @@ class LammpsTrajectoryState(TrajectoryState):
         LAMMPS unit system (default: `'real'`).
     atom_style : str, optional
         LAMMPS atom style (default: `'full'`).
-    charge_and_mass : bool, optional
-        Whether charge/mass data are accessible (default: ``True``).
 
     Raises
     ------
@@ -505,12 +507,10 @@ class LammpsTrajectoryState(TrajectoryState):
         topology_file: Optional[str] = None,
         units: str = 'real',
         atom_style: str = 'full',
-        charge_and_mass: bool = True,
     ):
         self.trajectory_file = trajectory_file
         self.topology_file = topology_file
         self.units = units
-        self.charge_and_mass = charge_and_mass
 
         if topology_file is None:
             raise ValueError("A topology file is required for LAMMPS trajectories.")
@@ -642,7 +642,6 @@ class VaspTrajectoryState(TrajectoryState):
 
     def __init__(self, trajectory_file: Union[str, List[str]]):
         self.units = 'metal'
-        self.charge_and_mass = False
         self.trajectory_file: Union[str, List[str]] = trajectory_file
 
         if isinstance(trajectory_file, list):
@@ -701,19 +700,8 @@ class VaspTrajectoryState(TrajectoryState):
         """
         return np.array(self._start_structure.indices_from_symbol(atype))
 
-    def get_charges(self, atype: str) -> np.ndarray:
-        """Return atomic charges for atoms of a given species.
-
-        VASP does not provide charge data in vasprun.xml, so this raises an error.
-        """
-        raise ValueError("Charge data not available for VASP trajectories.")
-
-    def get_masses(self, atype: str) -> np.ndarray:
-        """Return atomic masses for atoms of a given species.
-
-        VASP does not provide mass data in vasprun.xml, so this raises an error.
-        """
-        raise ValueError("Mass data not available for VASP trajectories.")
+    # get_charges and get_masses are inherited from TrajectoryState
+    # and raise DataUnavailableError since VASP doesn't provide this data
 
     def _iter_frames_impl(
         self,

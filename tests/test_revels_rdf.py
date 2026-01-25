@@ -12,7 +12,6 @@ class TSMock:
         self.box_z = 10.0
         self.units = "real"
         self.frames = 3
-        self.charge_and_mass = True
 
         # 3 frames × 3 atoms × 3 coordinates
         self._positions = np.array([

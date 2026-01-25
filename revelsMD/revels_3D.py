@@ -20,7 +20,7 @@ import MDAnalysis as MD
 from lxml import etree  # type: ignore
 from typing import List, Union, Optional, Any, Dict, Tuple
 from pymatgen.core import Structure, Lattice
-from revelsMD.trajectory_states import TrajectoryState
+from revelsMD.trajectory_states import TrajectoryState, DataUnavailableError
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.io.cube import write_cube
 import copy
@@ -595,7 +595,7 @@ class Revels3D:
         Parameters
         ----------
         trajectory : TrajectoryState
-            Trajectory-state with index/charge/mass accessors and `charge_and_mass` flag.
+            Trajectory-state with index/charge/mass accessors.
         atom_names : str or list of str
             For a single species, may be a string or single-element list.
             For a rigid molecule, provide a list of species names in the rigid group.
@@ -623,9 +623,11 @@ class Revels3D:
                 self.masses: List[np.ndarray] = []
                 for atom in atom_names:
                     self.indices.append(trajectory.get_indices(atom))
-                    if trajectory.charge_and_mass is True:
+                    try:
                         self.charges.append(trajectory.get_charges(atom))
                         self.masses.append(trajectory.get_masses(atom))
+                    except DataUnavailableError:
+                        pass
                 if rigid:
                     lengths = [len(idx) for idx in self.indices]
                     if len(set(lengths)) != 1:
@@ -645,9 +647,11 @@ class Revels3D:
                     atom_names = atom_names[0]
                 self.indistinguishable_set = True
                 self.indices = trajectory.get_indices(atom_names)
-                if trajectory.charge_and_mass is True:
+                try:
                     self.charges = trajectory.get_charges(atom_names)
                     self.masses = trajectory.get_masses(atom_names)
+                except DataUnavailableError:
+                    pass
 
         def position_centre(self, species_number: int) -> None:
             """
