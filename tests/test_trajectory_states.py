@@ -625,6 +625,106 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
 
 
 # -----------------------------------------------------------------------------
+# get_charges / get_masses - NumpyTrajectoryState
+# -----------------------------------------------------------------------------
+def test_numpy_get_charges_returns_correct_values():
+    """get_charges should return charges for atoms of the specified species."""
+    positions = np.zeros((5, 3, 3))
+    forces = np.ones((5, 3, 3))
+    species = ["O", "H", "H"]
+    charges = np.array([0.5, -0.25, -0.25])
+    masses = np.array([16.0, 1.0, 1.0])
+
+    state = NumpyTrajectoryState(
+        positions, forces, 10, 10, 10, species,
+        charge_list=charges, mass_list=masses
+    )
+
+    np.testing.assert_array_equal(state.get_charges("O"), [0.5])
+    np.testing.assert_array_equal(state.get_charges("H"), [-0.25, -0.25])
+
+
+def test_numpy_get_masses_returns_correct_values():
+    """get_masses should return masses for atoms of the specified species."""
+    positions = np.zeros((5, 3, 3))
+    forces = np.ones((5, 3, 3))
+    species = ["O", "H", "H"]
+    charges = np.array([0.5, -0.25, -0.25])
+    masses = np.array([16.0, 1.0, 1.0])
+
+    state = NumpyTrajectoryState(
+        positions, forces, 10, 10, 10, species,
+        charge_list=charges, mass_list=masses
+    )
+
+    np.testing.assert_array_equal(state.get_masses("O"), [16.0])
+    np.testing.assert_array_equal(state.get_masses("H"), [1.0, 1.0])
+
+
+def test_numpy_get_charges_raises_without_charge_data():
+    """get_charges should raise ValueError when charge data is not available."""
+    positions = np.zeros((5, 3, 3))
+    forces = np.ones((5, 3, 3))
+    species = ["O", "H", "H"]
+
+    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+
+    with pytest.raises(ValueError, match="Charge data not available"):
+        state.get_charges("O")
+
+
+def test_numpy_get_masses_raises_without_mass_data():
+    """get_masses should raise ValueError when mass data is not available."""
+    positions = np.zeros((5, 3, 3))
+    forces = np.ones((5, 3, 3))
+    species = ["O", "H", "H"]
+
+    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+
+    with pytest.raises(ValueError, match="Mass data not available"):
+        state.get_masses("O")
+
+
+# -----------------------------------------------------------------------------
+# get_charges / get_masses - VaspTrajectoryState
+# -----------------------------------------------------------------------------
+@patch("revelsMD.trajectory_states.Vasprun")
+def test_vasp_get_charges_raises_error(mock_vasprun):
+    """get_charges should raise ValueError for VASP trajectories."""
+    mock_instance = mock_vasprun.return_value
+    mock_instance.structures = [MagicMock()]
+    mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
+    mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
+    mock_instance.start = mock_instance.structures[0]
+    mock_instance.start.indices_from_symbol.return_value = np.array([0])
+    mock_instance.cart_coords = np.zeros((1, 1, 3))
+    mock_instance.forces = np.zeros((1, 1, 3))
+
+    state = VaspTrajectoryState("vasprun.xml")
+
+    with pytest.raises(ValueError, match="Charge data not available"):
+        state.get_charges("H")
+
+
+@patch("revelsMD.trajectory_states.Vasprun")
+def test_vasp_get_masses_raises_error(mock_vasprun):
+    """get_masses should raise ValueError for VASP trajectories."""
+    mock_instance = mock_vasprun.return_value
+    mock_instance.structures = [MagicMock()]
+    mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
+    mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
+    mock_instance.start = mock_instance.structures[0]
+    mock_instance.start.indices_from_symbol.return_value = np.array([0])
+    mock_instance.cart_coords = np.zeros((1, 1, 3))
+    mock_instance.forces = np.zeros((1, 1, 3))
+
+    state = VaspTrajectoryState("vasprun.xml")
+
+    with pytest.raises(ValueError, match="Mass data not available"):
+        state.get_masses("H")
+
+
+# -----------------------------------------------------------------------------
 # iter_frames - Negative index handling (Pythonic behaviour)
 # -----------------------------------------------------------------------------
 class TestIterFramesNegativeIndices:
