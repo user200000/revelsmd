@@ -14,7 +14,6 @@ class TSMock:
         self.box_z = 10.0
         self.units = "real"
         self.frames = 2
-        self.charge_and_mass = True
 
         # Two atoms, 2 frames
         self.positions = np.array([
@@ -153,7 +152,6 @@ def test_selectionstate_rigid_unequal_counts():
     class WaterTSMock:
         box_x = box_y = box_z = 10.0
         units = "real"
-        charge_and_mass = True
         species = ["H", "O"]
         # 2 water molecules: 2H + 1O each = 4H + 2O total
         _ids = {"H": np.array([0, 1, 3, 4]), "O": np.array([2, 5])}
@@ -227,7 +225,6 @@ def test_find_coms_dipole_known_value():
     class LinearMoleculeMock:
         def __init__(self):
             self.box_x = self.box_y = self.box_z = 20.0
-            self.charge_and_mass = True
 
         def get_indices(self, atype):
             return {"A": np.array([0]), "B": np.array([1]), "C": np.array([2])}[atype]
