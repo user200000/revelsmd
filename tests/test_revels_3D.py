@@ -136,6 +136,39 @@ def test_position_centre_out_of_range(ts):
         ss.position_centre(10)
 
 
+@pytest.mark.xfail(reason="Issue #10: rigid validation rejects molecules with unequal atom counts")
+def test_selectionstate_rigid_unequal_counts():
+    """Rigid molecules like water (2H + 1O) should be allowed.
+
+    Currently raises ValueError because validation requires equal counts per species.
+    """
+    class WaterTSMock:
+        box_x = box_y = box_z = 10.0
+        units = "real"
+        charge_and_mass = True
+        species = ["H", "O"]
+        # 2 water molecules: 2H + 1O each = 4H + 2O total
+        _ids = {"H": np.array([0, 1, 3, 4]), "O": np.array([2, 5])}
+        _charges = {"H": np.array([0.4, 0.4, 0.4, 0.4]), "O": np.array([-0.8, -0.8])}
+        _masses = {"H": np.array([1.0, 1.0, 1.0, 1.0]), "O": np.array([16.0, 16.0])}
+
+        def get_indices(self, atype):
+            return self._ids[atype]
+
+        def get_charges(self, atype):
+            return self._charges[atype]
+
+        def get_masses(self, atype):
+            return self._masses[atype]
+
+    ts_water = WaterTSMock()
+    # This should work but currently raises ValueError when rigid=True
+    ss = Revels3D.SelectionState(ts_water, ["H", "O"], centre_location=True, rigid=True)
+    assert len(ss.indices) == 2
+    assert len(ss.indices[0]) == 4  # 4 H atoms
+    assert len(ss.indices[1]) == 2  # 2 O atoms
+
+
 # ---------------------------
 # Full pipeline
 # ---------------------------
