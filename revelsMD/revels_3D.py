@@ -135,7 +135,7 @@ class Revels3D:
             kernel: str = "triangular",
             polarisation_axis: int = 0,
             start: int = 0,
-            stop: int = -1,
+            stop: Optional[int] = None,
             period: int = 1,
         ) -> None:
             """
@@ -150,7 +150,7 @@ class Revels3D:
             rigid : bool, optional
                 Treat listed species as a rigid group and sum forces (default: False).
 		For a species to be treated as rigid each atom in the molecule must have a different name.
-		
+
             centre_location : bool or int, optional
                 If `True`, use center-of-mass; if `int`, use that atom index within the
                 rigid set as the reference position (default: True).
@@ -159,9 +159,10 @@ class Revels3D:
             polarisation_axis : int, optional
                 Axis index for polarisation projection if `density_type='polarisation'`.
             start : int, optional
-                Start frame index (default: 0).
-            stop : int, optional
-                Stop frame index (default: -1; modulo behavior preserved).
+                Start frame index (default: 0). Negative indices count from end.
+            stop : int or None, optional
+                Stop frame index (default: None, meaning all frames).
+                Negative indices count from end (e.g., -1 = all but last).
             period : int, optional
                 Frame stride (default: 1).
 
@@ -182,16 +183,24 @@ class Revels3D:
             else:
                 raise ValueError("`atom_names` must be a string or list of strings.")
 
-            # Validate frame bounds with original modulo semantics
+            # Validate frame bounds
             if start > TS.frames:
                 raise ValueError("First frame index exceeds frames in trajectory.")
             self.start = start
 
-            if stop > TS.frames:
+            if stop is not None and stop > TS.frames:
                 raise ValueError("Final frame index exceeds frames in trajectory.")
             self.stop = stop
 
-            to_run = range(int(start % TS.frames), int(stop % TS.frames), period)
+            # Calculate to_run for progress bar - normalize bounds for range()
+            norm_start = start % TS.frames if start >= 0 else max(0, TS.frames + start)
+            if stop is None:
+                norm_stop = TS.frames
+            elif stop < 0:
+                norm_stop = max(0, TS.frames + stop)
+            else:
+                norm_stop = stop
+            to_run = range(int(norm_start), int(norm_stop), period)
             if len(to_run) == 0:
                 raise ValueError("Final frame occurs before first frame in trajectory.")
             self.period = period

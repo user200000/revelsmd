@@ -19,6 +19,53 @@ class TrajectoryState(ABC):
     access patterns across different file formats and data sources.
     """
 
+    def _normalize_bounds(
+        self, start: int, stop: Optional[int], stride: int
+    ) -> Tuple[int, int, int]:
+        """
+        Normalize start/stop bounds to handle negative indices Pythonically.
+
+        Parameters
+        ----------
+        start : int
+            Start index (can be negative).
+        stop : int or None
+            Stop index (can be negative or None for end of trajectory).
+        stride : int
+            Step between frames.
+
+        Returns
+        -------
+        tuple of (int, int, int)
+            Normalized (start, stop, stride) suitable for use with range().
+
+        Notes
+        -----
+        Follows Python slice semantics:
+        - Negative indices count from the end (e.g., -1 is the last frame)
+        - None for stop means iterate to the end
+        - Out-of-bounds indices are clamped to valid range
+        """
+        n = self.frames
+
+        # Handle None stop
+        if stop is None:
+            stop = n
+
+        # Handle negative start
+        if start < 0:
+            start = max(0, n + start)
+
+        # Handle negative stop
+        if stop < 0:
+            stop = max(0, n + stop)
+
+        # Clamp to valid range
+        start = min(start, n)
+        stop = min(stop, n)
+
+        return start, stop, stride
+
     @abstractmethod
     def get_indices(self, atype: Union[str, int]) -> np.ndarray:
         """Return atom indices for a given species or type."""
@@ -207,9 +254,10 @@ class MDATrajectoryState(TrajectoryState):
         Parameters
         ----------
         start : int, optional
-            First frame index (default: 0).
+            First frame index (default: 0). Negative indices count from end.
         stop : int, optional
             Stop iteration before this frame (default: None, meaning all frames).
+            Negative indices count from end.
         stride : int, optional
             Step between frames (default: 1).
 
@@ -220,8 +268,7 @@ class MDATrajectoryState(TrajectoryState):
         forces : np.ndarray
             Atomic forces for the current frame, shape (n_atoms, 3).
         """
-        if stop is None:
-            stop = self.frames
+        start, stop, stride = self._normalize_bounds(start, stop, stride)
         for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
             yield ts.positions.copy(), ts.forces.copy()
 
@@ -341,9 +388,10 @@ class NumpyTrajectoryState(TrajectoryState):
         Parameters
         ----------
         start : int, optional
-            First frame index (default: 0).
+            First frame index (default: 0). Negative indices count from end.
         stop : int, optional
             Stop iteration before this frame (default: None, meaning all frames).
+            Negative indices count from end.
         stride : int, optional
             Step between frames (default: 1).
 
@@ -354,8 +402,7 @@ class NumpyTrajectoryState(TrajectoryState):
         forces : np.ndarray
             Atomic forces for the current frame, shape (n_atoms, 3).
         """
-        if stop is None:
-            stop = self.frames
+        start, stop, stride = self._normalize_bounds(start, stop, stride)
         for i in range(start, stop, stride):
             yield self.positions[i], self.forces[i]
 
@@ -472,9 +519,10 @@ class LammpsTrajectoryState(TrajectoryState):
         Parameters
         ----------
         start : int, optional
-            First frame index (default: 0).
+            First frame index (default: 0). Negative indices count from end.
         stop : int, optional
             Stop iteration before this frame (default: None, meaning all frames).
+            Negative indices count from end.
         stride : int, optional
             Step between frames (default: 1).
 
@@ -485,8 +533,7 @@ class LammpsTrajectoryState(TrajectoryState):
         forces : np.ndarray
             Atomic forces for the current frame, shape (n_atoms, 3).
         """
-        if stop is None:
-            stop = self.frames
+        start, stop, stride = self._normalize_bounds(start, stop, stride)
 
         needed_quantities = ["x", "y", "z", "fx", "fy", "fz"]
         strngdex = define_strngdex(needed_quantities, self.dic)
@@ -644,9 +691,10 @@ class VaspTrajectoryState(TrajectoryState):
         Parameters
         ----------
         start : int, optional
-            First frame index (default: 0).
+            First frame index (default: 0). Negative indices count from end.
         stop : int, optional
             Stop iteration before this frame (default: None, meaning all frames).
+            Negative indices count from end.
         stride : int, optional
             Step between frames (default: 1).
 
@@ -657,8 +705,7 @@ class VaspTrajectoryState(TrajectoryState):
         forces : np.ndarray
             Atomic forces for the current frame, shape (n_atoms, 3).
         """
-        if stop is None:
-            stop = self.frames
+        start, stop, stride = self._normalize_bounds(start, stop, stride)
         for i in range(start, stop, stride):
             yield self.positions[i], self.forces[i]
 
