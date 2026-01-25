@@ -249,37 +249,11 @@ class Revels3D:
             else:
                 raise ValueError("Supported densities: 'number', 'polarisation', 'charge'.")
 
-            # Dispatch per TS.variety, reading per-frame positions/forces and depositing
-            if TS.variety == "lammps":
-                neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
-                stringdex = define_strngdex(neededQuantities, TS.dic)
-
-                with open(TS.trajectory_file) as f:
-                    for frame_count in tqdm(self.to_run):
-                        vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                        self.single_frame_function(
-                            vars_trest[:, :3], vars_trest[:, 3:], TS, self, self.SS, kernel=self.kernel
-                        )
-                        frame_skip(f, TS.num_ats, period - 1, TS.header_length)
-
-            elif TS.variety == "mda":
-                for frame_count in tqdm(self.to_run):
-                    fr = TS.mdanalysis_universe.trajectory[frame_count]
-                    self.single_frame_function(fr.positions, fr.forces, TS, self, self.SS, kernel=self.kernel)
-
-            elif TS.variety == "vasp":
-                for frame_count in tqdm(self.to_run):
-                    self.single_frame_function(
-                        TS.positions[frame_count], TS.forces[frame_count], TS, self, self.SS, kernel=self.kernel
-                    )
-
-            elif TS.variety == "numpy":
-                for frame_count in tqdm(self.to_run):
-                    self.single_frame_function(
-                        TS.positions[frame_count], TS.forces[frame_count], TS, self, self.SS, kernel=self.kernel
-                    )
-            else:
-                raise ValueError(f"Unsupported trajectory variety: {TS.variety!r}")
+            # Unified frame iteration using iter_frames
+            for positions, forces in tqdm(TS.iter_frames(start, stop, period), total=len(self.to_run)):
+                self.single_frame_function(
+                    positions, forces, TS, self, self.SS, kernel=self.kernel
+                )
 
             self.frames_processed = self.to_run
             self.grid_progress = "Allocated"
