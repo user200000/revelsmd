@@ -71,7 +71,6 @@ class TrajectoryState(ABC):
         """Return atom indices for a given species or type."""
         ...
 
-    @abstractmethod
     def iter_frames(
         self,
         start: int = 0,
@@ -84,9 +83,10 @@ class TrajectoryState(ABC):
         Parameters
         ----------
         start : int, optional
-            First frame index (default: 0).
+            First frame index (default: 0). Negative indices count from end.
         stop : int, optional
             Stop iteration before this frame (default: None, meaning all frames).
+            Negative indices count from end.
         stride : int, optional
             Step between frames (default: 1).
 
@@ -96,6 +96,21 @@ class TrajectoryState(ABC):
             Atomic positions for the current frame, shape (n_atoms, 3).
         forces : np.ndarray
             Atomic forces for the current frame, shape (n_atoms, 3).
+        """
+        start, stop, stride = self._normalize_bounds(start, stop, stride)
+        return self._iter_frames_impl(start, stop, stride)
+
+    @abstractmethod
+    def _iter_frames_impl(
+        self,
+        start: int,
+        stop: int,
+        stride: int
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Internal implementation of frame iteration.
+
+        Subclasses implement this with normalized (non-negative) bounds.
         """
         ...
 
@@ -240,35 +255,13 @@ class MDATrajectoryState(TrajectoryState):
         """
         return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
 
-    def iter_frames(
+    def _iter_frames_impl(
         self,
-        start: int = 0,
-        stop: Optional[int] = None,
-        stride: int = 1
+        start: int,
+        stop: int,
+        stride: int
     ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
-        """
-        Iterate over trajectory frames, yielding positions and forces.
-
-        MDAnalysis provides lazy iteration, so frames are loaded on demand.
-
-        Parameters
-        ----------
-        start : int, optional
-            First frame index (default: 0). Negative indices count from end.
-        stop : int, optional
-            Stop iteration before this frame (default: None, meaning all frames).
-            Negative indices count from end.
-        stride : int, optional
-            Step between frames (default: 1).
-
-        Yields
-        ------
-        positions : np.ndarray
-            Atomic positions for the current frame, shape (n_atoms, 3).
-        forces : np.ndarray
-            Atomic forces for the current frame, shape (n_atoms, 3).
-        """
-        start, stop, stride = self._normalize_bounds(start, stop, stride)
+        """Iterate using MDAnalysis trajectory slicing."""
         for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
             yield ts.positions.copy(), ts.forces.copy()
 
@@ -376,33 +369,13 @@ class NumpyTrajectoryState(TrajectoryState):
 
     get_indicies = get_indices
 
-    def iter_frames(
+    def _iter_frames_impl(
         self,
-        start: int = 0,
-        stop: Optional[int] = None,
-        stride: int = 1
+        start: int,
+        stop: int,
+        stride: int
     ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
-        """
-        Iterate over trajectory frames, yielding positions and forces.
-
-        Parameters
-        ----------
-        start : int, optional
-            First frame index (default: 0). Negative indices count from end.
-        stop : int, optional
-            Stop iteration before this frame (default: None, meaning all frames).
-            Negative indices count from end.
-        stride : int, optional
-            Step between frames (default: 1).
-
-        Yields
-        ------
-        positions : np.ndarray
-            Atomic positions for the current frame, shape (n_atoms, 3).
-        forces : np.ndarray
-            Atomic forces for the current frame, shape (n_atoms, 3).
-        """
-        start, stop, stride = self._normalize_bounds(start, stop, stride)
+        """Iterate over in-memory position/force arrays."""
         for i in range(start, stop, stride):
             yield self.positions[i], self.forces[i]
 
@@ -504,37 +477,13 @@ class LammpsTrajectoryState(TrajectoryState):
         """Return atomic masses for a given LAMMPS atom type."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
 
-    def iter_frames(
+    def _iter_frames_impl(
         self,
-        start: int = 0,
-        stop: Optional[int] = None,
-        stride: int = 1
+        start: int,
+        stop: int,
+        stride: int
     ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
-        """
-        Iterate over trajectory frames, yielding positions and forces.
-
-        LAMMPS trajectories are parsed directly from dump files to extract
-        both positions and forces.
-
-        Parameters
-        ----------
-        start : int, optional
-            First frame index (default: 0). Negative indices count from end.
-        stop : int, optional
-            Stop iteration before this frame (default: None, meaning all frames).
-            Negative indices count from end.
-        stride : int, optional
-            Step between frames (default: 1).
-
-        Yields
-        ------
-        positions : np.ndarray
-            Atomic positions for the current frame, shape (n_atoms, 3).
-        forces : np.ndarray
-            Atomic forces for the current frame, shape (n_atoms, 3).
-        """
-        start, stop, stride = self._normalize_bounds(start, stop, stride)
-
+        """Parse LAMMPS dump file sequentially for positions and forces."""
         needed_quantities = ["x", "y", "z", "fx", "fy", "fz"]
         strngdex = define_strngdex(needed_quantities, self.dic)
 
@@ -679,33 +628,13 @@ class VaspTrajectoryState(TrajectoryState):
         """
         return self.Vasprun.start.indices_from_symbol(atype)
 
-    def iter_frames(
+    def _iter_frames_impl(
         self,
-        start: int = 0,
-        stop: Optional[int] = None,
-        stride: int = 1
+        start: int,
+        stop: int,
+        stride: int
     ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
-        """
-        Iterate over trajectory frames, yielding positions and forces.
-
-        Parameters
-        ----------
-        start : int, optional
-            First frame index (default: 0). Negative indices count from end.
-        stop : int, optional
-            Stop iteration before this frame (default: None, meaning all frames).
-            Negative indices count from end.
-        stride : int, optional
-            Step between frames (default: 1).
-
-        Yields
-        ------
-        positions : np.ndarray
-            Atomic positions for the current frame, shape (n_atoms, 3).
-        forces : np.ndarray
-            Atomic forces for the current frame, shape (n_atoms, 3).
-        """
-        start, stop, stride = self._normalize_bounds(start, stop, stride)
+        """Iterate over in-memory position/force arrays."""
         for i in range(start, stop, stride):
             yield self.positions[i], self.forces[i]
 
