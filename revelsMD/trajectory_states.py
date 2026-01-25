@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm import tqdm
-import MDAnalysis as MD
-from lxml import etree  # type: ignore
+import MDAnalysis as MD  # type: ignore[import-untyped]
+from lxml import etree  # type: ignore[import-untyped]
 from abc import ABC, abstractmethod
 from typing import List, Union, Optional, Iterator, Tuple
 from pymatgen.core import Lattice
@@ -136,17 +136,17 @@ class TrajectoryState(ABC):
         return lx, ly, lz
 
     @abstractmethod
-    def get_indices(self, atype: Union[str, int]) -> np.ndarray:
+    def get_indices(self, atype: str) -> np.ndarray:
         """Return atom indices for a given species or type."""
         ...
 
     @abstractmethod
-    def get_charges(self, atype: Union[str, int]) -> np.ndarray:
+    def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for atoms of a given species or type."""
         ...
 
     @abstractmethod
-    def get_masses(self, atype: Union[str, int]) -> np.ndarray:
+    def get_masses(self, atype: str) -> np.ndarray:
         """Return atomic masses for atoms of a given species or type."""
         ...
 
@@ -549,18 +549,18 @@ class LammpsTrajectoryState(TrajectoryState):
         self._validate_orthorhombic([alpha, beta, gamma])
         self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
 
-    def get_indices(self, atype: Union[int, str]) -> np.ndarray:
-        """Return atom indices for a given LAMMPS atom type."""
+    def get_indices(self, atype: str) -> np.ndarray:
+        """Return atom indices for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').ids - 1
 
     get_indicies = get_indices
 
-    def get_charges(self, atype: Union[int, str]) -> np.ndarray:
-        """Return atomic charges for a given LAMMPS atom type."""
+    def get_charges(self, atype: str) -> np.ndarray:
+        """Return atomic charges for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').charges
 
-    def get_masses(self, atype: Union[int, str]) -> np.ndarray:
-        """Return atomic masses for a given LAMMPS atom type."""
+    def get_masses(self, atype: str) -> np.ndarray:
+        """Return atomic masses for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
 
     def _iter_frames_impl(
@@ -651,20 +651,19 @@ class VaspTrajectoryState(TrajectoryState):
         self.variety = 'vasp'
         self.units = 'metal'
         self.charge_and_mass = False
+        self.trajectory_file: Union[str, List[str]] = trajectory_file
 
         if isinstance(trajectory_file, list):
-            self.trajectory_file = trajectory_file
             self.Vasprun = Vasprun(trajectory_file[0])
-            self.Vasprun.start = self.Vasprun.structures[0]
+            self._start_structure = self.Vasprun.structures[0]
             self.frames = len(self.Vasprun.structures)
-            start = self.Vasprun.structures[0]
 
-            self._validate_cell(self.Vasprun.start.lattice)
-            self.box_x, self.box_y, self.box_z = np.diag(self.Vasprun.start.lattice.matrix)
-            self.positions = self.Vasprun.cart_coords
-            self.forces = self.Vasprun.forces
-            if self.forces is None:
+            self._validate_cell(self._start_structure.lattice)
+            self.box_x, self.box_y, self.box_z = np.diag(self._start_structure.lattice.matrix)
+            if self.Vasprun.forces is None:
                 raise ValueError(f"No forces found in {trajectory_file[0]}")
+            self.positions: np.ndarray = self.Vasprun.cart_coords
+            self.forces: np.ndarray = self.Vasprun.forces
 
             for item in trajectory_file[1:]:
                 next_run = Vasprun(item)
@@ -674,20 +673,20 @@ class VaspTrajectoryState(TrajectoryState):
                 self.positions = np.append(self.positions, next_run.cart_coords, axis=0)
                 self.forces = np.append(self.forces, next_run.forces, axis=0)
 
-            self.Vasprun.start = start
-
         else:
-            self.trajectory_file = trajectory_file
             self.Vasprun = Vasprun(trajectory_file)
-            self.Vasprun.start = self.Vasprun.structures[0]
+            self._start_structure = self.Vasprun.structures[0]
             self.frames = len(self.Vasprun.structures)
 
-            self._validate_cell(self.Vasprun.start.lattice)
-            self.box_x, self.box_y, self.box_z = np.diag(self.Vasprun.start.lattice.matrix)
+            self._validate_cell(self._start_structure.lattice)
+            self.box_x, self.box_y, self.box_z = np.diag(self._start_structure.lattice.matrix)
+            if self.Vasprun.forces is None:
+                raise ValueError(f"No forces found in {trajectory_file}")
             self.positions = self.Vasprun.cart_coords
             self.forces = self.Vasprun.forces
-            if self.forces is None:
-                raise ValueError(f"No forces found in {trajectory_file}")
+
+        # Backwards compatibility: expose start structure via Vasprun.start
+        self.Vasprun.start = self._start_structure
 
     @staticmethod
     def _validate_cell(lattice: Lattice):
@@ -708,7 +707,7 @@ class VaspTrajectoryState(TrajectoryState):
         np.ndarray
             Array of atom indices matching the requested species.
         """
-        return self.Vasprun.start.indices_from_symbol(atype)
+        return np.array(self._start_structure.indices_from_symbol(atype))
 
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for atoms of a given species.
