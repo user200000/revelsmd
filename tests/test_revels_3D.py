@@ -106,7 +106,7 @@ def test_helper_process_frame_kernels(ts, kernel):
 def test_selectionstate_single(ts):
     ss = Revels3D.SelectionState(ts, "H", centre_location=True)
     assert ss.indistinguishable_set
-    assert isinstance(ss.indicies, np.ndarray)
+    assert isinstance(ss.indices, np.ndarray)
     assert np.all(ss.charges == 0.1)
     assert np.all(ss.masses == 1.0)
 
@@ -114,8 +114,8 @@ def test_selectionstate_single(ts):
 def test_selectionstate_rigid(ts):
     ss = Revels3D.SelectionState(ts, ["H", "O"], centre_location=True)
     assert not ss.indistinguishable_set
-    assert isinstance(ss.indicies, list)
-    assert len(ss.indicies) == 2
+    assert isinstance(ss.indices, list)
+    assert len(ss.indices) == 2
     assert len(ss.masses) == 2
 
 

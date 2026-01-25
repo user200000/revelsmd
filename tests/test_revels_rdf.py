@@ -31,7 +31,7 @@ class TSMock:
         self._charges = {"H": np.array([0.1, 0.1]), "O": np.array([-0.2])}
         self._masses = {"H": np.array([1.0, 1.0]), "O": np.array([16.0])}
 
-    def get_indicies(self, atype):
+    def get_indices(self, atype):
         return self._ids[atype]
 
     def get_charges(self, atype):
@@ -53,11 +53,11 @@ def ts():
 
 def test_single_frame_rdf_like(ts):
     bins = np.linspace(0, 5, 10)
-    indicies = ts.get_indicies("H")
+    indices = ts.get_indices("H")
     result = RevelsRDF.single_frame_rdf_like(
         ts.positions[0],
         ts.forces[0],
-        indicies,
+        indices,
         ts.box_x,
         ts.box_y,
         ts.box_z,
@@ -74,11 +74,11 @@ def test_single_frame_rdf_like(ts):
 
 def test_single_frame_rdf_unlike(ts):
     bins = np.linspace(0, 5, 10)
-    indicies = [ts.get_indicies("H"), ts.get_indicies("O")]
+    indices = [ts.get_indices("H"), ts.get_indices("O")]
     result = RevelsRDF.single_frame_rdf_unlike(
         ts.positions[0],
         ts.forces[0],
-        indicies,
+        indices,
         ts.box_x,
         ts.box_y,
         ts.box_z,
