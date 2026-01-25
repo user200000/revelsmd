@@ -462,6 +462,39 @@ def test_triangular_multiple_particles():
     assert np.isclose(gs.forceX.sum(), 3.0), f"Total forceX should be 3, got {gs.forceX.sum()}"
 
 
+@pytest.mark.xfail(reason="Bug: triangular_allocation loses contributions when particles share voxels")
+def test_triangular_overlapping_particles():
+    """Two particles at same position should accumulate, not overwrite.
+
+    This tests for a bug where NumPy fancy indexing with += doesn't
+    accumulate when indices contain duplicates - only the last value wins.
+    """
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    # Two particles at IDENTICAL positions
+    homeX = np.array([5.0, 5.0])
+    homeY = np.array([5.0, 5.0])
+    homeZ = np.array([5.0, 5.0])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    # Different forces: particle 1 has [1,0,0], particle 2 has [2,0,0]
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([1.0, 2.0]),
+        foy=np.array([0.0, 0.0]),
+        foz=np.array([0.0, 0.0]),
+        a=1.0
+    )
+
+    # Expected: total forceX = 1 + 2 = 3, counter = 2
+    # Bug: only the last particle's contribution is kept (forceX = 2, counter = 1)
+    assert np.isclose(gs.counter.sum(), 2.0), f"Total count should be 2, got {gs.counter.sum()}"
+    assert np.isclose(gs.forceX.sum(), 3.0), f"Total forceX should be 3 (1+2), got {gs.forceX.sum()}"
+
+
 # ---------------------------
 # sum_forces tests
 # ---------------------------
