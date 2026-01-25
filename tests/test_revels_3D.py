@@ -41,6 +41,12 @@ class TSMock:
     def get_masses(self, atype):
         return self._masses[atype]
 
+    def iter_frames(self, start=0, stop=None, stride=1):
+        if stop is None:
+            stop = self.frames
+        for i in range(start, stop, stride):
+            yield self.positions[i], self.forces[i]
+
 
 @pytest.fixture
 def ts():
