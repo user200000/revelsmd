@@ -17,7 +17,26 @@ class TrajectoryState(ABC):
 
     All trajectory backends must implement this interface to ensure consistent
     access patterns across different file formats and data sources.
+
+    Required Attributes
+    -------------------
+    frames : int
+        Number of frames in the trajectory.
+    box_x, box_y, box_z : float
+        Simulation box dimensions in each Cartesian direction.
+    units : str
+        Unit system identifier (e.g., 'real', 'metal', 'mda').
+    charge_and_mass : bool
+        Whether charge and mass data are available for this trajectory.
     """
+
+    # Required attributes - subclasses must set these
+    frames: int
+    box_x: float
+    box_y: float
+    box_z: float
+    units: str
+    charge_and_mass: bool
 
     def _normalize_bounds(
         self, start: int, stop: Optional[int], stride: int
@@ -69,6 +88,16 @@ class TrajectoryState(ABC):
     @abstractmethod
     def get_indices(self, atype: Union[str, int]) -> np.ndarray:
         """Return atom indices for a given species or type."""
+        ...
+
+    @abstractmethod
+    def get_charges(self, atype: Union[str, int]) -> np.ndarray:
+        """Return atomic charges for atoms of a given species or type."""
+        ...
+
+    @abstractmethod
+    def get_masses(self, atype: Union[str, int]) -> np.ndarray:
+        """Return atomic masses for atoms of a given species or type."""
         ...
 
     def iter_frames(
@@ -369,6 +398,20 @@ class NumpyTrajectoryState(TrajectoryState):
 
     get_indicies = get_indices
 
+    def get_charges(self, atype: str) -> np.ndarray:
+        """Return atomic charges for atoms of a given species."""
+        if not self.charge_and_mass:
+            raise ValueError("Charge data not available for this trajectory.")
+        indices = self.get_indices(atype)
+        return self.charge_list[indices]
+
+    def get_masses(self, atype: str) -> np.ndarray:
+        """Return atomic masses for atoms of a given species."""
+        if not self.charge_and_mass:
+            raise ValueError("Mass data not available for this trajectory.")
+        indices = self.get_indices(atype)
+        return self.mass_list[indices]
+
     def _iter_frames_impl(
         self,
         start: int,
@@ -627,6 +670,20 @@ class VaspTrajectoryState(TrajectoryState):
             Array of atom indices matching the requested species.
         """
         return self.Vasprun.start.indices_from_symbol(atype)
+
+    def get_charges(self, atype: str) -> np.ndarray:
+        """Return atomic charges for atoms of a given species.
+
+        VASP does not provide charge data in vasprun.xml, so this raises an error.
+        """
+        raise ValueError("Charge data not available for VASP trajectories.")
+
+    def get_masses(self, atype: str) -> np.ndarray:
+        """Return atomic masses for atoms of a given species.
+
+        VASP does not provide mass data in vasprun.xml, so this raises an error.
+        """
+        raise ValueError("Mass data not available for VASP trajectories.")
 
     def _iter_frames_impl(
         self,
