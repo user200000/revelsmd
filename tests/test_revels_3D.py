@@ -195,6 +195,7 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
 
 def test_get_lambda_basic(ts):
+    """Test basic get_lambda functionality."""
     gs = Revels3D.GridState(ts, "number", 300, nbins=4)
     gs.make_force_grid(ts, atom_names="H", rigid=False)
     gs.get_real_density()
