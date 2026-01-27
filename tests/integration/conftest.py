@@ -95,7 +95,6 @@ def example1_trajectory():
         str(data_file),
         units='lj',
         atom_style="id resid type q x y z ix iy iz",
-        charge_and_mass=False,  # LJ example doesn't have charge data
     )
 
 
@@ -122,7 +121,6 @@ def example2_trajectory():
         str(data_file),
         units='lj',
         atom_style="id resid type q x y z ix iy iz",
-        charge_and_mass=False,
     )
 
 

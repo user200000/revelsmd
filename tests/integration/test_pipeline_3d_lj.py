@@ -27,7 +27,8 @@ class TestNumberDensityPipelineExample2:
         """Verify Example 2 trajectory loads with expected properties."""
         ts = example2_trajectory
 
-        assert ts.variety == 'lammps'
+        from revelsMD.trajectory_states import LammpsTrajectoryState
+        assert isinstance(ts, LammpsTrajectoryState)
         assert ts.units == 'lj'
         assert ts.frames > 0
         assert ts.box_x > 0

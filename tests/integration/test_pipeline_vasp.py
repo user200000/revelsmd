@@ -25,7 +25,8 @@ class TestVASPPipelineExample3:
         """Verify VASP trajectory loads with expected properties."""
         ts = vasp_trajectory
 
-        assert ts.variety == 'vasp'
+        from revelsMD.trajectory_states import VaspTrajectoryState
+        assert isinstance(ts, VaspTrajectoryState)
         assert ts.units == 'metal'
         assert ts.frames > 0
         assert ts.box_x > 0

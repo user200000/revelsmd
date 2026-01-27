@@ -26,7 +26,8 @@ class TestRigidWaterPipelineExample4:
         """Verify Example 4 trajectory loads with expected properties."""
         ts = example4_trajectory
 
-        assert ts.variety == 'mda'
+        from revelsMD.trajectory_states import MDATrajectoryState
+        assert isinstance(ts, MDATrajectoryState)
         assert ts.frames > 0
         assert ts.box_x > 0
 

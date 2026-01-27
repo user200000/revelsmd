@@ -25,7 +25,8 @@ class TestRDFPipelineExample1:
         """Verify Example 1 trajectory loads with expected properties."""
         ts = example1_trajectory
 
-        assert ts.variety == 'lammps'
+        from revelsMD.trajectory_states import LammpsTrajectoryState
+        assert isinstance(ts, LammpsTrajectoryState)
         assert ts.units == 'lj'
         assert ts.frames > 0
         assert ts.box_x > 0
