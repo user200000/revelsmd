@@ -1,27 +1,8 @@
-# Python
-**/__pycache__/
-**/*.pyc
-**/*.pyo
-**/*.egg-info/
+**/__pycache__
 
-# Numba cache
-**/*.nbc
-**/*.nbi
-
-# Coverage
-.coverage
-coverage.xml
-
-# OS
-**/.DS_Store
-
-# Test outputs (generated locally)
+# Test outputs (generated, not committed)
 tests/validation_plots/
-tests/reference_data/
+tests/reference_data/*.npz
+
+# Test data subsets (large binary files)
 tests/test_data/
-
-# Examples (large data files)
-examples/
-
-# Benchmarks
-benchmarks/
