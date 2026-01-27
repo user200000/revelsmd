@@ -249,7 +249,7 @@ class TestSyntheticRegression:
 
         result = RevelsRDF.run_rdf_lambda(
             uniform_gas_trajectory, '1', '1', temp=1.0,
-            delr=0.1, start=0, stop=-1
+            delr=0.1, start=0, stop=None
         )
 
         assert_arrays_close(

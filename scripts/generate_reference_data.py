@@ -54,7 +54,6 @@ def generate_lammps_references():
         str(data_file),
         units='lj',
         atom_style="id resid type q x y z ix iy iz",
-        charge_and_mass=False,
     )
 
     output_dir = REFERENCE_DIR / "lammps_example1"
@@ -289,11 +288,11 @@ def generate_synthetic_references():
         positions, forces, box, box, box, species, units='lj'
     )
 
-    # RDF for uniform gas
+    # RDF for uniform gas (use all frames)
     print("  Computing uniform gas RDF...")
     rdf = RevelsRDF.run_rdf_lambda(
         ts, '1', '1', temp=1.0,
-        delr=0.1, start=0, stop=-1
+        delr=0.1, start=0, stop=None
     )
     np.savez(
         output_dir / "uniform_gas_rdf.npz",

@@ -3,6 +3,7 @@ from collections.abc import Iterator
 
 import numpy as np
 import MDAnalysis as MD  # type: ignore[import-untyped]
+from MDAnalysis.exceptions import NoDataError
 from pymatgen.core import Lattice
 
 from revelsMD.revels_tools.lammps_parser import first_read, get_a_frame, define_strngdex, frame_skip
@@ -550,11 +551,17 @@ class LammpsTrajectoryState(TrajectoryState):
 
     def get_charges(self, atype: int | str) -> np.ndarray:
         """Return atomic charges for a given LAMMPS atom type (as string, e.g. '1', '2')."""
-        return self.mdanalysis_universe.select_atoms(f'type {atype}').charges
+        try:
+            return self.mdanalysis_universe.select_atoms(f'type {atype}').charges
+        except NoDataError:
+            raise DataUnavailableError("Charge data not available for this LAMMPS trajectory.")
 
     def get_masses(self, atype: int | str) -> np.ndarray:
         """Return atomic masses for a given LAMMPS atom type (as string, e.g. '1', '2')."""
-        return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
+        try:
+            return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
+        except NoDataError:
+            raise DataUnavailableError("Mass data not available for this LAMMPS trajectory.")
 
     def _iter_frames_impl(
         self,
