@@ -143,20 +143,20 @@ def test_position_centre_out_of_range(ts):
         ss.position_centre(10)
 
 
-@pytest.mark.xfail(reason="Issue #10: rigid validation rejects molecules with unequal atom counts")
-def test_selectionstate_rigid_unequal_counts():
-    """Rigid molecules like water (2H + 1O) should be allowed.
+def test_selectionstate_rigid_water():
+    """Rigid molecules require unique labels for each atom in the molecule.
 
-    Currently raises ValueError because validation requires equal counts per species.
+    Since topology data is not used, atoms are identified by unique labels
+    (e.g. Ow, Hw1, Hw2 for water) rather than element symbols.
     """
     class WaterTSMock:
         box_x = box_y = box_z = 10.0
         units = "real"
-        species = ["H", "O"]
-        # 2 water molecules: 2H + 1O each = 4H + 2O total
-        _ids = {"H": np.array([0, 1, 3, 4]), "O": np.array([2, 5])}
-        _charges = {"H": np.array([0.4, 0.4, 0.4, 0.4]), "O": np.array([-0.8, -0.8])}
-        _masses = {"H": np.array([1.0, 1.0, 1.0, 1.0]), "O": np.array([16.0, 16.0])}
+        species = ["Ow", "Hw1", "Hw2"]
+        # 2 water molecules: Ow, Hw1, Hw2 each = 2 atoms per species
+        _ids = {"Ow": np.array([0, 3]), "Hw1": np.array([1, 4]), "Hw2": np.array([2, 5])}
+        _charges = {"Ow": np.array([-0.8, -0.8]), "Hw1": np.array([0.4, 0.4]), "Hw2": np.array([0.4, 0.4])}
+        _masses = {"Ow": np.array([16.0, 16.0]), "Hw1": np.array([1.0, 1.0]), "Hw2": np.array([1.0, 1.0])}
 
         def get_indices(self, atype):
             return self._ids[atype]
@@ -168,11 +168,11 @@ def test_selectionstate_rigid_unequal_counts():
             return self._masses[atype]
 
     ts_water = WaterTSMock()
-    # This should work but currently raises ValueError when rigid=True
-    ss = Revels3D.SelectionState(ts_water, ["H", "O"], centre_location=True, rigid=True)
-    assert len(ss.indices) == 2
-    assert len(ss.indices[0]) == 4  # 4 H atoms
-    assert len(ss.indices[1]) == 2  # 2 O atoms
+    ss = Revels3D.SelectionState(ts_water, ["Ow", "Hw1", "Hw2"], centre_location=True, rigid=True)
+    assert len(ss.indices) == 3
+    assert len(ss.indices[0]) == 2  # 2 Ow atoms
+    assert len(ss.indices[1]) == 2  # 2 Hw1 atoms
+    assert len(ss.indices[2]) == 2  # 2 Hw2 atoms
 
 
 # ---------------------------
