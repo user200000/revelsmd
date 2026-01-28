@@ -193,6 +193,64 @@ def test_run_rdf_lambda_like(ts):
     assert np.all((result[:, 2] >= -1) & (result[:, 2] <= 2))  # λ values roughly bounded
 
 
+def test_run_rdf_lambda_unlike(ts):
+    """Test run_rdf_lambda with unlike atom pairs (H-O)."""
+    result = RevelsRDF.run_rdf_lambda(
+        ts,
+        atom_a="H",
+        atom_b="O",
+        temp=300,
+        delr=1.0,
+        start=0,
+        stop=2,
+        period=1,
+        rmax=True,
+    )
+    assert isinstance(result, np.ndarray)
+    assert result.shape[1] == 3
+    assert np.all(np.isfinite(result))
+
+
+def test_run_rdf_lambda_invalid_start_frame(ts):
+    """Test run_rdf_lambda raises ValueError when start frame exceeds trajectory length."""
+    with pytest.raises(ValueError, match="First frame index"):
+        RevelsRDF.run_rdf_lambda(
+            ts, atom_a="H", atom_b="H", temp=300, start=100, stop=2
+        )
+
+
+def test_run_rdf_lambda_invalid_stop_frame(ts):
+    """Test run_rdf_lambda raises ValueError when stop frame exceeds trajectory length."""
+    with pytest.raises(ValueError, match="Final frame index"):
+        RevelsRDF.run_rdf_lambda(
+            ts, atom_a="H", atom_b="H", temp=300, start=0, stop=100
+        )
+
+
+def test_run_rdf_lambda_empty_range(ts):
+    """Test run_rdf_lambda raises ValueError when frame range is empty."""
+    with pytest.raises(ValueError, match="before first frame"):
+        RevelsRDF.run_rdf_lambda(
+            ts, atom_a="H", atom_b="H", temp=300, start=2, stop=0
+        )
+
+
+def test_run_rdf_lambda_rmax_false(ts):
+    """Test run_rdf_lambda with explicit rmax value (rmax=False uses box/2)."""
+    result = RevelsRDF.run_rdf_lambda(
+        ts,
+        atom_a="H",
+        atom_b="H",
+        temp=300,
+        delr=1.0,
+        start=0,
+        stop=2,
+        rmax=False,
+    )
+    assert isinstance(result, np.ndarray)
+    assert result.shape[1] == 3
+
+
 # -------------------------------
 # run_rdf_lambda edge conditions
 # -------------------------------
