@@ -9,7 +9,7 @@ from typing import Iterator
 
 import numpy as np
 
-from ._base import Trajectory, DataUnavailableError
+from ._base import Trajectory, DataUnavailableError, compute_beta
 
 
 class NumpyTrajectory(Trajectory):
@@ -29,12 +29,21 @@ class NumpyTrajectory(Trajectory):
         Simulation box lengths in each Cartesian direction.
     species_list : list of str
         Atom names corresponding to each atom index.
+    temperature : float
+        Simulation temperature in Kelvin.
     units : str, optional
         Unit system string (default: `'real'`).
     charge_list : np.ndarray, optional
         Atomic charge array (optional).
     mass_list : np.ndarray, optional
         Atomic mass array (optional).
+
+    Attributes
+    ----------
+    temperature : float
+        Simulation temperature in Kelvin.
+    beta : float
+        Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
 
     Raises
     ------
@@ -55,6 +64,8 @@ class NumpyTrajectory(Trajectory):
         box_y: float,
         box_z: float,
         species_list: list[str],
+        *,
+        temperature: float,
         units: str = 'real',
         charge_list: np.ndarray | None = None,
         mass_list: np.ndarray | None = None,
@@ -76,6 +87,8 @@ class NumpyTrajectory(Trajectory):
         self.box_z = box_z
         self.units = units
         self.frames = positions.shape[0]
+        self.temperature = temperature
+        self.beta = compute_beta(units, temperature)
 
         if charge_list is not None:
             self.charge_list = charge_list

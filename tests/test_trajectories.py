@@ -90,7 +90,7 @@ def test_numpy_state_valid_and_accessors():
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
     assert state.frames == 5
     assert np.allclose(state.get_indices("H"), [1, 2])
 
@@ -102,20 +102,20 @@ def test_numpy_state_species_not_found():
     positions = np.zeros((1, 2, 3))
     forces = np.ones((1, 2, 3))
     species = ["O", "H"]
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
     with pytest.raises(ValueError, match="Species 'C' not found"):
         state.get_indices("C")
 
 
 def test_numpy_state_invalid_shapes_and_box():
     with pytest.raises(ValueError, match="incommensurate"):
-        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 3, 3)), 10, 10, 10, ["O", "H"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 3, 3)), 10, 10, 10, ["O", "H"], temperature=300.0)
 
     with pytest.raises(ValueError, match="incommensurate"):
-        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), 10, 10, 10, ["O"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), 10, 10, 10, ["O"], temperature=300.0)
 
     with pytest.raises(ValueError, match="positive values"):
-        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), -1, 10, 10, ["O", "H"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), -1, 10, 10, ["O", "H"], temperature=300.0)
 
 
 # -----------------------------------------------------------------------------
@@ -287,7 +287,7 @@ def test_numpy_iter_frames_yields_all_frames():
     forces = np.random.rand(n_frames, n_atoms, 3)
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     frames = list(state.iter_frames())
     assert len(frames) == n_frames
@@ -304,7 +304,7 @@ def test_numpy_iter_frames_with_start_stop_stride():
     forces = np.zeros((n_frames, n_atoms, 3))
     species = ["A", "B"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     # Test start=2, stop=8, stride=2 -> frames 2, 4, 6
     frames = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -516,7 +516,7 @@ def test_numpy_get_frame_returns_correct_data():
     forces = np.random.rand(n_frames, n_atoms, 3)
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -531,7 +531,7 @@ def test_numpy_get_frame_random_access():
     forces = np.zeros((n_frames, n_atoms, 3))
     species = ["A", "B"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     # Access frames in non-sequential order
     for i in [7, 2, 9, 0, 5]:
@@ -692,7 +692,7 @@ def test_numpy_get_charges_returns_correct_values():
 
     state = NumpyTrajectory(
         positions, forces, 10, 10, 10, species,
-        charge_list=charges, mass_list=masses
+        temperature=300.0, charge_list=charges, mass_list=masses
     )
 
     np.testing.assert_array_equal(state.get_charges("O"), [0.5])
@@ -709,7 +709,7 @@ def test_numpy_get_masses_returns_correct_values():
 
     state = NumpyTrajectory(
         positions, forces, 10, 10, 10, species,
-        charge_list=charges, mass_list=masses
+        temperature=300.0, charge_list=charges, mass_list=masses
     )
 
     np.testing.assert_array_equal(state.get_masses("O"), [16.0])
@@ -722,7 +722,7 @@ def test_numpy_get_charges_raises_without_charge_data():
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     with pytest.raises(DataUnavailableError, match="Charge data not available"):
         state.get_charges("O")
@@ -734,7 +734,7 @@ def test_numpy_get_masses_raises_without_mass_data():
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     with pytest.raises(DataUnavailableError, match="Mass data not available"):
         state.get_masses("O")
@@ -792,7 +792,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
         # stop=-1 means "all but last" -> frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
@@ -808,7 +808,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
         # start=-3 means start at frame 7 (10-3=7)
         frames = list(state.iter_frames(start=-3))
@@ -825,7 +825,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
         # start=-5 (frame 5), stop=-2 (frame 8) -> frames 5, 6, 7
         frames = list(state.iter_frames(start=-5, stop=-2))
@@ -842,7 +842,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
         frames = list(state.iter_frames(stop=None))
         assert len(frames) == n_frames
@@ -906,6 +906,119 @@ class TestIterFramesNegativeIndices:
 # -----------------------------------------------------------------------------
 # compute_beta - Unit conversion function
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Trajectory temperature and beta attributes
+# -----------------------------------------------------------------------------
+class TestTrajectoryBetaAttribute:
+    """Tests for temperature and beta attributes on trajectory classes."""
+
+    def test_numpy_trajectory_requires_temperature(self):
+        """NumpyTrajectory should require temperature as a keyword argument."""
+        positions = np.zeros((5, 3, 3))
+        forces = np.ones((5, 3, 3))
+        species = ["O", "H", "H"]
+
+        with pytest.raises(TypeError):
+            NumpyTrajectory(positions, forces, 10, 10, 10, species)
+
+    def test_numpy_trajectory_stores_temperature(self):
+        """NumpyTrajectory should store the temperature attribute."""
+        positions = np.zeros((5, 3, 3))
+        forces = np.ones((5, 3, 3))
+        species = ["O", "H", "H"]
+
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
+        assert state.temperature == 300.0
+
+    def test_numpy_trajectory_computes_beta(self):
+        """NumpyTrajectory should compute beta from temperature and units."""
+        positions = np.zeros((5, 3, 3))
+        forces = np.ones((5, 3, 3))
+        species = ["O", "H", "H"]
+
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0, units='real')
+        expected_beta = compute_beta('real', 300.0)
+        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
+    def test_numpy_trajectory_beta_with_lj_units(self):
+        """In LJ units at T=1, beta should be 1.0."""
+        positions = np.zeros((5, 3, 3))
+        forces = np.ones((5, 3, 3))
+        species = ["O", "H", "H"]
+
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=1.0, units='lj')
+        assert state.beta == 1.0
+
+    @patch("revelsMD.trajectories.mda.MD.Universe")
+    def test_mda_trajectory_requires_temperature(self, mock_universe, mock_mdanalysis_universe):
+        """MDATrajectory should require temperature as a keyword argument."""
+        mock_universe.return_value = mock_mdanalysis_universe
+
+        with pytest.raises(TypeError):
+            MDATrajectory("traj.xtc", "topol.pdb")
+
+    @patch("revelsMD.trajectories.mda.MD.Universe")
+    def test_mda_trajectory_stores_temperature_and_beta(self, mock_universe, mock_mdanalysis_universe):
+        """MDATrajectory should store temperature and compute beta."""
+        mock_universe.return_value = mock_mdanalysis_universe
+
+        state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
+        assert state.temperature == 300.0
+        expected_beta = compute_beta('mda', 300.0)
+        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
+    @patch("revelsMD.trajectories.vasp.Vasprun")
+    def test_vasp_trajectory_requires_temperature(self, mock_vasprun):
+        """VaspTrajectory should require temperature as a keyword argument."""
+        mock_instance = mock_vasprun.return_value
+        mock_instance.structures = [MagicMock()]
+        mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
+        mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
+        mock_instance.start = mock_instance.structures[0]
+        mock_instance.cart_coords = np.zeros((1, 1, 3))
+        mock_instance.forces = np.zeros((1, 1, 3))
+
+        with pytest.raises(TypeError):
+            VaspTrajectory("vasprun.xml")
+
+    @patch("revelsMD.trajectories.vasp.Vasprun")
+    def test_vasp_trajectory_stores_temperature_and_beta(self, mock_vasprun):
+        """VaspTrajectory should store temperature and compute beta in metal units."""
+        mock_instance = mock_vasprun.return_value
+        mock_instance.structures = [MagicMock()]
+        mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
+        mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
+        mock_instance.start = mock_instance.structures[0]
+        mock_instance.start.indices_from_symbol.return_value = np.array([0])
+        mock_instance.cart_coords = np.zeros((1, 1, 3))
+        mock_instance.forces = np.zeros((1, 1, 3))
+
+        state = VaspTrajectory("vasprun.xml", temperature=500.0)
+        assert state.temperature == 500.0
+        expected_beta = compute_beta('metal', 500.0)
+        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
+    @patch("revelsMD.trajectories.mda.MD.Universe")
+    @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+    def test_lammps_trajectory_requires_temperature(self, mock_first_read, mock_universe, mock_mdanalysis_universe):
+        """LammpsTrajectory should require temperature as a keyword argument."""
+        mock_universe.return_value = mock_mdanalysis_universe
+
+        with pytest.raises(TypeError):
+            LammpsTrajectory("dump.lammpstrj", "data.lmp")
+
+    @patch("revelsMD.trajectories.mda.MD.Universe")
+    @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+    def test_lammps_trajectory_stores_temperature_and_beta(self, mock_first_read, mock_universe, mock_mdanalysis_universe):
+        """LammpsTrajectory should store temperature and compute beta."""
+        mock_universe.return_value = mock_mdanalysis_universe
+
+        state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=350.0, units='real')
+        assert state.temperature == 350.0
+        expected_beta = compute_beta('real', 350.0)
+        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
+
 class TestComputeBeta:
     """Tests for the compute_beta() function."""
 
