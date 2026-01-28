@@ -122,24 +122,16 @@ class TestVASPPipelineExample3:
         assert rdf is not None
         assert np.all(np.isfinite(rdf))
 
-    @pytest.mark.slow
     def test_lambda_density(self, vasp_trajectory):
-        """Lambda-combined density for fluoride (if enough frames)."""
+        """Lambda-combined density for fluoride."""
         ts = vasp_trajectory
 
-        if ts.frames < 10:
-            pytest.skip("Not enough frames for lambda combination")
-
         gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=600)
-        gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
+        gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
-        # Use fewer sections due to short trajectory
-        n_sections = min(5, ts.frames // 2)
-        if n_sections < 2:
-            pytest.skip("Not enough frames for variance estimation")
-
-        gs_lambda = gs.get_lambda(ts, sections=n_sections)
+        # Use 5 sections for variance estimation with 10 frames
+        gs_lambda = gs.get_lambda(ts, sections=5)
 
         assert gs_lambda.grid_progress == "Lambda"
         assert hasattr(gs_lambda, 'optimal_density')

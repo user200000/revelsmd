@@ -38,7 +38,7 @@ class TestLammpsRegression:
     """Regression tests against stored LAMMPS Example 1 results."""
 
     def test_rdf_forward_regression(self, example1_trajectory):
-        """RDF forward integration matches stored reference."""
+        """RDF forward integration matches stored reference and has valid physics."""
         ref = load_reference("lammps_example1", "rdf_forward.npz")
 
         result = RevelsRDF.run_rdf(
@@ -46,6 +46,7 @@ class TestLammpsRegression:
             delr=0.02, from_zero=True, start=0, stop=5
         )
 
+        # Regression check against stored data
         assert_arrays_close(
             result[0], ref['r'],
             rtol=1e-10, context="r values"
@@ -54,6 +55,26 @@ class TestLammpsRegression:
             result[1], ref['g_r'],
             rtol=1e-10, context="g(r) forward"
         )
+
+        # Physical property checks (saves computing RDF twice)
+        # g(r) should have a first peak (LJ fluid)
+        assert np.max(result[1]) > 1.0, "LJ fluid should have g(r) peak > 1"
+
+        # Check first peak position (LJ sigma ~ 1.0 in reduced units)
+        short_range_mask = result[0] < 2.0
+        short_range_r = result[0][short_range_mask]
+        short_range_gr = result[1][short_range_mask]
+        if len(short_range_gr) > 0:
+            peak_idx = np.argmax(short_range_gr)
+            peak_r = short_range_r[peak_idx]
+            assert 0.8 < peak_r < 1.5, f"First peak at r = {peak_r}, expected near 1.0"
+
+        # Check normalisation in bulk region (r > 3 sigma)
+        bulk_mask = result[0] > 3.0
+        if np.any(bulk_mask):
+            bulk_gr = result[1][bulk_mask]
+            mean_bulk = np.mean(bulk_gr)
+            assert abs(mean_bulk - 1.0) < 0.2, f"Bulk g(r) = {mean_bulk}, expected ~1.0"
 
     def test_rdf_backward_regression(self, example1_trajectory):
         """RDF backward integration matches stored reference."""

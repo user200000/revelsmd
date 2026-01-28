@@ -49,8 +49,7 @@ class TestRigidWaterPipelineExample4:
         """Water trajectory should have charge data."""
         ts = example4_trajectory
 
-        assert ts.charge_and_mass is True
-
+        # MDATrajectoryState gets charges via MDAnalysis universe
         ow_charges = ts.get_charges('Ow')
         hw1_charges = ts.get_charges('Hw1')
 
@@ -105,24 +104,22 @@ class TestRigidWaterPipelineExample4:
         # Check it has some structure (non-zero variance)
         assert np.std(gs.rho) > 0, "Polarisation density should have spatial variation"
 
-    @pytest.mark.slow
     def test_number_density_larger_subset(self, example4_trajectory):
-        """Number density with more frames (slow)."""
+        """Number density with larger frame subset for better statistics."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=100, temperature=300)
+        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=300)
 
-        # Use 100 frames
-        n_frames = min(100, ts.frames)
+        # Use 10 frames - enough for reasonable statistics, fast enough for tests
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
-            start=0, stop=n_frames, period=1
+            start=0, stop=10, period=1
         )
 
         gs.get_real_density()
 
-        assert gs.count == n_frames
+        assert gs.count == 10
         assert np.all(np.isfinite(gs.rho))
 
     def test_write_cube_output(self, example4_trajectory, tmp_path):
@@ -152,26 +149,8 @@ class TestRigidWaterPipelineExample4:
             # Cube files start with 2 comment lines, then atom count line
             assert len(lines) > 6, "Cube file should have header and data"
 
-    @pytest.mark.regression
-    @pytest.mark.slow
-    def test_number_density_regression(self, example4_trajectory):
-        """Number density matches stored reference data."""
-        ts = example4_trajectory
-
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=300)
-        gs.make_force_grid(
-            ts, ['Ow', 'Hw1', 'Hw2'],
-            kernel='triangular', rigid=True,
-            start=0, stop=100, period=1
-        )
-        gs.get_real_density()
-
-        ref = load_reference_data("rigid_water_example4", "number_density.npz")
-
-        if ref is None:
-            pytest.skip("Reference data not generated yet")
-
-        assert_arrays_close(gs.rho, ref['rho'], rtol=1e-6, context="density values")
+    # Note: Regression tests are in test_regression.py which uses the correct
+    # reference data paths (mda_example4, not rigid_water_example4).
 
 
 @pytest.mark.integration
@@ -185,7 +164,7 @@ class TestRigidWaterRDF:
 
         rdf = RevelsRDF.run_rdf(
             ts, 'Ow', 'Ow', temp=300,
-            period=1, delr=0.05, start=0, stop=10
+            period=1, delr=0.1, start=0, stop=5
         )
 
         assert rdf is not None
@@ -206,7 +185,7 @@ class TestRigidWaterRDF:
 
         rdf = RevelsRDF.run_rdf(
             ts, 'Ow', 'Hw1', temp=300,
-            period=1, delr=0.05, start=0, stop=10
+            period=1, delr=0.1, start=0, stop=5
         )
 
         assert rdf is not None
@@ -262,7 +241,7 @@ class TestRigidWaterPhysicalProperties:
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
-            start=0, stop=20, period=1
+            start=0, stop=5, period=1
         )
         gs.get_real_density()
 

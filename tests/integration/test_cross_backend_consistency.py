@@ -155,76 +155,8 @@ class TestMDAVsNumpyConsistency:
         )
 
 
-@pytest.mark.integration
-@pytest.mark.requires_example1
-class TestForwardBackwardConsistency:
-    """
-    Test that forward and backward RDF integration converge to consistent values.
-
-    The from_zero=True (forward) and from_zero=False (backward) methods should
-    give the same results in the bulk region, though they may differ at boundaries.
-    """
-
-    def test_bulk_convergence(self, example1_trajectory):
-        """Forward and backward integration should agree in bulk region."""
-        ts = example1_trajectory
-
-        # Use small subset of frames for reasonable test time (5 frames ~10s)
-        rdf_forward = RevelsRDF.run_rdf(
-            ts, '1', '1', temp=1.35,
-            delr=0.02, from_zero=True, start=0, stop=5
-        )
-
-        rdf_backward = RevelsRDF.run_rdf(
-            ts, '1', '1', temp=1.35,
-            delr=0.02, from_zero=False, start=0, stop=5
-        )
-
-        # Find bulk region (2.5 < r < 4.5 in LJ units)
-        bulk_mask = (rdf_forward[0] > 2.5) & (rdf_forward[0] < 4.5)
-
-        if np.any(bulk_mask):
-            # Extract bulk values
-            bulk_forward = rdf_forward[1][bulk_mask]
-            bulk_backward = rdf_backward[1][bulk_mask]
-
-            # Mean values should be close
-            mean_forward = np.mean(bulk_forward)
-            mean_backward = np.mean(bulk_backward)
-
-            assert abs(mean_forward - mean_backward) < 0.1, \
-                f"Forward ({mean_forward:.3f}) and backward ({mean_backward:.3f}) bulk means differ"
-
-            # Both should be close to 1.0 for bulk fluid
-            assert abs(mean_forward - 1.0) < 0.15, \
-                f"Forward bulk mean ({mean_forward:.3f}) far from 1.0"
-            assert abs(mean_backward - 1.0) < 0.15, \
-                f"Backward bulk mean ({mean_backward:.3f}) far from 1.0"
-
-    def test_first_peak_position_consistent(self, example1_trajectory):
-        """Forward and backward should show peak at same position."""
-        ts = example1_trajectory
-
-        # Use small subset of frames for reasonable test time (5 frames ~10s)
-        rdf_forward = RevelsRDF.run_rdf(
-            ts, '1', '1', temp=1.35,
-            delr=0.02, from_zero=True, start=0, stop=5
-        )
-
-        rdf_backward = RevelsRDF.run_rdf(
-            ts, '1', '1', temp=1.35,
-            delr=0.02, from_zero=False, start=0, stop=5
-        )
-
-        # Find peak in short range (r < 2)
-        short_mask = rdf_forward[0] < 2.0
-
-        peak_forward = rdf_forward[0][short_mask][np.argmax(rdf_forward[1][short_mask])]
-        peak_backward = rdf_backward[0][short_mask][np.argmax(rdf_backward[1][short_mask])]
-
-        # Peak positions should be within 0.1 of each other
-        assert abs(peak_forward - peak_backward) < 0.1, \
-            f"Peak positions differ: forward={peak_forward:.3f}, backward={peak_backward:.3f}"
+# Note: Forward/backward consistency is tested via regression tests
+# (test_rdf_forward_regression and test_rdf_backward_regression in test_regression.py)
 
 
 @pytest.mark.integration

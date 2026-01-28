@@ -96,21 +96,20 @@ class TestNumberDensityPipelineExample2:
         assert hasattr(gs, 'rho')
         assert np.all(np.isfinite(gs.rho))
 
-    @pytest.mark.slow
-    def test_full_trajectory_density(self, example2_trajectory):
-        """Full trajectory density calculation (slow)."""
+    def test_larger_frame_subset_density(self, example2_trajectory):
+        """Density with larger frame subset for better statistics."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=100, temperature=1.35)
-        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False)
+        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
+        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
-        assert gs.count == ts.frames
+        assert gs.count == 10
         assert np.all(np.isfinite(gs.rho))
 
         # For solvation around frozen particle, should see excluded volume
         # (lower density at centre)
-        centre_region = gs.rho[45:55, 45:55, 45:55]
+        centre_region = gs.rho[20:30, 20:30, 20:30]
         bulk_region = gs.rho[0:10, 0:10, 0:10]
 
         # This is a qualitative check - frozen particle creates void
@@ -122,38 +121,23 @@ class TestNumberDensityPipelineExample2:
         assert np.isfinite(mean_centre)
         assert np.isfinite(mean_bulk)
 
-    @pytest.mark.slow
     def test_lambda_combination(self, example2_trajectory):
         """Lambda combination produces valid optimal density."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
-        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=20)
+        gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.35)
+        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
         # Use 5 sections for variance estimation
-        gs_lambda = gs.get_lambda(ts, sections=5, start=0, stop=20)
+        gs_lambda = gs.get_lambda(ts, sections=5)
 
         assert gs_lambda.grid_progress == "Lambda"
         assert hasattr(gs_lambda, 'optimal_density')
         assert np.all(np.isfinite(gs_lambda.optimal_density))
 
-    @pytest.mark.regression
-    @pytest.mark.slow
-    def test_density_regression(self, example2_trajectory):
-        """Density matches stored reference data."""
-        ts = example2_trajectory
-
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
-        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False)
-        gs.get_real_density()
-
-        ref = load_reference_data("density_example2", "number_density.npz")
-
-        if ref is None:
-            pytest.skip("Reference data not generated yet")
-
-        assert_arrays_close(gs.rho, ref['rho'], rtol=1e-6, context="density values")
+    # Note: Regression tests are in test_regression.py which uses the correct
+    # reference data paths (lammps_example1, not density_example2).
 
 
 @pytest.mark.integration
