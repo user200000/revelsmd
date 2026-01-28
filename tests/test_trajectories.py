@@ -56,7 +56,7 @@ def mock_vasprun():
 @patch("revelsMD.trajectories.mda.MD.Universe")
 def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
-    state = MDATrajectory("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
     assert state.frames == 3
     assert np.isclose(state.box_x, 10.0)
@@ -74,12 +74,12 @@ def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_univers
 @patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("fail"))
 def test_mda_raises_on_universe_failure(mock_universe):
     with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
-        MDATrajectory("traj.xtc", "topol.pdb")
+        MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
 
 def test_mda_raises_no_topology():
     with pytest.raises(ValueError, match="topology file is required"):
-        MDATrajectory("traj.xtc", "")
+        MDATrajectory("traj.xtc", "", temperature=300.0)
 
 
 # -----------------------------------------------------------------------------
@@ -496,7 +496,7 @@ def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
     mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
     mock_universe.return_value = mock_uni
 
-    state = MDATrajectory("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
     frames_list = list(state.iter_frames())
     assert len(frames_list) == n_frames
@@ -593,7 +593,7 @@ def test_mda_get_frame_returns_correct_data(mock_universe):
     mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
     mock_universe.return_value = mock_uni
 
-    state = MDATrajectory("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -896,7 +896,7 @@ class TestIterFramesNegativeIndices:
         mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
         mock_universe.return_value = mock_uni
 
-        state = MDATrajectory("traj.xtc", "topol.pdb")
+        state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
         # stop=-1 normalized to 4, so frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
