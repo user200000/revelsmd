@@ -22,6 +22,11 @@ import numpy as np
 from tqdm import tqdm
 
 from revelsMD.utils import generate_boltzmann
+from revelsMD.rdf_helpers import (
+    compute_pairwise_contributions_like,
+    compute_pairwise_contributions_unlike,
+    accumulate_binned_contributions,
+)
 
 
 class RevelsRDF:
@@ -79,58 +84,16 @@ class RevelsRDF:
         """
         n_bins = np.size(bins)
         if n_bins == 0:
-            return np.zeros(1, dtype=np.longdouble)
+            return np.zeros(1, dtype=np.float64)
+
         pos_ang = pos_array[indices, :]
         force_total = force_array[indices, :]
-        storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
-        ns = len(indices)
 
-        # Pairwise displacements and force components
-        rx = np.zeros((ns, ns))
-        ry = np.zeros((ns, ns))
-        rz = np.zeros((ns, ns))
-        Fx = np.zeros((ns, ns))
-        Fy = np.zeros((ns, ns))
-        Fz = np.zeros((ns, ns))
-
-        for x in range(ns):
-            ry[x, :] = pos_ang[:, 1] - pos_ang[x, 1]
-            rx[x, :] = pos_ang[:, 0] - pos_ang[x, 0]
-            rz[x, :] = pos_ang[:, 2] - pos_ang[x, 2]
-            Fx[x, :] = force_total[:, 0]
-            Fy[x, :] = force_total[:, 1]
-            Fz[x, :] = force_total[:, 2]
-
-        # Minimum image convention
-        rx -= (np.ceil((np.abs(rx) - box_x / 2) / box_x)) * (box_x) * np.sign(rx)
-        ry -= (np.ceil((np.abs(ry) - box_y / 2) / box_y)) * (box_y) * np.sign(ry)
-        rz -= (np.ceil((np.abs(rz) - box_z / 2) / box_z)) * (box_z) * np.sign(rz)
-
-        r = (rx * rx + ry * ry + rz * rz) ** 0.5
-
-        # 1/r^3 force projection (with safe error state)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            dot_prod = ((Fz * rz) + (Fy * ry) + (Fx * rx)) / r / r / r
-
-        # Extra sanity filter (legacy behavior)
-        dot_prod[(rx > box_x / 2) + (ry > box_y / 2) + (rz > box_z / 2)] = 0
-
-        dp = dot_prod.reshape(-1)
-        rn = r.reshape(-1)
-
-        digtized_array = np.digitize(rn, bins) - 1
-        dp[digtized_array == np.size(bins) - 1] = 0
-
-        # Heaviside-style accumulation from the largest bin downward
-        n_bins = np.size(bins)
-        storage_array[n_bins - 1] = np.sum(dp[digtized_array == n_bins - 1])
-
-        for l in range(n_bins - 2, -1, -1):
-            mask = digtized_array == l
-            if np.any(mask):
-                storage_array[l] = np.sum(dp[mask])
-
-        return np.nan_to_num(storage_array, nan=0.0, posinf=0.0, neginf=0.0)
+        # Vectorised pairwise calculation and binning
+        r_flat, dot_flat = compute_pairwise_contributions_like(
+            pos_ang, force_total, (box_x, box_y, box_z)
+        )
+        return accumulate_binned_contributions(dot_flat, r_flat, bins)
 
 
     # -------------------------------------------------------------------------
@@ -172,58 +135,19 @@ class RevelsRDF:
         """
         n_bins = np.size(bins)
         if n_bins == 0:
-            return np.zeros(1, dtype=np.longdouble)
+            return np.zeros(1, dtype=np.float64)
+
         pos_ang_1 = pos_array[indices[0], :]
         force_total_1 = force_array[indices[0], :]
         pos_ang_2 = pos_array[indices[1], :]
         force_total_2 = force_array[indices[1], :]
 
-        storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
-        n1 = len(indices[0])
-        n2 = len(indices[1])
-
-        rx = np.zeros((n2, n1))
-        ry = np.zeros((n2, n1))
-        rz = np.zeros((n2, n1))
-        Fx = np.zeros((n2, n1))
-        Fy = np.zeros((n2, n1))
-        Fz = np.zeros((n2, n1))
-
-        for x in range(n2):
-            ry[x, :] = pos_ang_1[:, 1] - pos_ang_2[x, 1]
-            rx[x, :] = pos_ang_1[:, 0] - pos_ang_2[x, 0]
-            rz[x, :] = pos_ang_1[:, 2] - pos_ang_2[x, 2]
-            Fx[x, :] = force_total_1[:, 0] - force_total_2[x, 0]
-            Fy[x, :] = force_total_1[:, 1] - force_total_2[x, 1]
-            Fz[x, :] = force_total_1[:, 2] - force_total_2[x, 2]
-
-        # Minimum image convention
-        rx -= (np.ceil((np.abs(rx) - box_x / 2) / box_x)) * (box_x) * np.sign(rx)
-        ry -= (np.ceil((np.abs(ry) - box_y / 2) / box_y)) * (box_y) * np.sign(ry)
-        rz -= (np.ceil((np.abs(rz) - box_z / 2) / box_z)) * (box_z) * np.sign(rz)
-
-        r = (rx * rx + ry * ry + rz * rz) ** 0.5
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            dot_prod = ((Fz * rz) + (Fy * ry) + (Fx * rx)) / r / r / r
-        dot_prod[(rx > box_x / 2) + (ry > box_y / 2) + (rz > box_z / 2)] = 0
-
-        dp = dot_prod.reshape(-1)
-        rn = r.reshape(-1)
-        digtized_array = np.digitize(rn, bins) - 1
-        dp[digtized_array == np.size(bins) - 1] = 0
-        
-        
-        # Heaviside-style accumulation from the largest bin downward
-        n_bins = np.size(bins)
-        storage_array[n_bins - 1] = np.sum(dp[digtized_array == n_bins - 1])
-
-        for l in range(n_bins - 2, -1, -1):
-            mask = digtized_array == l
-            if np.any(mask):
-                storage_array[l] = np.sum(dp[mask])
-
-        return np.nan_to_num(storage_array, nan=0.0, posinf=0.0, neginf=0.0)
+        # Vectorised pairwise calculation and binning
+        r_flat, dot_flat = compute_pairwise_contributions_unlike(
+            pos_ang_1, pos_ang_2, force_total_1, force_total_2,
+            (box_x, box_y, box_z)
+        )
+        return accumulate_binned_contributions(dot_flat, r_flat, bins)
 
 
     # -------------------------------------------------------------------------
@@ -307,7 +231,7 @@ class RevelsRDF:
             rmax_value = float(rmax)
         bins = np.arange(0, rmax_value, delr)
 
-        accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
+        accumulated_storage_array = np.zeros(np.size(bins), dtype=np.float64)
 
         # Unified frame iteration using iter_frames
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
@@ -408,7 +332,7 @@ class RevelsRDF:
         bins = np.arange(0, rmax_value, delr)
 
         list_store: list[np.ndarray] = []
-        accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
+        accumulated_storage_array = np.zeros(np.size(bins), dtype=np.float64)
 
         # Unified frame iteration using iter_frames
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):

@@ -39,7 +39,7 @@ def ensure_dir(path):
 
 def generate_lammps_references():
     """Generate reference data from Example 1 LAMMPS trajectory."""
-    from revelsMD.trajectory_states import LammpsTrajectoryState
+    from revelsMD.trajectories import LammpsTrajectory
 
     dump_file = EXAMPLES_DIR / "example_1_LJ" / "dump.nh.lammps"
     data_file = EXAMPLES_DIR / "example_1_LJ" / "data.fin.nh.data"
@@ -49,7 +49,7 @@ def generate_lammps_references():
         return
 
     print("Loading Example 1 LAMMPS trajectory...")
-    ts = LammpsTrajectoryState(
+    ts = LammpsTrajectory(
         str(dump_file),
         str(data_file),
         units='lj',
@@ -126,7 +126,7 @@ def generate_lammps_references():
 
 def generate_mda_references():
     """Generate reference data from Example 4 MDA/GROMACS trajectory."""
-    from revelsMD.trajectory_states import MDATrajectoryState
+    from revelsMD.trajectories import MDATrajectory
 
     # Use subset trajectory
     subset_dir = TEST_DATA_DIR / "example_4_subset"
@@ -143,7 +143,7 @@ def generate_mda_references():
         return
 
     print("Loading Example 4 MDA trajectory...")
-    ts = MDATrajectoryState(str(trr_file), str(tpr_file))
+    ts = MDATrajectory(str(trr_file), str(tpr_file))
 
     output_dir = REFERENCE_DIR / "mda_example4"
     ensure_dir(output_dir)
@@ -218,7 +218,7 @@ def generate_mda_references():
 
 def generate_vasp_references():
     """Generate reference data from VASP trajectory (BaSnF4 subset)."""
-    from revelsMD.trajectory_states import VaspTrajectoryState
+    from revelsMD.trajectories import VaspTrajectory
 
     # Use subset from Example 3 BaSnF4
     vasprun_file = TEST_DATA_DIR / "example_3_vasp_subset" / "vasprun.xml"
@@ -228,7 +228,7 @@ def generate_vasp_references():
         return
 
     print("Loading VASP trajectory (BaSnF4 subset)...")
-    ts = VaspTrajectoryState(str(vasprun_file))
+    ts = VaspTrajectory(str(vasprun_file))
 
     output_dir = REFERENCE_DIR / "vasp_example3"
     ensure_dir(output_dir)
@@ -268,7 +268,7 @@ def generate_vasp_references():
 
 def generate_synthetic_references():
     """Generate reference data from synthetic NumPy trajectories."""
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     output_dir = REFERENCE_DIR / "synthetic"
     ensure_dir(output_dir)
@@ -284,7 +284,7 @@ def generate_synthetic_references():
     forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
     species = ['1'] * n_atoms
 
-    ts = NumpyTrajectoryState(
+    ts = NumpyTrajectory(
         positions, forces, box, box, box, species, units='lj'
     )
 
