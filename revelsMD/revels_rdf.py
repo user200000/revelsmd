@@ -16,9 +16,7 @@ Notes
 - Physical sensibility of results depends on user-supplied forces/units.
 """
 
-from __future__ import annotations
-
-from typing import List, Optional, Sequence, Union
+from collections.abc import Sequence
 
 import numpy as np
 from tqdm import tqdm
@@ -239,9 +237,9 @@ class RevelsRDF:
         temp: float,
         delr: float = 0.01,
         start: int = 0,
-        stop: Optional[int] = None,
+        stop: int | None = None,
         period: int = 1,
-        rmax: Union[bool, float] = True,
+        rmax: bool | float = True,
         from_zero: bool = True,
     ) -> np.ndarray:
         """
@@ -337,9 +335,9 @@ class RevelsRDF:
         temp: float,
         delr: float = 0.01,
         start: int = 0,
-        stop: Optional[int] = None,
+        stop: int | None = None,
         period: int = 1,
-        rmax: Union[bool, float] = True,
+        rmax: bool | float = True,
     ) -> np.ndarray:
         """
         Compute the λ-corrected RDF by combining forward and backward estimates.
@@ -409,7 +407,7 @@ class RevelsRDF:
             rmax_value = float(rmax)
         bins = np.arange(0, rmax_value, delr)
 
-        list_store: List[np.ndarray] = []
+        list_store: list[np.ndarray] = []
         accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
 
         # Unified frame iteration using iter_frames
