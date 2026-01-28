@@ -82,7 +82,7 @@ def example1_trajectory():
     - 50 frames
     - 14.227 cubic LJ box
     """
-    from revelsMD.trajectory_states import LammpsTrajectoryState
+    from revelsMD.trajectories import LammpsTrajectory
 
     dump_file = EXAMPLES_DIR / "example_1_LJ" / "dump.nh.lammps"
     data_file = EXAMPLES_DIR / "example_1_LJ" / "data.fin.nh.data"
@@ -90,7 +90,7 @@ def example1_trajectory():
     if not dump_file.exists():
         pytest.skip("Example 1 data not available")
 
-    return LammpsTrajectoryState(
+    return LammpsTrajectory(
         str(dump_file),
         str(data_file),
         units='lj',
@@ -108,7 +108,7 @@ def example2_trajectory():
     - 2500 frames
     - Frozen central particle + solvating LJ spheres
     """
-    from revelsMD.trajectory_states import LammpsTrajectoryState
+    from revelsMD.trajectories import LammpsTrajectory
 
     dump_file = EXAMPLES_DIR / "example_2_LJ_3D" / "dump.nh.lammps"
     data_file = EXAMPLES_DIR / "example_2_LJ_3D" / "data.fin.nh.data"
@@ -116,7 +116,7 @@ def example2_trajectory():
     if not dump_file.exists():
         pytest.skip("Example 2 data not available")
 
-    return LammpsTrajectoryState(
+    return LammpsTrajectory(
         str(dump_file),
         str(data_file),
         units='lj',
@@ -141,7 +141,7 @@ def example4_trajectory():
     - 100 frames (subset)
     - GROMACS trr/tpr format
     """
-    from revelsMD.trajectory_states import MDATrajectoryState
+    from revelsMD.trajectories import MDATrajectory
 
     # Use subset trajectory for faster tests
     TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "example_4_subset"
@@ -156,7 +156,7 @@ def example4_trajectory():
     if not trr_file.exists():
         pytest.skip("Example 4 data not available")
 
-    return MDATrajectoryState(str(trr_file), str(tpr_file))
+    return MDATrajectory(str(trr_file), str(tpr_file))
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ def vasp_trajectory():
     - 50 frames (subset from 3001 total in r1)
     - Temperature: 600K
     """
-    from revelsMD.trajectory_states import VaspTrajectoryState
+    from revelsMD.trajectories import VaspTrajectory
 
     # Use subset trajectory for faster tests
     TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "example_3_vasp_subset"
@@ -182,7 +182,7 @@ def vasp_trajectory():
     if not vasprun_file.exists():
         pytest.skip("VASP test data not available")
 
-    return VaspTrajectoryState(str(vasprun_file))
+    return VaspTrajectory(str(vasprun_file))
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ def uniform_gas_trajectory():
     The force-sampling method requires non-zero forces to work correctly.
     With random forces, this should produce g(r) ~ 1 for all r (within statistical noise).
     """
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     np.random.seed(42)
     n_atoms = 500
@@ -209,7 +209,7 @@ def uniform_gas_trajectory():
     forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
     species = ['1'] * n_atoms
 
-    return NumpyTrajectoryState(
+    return NumpyTrajectory(
         positions, forces, box, box, box, species, units='lj'
     )
 
@@ -222,7 +222,7 @@ def two_atom_trajectory():
     Atom 0 at origin, Atom 1 at (3.0, 0, 0).
     g(r) should show a peak at r = 3.0.
     """
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     n_frames = 5
     box = 10.0
@@ -237,7 +237,7 @@ def two_atom_trajectory():
     forces = np.random.randn(n_frames, 2, 3) * 0.1
     species = ['1', '1']
 
-    return NumpyTrajectoryState(
+    return NumpyTrajectory(
         positions, forces, box, box, box, species, units='lj'
     )
 
@@ -250,7 +250,7 @@ def single_atom_trajectory():
     Atom at (5.0, 5.0, 5.0) in a 10x10x10 box.
     3D density should show a peak at this location.
     """
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     n_frames = 5
     box = 10.0
@@ -263,7 +263,7 @@ def single_atom_trajectory():
     forces = np.random.randn(n_frames, 1, 3) * 0.1
     species = ['1']
 
-    return NumpyTrajectoryState(
+    return NumpyTrajectory(
         positions, forces, box, box, box, species, units='lj'
     )
 
@@ -276,7 +276,7 @@ def cubic_lattice_trajectory():
     4x4x4 = 64 atoms on a simple cubic lattice with spacing 2.5
     in a 10x10x10 box. g(r) should show peaks at r = 2.5, 3.54 (sqrt(2)*2.5), etc.
     """
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     n_frames = 5
     box = 10.0
@@ -302,7 +302,7 @@ def cubic_lattice_trajectory():
     forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
     species = ['1'] * n_atoms
 
-    return NumpyTrajectoryState(
+    return NumpyTrajectory(
         positions, forces, box, box, box, species, units='lj'
     )
 
@@ -314,7 +314,7 @@ def water_molecule_trajectory():
 
     Creates 10 water molecules with known geometry and charges.
     """
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     n_frames = 5
     n_molecules = 10
@@ -353,7 +353,7 @@ def water_molecule_trajectory():
     charges = np.array([-0.8476, 0.4238, 0.4238] * n_molecules)
     masses = np.array([15.999, 1.008, 1.008] * n_molecules)
 
-    return NumpyTrajectoryState(
+    return NumpyTrajectory(
         positions, forces, box, box, box, species,
         units='real', charge_list=charges, mass_list=masses
     )
@@ -366,7 +366,7 @@ def multispecies_trajectory():
 
     200 atoms of type '1', 100 atoms of type '2' in a 10x10x10 box.
     """
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     np.random.seed(42)
     n_type1 = 200
@@ -380,7 +380,7 @@ def multispecies_trajectory():
     forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
     species = ['1'] * n_type1 + ['2'] * n_type2
 
-    return NumpyTrajectoryState(
+    return NumpyTrajectory(
         positions, forces, box, box, box, species, units='lj'
     )
 
@@ -391,21 +391,21 @@ def multispecies_trajectory():
 
 def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
     """
-    Convert a LammpsTrajectoryState to NumpyTrajectoryState.
+    Convert a LammpsTrajectory to NumpyTrajectory.
 
     Parameters
     ----------
-    lammps_ts : LammpsTrajectoryState
+    lammps_ts : LammpsTrajectory
         Source trajectory
     start, stop, stride : int
         Frame selection parameters
 
     Returns
     -------
-    NumpyTrajectoryState
+    NumpyTrajectory
         Equivalent trajectory with data loaded into numpy arrays
     """
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     universe = lammps_ts.mdanalysis_universe
 
@@ -427,7 +427,7 @@ def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
     # Build species list from atom types
     species = [str(atom.type) for atom in universe.atoms]
 
-    return NumpyTrajectoryState(
+    return NumpyTrajectory(
         positions, forces,
         lammps_ts.box_x, lammps_ts.box_y, lammps_ts.box_z,
         species, units=lammps_ts.units
@@ -436,21 +436,21 @@ def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
 
 def mda_to_numpy(mda_ts, start=0, stop=None, stride=1):
     """
-    Convert an MDATrajectoryState to NumpyTrajectoryState.
+    Convert an MDATrajectory to NumpyTrajectory.
 
     Parameters
     ----------
-    mda_ts : MDATrajectoryState
+    mda_ts : MDATrajectory
         Source trajectory
     start, stop, stride : int
         Frame selection parameters
 
     Returns
     -------
-    NumpyTrajectoryState
+    NumpyTrajectory
         Equivalent trajectory with data loaded into numpy arrays
     """
-    from revelsMD.trajectory_states import NumpyTrajectoryState
+    from revelsMD.trajectories import NumpyTrajectory
 
     universe = mda_ts.mdanalysis_universe
 
@@ -480,7 +480,7 @@ def mda_to_numpy(mda_ts, start=0, stop=None, stride=1):
         charges = None
         masses = None
 
-    return NumpyTrajectoryState(
+    return NumpyTrajectory(
         positions, forces,
         mda_ts.box_x, mda_ts.box_y, mda_ts.box_z,
         species, units=mda_ts.units,

@@ -25,8 +25,8 @@ class TestVASPPipelineExample3:
         """Verify VASP trajectory loads with expected properties."""
         ts = vasp_trajectory
 
-        from revelsMD.trajectory_states import VaspTrajectoryState
-        assert isinstance(ts, VaspTrajectoryState)
+        from revelsMD.trajectories import VaspTrajectory
+        assert isinstance(ts, VaspTrajectory)
         assert ts.units == 'metal'
         assert ts.frames > 0
         assert ts.box_x > 0
@@ -198,7 +198,7 @@ class TestVASPSyntheticFallback:
     @pytest.fixture
     def synthetic_vasp_like_trajectory(self):
         """Create synthetic trajectory mimicking VASP-like system."""
-        from revelsMD.trajectory_states import NumpyTrajectoryState
+        from revelsMD.trajectories import NumpyTrajectory
 
         np.random.seed(42)
 
@@ -231,7 +231,7 @@ class TestVASPSyntheticFallback:
 
         species = ['F'] * n_f + ['Ba'] * n_ba + ['Sn'] * n_sn
 
-        return NumpyTrajectoryState(
+        return NumpyTrajectory(
             positions, forces, box, box, box, species, units='metal'
         )
 

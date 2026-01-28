@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.trajectory_states import NumpyTrajectoryState
+from revelsMD.trajectories import NumpyTrajectory
 
 
 class TSMock:
@@ -216,14 +216,14 @@ def test_run_rdf_lambda_empty_frame_range(ts):
 
 
 # -------------------------------
-# Tests using real NumpyTrajectoryState
+# Tests using real NumpyTrajectory
 # -------------------------------
 
-class TestRDFWithNumpyTrajectoryState:
-    """Test RDF functions work with real NumpyTrajectoryState objects."""
+class TestRDFWithNumpyTrajectory:
+    """Test RDF functions work with real NumpyTrajectory objects."""
 
     def test_run_rdf_with_numpy_trajectory_state(self):
-        """run_rdf should work with a real NumpyTrajectoryState."""
+        """run_rdf should work with a real NumpyTrajectory."""
         positions = np.array([
             [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
             [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
@@ -236,7 +236,7 @@ class TestRDFWithNumpyTrajectoryState:
         ], dtype=float)
         species = ["H", "O", "H"]
 
-        ts = NumpyTrajectoryState(
+        ts = NumpyTrajectory(
             positions, forces, 10.0, 10.0, 10.0, species, units="real"
         )
 
@@ -258,7 +258,7 @@ class TestRDFWithNumpyTrajectoryState:
         assert np.all(np.isfinite(result))
 
     def test_run_rdf_lambda_with_numpy_trajectory_state(self):
-        """run_rdf_lambda should work with a real NumpyTrajectoryState."""
+        """run_rdf_lambda should work with a real NumpyTrajectory."""
         positions = np.array([
             [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
             [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
@@ -271,7 +271,7 @@ class TestRDFWithNumpyTrajectoryState:
         ], dtype=float)
         species = ["H", "O", "H"]
 
-        ts = NumpyTrajectoryState(
+        ts = NumpyTrajectory(
             positions, forces, 10.0, 10.0, 10.0, species, units="real"
         )
 
@@ -302,7 +302,7 @@ class TestRDFWithNumpyTrajectoryState:
         forces = np.ones_like(positions) * 0.1
         species = ["H", "H"]
 
-        ts = NumpyTrajectoryState(
+        ts = NumpyTrajectory(
             positions, forces, 10.0, 10.0, 10.0, species, units="real"
         )
 
