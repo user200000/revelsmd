@@ -4,15 +4,15 @@ Vectorised helper functions for RDF calculations.
 This module provides optimised implementations of the core computational
 routines used in force-based RDF calculations. Two backends are available:
 
-- 'numpy' (default): Uses NumPy broadcasting and vectorised operations.
-  No extra dependencies, ~2-3x speedup over original Python loops.
+- 'numba' (default): Uses Numba JIT compilation with parallel execution.
+  ~30x speedup over original Python loops.
 
-- 'numba': Uses Numba JIT compilation with parallel execution.
-  Requires numba package, ~8-12x speedup over original Python loops.
+- 'numpy': Uses NumPy broadcasting and vectorised operations.
+  ~2x speedup over original Python loops. Fallback if Numba unavailable.
 
 The backend can be selected via:
-- Environment variable: REVELSMD_RDF_BACKEND=numba
-- Function parameter: get_backend_functions(backend='numba')
+- Environment variable: REVELSMD_RDF_BACKEND=numpy
+- Function parameter: get_backend_functions(backend='numpy')
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 _AVAILABLE_BACKENDS = {'numpy', 'numba'}
-_DEFAULT_BACKEND = 'numpy'
+_DEFAULT_BACKEND = 'numba'
 
 
 def _get_numba_functions() -> tuple[Callable, Callable, Callable]:
@@ -61,7 +61,7 @@ def get_backend_functions(
     ----------
     backend : str or None
         Backend to use: 'numpy' or 'numba'. If None, uses the
-        REVELSMD_RDF_BACKEND environment variable, defaulting to 'numpy'.
+        REVELSMD_RDF_BACKEND environment variable, defaulting to 'numba'.
 
     Returns
     -------

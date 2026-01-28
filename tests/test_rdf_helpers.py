@@ -17,14 +17,13 @@ from revelsMD.revels_rdf import RevelsRDF
 class TestBackendSelection:
     """Test the backend selection mechanism."""
 
-    def test_default_backend_is_numpy(self):
-        """Default backend should be numpy."""
+    def test_default_backend_is_numba(self):
+        """Default backend should be numba."""
         from revelsMD.rdf_helpers import get_backend_functions
 
         like_fn, unlike_fn, accum_fn = get_backend_functions()
 
-        assert 'rdf_helpers' in like_fn.__module__
-        assert 'numba' not in like_fn.__module__
+        assert 'numba' in like_fn.__module__
 
     def test_explicit_numpy_backend(self):
         """Explicit numpy backend selection."""
