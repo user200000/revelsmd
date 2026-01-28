@@ -6,12 +6,17 @@ from revelsMD.trajectories import NumpyTrajectory
 
 class TSMock:
     """Minimal trajectory-state mock implementing the unified TrajectoryState interface."""
-    def __init__(self):
+    def __init__(self, temperature: float = 300.0, units: str = "real"):
         self.box_x = 10.0
         self.box_y = 10.0
         self.box_z = 10.0
-        self.units = "real"
+        self.units = units
+        self.temperature = temperature
         self.frames = 3
+
+        # Compute beta from temperature and units
+        from revelsMD.trajectories._base import compute_beta
+        self.beta = compute_beta(units, temperature)
 
         # 3 frames × 3 atoms × 3 coordinates
         self._positions = np.array([
@@ -112,8 +117,7 @@ def test_run_rdf_like_pairs(ts):
         ts,
         atom_a="H",
         atom_b="H",
-        temp=300,
-        delr=1.0,
+                delr=1.0,
         start=0,
         stop=2,
         period=1,
@@ -135,8 +139,7 @@ def test_run_rdf_unlike_pairs(ts):
         ts,
         atom_a="H",
         atom_b="O",
-        temp=300,
-        delr=1.0,
+                delr=1.0,
         start=0,
         stop=2,
         period=1,
@@ -155,19 +158,19 @@ def test_run_rdf_unlike_pairs(ts):
 def test_run_rdf_start_exceeds_frames(ts):
     """run_rdf should raise ValueError when start exceeds trajectory frames."""
     with pytest.raises(ValueError, match="First frame index exceeds"):
-        RevelsRDF.run_rdf(ts, "H", "O", 300, start=10)
+        RevelsRDF.run_rdf(ts, "H", "O", start=10)
 
 
 def test_run_rdf_stop_exceeds_frames(ts):
     """run_rdf should raise ValueError when stop exceeds trajectory frames."""
     with pytest.raises(ValueError, match="Final frame index exceeds"):
-        RevelsRDF.run_rdf(ts, "H", "O", 300, stop=10)
+        RevelsRDF.run_rdf(ts, "H", "O", stop=10)
 
 
 def test_run_rdf_empty_frame_range(ts):
     """run_rdf should raise ValueError when frame range is empty."""
     with pytest.raises(ValueError, match="Final frame occurs before"):
-        RevelsRDF.run_rdf(ts, "H", "O", 300, start=2, stop=1)
+        RevelsRDF.run_rdf(ts, "H", "O", start=2, stop=1)
 
 
 # -------------------------------
@@ -179,8 +182,7 @@ def test_run_rdf_lambda_like(ts):
         ts,
         atom_a="H",
         atom_b="H",
-        temp=300,
-        delr=1.0,
+                delr=1.0,
         start=0,
         stop=2,
         period=1,
@@ -200,19 +202,19 @@ def test_run_rdf_lambda_like(ts):
 def test_run_rdf_lambda_start_exceeds_frames(ts):
     """run_rdf_lambda should raise ValueError when start exceeds trajectory frames."""
     with pytest.raises(ValueError, match="First frame index exceeds"):
-        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, start=10)
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", start=10)
 
 
 def test_run_rdf_lambda_stop_exceeds_frames(ts):
     """run_rdf_lambda should raise ValueError when stop exceeds trajectory frames."""
     with pytest.raises(ValueError, match="Final frame index exceeds"):
-        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, stop=10)
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", stop=10)
 
 
 def test_run_rdf_lambda_empty_frame_range(ts):
     """run_rdf_lambda should raise ValueError when frame range is empty."""
     with pytest.raises(ValueError, match="Final frame occurs before"):
-        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, start=2, stop=1)
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", start=2, stop=1)
 
 
 # -------------------------------
@@ -237,14 +239,13 @@ class TestRDFWithNumpyTrajectory:
         species = ["H", "O", "H"]
 
         ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, units="real"
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
         )
 
         result = RevelsRDF.run_rdf(
             ts,
             atom_a="H",
             atom_b="H",
-            temp=300,
             delr=1.0,
             start=0,
             stop=2,
@@ -272,14 +273,13 @@ class TestRDFWithNumpyTrajectory:
         species = ["H", "O", "H"]
 
         ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, units="real"
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
         )
 
         result = RevelsRDF.run_rdf_lambda(
             ts,
             atom_a="H",
             atom_b="H",
-            temp=300,
             delr=1.0,
             start=0,
             stop=2,
@@ -303,7 +303,7 @@ class TestRDFWithNumpyTrajectory:
         species = ["H", "H"]
 
         ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, units="real"
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
         )
 
         # With stop=None, should process all 4 frames
@@ -311,7 +311,6 @@ class TestRDFWithNumpyTrajectory:
             ts,
             atom_a="H",
             atom_b="H",
-            temp=300,
             delr=1.0,
             stop=None,
             rmax=True,
