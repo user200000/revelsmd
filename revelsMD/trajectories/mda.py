@@ -1,0 +1,142 @@
+"""
+MDAnalysis trajectory backend for RevelsMD.
+
+This module provides the MDATrajectory class for reading trajectories
+via MDAnalysis.
+"""
+
+from typing import Iterator
+
+import MDAnalysis as MD  # type: ignore[import-untyped]
+import numpy as np
+
+from ._base import Trajectory
+
+
+class MDATrajectory(Trajectory):
+    """
+    Represents a molecular dynamics trajectory handled by **MDAnalysis**.
+
+    This class acts as a unified interface for reading, validating, and accessing
+    data from MDAnalysis-compatible trajectory and topology files.
+
+    Parameters
+    ----------
+    trajectory_file : str
+        Path to the trajectory file (e.g., `.xtc`, `.trr`, `.dcd`, `.lammpstrj`).
+    topology_file : str
+        Path to the topology file (e.g., `.pdb`, `.gro`, `.data`).
+
+    Attributes
+    ----------
+    frames : int
+        Number of trajectory frames.
+    box_x, box_y, box_z : float
+        Orthorhombic simulation box dimensions in each Cartesian direction.
+    units : str
+        Unit system identifier (`'mda'`).
+
+    Raises
+    ------
+    ValueError
+        If no topology file is provided or the box is non-orthorhombic.
+    RuntimeError
+        If MDAnalysis fails to load the trajectory or topology file.
+
+    Notes
+    -----
+    - Only orthorhombic or cubic cells are supported (alpha = beta = gamma = 90 degrees).
+    - For triclinic boxes, preprocessing to orthorhombic form is required.
+    """
+
+    def __init__(self, trajectory_file: str, topology_file: str):
+        if not topology_file:
+            raise ValueError("A topology file is required for MDAnalysis trajectories.")
+
+        self.trajectory_file = trajectory_file
+        self.topology_file = topology_file
+
+        try:
+            mdanalysis_universe = MD.Universe(topology_file, trajectory_file)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load MDAnalysis Universe: {e}")
+
+        self.mdanalysis_universe = mdanalysis_universe
+        self.frames = len(mdanalysis_universe.trajectory)
+        self.units = 'mda'
+
+        dims = mdanalysis_universe.dimensions
+        if len(dims) < 3:
+            raise ValueError(f"Invalid simulation box dimensions: {dims}")
+
+        # Safe unpack for older trajectories lacking angular information
+        lx, ly, lz = dims[:3]
+        angles = list(dims[3:6]) if len(dims) >= 6 else [90.0, 90.0, 90.0]
+
+        self._validate_orthorhombic(angles)
+        self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
+
+    def get_indices(self, atype: str) -> np.ndarray:
+        """
+        Return indices of atoms matching a given atom name.
+
+        Parameters
+        ----------
+        atype : str
+            Atom name to select (e.g., `'O'`, `'H'`, `'C'`).
+
+        Returns
+        -------
+        np.ndarray
+            Array of atom indices corresponding to the given atom name.
+        """
+        return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').ids)
+
+    get_indicies = get_indices  # backward compatibility alias
+
+    def get_charges(self, atype: str) -> np.ndarray:
+        """
+        Return atomic charges for atoms of a given name.
+
+        Parameters
+        ----------
+        atype : str
+            Atom name to select.
+
+        Returns
+        -------
+        np.ndarray
+            Array of atomic charges.
+        """
+        return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').charges)
+
+    def get_masses(self, atype: str) -> np.ndarray:
+        """
+        Return atomic masses for atoms of a given name.
+
+        Parameters
+        ----------
+        atype : str
+            Atom name to select.
+
+        Returns
+        -------
+        np.ndarray
+            Array of atomic masses.
+        """
+        return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
+
+    def _iter_frames_impl(
+        self,
+        start: int,
+        stop: int,
+        stride: int
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        """Iterate using MDAnalysis trajectory slicing."""
+        for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
+            yield ts.positions.copy(), ts.forces.copy()
+
+    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return positions and forces for a specific frame by index."""
+        ts = self.mdanalysis_universe.trajectory[index]
+        return ts.positions.copy(), ts.forces.copy()
