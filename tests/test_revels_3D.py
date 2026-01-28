@@ -8,12 +8,17 @@ from ase import Atoms
 
 class TSMock:
     """Minimal trajectory-state mock with required attributes for testing."""
-    def __init__(self):
+    def __init__(self, temperature: float = 300.0, units: str = "real"):
         self.box_x = 10.0
         self.box_y = 10.0
         self.box_z = 10.0
-        self.units = "real"
+        self.units = units
+        self.temperature = temperature
         self.frames = 2
+
+        # Compute beta from temperature and units
+        from revelsMD.trajectories._base import compute_beta
+        self.beta = compute_beta(units, temperature)
 
         # Two atoms, 2 frames
         self.positions = np.array([
@@ -60,7 +65,7 @@ def ts():
 # ---------------------------
 
 def test_gridstate_initialization(ts):
-    gs = Revels3D.GridState(ts, density_type="number", temperature=300, nbins=4)
+    gs = Revels3D.GridState(ts, density_type="number", nbins=4)
     assert gs.nbinsx == 4
     assert gs.lx == pytest.approx(ts.box_x / 4)
     assert gs.voxel_volume > 0
@@ -68,10 +73,16 @@ def test_gridstate_initialization(ts):
     assert gs.grid_progress == "Generated"
 
 
+def test_gridstate_uses_trajectory_beta(ts):
+    """GridState should use beta from the trajectory object."""
+    gs = Revels3D.GridState(ts, density_type="number", nbins=4)
+    assert gs.beta == ts.beta
+
+
 def test_invalid_box(ts):
     ts.box_x = -10.0
     with pytest.raises(ValueError):
-        Revels3D.GridState(ts, "number", 300)
+        Revels3D.GridState(ts, "number")
 
 
 def test_invalid_bins(ts):
@@ -84,7 +95,7 @@ def test_invalid_bins(ts):
 # ---------------------------
 
 def test_kvectors_ksquared_shapes(ts):
-    gs = Revels3D.GridState(ts, "number", 300, nbins=4)
+    gs = Revels3D.GridState(ts, "number", nbins=4)
     kx, ky, kz = gs.get_kvectors()
     assert kx.shape[0] == gs.nbinsx
     ks = gs.get_ksquared()
@@ -98,7 +109,7 @@ def test_kvectors_ksquared_shapes(ts):
 
 @pytest.mark.parametrize("kernel", ["box", "triangular"])
 def test_helper_process_frame_kernels(ts, kernel):
-    gs = Revels3D.GridState(ts, "number", 300, nbins=4)
+    gs = Revels3D.GridState(ts, "number", nbins=4)
     pos = np.array([[1.0, 2.0, 3.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
     Revels3D.HelperFunctions.process_frame(ts, gs, pos, frc, a=1.0, kernel=kernel)
@@ -180,7 +191,7 @@ def test_selectionstate_rigid_water():
 # ---------------------------
 
 def test_full_number_density_pipeline(tmp_path, ts):
-    gs = Revels3D.GridState(ts, "number", temperature=300, nbins=4)
+    gs = Revels3D.GridState(ts, "number", nbins=4)
     gs.make_force_grid(ts, atom_names="H", rigid=False)
     assert gs.grid_progress == "Allocated"
 
@@ -196,7 +207,7 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
 def test_get_lambda_basic(ts):
     """Test basic get_lambda functionality."""
-    gs = Revels3D.GridState(ts, "number", 300, nbins=4)
+    gs = Revels3D.GridState(ts, "number", nbins=4)
     gs.make_force_grid(ts, atom_names="H", rigid=False)
     gs.get_real_density()
     gs2 = gs.get_lambda(ts, sections=1)
@@ -704,25 +715,25 @@ class TestEstimatorSelection:
 
     def test_number_single_species(self, ts_single_species):
         """Single species number density uses single_frame_number_single_grid."""
-        gs = Revels3D.GridState(ts_single_species, "number", 300, nbins=4)
+        gs = Revels3D.GridState(ts_single_species, "number", nbins=4)
         gs.make_force_grid(ts_single_species, atom_names="H", rigid=False)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_number_single_grid
 
     def test_number_multi_species_not_rigid(self, ts_multi_species):
         """Multi-species, non-rigid number density uses single_frame_number_many_grid."""
-        gs = Revels3D.GridState(ts_multi_species, "number", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "number", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=False)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_number_many_grid
 
     def test_number_rigid_com(self, ts_multi_species):
         """Rigid number density at COM uses single_frame_rigid_number_com_grid."""
-        gs = Revels3D.GridState(ts_multi_species, "number", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "number", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_rigid_number_com_grid
 
     def test_number_rigid_atom(self, ts_multi_species):
         """Rigid number density at specific atom uses single_frame_rigid_number_atom_grid."""
-        gs = Revels3D.GridState(ts_multi_species, "number", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "number", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_rigid_number_atom_grid
 
@@ -730,27 +741,27 @@ class TestEstimatorSelection:
 
     def test_charge_single_species(self, ts_single_species):
         """Single species charge density uses single_frame_number_single_grid."""
-        gs = Revels3D.GridState(ts_single_species, "charge", 300, nbins=4)
+        gs = Revels3D.GridState(ts_single_species, "charge", nbins=4)
         gs.make_force_grid(ts_single_species, atom_names="H", rigid=False)
         # Note: single species charge uses number_single_grid (per current implementation)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_number_single_grid
 
     def test_charge_multi_species_not_rigid(self, ts_multi_species):
         """Multi-species, non-rigid charge density uses single_frame_charge_many_grid."""
-        gs = Revels3D.GridState(ts_multi_species, "charge", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "charge", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=False)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_charge_many_grid
 
     @pytest.mark.xfail(reason="Bug: SS.charges is list of arrays, not summed (see issue #11)")
     def test_charge_rigid_com(self, ts_multi_species):
         """Rigid charge density at COM uses single_frame_rigid_charge_com_grid."""
-        gs = Revels3D.GridState(ts_multi_species, "charge", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "charge", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_rigid_charge_com_grid
 
     def test_charge_rigid_atom(self, ts_multi_species):
         """Rigid charge density at specific atom uses single_frame_rigid_charge_atom_grid."""
-        gs = Revels3D.GridState(ts_multi_species, "charge", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "charge", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_rigid_charge_atom_grid
 
@@ -758,14 +769,14 @@ class TestEstimatorSelection:
 
     def test_polarisation_rigid_com(self, ts_multi_species):
         """Rigid polarisation density at COM uses single_frame_rigid_polarisation_com_grid."""
-        gs = Revels3D.GridState(ts_multi_species, "polarisation", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "polarisation", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True, polarisation_axis=0)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_rigid_polarisation_com_grid
         assert gs.SS.polarisation_axis == 0
 
     def test_polarisation_rigid_atom(self, ts_multi_species):
         """Rigid polarisation density at specific atom uses single_frame_rigid_polarisation_atom_grid."""
-        gs = Revels3D.GridState(ts_multi_species, "polarisation", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "polarisation", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0, polarisation_axis=1)
         assert gs.single_frame_function == Revels3D.Estimators.single_frame_rigid_polarisation_atom_grid
         assert gs.SS.polarisation_axis == 1
@@ -774,26 +785,26 @@ class TestEstimatorSelection:
 
     def test_polarisation_not_rigid_raises(self, ts_multi_species):
         """Polarisation without rigid=True raises ValueError."""
-        gs = Revels3D.GridState(ts_multi_species, "polarisation", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "polarisation", nbins=4)
         with pytest.raises(ValueError, match="rigid molecules"):
             gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=False)
 
     def test_polarisation_single_species_raises(self, ts_single_species):
         """Polarisation with single species raises ValueError."""
-        gs = Revels3D.GridState(ts_single_species, "polarisation", 300, nbins=4)
+        gs = Revels3D.GridState(ts_single_species, "polarisation", nbins=4)
         with pytest.raises(ValueError, match="single atom"):
             gs.make_force_grid(ts_single_species, atom_names="H", rigid=True, centre_location=True)
 
     def test_invalid_density_type_raises(self, ts_single_species):
         """Invalid density type raises ValueError."""
-        gs = Revels3D.GridState(ts_single_species, "number", 300, nbins=4)
+        gs = Revels3D.GridState(ts_single_species, "number", nbins=4)
         gs.density_type = "invalid"
         with pytest.raises(ValueError, match="Supported densities"):
             gs.make_force_grid(ts_single_species, atom_names="H", rigid=False)
 
     def test_rigid_invalid_centre_location_raises(self, ts_multi_species):
         """Rigid with invalid centre_location raises ValueError."""
-        gs = Revels3D.GridState(ts_multi_species, "number", 300, nbins=4)
+        gs = Revels3D.GridState(ts_multi_species, "number", nbins=4)
         with pytest.raises(ValueError, match="centre_location"):
             gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location="invalid")
 
