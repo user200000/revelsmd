@@ -9,6 +9,46 @@ from abc import ABC, abstractmethod
 from typing import Iterator
 
 import numpy as np
+import scipy.constants as constants
+
+
+# Boltzmann constants in different unit systems
+_BOLTZMANN_CONSTANTS: dict[str, float] = {
+    'lj': 1.0,
+    'real': constants.physical_constants["molar gas constant"][0] / constants.calorie / 1000,
+    'metal': constants.physical_constants["Boltzmann constant in eV/K"][0],
+    'mda': constants.physical_constants["molar gas constant"][0] / 1000,
+}
+
+
+def compute_beta(units: str, temperature: float) -> float:
+    """
+    Compute beta = 1/(kB*T) for the given unit system and temperature.
+
+    Parameters
+    ----------
+    units : str
+        Unit system ('lj', 'real', 'metal', 'mda').
+    temperature : float
+        Temperature in Kelvin.
+
+    Returns
+    -------
+    float
+        Inverse thermal energy in the appropriate units.
+
+    Raises
+    ------
+    ValueError
+        If the unit system is not recognised.
+    """
+    units = units.lower().strip()
+    if units not in _BOLTZMANN_CONSTANTS:
+        raise ValueError(
+            f"Unsupported unit system: '{units}'. "
+            f"Expected one of {list(_BOLTZMANN_CONSTANTS.keys())}."
+        )
+    return 1.0 / (_BOLTZMANN_CONSTANTS[units] * temperature)
 
 
 class DataUnavailableError(Exception):

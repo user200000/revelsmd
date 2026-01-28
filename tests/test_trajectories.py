@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import scipy.constants as constants
 from abc import ABC
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +11,7 @@ from revelsMD.trajectories import (
     VaspTrajectory,
     DataUnavailableError,
 )
-from revelsMD.trajectories._base import Trajectory
+from revelsMD.trajectories._base import Trajectory, compute_beta
 
 
 # -----------------------------------------------------------------------------
@@ -900,3 +901,59 @@ class TestIterFramesNegativeIndices:
         # stop=-1 normalized to 4, so frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
         assert len(frames) == 4
+
+
+# -----------------------------------------------------------------------------
+# compute_beta - Unit conversion function
+# -----------------------------------------------------------------------------
+class TestComputeBeta:
+    """Tests for the compute_beta() function."""
+
+    def test_compute_beta_lj_at_unit_temperature(self):
+        """In LJ units at T=1, beta should be 1.0."""
+        assert compute_beta('lj', 1.0) == 1.0
+
+    def test_compute_beta_lj_at_higher_temperature(self):
+        """In LJ units, beta = 1/T."""
+        assert compute_beta('lj', 2.0) == 0.5
+        assert compute_beta('lj', 0.5) == 2.0
+
+    def test_compute_beta_real_units(self):
+        """Verify beta in 'real' units (LAMMPS kcal/mol)."""
+        # kB in real units = R / (calorie * 1000) ≈ 0.001987 kcal/mol/K
+        k_real = constants.physical_constants['molar gas constant'][0] / constants.calorie / 1000
+        temperature = 300.0
+        expected = 1.0 / (k_real * temperature)
+        assert pytest.approx(compute_beta('real', temperature), rel=1e-12) == expected
+
+    def test_compute_beta_metal_units(self):
+        """Verify beta in 'metal' units (LAMMPS eV)."""
+        # kB in metal units ≈ 8.617e-5 eV/K
+        k_metal = constants.physical_constants['Boltzmann constant in eV/K'][0]
+        temperature = 300.0
+        expected = 1.0 / (k_metal * temperature)
+        assert pytest.approx(compute_beta('metal', temperature), rel=1e-12) == expected
+
+    def test_compute_beta_mda_units(self):
+        """Verify beta in 'mda' units (MDAnalysis kJ/mol)."""
+        # kB in mda units = R / 1000 ≈ 0.008314 kJ/mol/K
+        k_mda = constants.physical_constants['molar gas constant'][0] / 1000
+        temperature = 300.0
+        expected = 1.0 / (k_mda * temperature)
+        assert pytest.approx(compute_beta('mda', temperature), rel=1e-12) == expected
+
+    def test_compute_beta_case_insensitive(self):
+        """Unit system should be case-insensitive."""
+        assert compute_beta('LJ', 1.0) == compute_beta('lj', 1.0)
+        assert compute_beta('REAL', 300.0) == compute_beta('real', 300.0)
+        assert compute_beta('Metal', 300.0) == compute_beta('metal', 300.0)
+        assert compute_beta('MDA', 300.0) == compute_beta('mda', 300.0)
+
+    def test_compute_beta_strips_whitespace(self):
+        """Unit system should ignore leading/trailing whitespace."""
+        assert compute_beta('  lj  ', 1.0) == compute_beta('lj', 1.0)
+
+    def test_compute_beta_invalid_unit_raises(self):
+        """Unsupported unit system should raise ValueError."""
+        with pytest.raises(ValueError, match="Unsupported unit system"):
+            compute_beta('quantum-donut', 300.0)
