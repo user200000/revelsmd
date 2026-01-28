@@ -12,19 +12,18 @@ Notes
 - All kernels and gridding logic preserve your existing numerical behavior.
 """
 
-from __future__ import annotations
+import copy
+from typing import Any
 
 import numpy as np
 from tqdm import tqdm
-import MDAnalysis as MD
-from lxml import etree  # type: ignore
-from typing import List, Union, Optional, Any, Dict, Tuple
-from pymatgen.core import Structure, Lattice
-from revelsMD.trajectory_states import TrajectoryState, DataUnavailableError
-from pymatgen.io.ase import AseAtomsAdaptor
 from ase.io.cube import write_cube
-import copy
+from pymatgen.core import Structure
+from pymatgen.io.ase import AseAtomsAdaptor
+
+from revelsMD.trajectory_states import TrajectoryState, DataUnavailableError
 from revelsMD.revels_tools.conversion_factors import generate_boltzmann
+from revelsMD.revels_tools.lammps_parser import define_strngdex, frame_skip, get_a_frame
 
 
 class Revels3D:
@@ -79,9 +78,9 @@ class Revels3D:
             density_type: str,
             temperature: float,
             nbins: int = 100,
-            nbinsx: Union[int, bool] = False,
-            nbinsy: Union[int, bool] = False,
-            nbinsz: Union[int, bool] = False,
+            nbinsx: int | bool = False,
+            nbinsy: int | bool = False,
+            nbinsz: int | bool = False,
         ):
             # Resolve per-dimension bin counts
             nbinsx = nbins if nbinsx is False else int(nbinsx)
@@ -132,13 +131,13 @@ class Revels3D:
         def make_force_grid(
             self,
             trajectory: TrajectoryState,
-            atom_names: Union[str, List[str]],
+            atom_names: str | list[str],
             rigid: bool = False,
-            centre_location: Union[bool, int] = True,
+            centre_location: bool | int = True,
             kernel: str = "triangular",
             polarisation_axis: int = 0,
             start: int = 0,
-            stop: Optional[int] = None,
+            stop: int | None = None,
             period: int = 1,
         ) -> None:
             """
@@ -333,7 +332,7 @@ class Revels3D:
             with np.errstate(divide="ignore", invalid="ignore"):
                 self.particle_density = self.counter / self.voxel_volume / self.count
 
-        def get_kvectors(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             """
             Return the k-vectors (2π * FFT frequencies) per dimension.
 
@@ -367,7 +366,7 @@ class Revels3D:
 
         def write_to_cube(
             self,
-            structure: Union[Structure, Any],
+            structure: Structure | Any,
             grid: np.ndarray,
             filename: str,
             convert_pmg: bool = True,
@@ -413,7 +412,7 @@ class Revels3D:
             with open(filename, "w") as f:
                 write_cube(f, atoms, data=grid)
 
-        def get_lambda(self, trajectory: TrajectoryState, sections: Optional[int] = None) -> "Revels3D.GridState":
+        def get_lambda(self, trajectory: TrajectoryState, sections: int | None = None) -> "Revels3D.GridState":
             """
             Compute optimal λ(r) to combine counting and force densities.
 
@@ -615,12 +614,12 @@ class Revels3D:
             Axis for polarisation projection (set by GridState when needed).
         """
 
-        def __init__(self, trajectory: TrajectoryState, atom_names: Union[str, List[str]], centre_location: Union[bool, int], rigid: bool = False):
+        def __init__(self, trajectory: TrajectoryState, atom_names: str | list[str], centre_location: bool | int, rigid: bool = False):
             if isinstance(atom_names, list) and len(atom_names) > 1:
                 self.indistinguishable_set = False
-                self.indices: List[np.ndarray] = []
-                self.charges: List[np.ndarray] = []
-                self.masses: List[np.ndarray] = []
+                self.indices: list[np.ndarray] = []
+                self.charges: list[np.ndarray] = []
+                self.masses: list[np.ndarray] = []
                 for atom in atom_names:
                     self.indices.append(trajectory.get_indices(atom))
                     try:
@@ -728,7 +727,7 @@ class Revels3D:
                 raise ValueError(f"Unsupported kernel: {kernel!r}")
 
         @staticmethod
-        def box_allocation(GS: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray, fox: np.ndarray, foy: np.ndarray, foz: np.ndarray, a: Union[float, np.ndarray]) -> None:
+        def box_allocation(GS: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray, fox: np.ndarray, foy: np.ndarray, foz: np.ndarray, a: float | np.ndarray) -> None:
             """
             Deposit contributions to the host voxel (no neighbor spreading).
 
@@ -759,7 +758,7 @@ class Revels3D:
             fox: np.ndarray,
             foy: np.ndarray,
             foz: np.ndarray,
-            a: Union[float, np.ndarray],
+            a: float | np.ndarray,
         ) -> None:
             """
             Deposit contributions to the 8 neighboring voxel vertices (CIC/triangular).
