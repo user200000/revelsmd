@@ -2,7 +2,7 @@
 3D force-density estimators and utilities for RevelsMD.
 
 This module provides the `Revels3D` functionality based nested classes that operate on
-a trajectory-state object (TS) to build 3D force grids, convert them to real-space
+a trajectory-state object to build 3D force grids, convert them to real-space
 densities via Fourier-space relations, write densities to .cube files, and compute
 optimal linear combinations (λ-method) of counting and force-based densities.
 
@@ -12,16 +12,18 @@ Notes
 - All kernels and gridding logic preserve your existing numerical behavior.
 """
 
+from __future__ import annotations
+
 import numpy as np
 from tqdm import tqdm
 import MDAnalysis as MD
 from lxml import etree  # type: ignore
 from typing import List, Union, Optional, Any, Dict, Tuple
 from pymatgen.core import Structure, Lattice
+from revelsMD.trajectory_states import TrajectoryState, DataUnavailableError
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.io.cube import write_cube
 import copy
-from revelsMD.revels_tools.lammps_parser import define_strngdex, frame_skip, get_a_frame
 from revelsMD.revels_tools.conversion_factors import generate_boltzmann
 
 
@@ -42,7 +44,7 @@ class Revels3D:
 
         Parameters
         ----------
-        TS : object
+        trajectory : TrajectoryState
             Trajectory-state object providing `box_x`, `box_y`, `box_z`, and `units`.
         density_type : {'number', 'charge', 'polarisation'}
             Type of density to be constructed (controls the estimator weighting).
@@ -73,7 +75,7 @@ class Revels3D:
 
         def __init__(
             self,
-            TS: Any,
+            trajectory: TrajectoryState,
             density_type: str,
             temperature: float,
             nbins: int = 100,
@@ -89,27 +91,27 @@ class Revels3D:
                 raise ValueError("nbinsx, nbinsy, nbinsz must be positive integers.")
 
             # Voxel sizes
-            lx = TS.box_x / nbinsx
-            ly = TS.box_y / nbinsy
-            lz = TS.box_z / nbinsz
+            lx = trajectory.box_x / nbinsx
+            ly = trajectory.box_y / nbinsy
+            lz = trajectory.box_z / nbinsz
             if min(lx, ly, lz) <= 0:
                 raise ValueError("Box lengths must be positive to define voxel sizes.")
 
             # Box and bins
-            self.box_x = TS.box_x
-            self.box_y = TS.box_y
-            self.box_z = TS.box_z
-            self.box_array = np.array([TS.box_x, TS.box_y, TS.box_z])
-            self.binsx = np.arange(0, TS.box_x + lx, lx)
-            self.binsy = np.arange(0, TS.box_y + ly, ly)
-            self.binsz = np.arange(0, TS.box_z + lz, lz)
+            self.box_x = trajectory.box_x
+            self.box_y = trajectory.box_y
+            self.box_z = trajectory.box_z
+            self.box_array = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
+            self.binsx = np.arange(0, trajectory.box_x + lx, lx)
+            self.binsy = np.arange(0, trajectory.box_y + ly, ly)
+            self.binsz = np.arange(0, trajectory.box_z + lz, lz)
 
             # Bookkeeping
             self.voxel_volume = float(np.prod(self.box_array) / (nbinsx * nbinsy * nbinsz))
             self.temperature = float(temperature)
             self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
             self.count = 0
-            self.units = TS.units
+            self.units = trajectory.units
             self.nbinsx, self.nbinsy, self.nbinsz = nbinsx, nbinsy, nbinsz
 
             # Accumulators
@@ -129,14 +131,14 @@ class Revels3D:
 
         def make_force_grid(
             self,
-            TS: Any,
+            trajectory: TrajectoryState,
             atom_names: Union[str, List[str]],
             rigid: bool = False,
             centre_location: Union[bool, int] = True,
             kernel: str = "triangular",
             polarisation_axis: int = 0,
             start: int = 0,
-            stop: int = -1,
+            stop: Optional[int] = None,
             period: int = 1,
         ) -> None:
             """
@@ -144,14 +146,14 @@ class Revels3D:
 
             Parameters
             ----------
-            TS : object
-                Trajectory-state object with positions/forces depending on `TS.variety`.
+            trajectory : TrajectoryState
+                Trajectory-state object with positions/forces.
             atom_names : str or list of str
                 Atom name(s) used for selection (single species or multi-species molecule).
             rigid : bool, optional
                 Treat listed species as a rigid group and sum forces (default: False).
 		For a species to be treated as rigid each atom in the molecule must have a different name.
-		
+
             centre_location : bool or int, optional
                 If `True`, use center-of-mass; if `int`, use that atom index within the
                 rigid set as the reference position (default: True).
@@ -160,9 +162,10 @@ class Revels3D:
             polarisation_axis : int, optional
                 Axis index for polarisation projection if `density_type='polarisation'`.
             start : int, optional
-                Start frame index (default: 0).
-            stop : int, optional
-                Stop frame index (default: -1; modulo behavior preserved).
+                Start frame index (default: 0). Negative indices count from end.
+            stop : int or None, optional
+                Stop frame index (default: None, meaning all frames).
+                Negative indices count from end (e.g., -1 = all but last).
             period : int, optional
                 Frame stride (default: 1).
 
@@ -183,16 +186,24 @@ class Revels3D:
             else:
                 raise ValueError("`atom_names` must be a string or list of strings.")
 
-            # Validate frame bounds with original modulo semantics
-            if start > TS.frames:
+            # Validate frame bounds
+            if start > trajectory.frames:
                 raise ValueError("First frame index exceeds frames in trajectory.")
             self.start = start
 
-            if stop > TS.frames:
+            if stop is not None and stop > trajectory.frames:
                 raise ValueError("Final frame index exceeds frames in trajectory.")
             self.stop = stop
 
-            to_run = range(int(start % TS.frames), int(stop % TS.frames), period)
+            # Calculate to_run for progress bar - normalize bounds for range()
+            norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
+            if stop is None:
+                norm_stop = trajectory.frames
+            elif stop < 0:
+                norm_stop = max(0, trajectory.frames + stop)
+            else:
+                norm_stop = stop
+            to_run = range(int(norm_start), int(norm_stop), period)
             if len(to_run) == 0:
                 raise ValueError("Final frame occurs before first frame in trajectory.")
             self.period = period
@@ -200,7 +211,7 @@ class Revels3D:
             self.to_run = to_run
 
             # Build selection wrapper (keeps original attribute spellings)
-            self.SS = Revels3D.SelectionState(TS, atom_names=atom_names, centre_location=centre_location, rigid=rigid)
+            self.SS = Revels3D.SelectionState(trajectory, atom_names=atom_names, centre_location=centre_location, rigid=rigid)
 
             # Choose estimator based on density type and rigid settings
             if self.density_type == "number":
@@ -249,37 +260,11 @@ class Revels3D:
             else:
                 raise ValueError("Supported densities: 'number', 'polarisation', 'charge'.")
 
-            # Dispatch per TS.variety, reading per-frame positions/forces and depositing
-            if TS.variety == "lammps":
-                neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
-                stringdex = define_strngdex(neededQuantities, TS.dic)
-
-                with open(TS.trajectory_file) as f:
-                    for frame_count in tqdm(self.to_run):
-                        vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                        self.single_frame_function(
-                            vars_trest[:, :3], vars_trest[:, 3:], TS, self, self.SS, kernel=self.kernel
-                        )
-                        frame_skip(f, TS.num_ats, period - 1, TS.header_length)
-
-            elif TS.variety == "mda":
-                for frame_count in tqdm(self.to_run):
-                    fr = TS.mdanalysis_universe.trajectory[frame_count]
-                    self.single_frame_function(fr.positions, fr.forces, TS, self, self.SS, kernel=self.kernel)
-
-            elif TS.variety == "vasp":
-                for frame_count in tqdm(self.to_run):
-                    self.single_frame_function(
-                        TS.positions[frame_count], TS.forces[frame_count], TS, self, self.SS, kernel=self.kernel
-                    )
-
-            elif TS.variety == "numpy":
-                for frame_count in tqdm(self.to_run):
-                    self.single_frame_function(
-                        TS.positions[frame_count], TS.forces[frame_count], TS, self, self.SS, kernel=self.kernel
-                    )
-            else:
-                raise ValueError(f"Unsupported trajectory variety: {TS.variety!r}")
+            # Unified frame iteration using iter_frames
+            for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(self.to_run)):
+                self.single_frame_function(
+                    positions, forces, trajectory, self, self.SS, kernel=self.kernel
+                )
 
             self.frames_processed = self.to_run
             self.grid_progress = "Allocated"
@@ -428,7 +413,7 @@ class Revels3D:
             with open(filename, "w") as f:
                 write_cube(f, atoms, data=grid)
 
-        def get_lambda(self, TS: Any, sections: Optional[int] = None) -> "Revels3D.GridState":
+        def get_lambda(self, trajectory: TrajectoryState, sections: Optional[int] = None) -> "Revels3D.GridState":
             """
             Compute optimal λ(r) to combine counting and force densities.
 
@@ -437,11 +422,11 @@ class Revels3D:
 
             Parameters
             ----------
-            TS : object
+            trajectory : TrajectoryState
                 Trajectory-state providing per-frame positions and forces.
             sections : int, optional
                 Number of interleaved frame-subsets used to accumulate covariance
-                buffers. If None, defaults to `TS.frames`.
+                buffers. If None, defaults to `trajectory.frames`.
 
             Returns
             -------
@@ -465,7 +450,7 @@ class Revels3D:
 
             GS_Lambda = copy.deepcopy(self)
             if sections is None:
-                sections = TS.frames
+                sections = trajectory.frames
 
             # Baseline expectation from full accumulation
             GS_Lambda.get_real_density()
@@ -491,39 +476,15 @@ class Revels3D:
                 GS_Lambda.rho *= 0
                 GS_Lambda.count *= 0
 
-                # Frame indices for this section (preserve original slicing semantics)
-                if TS.variety == "lammps":
-                    neededQuantities = ["x", "y", "z", "fx", "fy", "fz"]
-                    stringdex = define_strngdex(neededQuantities, TS.dic)
-                    with open(TS.trajectory_file) as f:
-                        for frame_count in np.array(GS_Lambda.to_run)[np.arange(k, len(GS_Lambda.to_run) // sections, sections)]:
-                            vars_trest = get_a_frame(f, TS.num_ats, TS.header_length, stringdex)
-                            GS_Lambda.single_frame_function(
-                                vars_trest[:, :3], vars_trest[:, 3:], TS, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
-                            )
-                            frame_skip(f, TS.num_ats, self.period - 1, TS.header_length)
-
-                elif TS.variety == "mda":
-                    for frame_count in (np.array(GS_Lambda.to_run)[
-                        np.arange(k, sections * (len(GS_Lambda.to_run) // sections), sections)
-                    ]):
-                        fr = TS.mdanalysis_universe.trajectory[frame_count]
-                        GS_Lambda.single_frame_function(
-                            fr.positions, fr.forces, TS, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
-                        )
-
-                elif TS.variety == "vasp":
-                    for frame_count in (np.array(GS_Lambda.to_run)[
-                        np.arange(k, sections * (len(GS_Lambda.to_run) // sections), sections)
-                    ]):
-                        GS_Lambda.single_frame_function(
-                            TS.positions[frame_count],
-                            TS.forces[frame_count],
-                            TS,
-                            GS_Lambda,
-                            GS_Lambda.SS,
-                            kernel=GS_Lambda.kernel,
-                        )
+                # Frame indices for this section (interleaved sampling)
+                frame_indices = np.array(GS_Lambda.to_run)[
+                    np.arange(k, sections * (len(GS_Lambda.to_run) // sections), sections)
+                ]
+                for frame_idx in frame_indices:
+                    positions, forces = trajectory.get_frame(frame_idx)
+                    GS_Lambda.single_frame_function(
+                        positions, forces, trajectory, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
+                    )
 
                 # Compute densities for this section and accumulate statistics
                 GS_Lambda.get_real_density()
@@ -554,77 +515,77 @@ class Revels3D:
         """
 
         @staticmethod
-        def single_frame_rigid_number_com_grid(positions, forces, TS, GS, SS, kernel="triangular"):
+        def single_frame_rigid_number_com_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
             """Rigid molecule: number density at COM position; forces summed over rigid members."""
-            coms = Revels3D.HelperFunctions.find_coms(positions, TS, GS, SS)
+            coms = Revels3D.HelperFunctions.find_coms(positions, trajectory, GS, SS)
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
-            Revels3D.HelperFunctions.process_frame(TS, GS, coms, rigid_forces, kernel=kernel)
+            Revels3D.HelperFunctions.process_frame(trajectory, GS, coms, rigid_forces, kernel=kernel)
 
         @staticmethod
-        def single_frame_rigid_number_atom_grid(positions, forces, TS, GS, SS, kernel="triangular"):
-            """Rigid molecule: number density at a specific atom’s position; forces summed over rigid members."""
+        def single_frame_rigid_number_atom_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
+            """Rigid molecule: number density at a specific atom's position; forces summed over rigid members."""
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
-            Revels3D.HelperFunctions.process_frame(TS, GS, positions[SS.indices[SS.centre_location], :], rigid_forces, kernel=kernel)
+            Revels3D.HelperFunctions.process_frame(trajectory, GS, positions[SS.indices[SS.centre_location], :], rigid_forces, kernel=kernel)
 
         @staticmethod
-        def single_frame_number_many_grid(positions, forces, TS, GS, SS, kernel="triangular"):
+        def single_frame_number_many_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
             """Non-rigid: number density for each species list; deposit per-entry."""
             for count in range(len(SS.indices)):
                 Revels3D.HelperFunctions.process_frame(
-                    TS, GS, positions[SS.indices[count], :], forces[SS.indices[count], :], kernel=kernel
+                    trajectory, GS, positions[SS.indices[count], :], forces[SS.indices[count], :], kernel=kernel
                 )
 
         @staticmethod
-        def single_frame_number_single_grid(positions, forces, TS, GS, SS, kernel="triangular"):
-            """Single species: number density at that species’ positions."""
-            Revels3D.HelperFunctions.process_frame(TS, GS, positions[SS.indices, :], forces[SS.indices, :], kernel=kernel)
+        def single_frame_number_single_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
+            """Single species: number density at that species' positions."""
+            Revels3D.HelperFunctions.process_frame(trajectory, GS, positions[SS.indices, :], forces[SS.indices, :], kernel=kernel)
 
         @staticmethod
-        def single_frame_rigid_charge_atom_grid(positions, forces, TS, GS, SS, kernel="triangular"):
-            """Rigid molecule: charge-weighted density at a specific atom’s position."""
+        def single_frame_rigid_charge_atom_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
+            """Rigid molecule: charge-weighted density at a specific atom's position."""
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
             Revels3D.HelperFunctions.process_frame(
-                TS, GS, positions[SS.indices[SS.centre_location], :], rigid_forces, a=SS.charges[SS.centre_location], kernel=kernel
+                trajectory, GS, positions[SS.indices[SS.centre_location], :], rigid_forces, a=SS.charges[SS.centre_location], kernel=kernel
             )
 
         @staticmethod
-        def single_frame_charge_many_grid(positions, forces, TS, GS, SS, kernel="triangular"):
+        def single_frame_charge_many_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
             """Non-rigid: charge-weighted density for each entry."""
             for count in range(len(SS.indices)):
                 Revels3D.HelperFunctions.process_frame(
-                    TS, GS, positions[SS.indices[count], :], forces[SS.indices[count], :], a=SS.charges[count], kernel=kernel
+                    trajectory, GS, positions[SS.indices[count], :], forces[SS.indices[count], :], a=SS.charges[count], kernel=kernel
                 )
 
         @staticmethod
-        def single_frame_charge_single_grid(positions, forces, TS, GS, SS, kernel="triangular"):
+        def single_frame_charge_single_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
             """Single species: charge-weighted density."""
             Revels3D.HelperFunctions.process_frame(
-                TS, GS, positions[SS.indices, :], forces[SS.indices, :], a=SS.charges, kernel=kernel
+                trajectory, GS, positions[SS.indices, :], forces[SS.indices, :], a=SS.charges, kernel=kernel
             )
 
         @staticmethod
-        def single_frame_rigid_charge_com_grid(positions, forces, TS, GS, SS, kernel="triangular"):
+        def single_frame_rigid_charge_com_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
             """Rigid molecule: charge-weighted density at COM."""
-            coms = Revels3D.HelperFunctions.find_coms(positions, TS, GS, SS)
+            coms = Revels3D.HelperFunctions.find_coms(positions, trajectory, GS, SS)
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
-            Revels3D.HelperFunctions.process_frame(TS, GS, coms, rigid_forces, kernel=kernel, a=SS.charges)
+            Revels3D.HelperFunctions.process_frame(trajectory, GS, coms, rigid_forces, kernel=kernel, a=SS.charges)
 
         @staticmethod
-        def single_frame_rigid_polarisation_com_grid(positions, forces, TS, GS, SS, kernel="triangular"):
+        def single_frame_rigid_polarisation_com_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
             """Rigid molecule: polarisation density projected along `SS.polarisation_axis` at COM."""
-            coms, molecular_dipole = Revels3D.HelperFunctions.find_coms(positions, TS, GS, SS, calc_dipoles=True)
+            coms, molecular_dipole = Revels3D.HelperFunctions.find_coms(positions, trajectory, GS, SS, calc_dipoles=True)
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
             Revels3D.HelperFunctions.process_frame(
-                TS, GS, coms, rigid_forces, a=molecular_dipole[:, GS.SS.polarisation_axis], kernel=kernel
+                trajectory, GS, coms, rigid_forces, a=molecular_dipole[:, GS.SS.polarisation_axis], kernel=kernel
             )
 
         @staticmethod
-        def single_frame_rigid_polarisation_atom_grid(positions, forces, TS, GS, SS, kernel="triangular"):
+        def single_frame_rigid_polarisation_atom_grid(positions, forces, trajectory, GS, SS, kernel="triangular"):
             """Rigid molecule: polarisation density projected along `SS.polarisation_axis` at COM (per original code)."""
-            coms, molecular_dipole = Revels3D.HelperFunctions.find_coms(positions, TS, GS, SS, calc_dipoles=True)
+            coms, molecular_dipole = Revels3D.HelperFunctions.find_coms(positions, trajectory, GS, SS, calc_dipoles=True)
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
             Revels3D.HelperFunctions.process_frame(
-                TS, GS, coms, rigid_forces, a=molecular_dipole[:, GS.SS.polarisation_axis], kernel=kernel
+                trajectory, GS, coms, rigid_forces, a=molecular_dipole[:, GS.SS.polarisation_axis], kernel=kernel
             )
 
     class SelectionState:
@@ -633,13 +594,13 @@ class Revels3D:
 
         Parameters
         ----------
-        TS : object
-            Trajectory-state with index/charge/mass accessors and `charge_and_mass` flag.
+        trajectory : TrajectoryState
+            Trajectory-state with index/charge/mass accessors.
         atom_names : str or list of str
             For a single species, may be a string or single-element list.
             For a rigid molecule, provide a list of species names in the rigid group.
         centre_location : bool or int
-            If a rigid group is provided: `True` selects COM; `int` selects one species’
+            If a rigid group is provided: `True` selects COM; `int` selects one species'
             index within the rigid set as the center.
 
         Attributes
@@ -654,17 +615,19 @@ class Revels3D:
             Axis for polarisation projection (set by GridState when needed).
         """
 
-        def __init__(self, TS: Any, atom_names: Union[str, List[str]], centre_location: Union[bool, int], rigid: bool = False):
+        def __init__(self, trajectory: TrajectoryState, atom_names: Union[str, List[str]], centre_location: Union[bool, int], rigid: bool = False):
             if isinstance(atom_names, list) and len(atom_names) > 1:
                 self.indistinguishable_set = False
                 self.indices: List[np.ndarray] = []
                 self.charges: List[np.ndarray] = []
                 self.masses: List[np.ndarray] = []
                 for atom in atom_names:
-                    self.indices.append(TS.get_indices(atom))
-                    if TS.charge_and_mass is True:
-                        self.charges.append(TS.get_charges(atom))
-                        self.masses.append(TS.get_masses(atom))
+                    self.indices.append(trajectory.get_indices(atom))
+                    try:
+                        self.charges.append(trajectory.get_charges(atom))
+                        self.masses.append(trajectory.get_masses(atom))
+                    except DataUnavailableError:
+                        pass
                 if rigid:
                     lengths = [len(idx) for idx in self.indices]
                     if len(set(lengths)) != 1:
@@ -683,10 +646,12 @@ class Revels3D:
                 if isinstance(atom_names, list):
                     atom_names = atom_names[0]
                 self.indistinguishable_set = True
-                self.indices = TS.get_indices(atom_names)
-                if TS.charge_and_mass is True:
-                    self.charges = TS.get_charges(atom_names)
-                    self.masses = TS.get_masses(atom_names)
+                self.indices = trajectory.get_indices(atom_names)
+                try:
+                    self.charges = trajectory.get_charges(atom_names)
+                    self.masses = trajectory.get_masses(atom_names)
+                except DataUnavailableError:
+                    pass
 
         def position_centre(self, species_number: int) -> None:
             """
@@ -713,13 +678,13 @@ class Revels3D:
         """
 
         @staticmethod
-        def process_frame(TS: Any, GS: Any, positions: np.ndarray, forces: np.ndarray, a: float = 1.0, kernel: str = "triangular") -> None:
+        def process_frame(trajectory: TrajectoryState, GS: Any, positions: np.ndarray, forces: np.ndarray, a: float = 1.0, kernel: str = "triangular") -> None:
             """
             Deposit a frame's positions/forces to the grid using a given kernel.
 
             Parameters
             ----------
-            TS : object
+            trajectory : TrajectoryState
                 Trajectory state (box lengths used here).
             GS : GridState
                 Grid accumulators and bin geometry.
@@ -865,7 +830,7 @@ class Revels3D:
 
 
         @staticmethod
-        def find_coms(positions: np.ndarray, TS: Any, GS: Any, SS: Any, calc_dipoles: bool = False):
+        def find_coms(positions: np.ndarray, trajectory: TrajectoryState, GS: Any, SS: Any, calc_dipoles: bool = False):
             """
             Compute centers-of-mass (and optionally molecular dipoles) for a rigid set.
 
@@ -873,7 +838,7 @@ class Revels3D:
             ----------
             positions : (N, 3) np.ndarray
                 Cartesian coordinates.
-            TS : object
+            trajectory : TrajectoryState
                 Trajectory state containing box lengths.
             GS : GridState
                 Unused numerically here; preserved for signature compatibility.
@@ -901,9 +866,9 @@ class Revels3D:
                 logical_diffs = np.transpose(
                     np.array(
                         [
-                            TS.box_x * (diffs[:, 0] < -TS.box_x / 2) - TS.box_x * (diffs[:, 0] > TS.box_x / 2),
-                            TS.box_y * (diffs[:, 1] < -TS.box_y / 2) - TS.box_y * (diffs[:, 1] > TS.box_y / 2),
-                            TS.box_z * (diffs[:, 2] < -TS.box_z / 2) - TS.box_z * (diffs[:, 2] > TS.box_z / 2),
+                            trajectory.box_x * (diffs[:, 0] < -trajectory.box_x / 2) - trajectory.box_x * (diffs[:, 0] > trajectory.box_x / 2),
+                            trajectory.box_y * (diffs[:, 1] < -trajectory.box_y / 2) - trajectory.box_y * (diffs[:, 1] > trajectory.box_y / 2),
+                            trajectory.box_z * (diffs[:, 2] < -trajectory.box_z / 2) - trajectory.box_z * (diffs[:, 2] > trajectory.box_z / 2),
                         ]
                     )
                 )
@@ -917,9 +882,9 @@ class Revels3D:
                 for species_index in range(1, len(SS.indices)):
                     separation = (positions[SS.indices[species_index]] - coms)
                     # Minimum-image correction component-wise
-                    separation[:, 0] -= (np.ceil((np.abs(separation[:, 0]) - TS.box_x / 2) / TS.box_x)) * (TS.box_x) * np.sign(separation[:, 0])
-                    separation[:, 1] -= (np.ceil((np.abs(separation[:, 1]) - TS.box_y / 2) / TS.box_y)) * (TS.box_y) * np.sign(separation[:, 1])
-                    separation[:, 2] -= (np.ceil((np.abs(separation[:, 2]) - TS.box_z / 2) / TS.box_z)) * (TS.box_z) * np.sign(separation[:, 2])
+                    separation[:, 0] -= (np.ceil((np.abs(separation[:, 0]) - trajectory.box_x / 2) / trajectory.box_x)) * (trajectory.box_x) * np.sign(separation[:, 0])
+                    separation[:, 1] -= (np.ceil((np.abs(separation[:, 1]) - trajectory.box_y / 2) / trajectory.box_y)) * (trajectory.box_y) * np.sign(separation[:, 1])
+                    separation[:, 2] -= (np.ceil((np.abs(separation[:, 2]) - trajectory.box_z / 2) / trajectory.box_z)) * (trajectory.box_z) * np.sign(separation[:, 2])
                     charges_cumulant += GS.SS.charges[species_index][:, np.newaxis] * separation
                 molecular_dipole = charges_cumulant
                 return coms, molecular_dipole

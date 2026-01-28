@@ -1,30 +1,29 @@
 import pytest
 import numpy as np
 from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.trajectory_states import NumpyTrajectoryState
 
 
 class TSMock:
-    """Minimal trajectory-state mock with numpy variety for testing RDF calculations."""
+    """Minimal trajectory-state mock implementing the unified TrajectoryState interface."""
     def __init__(self):
         self.box_x = 10.0
         self.box_y = 10.0
         self.box_z = 10.0
         self.units = "real"
         self.frames = 3
-        self.variety = "numpy"
-        self.charge_and_mass = True
 
         # 3 frames × 3 atoms × 3 coordinates
-        self.positions = np.array([
+        self._positions = np.array([
             [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
             [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
             [[0.9, 1.9, 2.9], [3.9, 4.9, 5.9], [6.9, 7.9, 8.9]]
-        ])
-        self.forces = np.array([
+        ], dtype=float)
+        self._forces = np.array([
             [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
             [[0.2, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.2]],
             [[0.3, 0.0, 0.0], [0.0, 0.3, 0.0], [0.0, 0.0, 0.3]],
-        ])
+        ], dtype=float)
 
         self.species = ["H", "O", "H"]
         self._ids = {"H": np.array([0, 2]), "O": np.array([1])}
@@ -40,6 +39,19 @@ class TSMock:
     def get_masses(self, atype):
         return self._masses[atype]
 
+    def iter_frames(self, start=0, stop=None, stride=1):
+        """Iterate over frames yielding (positions, forces) tuples."""
+        if stop is None:
+            stop = self.frames
+        elif stop < 0:
+            stop = self.frames + stop
+        for i in range(start, stop, stride):
+            yield self._positions[i], self._forces[i]
+
+    def get_frame(self, index):
+        """Return (positions, forces) for a specific frame."""
+        return self._positions[index], self._forces[index]
+
 
 @pytest.fixture
 def ts():
@@ -54,9 +66,10 @@ def ts():
 def test_single_frame_rdf_like(ts):
     bins = np.linspace(0, 5, 10)
     indices = ts.get_indices("H")
+    positions, forces = ts.get_frame(0)
     result = RevelsRDF.single_frame_rdf_like(
-        ts.positions[0],
-        ts.forces[0],
+        positions,
+        forces,
         indices,
         ts.box_x,
         ts.box_y,
@@ -75,9 +88,10 @@ def test_single_frame_rdf_like(ts):
 def test_single_frame_rdf_unlike(ts):
     bins = np.linspace(0, 5, 10)
     indices = [ts.get_indices("H"), ts.get_indices("O")]
+    positions, forces = ts.get_frame(0)
     result = RevelsRDF.single_frame_rdf_unlike(
-        ts.positions[0],
-        ts.forces[0],
+        positions,
+        forces,
         indices,
         ts.box_x,
         ts.box_y,
@@ -138,10 +152,22 @@ def test_run_rdf_unlike_pairs(ts):
 # run_rdf edge conditions
 # -------------------------------
 
-def test_run_rdf_invalid_frame(ts, capsys):
-    out = RevelsRDF.run_rdf(ts, "H", "O", 300, start=10, stop=2)
-    captured = capsys.readouterr()
-    assert "First frame index" in captured.out or out is None
+def test_run_rdf_start_exceeds_frames(ts):
+    """run_rdf should raise ValueError when start exceeds trajectory frames."""
+    with pytest.raises(ValueError, match="First frame index exceeds"):
+        RevelsRDF.run_rdf(ts, "H", "O", 300, start=10)
+
+
+def test_run_rdf_stop_exceeds_frames(ts):
+    """run_rdf should raise ValueError when stop exceeds trajectory frames."""
+    with pytest.raises(ValueError, match="Final frame index exceeds"):
+        RevelsRDF.run_rdf(ts, "H", "O", 300, stop=10)
+
+
+def test_run_rdf_empty_frame_range(ts):
+    """run_rdf should raise ValueError when frame range is empty."""
+    with pytest.raises(ValueError, match="Final frame occurs before"):
+        RevelsRDF.run_rdf(ts, "H", "O", 300, start=2, stop=1)
 
 
 # -------------------------------
@@ -165,6 +191,134 @@ def test_run_rdf_lambda_like(ts):
     assert result.shape[1] == 3
     assert np.all(np.isfinite(result))
     assert np.all((result[:, 2] >= -1) & (result[:, 2] <= 2))  # λ values roughly bounded
+
+
+# -------------------------------
+# run_rdf_lambda edge conditions
+# -------------------------------
+
+def test_run_rdf_lambda_start_exceeds_frames(ts):
+    """run_rdf_lambda should raise ValueError when start exceeds trajectory frames."""
+    with pytest.raises(ValueError, match="First frame index exceeds"):
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, start=10)
+
+
+def test_run_rdf_lambda_stop_exceeds_frames(ts):
+    """run_rdf_lambda should raise ValueError when stop exceeds trajectory frames."""
+    with pytest.raises(ValueError, match="Final frame index exceeds"):
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, stop=10)
+
+
+def test_run_rdf_lambda_empty_frame_range(ts):
+    """run_rdf_lambda should raise ValueError when frame range is empty."""
+    with pytest.raises(ValueError, match="Final frame occurs before"):
+        RevelsRDF.run_rdf_lambda(ts, "H", "O", 300, start=2, stop=1)
+
+
+# -------------------------------
+# Tests using real NumpyTrajectoryState
+# -------------------------------
+
+class TestRDFWithNumpyTrajectoryState:
+    """Test RDF functions work with real NumpyTrajectoryState objects."""
+
+    def test_run_rdf_with_numpy_trajectory_state(self):
+        """run_rdf should work with a real NumpyTrajectoryState."""
+        positions = np.array([
+            [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
+            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
+            [[0.9, 1.9, 2.9], [3.9, 4.9, 5.9], [6.9, 7.9, 8.9]]
+        ], dtype=float)
+        forces = np.array([
+            [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
+            [[0.2, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.2]],
+            [[0.3, 0.0, 0.0], [0.0, 0.3, 0.0], [0.0, 0.0, 0.3]],
+        ], dtype=float)
+        species = ["H", "O", "H"]
+
+        ts = NumpyTrajectoryState(
+            positions, forces, 10.0, 10.0, 10.0, species, units="real"
+        )
+
+        result = RevelsRDF.run_rdf(
+            ts,
+            atom_a="H",
+            atom_b="H",
+            temp=300,
+            delr=1.0,
+            start=0,
+            stop=2,
+            period=1,
+            rmax=True,
+            from_zero=True,
+        )
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape[0] == 2
+        assert np.all(np.isfinite(result))
+
+    def test_run_rdf_lambda_with_numpy_trajectory_state(self):
+        """run_rdf_lambda should work with a real NumpyTrajectoryState."""
+        positions = np.array([
+            [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
+            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
+            [[0.9, 1.9, 2.9], [3.9, 4.9, 5.9], [6.9, 7.9, 8.9]]
+        ], dtype=float)
+        forces = np.array([
+            [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
+            [[0.2, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.2]],
+            [[0.3, 0.0, 0.0], [0.0, 0.3, 0.0], [0.0, 0.0, 0.3]],
+        ], dtype=float)
+        species = ["H", "O", "H"]
+
+        ts = NumpyTrajectoryState(
+            positions, forces, 10.0, 10.0, 10.0, species, units="real"
+        )
+
+        result = RevelsRDF.run_rdf_lambda(
+            ts,
+            atom_a="H",
+            atom_b="H",
+            temp=300,
+            delr=1.0,
+            start=0,
+            stop=2,
+            period=1,
+            rmax=True,
+        )
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape[1] == 3
+        assert np.all(np.isfinite(result))
+
+    def test_run_rdf_stop_none_uses_all_frames(self):
+        """stop=None should use all frames (the new default behaviour)."""
+        positions = np.array([
+            [[1, 2, 3], [4, 5, 6]],
+            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1]],
+            [[0.9, 1.9, 2.9], [3.9, 4.9, 5.9]],
+            [[1.2, 2.2, 3.2], [4.2, 5.2, 6.2]],
+        ], dtype=float)
+        forces = np.ones_like(positions) * 0.1
+        species = ["H", "H"]
+
+        ts = NumpyTrajectoryState(
+            positions, forces, 10.0, 10.0, 10.0, species, units="real"
+        )
+
+        # With stop=None, should process all 4 frames
+        result = RevelsRDF.run_rdf(
+            ts,
+            atom_a="H",
+            atom_b="H",
+            temp=300,
+            delr=1.0,
+            stop=None,
+            rmax=True,
+        )
+
+        assert isinstance(result, np.ndarray)
+        assert result.shape[0] == 2
 
 
 # -------------------------------

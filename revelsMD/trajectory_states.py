@@ -1,16 +1,227 @@
 import numpy as np
 from tqdm import tqdm
-import MDAnalysis as MD
-from lxml import etree  # type: ignore
-from typing import List, Union, Optional
+import MDAnalysis as MD  # type: ignore[import-untyped]
+from lxml import etree  # type: ignore[import-untyped]
+from abc import ABC, abstractmethod
+from typing import List, Union, Optional, Iterator, Tuple
 from pymatgen.core import Lattice
 from pymatgen.io.ase import AseAtomsAdaptor
 from ase.io.cube import write_cube
-from revelsMD.revels_tools.lammps_parser import first_read
+from revelsMD.revels_tools.lammps_parser import first_read, get_a_frame, define_strngdex, frame_skip
 from revelsMD.revels_tools.vasp_parser import Vasprun
 
 
-class MDATrajectoryState:
+class DataUnavailableError(Exception):
+    """Raised when requested data (charges, masses) is not available for a trajectory type."""
+    pass
+
+
+class TrajectoryState(ABC):
+    """
+    Abstract base class defining the interface for trajectory state objects.
+
+    All trajectory backends must implement this interface to ensure consistent
+    access patterns across different file formats and data sources.
+
+    Required Attributes
+    -------------------
+    frames : int
+        Number of frames in the trajectory.
+    box_x, box_y, box_z : float
+        Simulation box dimensions in each Cartesian direction.
+    units : str
+        Unit system identifier (e.g., 'real', 'metal', 'mda').
+    """
+
+    # Required attributes - subclasses must set these
+    frames: int
+    box_x: float
+    box_y: float
+    box_z: float
+    units: str
+
+    def _normalize_bounds(
+        self, start: int, stop: Optional[int], stride: int
+    ) -> Tuple[int, int, int]:
+        """
+        Normalize start/stop bounds to handle negative indices Pythonically.
+
+        Parameters
+        ----------
+        start : int
+            Start index (can be negative).
+        stop : int or None
+            Stop index (can be negative or None for end of trajectory).
+        stride : int
+            Step between frames.
+
+        Returns
+        -------
+        tuple of (int, int, int)
+            Normalized (start, stop, stride) suitable for use with range().
+
+        Notes
+        -----
+        Follows Python slice semantics:
+        - Negative indices count from the end (e.g., -1 is the last frame)
+        - None for stop means iterate to the end
+        - Out-of-bounds indices are clamped to valid range
+        """
+        n = self.frames
+
+        # Handle None stop
+        if stop is None:
+            stop = n
+
+        # Handle negative start
+        if start < 0:
+            start = max(0, n + start)
+
+        # Handle negative stop
+        if stop < 0:
+            stop = max(0, n + stop)
+
+        # Clamp to valid range
+        start = min(start, n)
+        stop = min(stop, n)
+
+        return start, stop, stride
+
+    @staticmethod
+    def _validate_orthorhombic(angles: List[float], atol: float = 1e-3) -> None:
+        """
+        Validate that cell angles are orthorhombic (all 90 degrees).
+
+        Parameters
+        ----------
+        angles : list of float
+            The three cell angles [alpha, beta, gamma] in degrees.
+        atol : float, optional
+            Absolute tolerance for comparison to 90 degrees (default: 1e-3).
+
+        Raises
+        ------
+        ValueError
+            If any angle is not within tolerance of 90 degrees.
+        """
+        if not np.allclose(angles, 90.0, atol=atol):
+            raise ValueError(
+                "Only orthorhombic or cubic cells are supported. "
+                f"Got angles: {angles}"
+            )
+
+    @staticmethod
+    def _validate_box_dimensions(lx: float, ly: float, lz: float) -> Tuple[float, float, float]:
+        """
+        Validate that box dimensions are positive and finite.
+
+        Parameters
+        ----------
+        lx, ly, lz : float
+            Box dimensions in each Cartesian direction.
+
+        Returns
+        -------
+        tuple of (float, float, float)
+            The validated box dimensions.
+
+        Raises
+        ------
+        ValueError
+            If any dimension is not positive or not finite.
+        """
+        dims = [lx, ly, lz]
+        if not all(np.isfinite(dims)):
+            raise ValueError(f"Box dimensions must be finite. Got: ({lx}, {ly}, {lz})")
+        if not all(d > 0 for d in dims):
+            raise ValueError(f"Box dimensions must be positive. Got: ({lx}, {ly}, {lz})")
+        return lx, ly, lz
+
+    @abstractmethod
+    def get_indices(self, atype: str) -> np.ndarray:
+        """Return atom indices for a given species or type."""
+        ...
+
+    def get_charges(self, atype: str) -> np.ndarray:
+        """Return atomic charges for atoms of a given species or type.
+
+        Subclasses should override this method if charge data is available.
+        The default implementation raises DataUnavailableError.
+        """
+        raise DataUnavailableError("Charge data not available for this trajectory type.")
+
+    def get_masses(self, atype: str) -> np.ndarray:
+        """Return atomic masses for atoms of a given species or type.
+
+        Subclasses should override this method if mass data is available.
+        The default implementation raises DataUnavailableError.
+        """
+        raise DataUnavailableError("Mass data not available for this trajectory type.")
+
+    def iter_frames(
+        self,
+        start: int = 0,
+        stop: Optional[int] = None,
+        stride: int = 1
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Iterate over trajectory frames, yielding positions and forces.
+
+        Parameters
+        ----------
+        start : int, optional
+            First frame index (default: 0). Negative indices count from end.
+        stop : int, optional
+            Stop iteration before this frame (default: None, meaning all frames).
+            Negative indices count from end.
+        stride : int, optional
+            Step between frames (default: 1).
+
+        Yields
+        ------
+        positions : np.ndarray
+            Atomic positions for the current frame, shape (n_atoms, 3).
+        forces : np.ndarray
+            Atomic forces for the current frame, shape (n_atoms, 3).
+        """
+        start, stop, stride = self._normalize_bounds(start, stop, stride)
+        return self._iter_frames_impl(start, stop, stride)
+
+    @abstractmethod
+    def _iter_frames_impl(
+        self,
+        start: int,
+        stop: int,
+        stride: int
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Internal implementation of frame iteration.
+
+        Subclasses implement this with normalized (non-negative) bounds.
+        """
+        ...
+
+    @abstractmethod
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Return positions and forces for a specific frame by index.
+
+        Parameters
+        ----------
+        index : int
+            Frame index to retrieve.
+
+        Returns
+        -------
+        positions : np.ndarray
+            Atomic positions for the frame, shape (n_atoms, 3).
+        forces : np.ndarray
+            Atomic forces for the frame, shape (n_atoms, 3).
+        """
+        ...
+
+
+class MDATrajectoryState(TrajectoryState):
     """
     Represents a molecular dynamics trajectory handled by **MDAnalysis**.
 
@@ -26,16 +237,12 @@ class MDATrajectoryState:
 
     Attributes
     ----------
-    variety : str
-        Identifier for trajectory type (`'mda'`).
     frames : int
         Number of trajectory frames.
     box_x, box_y, box_z : float
         Orthorhombic simulation box dimensions in each Cartesian direction.
     units : str
         Unit system identifier (`'mda'`).
-    charge_and_mass : bool
-        Indicates whether charge and mass data are accessible.
 
     Raises
     ------
@@ -54,7 +261,6 @@ class MDATrajectoryState:
         if not topology_file:
             raise ValueError("A topology file is required for MDAnalysis trajectories.")
 
-        self.variety = 'mda'
         self.trajectory_file = trajectory_file
         self.topology_file = topology_file
 
@@ -65,7 +271,6 @@ class MDATrajectoryState:
 
         self.mdanalysis_universe = mdanalysis_universe
         self.frames = len(mdanalysis_universe.trajectory)
-        self.charge_and_mass = True
         self.units = 'mda'
 
         dims = mdanalysis_universe.dimensions
@@ -74,12 +279,10 @@ class MDATrajectoryState:
 
         # Safe unpack for older trajectories lacking angular information
         lx, ly, lz = dims[:3]
-        alpha, beta, gamma = dims[3:6] if len(dims) >= 6 else (90.0, 90.0, 90.0)
+        angles = list(dims[3:6]) if len(dims) >= 6 else [90.0, 90.0, 90.0]
 
-        if not np.allclose([alpha, beta, gamma], 90.0, atol=1e-3):
-            raise ValueError("Only orthorhombic or cubic cells are supported.")
-
-        self.box_x, self.box_y, self.box_z = lx, ly, lz
+        self._validate_orthorhombic(angles)
+        self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
@@ -131,8 +334,23 @@ class MDATrajectoryState:
         """
         return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
 
+    def _iter_frames_impl(
+        self,
+        start: int,
+        stop: int,
+        stride: int
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """Iterate using MDAnalysis trajectory slicing."""
+        for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
+            yield ts.positions.copy(), ts.forces.copy()
 
-class NumpyTrajectoryState:
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Return positions and forces for a specific frame by index."""
+        ts = self.mdanalysis_universe.trajectory[index]
+        return ts.positions.copy(), ts.forces.copy()
+
+
+class NumpyTrajectoryState(TrajectoryState):
     """
     Represents a trajectory stored directly as NumPy arrays.
 
@@ -188,7 +406,6 @@ class NumpyTrajectoryState:
         if not all(val > 0 for val in (box_x, box_y, box_z)):
             raise ValueError("Box dimensions must all be positive values.")
 
-        self.variety = 'numpy'
         self.positions = positions
         self.forces = forces
         self.species_string = species_list
@@ -197,7 +414,6 @@ class NumpyTrajectoryState:
         self.box_z = box_z
         self.units = units
         self.frames = positions.shape[0]
-        self.charge_and_mass = bool(charge_list is not None and mass_list is not None)
 
         if charge_list is not None:
             self.charge_list = charge_list
@@ -230,8 +446,36 @@ class NumpyTrajectoryState:
 
     get_indicies = get_indices
 
+    def get_charges(self, atype: str) -> np.ndarray:
+        """Return atomic charges for atoms of a given species."""
+        if not hasattr(self, 'charge_list'):
+            raise DataUnavailableError("Charge data not available for this trajectory.")
+        indices = self.get_indices(atype)
+        return self.charge_list[indices]
 
-class LammpsTrajectoryState:
+    def get_masses(self, atype: str) -> np.ndarray:
+        """Return atomic masses for atoms of a given species."""
+        if not hasattr(self, 'mass_list'):
+            raise DataUnavailableError("Mass data not available for this trajectory.")
+        indices = self.get_indices(atype)
+        return self.mass_list[indices]
+
+    def _iter_frames_impl(
+        self,
+        start: int,
+        stop: int,
+        stride: int
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """Iterate over in-memory position/force arrays."""
+        for i in range(start, stop, stride):
+            yield self.positions[i], self.forces[i]
+
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Return positions and forces for a specific frame by index."""
+        return self.positions[index], self.forces[index]
+
+
+class LammpsTrajectoryState(TrajectoryState):
     """
     Represents a molecular dynamics trajectory obtained from LAMMPS output.
 
@@ -248,8 +492,6 @@ class LammpsTrajectoryState:
         LAMMPS unit system (default: `'real'`).
     atom_style : str, optional
         LAMMPS atom style (default: `'full'`).
-    charge_and_mass : bool, optional
-        Whether charge/mass data are accessible (default: ``True``).
 
     Raises
     ------
@@ -265,13 +507,10 @@ class LammpsTrajectoryState:
         topology_file: Optional[str] = None,
         units: str = 'real',
         atom_style: str = 'full',
-        charge_and_mass: bool = True,
     ):
-        self.variety = 'lammps'
         self.trajectory_file = trajectory_file
         self.topology_file = topology_file
         self.units = units
-        self.charge_and_mass = charge_and_mass
 
         if topology_file is None:
             raise ValueError("A topology file is required for LAMMPS trajectories.")
@@ -302,30 +541,72 @@ class LammpsTrajectoryState:
 
         lx, ly, lz, alpha, beta, gamma = dims[:6]
 
-        if not np.allclose([alpha, beta, gamma], 90.0, atol=1e-3):
-            raise ValueError("Only orthorhombic or cubic boxes are supported.")
+        self._validate_orthorhombic([alpha, beta, gamma])
+        self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
 
-        if not all(np.isfinite([lx, ly, lz])) or not all(val > 0 for val in (lx, ly, lz)):
-            raise ValueError(f"Invalid box dimensions: ({lx}, {ly}, {lz})")
-
-        self.box_x, self.box_y, self.box_z = lx, ly, lz
-
-    def get_indices(self, atype: Union[int, str]) -> np.ndarray:
-        """Return atom indices for a given LAMMPS atom type."""
+    def get_indices(self, atype: str) -> np.ndarray:
+        """Return atom indices for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').ids - 1
 
     get_indicies = get_indices
 
-    def get_charges(self, atype: Union[int, str]) -> np.ndarray:
-        """Return atomic charges for a given LAMMPS atom type."""
+    def get_charges(self, atype: str) -> np.ndarray:
+        """Return atomic charges for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').charges
 
-    def get_masses(self, atype: Union[int, str]) -> np.ndarray:
-        """Return atomic masses for a given LAMMPS atom type."""
+    def get_masses(self, atype: str) -> np.ndarray:
+        """Return atomic masses for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
 
+    def _iter_frames_impl(
+        self,
+        start: int,
+        stop: int,
+        stride: int
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """Parse LAMMPS dump file sequentially for positions and forces."""
+        needed_quantities = ["x", "y", "z", "fx", "fy", "fz"]
+        strngdex = define_strngdex(needed_quantities, self.dic)
 
-class VaspTrajectoryState:
+        traj_file = self.trajectory_file
+        if isinstance(traj_file, list):
+            traj_file = traj_file[0]
+
+        with open(traj_file) as f:
+            # Skip to start frame
+            if start > 0:
+                frame_skip(f, self.num_ats, start, self.header_length)
+
+            frame_idx = start
+            while frame_idx < stop:
+                data = get_a_frame(f, self.num_ats, self.header_length, strngdex)
+                positions = data[:, :3]
+                forces = data[:, 3:]
+                yield positions, forces
+
+                # Skip (stride - 1) frames before the next read
+                frames_to_skip = stride - 1
+                frame_idx += 1
+                if frame_idx < stop and frames_to_skip > 0:
+                    frame_skip(f, self.num_ats, frames_to_skip, self.header_length)
+                    frame_idx += frames_to_skip
+
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Return positions and forces for a specific frame by index.
+
+        LAMMPS dump files are sequential, so random access requires caching
+        all frames in memory on first call. Subsequent calls use the cache.
+        """
+        # Lazy-load cache on first random access
+        if not hasattr(self, '_frame_cache'):
+            self._frame_cache = list(self.iter_frames())
+
+        positions, forces = self._frame_cache[index]
+        return positions, forces
+
+
+class VaspTrajectoryState(TrajectoryState):
     """
     Represents a molecular dynamics trajectory obtained from VASP ``vasprun.xml`` output.
 
@@ -339,8 +620,6 @@ class VaspTrajectoryState:
 
     Attributes
     ----------
-    variety : str
-        Identifier (`'vasp'`).
     frames : int
         Total number of time steps across all vasprun files.
     box_x, box_y, box_z : float
@@ -362,23 +641,20 @@ class VaspTrajectoryState:
     """
 
     def __init__(self, trajectory_file: Union[str, List[str]]):
-        self.variety = 'vasp'
         self.units = 'metal'
-        self.charge_and_mass = False
+        self.trajectory_file: Union[str, List[str]] = trajectory_file
 
         if isinstance(trajectory_file, list):
-            self.trajectory_file = trajectory_file
             self.Vasprun = Vasprun(trajectory_file[0])
-            self.Vasprun.start = self.Vasprun.structures[0]
+            self._start_structure = self.Vasprun.structures[0]
             self.frames = len(self.Vasprun.structures)
-            start = self.Vasprun.structures[0]
 
-            self._validate_cell(self.Vasprun.start.lattice)
-            self.box_x, self.box_y, self.box_z = np.diag(self.Vasprun.start.lattice.matrix)
-            self.positions = self.Vasprun.cart_coords
-            self.forces = self.Vasprun.forces
-            if self.forces is None:
+            self._validate_cell(self._start_structure.lattice)
+            self.box_x, self.box_y, self.box_z = np.diag(self._start_structure.lattice.matrix)
+            if self.Vasprun.forces is None:
                 raise ValueError(f"No forces found in {trajectory_file[0]}")
+            self.positions: np.ndarray = self.Vasprun.cart_coords
+            self.forces: np.ndarray = self.Vasprun.forces
 
             for item in trajectory_file[1:]:
                 next_run = Vasprun(item)
@@ -388,29 +664,25 @@ class VaspTrajectoryState:
                 self.positions = np.append(self.positions, next_run.cart_coords, axis=0)
                 self.forces = np.append(self.forces, next_run.forces, axis=0)
 
-            self.Vasprun.start = start
-
         else:
-            self.trajectory_file = trajectory_file
             self.Vasprun = Vasprun(trajectory_file)
-            self.Vasprun.start = self.Vasprun.structures[0]
+            self._start_structure = self.Vasprun.structures[0]
             self.frames = len(self.Vasprun.structures)
 
-            self._validate_cell(self.Vasprun.start.lattice)
-            self.box_x, self.box_y, self.box_z = np.diag(self.Vasprun.start.lattice.matrix)
+            self._validate_cell(self._start_structure.lattice)
+            self.box_x, self.box_y, self.box_z = np.diag(self._start_structure.lattice.matrix)
+            if self.Vasprun.forces is None:
+                raise ValueError(f"No forces found in {trajectory_file}")
             self.positions = self.Vasprun.cart_coords
             self.forces = self.Vasprun.forces
-            if self.forces is None:
-                raise ValueError(f"No forces found in {trajectory_file}")
+
+        # Backwards compatibility: expose start structure via Vasprun.start
+        self.Vasprun.start = self._start_structure
 
     @staticmethod
     def _validate_cell(lattice: Lattice):
         """Validate that the VASP lattice is orthorhombic."""
-        if not np.allclose(lattice.angles, 90.0, atol=1e-3):
-            raise ValueError(
-                "Non-orthorhombic or non-cubic cell detected. "
-                "Only orthorhombic/cubic cells are supported."
-            )
+        TrajectoryState._validate_orthorhombic(list(lattice.angles))
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
@@ -426,5 +698,21 @@ class VaspTrajectoryState:
         np.ndarray
             Array of atom indices matching the requested species.
         """
-        return self.Vasprun.start.indices_from_symbol(atype)
+        return np.array(self._start_structure.indices_from_symbol(atype))
 
+    # get_charges and get_masses are inherited from TrajectoryState
+    # and raise DataUnavailableError since VASP doesn't provide this data
+
+    def _iter_frames_impl(
+        self,
+        start: int,
+        stop: int,
+        stride: int
+    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+        """Iterate over in-memory position/force arrays."""
+        for i in range(start, stop, stride):
+            yield self.positions[i], self.forces[i]
+
+    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Return positions and forces for a specific frame by index."""
+        return self.positions[index], self.forces[index]
