@@ -603,7 +603,7 @@ class Revels3D:
             )
 
         @staticmethod
-        def single_frame_rigid_charge_com_grids(positions, forces, TS, GS, SS, kernel="triangular"):
+        def single_frame_rigid_charge_com_grid(positions, forces, TS, GS, SS, kernel="triangular"):
             """Rigid molecule: charge-weighted density at COM."""
             coms = Revels3D.HelperFunctions.find_coms(positions, TS, GS, SS)
             rigid_forces = Revels3D.HelperFunctions.sum_forces(SS, forces)
