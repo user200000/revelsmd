@@ -1,12 +1,10 @@
-import numpy as np
-from tqdm import tqdm
-import MDAnalysis as MD  # type: ignore[import-untyped]
-from lxml import etree  # type: ignore[import-untyped]
 from abc import ABC, abstractmethod
-from typing import List, Union, Optional, Iterator, Tuple
+from collections.abc import Iterator
+
+import numpy as np
+import MDAnalysis as MD  # type: ignore[import-untyped]
 from pymatgen.core import Lattice
-from pymatgen.io.ase import AseAtomsAdaptor
-from ase.io.cube import write_cube
+
 from revelsMD.revels_tools.lammps_parser import first_read, get_a_frame, define_strngdex, frame_skip
 from revelsMD.revels_tools.vasp_parser import Vasprun
 
@@ -41,8 +39,8 @@ class TrajectoryState(ABC):
     units: str
 
     def _normalize_bounds(
-        self, start: int, stop: Optional[int], stride: int
-    ) -> Tuple[int, int, int]:
+        self, start: int, stop: int | None, stride: int
+    ) -> tuple[int, int, int]:
         """
         Normalize start/stop bounds to handle negative indices Pythonically.
 
@@ -88,7 +86,7 @@ class TrajectoryState(ABC):
         return start, stop, stride
 
     @staticmethod
-    def _validate_orthorhombic(angles: List[float], atol: float = 1e-3) -> None:
+    def _validate_orthorhombic(angles: list[float], atol: float = 1e-3) -> None:
         """
         Validate that cell angles are orthorhombic (all 90 degrees).
 
@@ -111,7 +109,7 @@ class TrajectoryState(ABC):
             )
 
     @staticmethod
-    def _validate_box_dimensions(lx: float, ly: float, lz: float) -> Tuple[float, float, float]:
+    def _validate_box_dimensions(lx: float, ly: float, lz: float) -> tuple[float, float, float]:
         """
         Validate that box dimensions are positive and finite.
 
@@ -161,9 +159,9 @@ class TrajectoryState(ABC):
     def iter_frames(
         self,
         start: int = 0,
-        stop: Optional[int] = None,
+        stop: int | None = None,
         stride: int = 1
-    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """
         Iterate over trajectory frames, yielding positions and forces.
 
@@ -193,7 +191,7 @@ class TrajectoryState(ABC):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """
         Internal implementation of frame iteration.
 
@@ -202,7 +200,7 @@ class TrajectoryState(ABC):
         ...
 
     @abstractmethod
-    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """
         Return positions and forces for a specific frame by index.
 
@@ -339,12 +337,12 @@ class MDATrajectoryState(TrajectoryState):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """Iterate using MDAnalysis trajectory slicing."""
         for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
             yield ts.positions.copy(), ts.forces.copy()
 
-    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return positions and forces for a specific frame by index."""
         ts = self.mdanalysis_universe.trajectory[index]
         return ts.positions.copy(), ts.forces.copy()
@@ -365,13 +363,13 @@ class NumpyTrajectoryState(TrajectoryState):
         Atomic forces of shape ``(frames, atoms, 3)``.
     box_x, box_y, box_z : float
         Simulation box lengths in each Cartesian direction.
-    species_list : list of str
+    species_list : list[str]
         Atom names corresponding to each atom index.
     units : str, optional
         Unit system string (default: `'real'`).
-    charge_list : np.ndarray, optional
+    charge_list : np.ndarray or None, optional
         Atomic charge array (optional).
-    mass_list : np.ndarray, optional
+    mass_list : np.ndarray or None, optional
         Atomic mass array (optional).
 
     Raises
@@ -392,10 +390,10 @@ class NumpyTrajectoryState(TrajectoryState):
         box_x: float,
         box_y: float,
         box_z: float,
-        species_list: List[str],
+        species_list: list[str],
         units: str = 'real',
-        charge_list: Optional[np.ndarray] = None,
-        mass_list: Optional[np.ndarray] = None,
+        charge_list: np.ndarray | None = None,
+        mass_list: np.ndarray | None = None,
     ):
         if positions.shape != forces.shape:
             raise ValueError("Force and position arrays are incommensurate.")
@@ -465,12 +463,12 @@ class NumpyTrajectoryState(TrajectoryState):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """Iterate over in-memory position/force arrays."""
         for i in range(start, stop, stride):
             yield self.positions[i], self.forces[i]
 
-    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return positions and forces for a specific frame by index."""
         return self.positions[index], self.forces[index]
 
@@ -484,9 +482,9 @@ class LammpsTrajectoryState(TrajectoryState):
 
     Parameters
     ----------
-    trajectory_file : str or list of str
+    trajectory_file : str | list[str]
         Path(s) to LAMMPS dump files.
-    topology_file : str
+    topology_file : str | None
         Path to corresponding LAMMPS data or topology file.
     units : str, optional
         LAMMPS unit system (default: `'real'`).
@@ -503,8 +501,8 @@ class LammpsTrajectoryState(TrajectoryState):
 
     def __init__(
         self,
-        trajectory_file: Union[str, List[str]],
-        topology_file: Optional[str] = None,
+        trajectory_file: str | list[str],
+        topology_file: str | None = None,
         units: str = 'real',
         atom_style: str = 'full',
     ):
@@ -544,17 +542,17 @@ class LammpsTrajectoryState(TrajectoryState):
         self._validate_orthorhombic([alpha, beta, gamma])
         self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
 
-    def get_indices(self, atype: str) -> np.ndarray:
+    def get_indices(self, atype: int | str) -> np.ndarray:
         """Return atom indices for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').ids - 1
 
     get_indicies = get_indices
 
-    def get_charges(self, atype: str) -> np.ndarray:
+    def get_charges(self, atype: int | str) -> np.ndarray:
         """Return atomic charges for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').charges
 
-    def get_masses(self, atype: str) -> np.ndarray:
+    def get_masses(self, atype: int | str) -> np.ndarray:
         """Return atomic masses for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
 
@@ -563,7 +561,7 @@ class LammpsTrajectoryState(TrajectoryState):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """Parse LAMMPS dump file sequentially for positions and forces."""
         needed_quantities = ["x", "y", "z", "fx", "fy", "fz"]
         strngdex = define_strngdex(needed_quantities, self.dic)
@@ -591,7 +589,7 @@ class LammpsTrajectoryState(TrajectoryState):
                     frame_skip(f, self.num_ats, frames_to_skip, self.header_length)
                     frame_idx += frames_to_skip
 
-    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """
         Return positions and forces for a specific frame by index.
 
@@ -615,7 +613,7 @@ class VaspTrajectoryState(TrajectoryState):
 
     Parameters
     ----------
-    trajectory_file : str or list of str
+    trajectory_file : str | list[str]
         Path or list of paths to ``vasprun.xml`` file(s).
 
     Attributes
@@ -640,9 +638,9 @@ class VaspTrajectoryState(TrajectoryState):
     - For NVT/NVE MD, ensure `IBRION=-1` and `NSW > 0` during VASP runs.
     """
 
-    def __init__(self, trajectory_file: Union[str, List[str]]):
+    def __init__(self, trajectory_file: str | list[str]):
         self.units = 'metal'
-        self.trajectory_file: Union[str, List[str]] = trajectory_file
+        self.trajectory_file: str | list[str] = trajectory_file
 
         if isinstance(trajectory_file, list):
             self.Vasprun = Vasprun(trajectory_file[0])
@@ -708,11 +706,11 @@ class VaspTrajectoryState(TrajectoryState):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[Tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """Iterate over in-memory position/force arrays."""
         for i in range(start, stop, stride):
             yield self.positions[i], self.forces[i]
 
-    def get_frame(self, index: int) -> Tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """Return positions and forces for a specific frame by index."""
         return self.positions[index], self.forces[index]
