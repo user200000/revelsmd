@@ -468,12 +468,12 @@ def test_triangular_multiple_particles():
     assert np.isclose(gs.forceX.sum(), 3.0), f"Total forceX should be 3, got {gs.forceX.sum()}"
 
 
-@pytest.mark.xfail(reason="Bug: triangular_allocation loses contributions when particles share voxels")
 def test_triangular_overlapping_particles():
     """Two particles at same position should accumulate, not overwrite.
 
-    This tests for a bug where NumPy fancy indexing with += doesn't
-    accumulate when indices contain duplicates - only the last value wins.
+    This test verifies that the grid allocation correctly handles overlapping
+    particles. The fix uses np.add.at() (NumPy) or explicit loops (Numba)
+    instead of fancy indexing with +=.
     """
     gs = GridStateMock(nbins=4, box=10.0)
 
@@ -625,6 +625,37 @@ def test_box_allocation_multiple_particles():
 
     assert np.isclose(gs.counter.sum(), 3.0)
     assert np.isclose(gs.forceX.sum(), 6.0)  # 1 + 2 + 3
+
+
+def test_box_allocation_overlapping_particles():
+    """Two particles in same voxel should accumulate, not overwrite.
+
+    This test verifies that the box allocation correctly handles overlapping
+    particles. The fix uses np.add.at() (NumPy) or explicit loops (Numba)
+    instead of fancy indexing with +=.
+    """
+    gs = GridStateMock(nbins=10, box=10.0)
+
+    # Two particles in the SAME voxel
+    homeX = np.array([5.0, 5.0])
+    homeY = np.array([5.0, 5.0])
+    homeZ = np.array([5.0, 5.0])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    Revels3D.HelperFunctions.box_allocation(
+        gs, x, y, z,
+        fox=np.array([1.0, 2.0]),
+        foy=np.array([0.0, 0.0]),
+        foz=np.array([0.0, 0.0]),
+        a=1.0
+    )
+
+    # Expected: counter = 2, forceX = 3 (not just the last value)
+    assert np.isclose(gs.counter.sum(), 2.0), f"Total count should be 2, got {gs.counter.sum()}"
+    assert np.isclose(gs.forceX.sum(), 3.0), f"Total forceX should be 3 (1+2), got {gs.forceX.sum()}"
 
 
 # ---------------------------

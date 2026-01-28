@@ -54,16 +54,16 @@ class TestBackendSelection:
         pytest.importorskip('numba')
         from revelsMD.rdf_helpers import get_backend_functions
 
-        old_val = os.environ.get('REVELSMD_RDF_BACKEND')
+        old_val = os.environ.get('REVELSMD_BACKEND')
         try:
-            os.environ['REVELSMD_RDF_BACKEND'] = 'numba'
+            os.environ['REVELSMD_BACKEND'] = 'numba'
             like_fn, _, _ = get_backend_functions()
             assert 'numba' in like_fn.__module__
         finally:
             if old_val is None:
-                os.environ.pop('REVELSMD_RDF_BACKEND', None)
+                os.environ.pop('REVELSMD_BACKEND', None)
             else:
-                os.environ['REVELSMD_RDF_BACKEND'] = old_val
+                os.environ['REVELSMD_BACKEND'] = old_val
 
     def test_backends_produce_identical_results(self):
         """NumPy and Numba backends should produce identical results."""
