@@ -125,7 +125,7 @@ def test_numpy_state_invalid_shapes_and_box():
 @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
 def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
-    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
     assert np.isclose(state.box_x, 10.0)
     assert state.frames == 3
 
@@ -134,12 +134,12 @@ def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_univ
 @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, [], 9, np.zeros((3, 2))))
 def test_lammps_state_universe_error(mock_first_read, mock_universe):
     with pytest.raises(RuntimeError, match="Failed to load LAMMPS trajectory"):
-        LammpsTrajectory("dump.lammpstrj", "data.lmp")
+        LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
 
 def test_lammps_state_requires_topology():
     with pytest.raises(ValueError, match="topology file is required"):
-        LammpsTrajectory("dump.lammpstrj", None)
+        LammpsTrajectory("dump.lammpstrj", None, temperature=300.0)
 
 
 # -----------------------------------------------------------------------------
@@ -411,7 +411,7 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
     with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("builtins.open", MagicMock()):
-                state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+                state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                 frames_list = list(state.iter_frames())
                 assert len(frames_list) == n_frames
@@ -458,7 +458,7 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip", side_effect=mock_frame_skip):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                     # Test start=2, stop=8, stride=2 -> should yield frames at indices 2, 4, 6
                     frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -633,7 +633,7 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip"):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                     for i in range(n_frames):
                         pos, frc = state.get_frame(i)
@@ -670,7 +670,7 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip"):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                     # Random access in any order
                     for i in [7, 2, 9, 0, 5]:
