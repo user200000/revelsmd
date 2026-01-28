@@ -26,6 +26,10 @@ from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory, DataUnavailableError
 from revelsMD.utils import generate_boltzmann
+from revelsMD.grid_helpers import get_backend_functions as _get_grid_backend_functions
+
+# Module-level backend functions (loaded once at import)
+_triangular_allocation, _box_allocation = _get_grid_backend_functions()
 
 
 class Revels3D:
@@ -722,31 +726,49 @@ class Revels3D:
             z = np.digitize(homeZ, GS.binsz)
 
             if kernel.lower() == "triangular":
-                Revels3D.HelperFunctions.triangular_allocation(GS, x, y, z, homeX, homeY, homeZ, fox, foy, foz, a)
+                _triangular_allocation(
+                    GS.forceX, GS.forceY, GS.forceZ, GS.counter,
+                    x, y, z, homeX, homeY, homeZ,
+                    fox, foy, foz, a,
+                    GS.lx, GS.ly, GS.lz,
+                    GS.nbinsx, GS.nbinsy, GS.nbinsz,
+                )
             elif kernel.lower() == "box":
-                Revels3D.HelperFunctions.box_allocation(GS, x, y, z, fox, foy, foz, a)
+                # Convert to 0-based indices for box allocation
+                _box_allocation(
+                    GS.forceX, GS.forceY, GS.forceZ, GS.counter,
+                    x - 1, y - 1, z - 1,
+                    fox, foy, foz, a,
+                )
             else:
                 raise ValueError(f"Unsupported kernel: {kernel!r}")
 
         @staticmethod
         def box_allocation(GS: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray, fox: np.ndarray, foy: np.ndarray, foz: np.ndarray, a: float | np.ndarray) -> None:
             """
-            Deposit contributions to the host voxel (no neighbor spreading).
+            Deposit contributions to the host voxel (no neighbour spreading).
 
-            Notes
-            -----
-            This "rapid gridding" path assumes at most one particle per voxel for
-            meaningful grids. This is the original behavior and is not enforced here.
+            This method delegates to the backend allocation function selected
+            at module import time. Uses np.add.at() or Numba JIT to correctly
+            handle overlapping particles.
+
+            Parameters
+            ----------
+            GS : GridState
+                Grid state object with forceX, forceY, forceZ, counter arrays.
+            x, y, z : np.ndarray
+                Voxel indices (1-based from np.digitize).
+            fox, foy, foz : np.ndarray
+                Force components for each particle.
+            a : float or np.ndarray
+                Weight factor (scalar or per-particle array).
             """
             # Convert to 0-based voxel indices
-            x -= 1
-            y -= 1
-            z -= 1
-
-            GS.forceX[x, y, z] += fox * a
-            GS.forceY[x, y, z] += foy * a
-            GS.forceZ[x, y, z] += foz * a
-            GS.counter[x, y, z] += a
+            _box_allocation(
+                GS.forceX, GS.forceY, GS.forceZ, GS.counter,
+                x - 1, y - 1, z - 1,
+                fox, foy, foz, a,
+            )
 
         @staticmethod
         def triangular_allocation(
@@ -763,71 +785,33 @@ class Revels3D:
             a: float | np.ndarray,
         ) -> None:
             """
-            Deposit contributions to the 8 neighboring voxel vertices (CIC/triangular).
+            Deposit contributions to the 8 neighbouring voxel vertices (CIC/triangular).
 
-            Notes
-            -----
-            We compute the fractional position of each atom within its voxel and
-            distribute weights among the 8 vertices (x±1, y±1, z±1) using trilinear
-            factors `f_xyz`. Periodicity is handled by modular wrapping of indices.
+            This method delegates to the backend allocation function selected
+            at module import time. Uses np.add.at() or Numba JIT to correctly
+            handle overlapping particles.
+
+            Parameters
+            ----------
+            GS : GridState
+                Grid state object with forceX, forceY, forceZ, counter arrays
+                and grid parameters (lx, ly, lz, nbinsx, nbinsy, nbinsz).
+            x, y, z : np.ndarray
+                Voxel indices (1-based from np.digitize).
+            homeX, homeY, homeZ : np.ndarray
+                Actual particle positions.
+            fox, foy, foz : np.ndarray
+                Force components for each particle.
+            a : float or np.ndarray
+                Weight factor (scalar or per-particle array).
             """
-            # Fractions within current voxel (digitize returns upper-edge index)
-            fracx = 1 + ((homeX - (x * GS.lx)) / GS.lx)
-            fracy = 1 + ((homeY - (y * GS.ly)) / GS.ly)
-            fracz = 1 + ((homeZ - (z * GS.lz)) / GS.lz)
-
-            # Vertex weights (trilinear factors)
-            f_000 = (1 - fracx) * (1 - fracy) * (1 - fracz)
-            f_001 = (1 - fracx) * (1 - fracy) * fracz
-            f_010 = (1 - fracx) * fracy * (1 - fracz)
-            f_100 = fracx * (1 - fracy) * (1 - fracz)
-            f_101 = fracx * (1 - fracy) * fracz
-            f_011 = (1 - fracx) * fracy * fracz
-            f_110 = fracx * fracy * (1 - fracz)
-            f_111 = fracx * fracy * fracz
-
-            # Neighbor voxel indices (modulo wrap to preserve PBC)
-            gx = ((x - 1) % GS.nbinsx, x % GS.nbinsx)
-            gy = ((y - 1) % GS.nbinsy, y % GS.nbinsy)
-            gz = ((z - 1) % GS.nbinsz, z % GS.nbinsz)
-
-            # Vector components: deposit to each vertex
-            GS.forceX[gx[0], gy[0], gz[0]] += fox * f_000 * a
-            GS.forceX[gx[0], gy[0], gz[1]] += fox * f_001 * a
-            GS.forceX[gx[0], gy[1], gz[0]] += fox * f_010 * a
-            GS.forceX[gx[1], gy[0], gz[0]] += fox * f_100 * a
-            GS.forceX[gx[1], gy[0], gz[1]] += fox * f_101 * a
-            GS.forceX[gx[0], gy[1], gz[1]] += fox * f_011 * a
-            GS.forceX[gx[1], gy[1], gz[0]] += fox * f_110 * a
-            GS.forceX[gx[1], gy[1], gz[1]] += fox * f_111 * a
-
-            GS.forceY[gx[0], gy[0], gz[0]] += foy * f_000 * a
-            GS.forceY[gx[0], gy[0], gz[1]] += foy * f_001 * a
-            GS.forceY[gx[0], gy[1], gz[0]] += foy * f_010 * a
-            GS.forceY[gx[1], gy[0], gz[0]] += foy * f_100 * a
-            GS.forceY[gx[1], gy[0], gz[1]] += foy * f_101 * a
-            GS.forceY[gx[0], gy[1], gz[1]] += foy * f_011 * a
-            GS.forceY[gx[1], gy[1], gz[0]] += foy * f_110 * a
-            GS.forceY[gx[1], gy[1], gz[1]] += foy * f_111 * a
-
-            GS.forceZ[gx[0], gy[0], gz[0]] += foz * f_000 * a
-            GS.forceZ[gx[0], gy[0], gz[1]] += foz * f_001 * a
-            GS.forceZ[gx[0], gy[1], gz[0]] += foz * f_010 * a
-            GS.forceZ[gx[1], gy[0], gz[0]] += foz * f_100 * a
-            GS.forceZ[gx[1], gy[0], gz[1]] += foz * f_101 * a
-            GS.forceZ[gx[0], gy[1], gz[1]] += foz * f_011 * a
-            GS.forceZ[gx[1], gy[1], gz[0]] += foz * f_110 * a
-            GS.forceZ[gx[1], gy[1], gz[1]] += foz * f_111 * a
-
-            # Counting density: same vertex fractions, weight `a`
-            GS.counter[gx[0], gy[0], gz[0]] += f_000 * a
-            GS.counter[gx[0], gy[0], gz[1]] += f_001 * a
-            GS.counter[gx[0], gy[1], gz[0]] += f_010 * a
-            GS.counter[gx[1], gy[0], gz[0]] += f_100 * a
-            GS.counter[gx[1], gy[0], gz[1]] += f_101 * a
-            GS.counter[gx[0], gy[1], gz[1]] += f_011 * a
-            GS.counter[gx[1], gy[1], gz[0]] += f_110 * a
-            GS.counter[gx[1], gy[1], gz[1]] += f_111 * a
+            _triangular_allocation(
+                GS.forceX, GS.forceY, GS.forceZ, GS.counter,
+                x, y, z, homeX, homeY, homeZ,
+                fox, foy, foz, a,
+                GS.lx, GS.ly, GS.lz,
+                GS.nbinsx, GS.nbinsy, GS.nbinsz,
+            )
 
 
         @staticmethod

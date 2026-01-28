@@ -10,25 +10,22 @@ routines used in force-based RDF calculations. Two backends are available:
 - 'numpy': Uses NumPy broadcasting and vectorised operations.
   ~2x speedup over original Python loops. Fallback if Numba unavailable.
 
-The backend can be selected via:
-- Environment variable: REVELSMD_RDF_BACKEND=numpy
-- Function parameter: get_backend_functions(backend='numpy')
+Backend selection is controlled by the REVELSMD_BACKEND environment variable.
+See `revelsMD.backends` for configuration details.
 """
 
 from __future__ import annotations
 
-import os
 from typing import Callable
 
 import numpy as np
+
+from revelsMD.backends import get_backend, AVAILABLE_BACKENDS
 
 
 # ---------------------------------------------------------------------------
 # Backend selection
 # ---------------------------------------------------------------------------
-
-_AVAILABLE_BACKENDS = {'numpy', 'numba'}
-_DEFAULT_BACKEND = 'numba'
 
 
 def _get_numba_functions() -> tuple[Callable, Callable, Callable]:
@@ -61,7 +58,7 @@ def get_backend_functions(
     ----------
     backend : str or None
         Backend to use: 'numpy' or 'numba'. If None, uses the
-        REVELSMD_RDF_BACKEND environment variable, defaulting to 'numba'.
+        REVELSMD_BACKEND environment variable, defaulting to 'numba'.
 
     Returns
     -------
@@ -76,12 +73,12 @@ def get_backend_functions(
         If numba backend is requested but numba is not installed.
     """
     if backend is None:
-        backend = os.environ.get('REVELSMD_RDF_BACKEND', _DEFAULT_BACKEND).lower()
+        backend = get_backend()
 
-    if backend not in _AVAILABLE_BACKENDS:
+    if backend not in AVAILABLE_BACKENDS:
         raise ValueError(
             f"Unknown RDF backend: {backend!r}. "
-            f"Available backends: {sorted(_AVAILABLE_BACKENDS)}"
+            f"Available backends: {sorted(AVAILABLE_BACKENDS)}"
         )
 
     if backend == 'numba':
