@@ -25,3 +25,7 @@ examples/
 
 # Benchmarks
 benchmarks/
+
+# Development notes (local only)
+*.md
+!README.md

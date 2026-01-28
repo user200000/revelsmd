@@ -15,15 +15,17 @@ Notes
 import copy
 from typing import Any
 
+import copy
+from typing import Any
+
 import numpy as np
 from tqdm import tqdm
 from ase.io.cube import write_cube
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from revelsMD.trajectory_states import TrajectoryState, DataUnavailableError
-from revelsMD.revels_tools.conversion_factors import generate_boltzmann
-from revelsMD.revels_tools.lammps_parser import define_strngdex, frame_skip, get_a_frame
+from revelsMD.trajectories._base import Trajectory, DataUnavailableError
+from revelsMD.utils import generate_boltzmann
 
 
 class Revels3D:
@@ -43,7 +45,7 @@ class Revels3D:
 
         Parameters
         ----------
-        trajectory : TrajectoryState
+        trajectory : Trajectory
             Trajectory-state object providing `box_x`, `box_y`, `box_z`, and `units`.
         density_type : {'number', 'charge', 'polarisation'}
             Type of density to be constructed (controls the estimator weighting).
@@ -74,7 +76,7 @@ class Revels3D:
 
         def __init__(
             self,
-            trajectory: TrajectoryState,
+            trajectory: Trajectory,
             density_type: str,
             temperature: float,
             nbins: int = 100,
@@ -130,7 +132,7 @@ class Revels3D:
 
         def make_force_grid(
             self,
-            trajectory: TrajectoryState,
+            trajectory: Trajectory,
             atom_names: str | list[str],
             rigid: bool = False,
             centre_location: bool | int = True,
@@ -145,7 +147,7 @@ class Revels3D:
 
             Parameters
             ----------
-            trajectory : TrajectoryState
+            trajectory : Trajectory
                 Trajectory-state object with positions/forces.
             atom_names : str or list of str
                 Atom name(s) used for selection (single species or multi-species molecule).
@@ -412,7 +414,7 @@ class Revels3D:
             with open(filename, "w") as f:
                 write_cube(f, atoms, data=grid)
 
-        def get_lambda(self, trajectory: TrajectoryState, sections: int | None = None) -> "Revels3D.GridState":
+        def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> "Revels3D.GridState":
             """
             Compute optimal λ(r) to combine counting and force densities.
 
@@ -421,7 +423,7 @@ class Revels3D:
 
             Parameters
             ----------
-            trajectory : TrajectoryState
+            trajectory : Trajectory
                 Trajectory-state providing per-frame positions and forces.
             sections : int, optional
                 Number of interleaved frame-subsets used to accumulate covariance
@@ -593,7 +595,7 @@ class Revels3D:
 
         Parameters
         ----------
-        trajectory : TrajectoryState
+        trajectory : Trajectory
             Trajectory-state with index/charge/mass accessors.
         atom_names : str or list of str
             For a single species, may be a string or single-element list.
@@ -614,7 +616,7 @@ class Revels3D:
             Axis for polarisation projection (set by GridState when needed).
         """
 
-        def __init__(self, trajectory: TrajectoryState, atom_names: str | list[str], centre_location: bool | int, rigid: bool = False):
+        def __init__(self, trajectory: Trajectory, atom_names: str | list[str], centre_location: bool | int, rigid: bool = False):
             if isinstance(atom_names, list) and len(atom_names) > 1:
                 self.indistinguishable_set = False
                 self.indices: list[np.ndarray] = []
@@ -677,13 +679,13 @@ class Revels3D:
         """
 
         @staticmethod
-        def process_frame(trajectory: TrajectoryState, GS: Any, positions: np.ndarray, forces: np.ndarray, a: float = 1.0, kernel: str = "triangular") -> None:
+        def process_frame(trajectory: Trajectory, GS: Any, positions: np.ndarray, forces: np.ndarray, a: float = 1.0, kernel: str = "triangular") -> None:
             """
             Deposit a frame's positions/forces to the grid using a given kernel.
 
             Parameters
             ----------
-            trajectory : TrajectoryState
+            trajectory : Trajectory
                 Trajectory state (box lengths used here).
             GS : GridState
                 Grid accumulators and bin geometry.
@@ -829,7 +831,7 @@ class Revels3D:
 
 
         @staticmethod
-        def find_coms(positions: np.ndarray, trajectory: TrajectoryState, GS: Any, SS: Any, calc_dipoles: bool = False):
+        def find_coms(positions: np.ndarray, trajectory: Trajectory, GS: Any, SS: Any, calc_dipoles: bool = False):
             """
             Compute centers-of-mass (and optionally molecular dipoles) for a rigid set.
 
@@ -837,7 +839,7 @@ class Revels3D:
             ----------
             positions : (N, 3) np.ndarray
                 Cartesian coordinates.
-            trajectory : TrajectoryState
+            trajectory : Trajectory
                 Trajectory state containing box lengths.
             GS : GridState
                 Unused numerically here; preserved for signature compatibility.

@@ -21,7 +21,7 @@ from collections.abc import Sequence
 import numpy as np
 from tqdm import tqdm
 
-from revelsMD.revels_tools.conversion_factors import generate_boltzmann
+from revelsMD.utils import generate_boltzmann
 
 
 class RevelsRDF:

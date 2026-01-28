@@ -3,14 +3,14 @@ import numpy as np
 from abc import ABC
 from unittest.mock import MagicMock, patch
 
-from revelsMD.trajectory_states import (
-    TrajectoryState,
-    MDATrajectoryState,
-    NumpyTrajectoryState,
-    LammpsTrajectoryState,
-    VaspTrajectoryState,
+from revelsMD.trajectories import (
+    MDATrajectory,
+    NumpyTrajectory,
+    LammpsTrajectory,
+    VaspTrajectory,
     DataUnavailableError,
 )
+from revelsMD.trajectories._base import Trajectory
 
 
 # -----------------------------------------------------------------------------
@@ -50,12 +50,12 @@ def mock_vasprun():
 
 
 # -----------------------------------------------------------------------------
-# MDATrajectoryState
+# MDATrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.MD.Universe")
+@patch("revelsMD.trajectories.mda.MD.Universe")
 def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
-    state = MDATrajectoryState("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb")
 
     assert state.frames == 3
     assert np.isclose(state.box_x, 10.0)
@@ -70,26 +70,26 @@ def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_univers
     assert np.all(state.get_indicies("H") == np.array([1, 2, 3]))
 
 
-@patch("revelsMD.trajectory_states.MD.Universe", side_effect=Exception("fail"))
+@patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("fail"))
 def test_mda_raises_on_universe_failure(mock_universe):
     with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
-        MDATrajectoryState("traj.xtc", "topol.pdb")
+        MDATrajectory("traj.xtc", "topol.pdb")
 
 
 def test_mda_raises_no_topology():
     with pytest.raises(ValueError, match="topology file is required"):
-        MDATrajectoryState("traj.xtc", "")
+        MDATrajectory("traj.xtc", "")
 
 
 # -----------------------------------------------------------------------------
-# NumpyTrajectoryState
+# NumpyTrajectory
 # -----------------------------------------------------------------------------
 def test_numpy_state_valid_and_accessors():
     positions = np.zeros((5, 3, 3))
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
     assert state.frames == 5
     assert np.allclose(state.get_indices("H"), [1, 2])
 
@@ -101,50 +101,50 @@ def test_numpy_state_species_not_found():
     positions = np.zeros((1, 2, 3))
     forces = np.ones((1, 2, 3))
     species = ["O", "H"]
-    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
     with pytest.raises(ValueError, match="Species 'C' not found"):
         state.get_indices("C")
 
 
 def test_numpy_state_invalid_shapes_and_box():
     with pytest.raises(ValueError, match="incommensurate"):
-        NumpyTrajectoryState(np.zeros((1, 2, 3)), np.ones((1, 3, 3)), 10, 10, 10, ["O", "H"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 3, 3)), 10, 10, 10, ["O", "H"])
 
     with pytest.raises(ValueError, match="incommensurate"):
-        NumpyTrajectoryState(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), 10, 10, 10, ["O"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), 10, 10, 10, ["O"])
 
     with pytest.raises(ValueError, match="positive values"):
-        NumpyTrajectoryState(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), -1, 10, 10, ["O", "H"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), -1, 10, 10, ["O", "H"])
 
 
 # -----------------------------------------------------------------------------
-# LammpsTrajectoryState
+# LammpsTrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.MD.Universe")
-@patch("revelsMD.trajectory_states.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+@patch("revelsMD.trajectories.mda.MD.Universe")
+@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
 def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
-    state = LammpsTrajectoryState("dump.lammpstrj", "data.lmp")
+    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
     assert np.isclose(state.box_x, 10.0)
     assert state.frames == 3
 
 
-@patch("revelsMD.trajectory_states.MD.Universe", side_effect=Exception("bad universe"))
-@patch("revelsMD.trajectory_states.first_read", return_value=(10, 5, [], 9, np.zeros((3, 2))))
+@patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("bad universe"))
+@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, [], 9, np.zeros((3, 2))))
 def test_lammps_state_universe_error(mock_first_read, mock_universe):
     with pytest.raises(RuntimeError, match="Failed to load LAMMPS trajectory"):
-        LammpsTrajectoryState("dump.lammpstrj", "data.lmp")
+        LammpsTrajectory("dump.lammpstrj", "data.lmp")
 
 
 def test_lammps_state_requires_topology():
     with pytest.raises(ValueError, match="topology file is required"):
-        LammpsTrajectoryState("dump.lammpstrj", None)
+        LammpsTrajectory("dump.lammpstrj", None)
 
 
 # -----------------------------------------------------------------------------
-# VaspTrajectoryState
+# VaspTrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.Vasprun")
+@patch("revelsMD.trajectories.vasp.Vasprun")
 def test_vasp_state_valid(mock_vasprun):
     mock_vasprun_instance = mock_vasprun.return_value
 
@@ -163,7 +163,7 @@ def test_vasp_state_valid(mock_vasprun):
     mock_vasprun_instance.start.indices_from_symbol.return_value = np.array([0])
 
     # Then run the test
-    state = VaspTrajectoryState("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml")
     assert np.isclose(state.box_x, 1.0)
     assert np.allclose(state.positions, np.zeros((1, 1, 3)))
     assert np.allclose(state.forces, np.zeros((1, 1, 3)))
@@ -171,7 +171,7 @@ def test_vasp_state_valid(mock_vasprun):
 
 
 
-@patch("revelsMD.trajectory_states.Vasprun")
+@patch("revelsMD.trajectories.vasp.Vasprun")
 def test_vasp_state_raises_no_forces(mock_vasprun):
     mock = MagicMock()
     mock.structures = [MagicMock()]
@@ -181,10 +181,10 @@ def test_vasp_state_raises_no_forces(mock_vasprun):
     mock.cart_coords = np.zeros((1, 1, 3))
     mock_vasprun.return_value = mock
     with pytest.raises(ValueError, match="No forces found"):
-        VaspTrajectoryState("vasprun.xml")
+        VaspTrajectory("vasprun.xml")
 
 
-@patch("revelsMD.trajectory_states.Vasprun")
+@patch("revelsMD.trajectories.vasp.Vasprun")
 def test_vasp_state_invalid_angles(mock_vasprun):
     mock = MagicMock()
     mock.structures = [MagicMock()]
@@ -194,33 +194,33 @@ def test_vasp_state_invalid_angles(mock_vasprun):
     mock.cart_coords = np.zeros((1, 1, 3))
     mock_vasprun.return_value = mock
     with pytest.raises(ValueError, match="orthorhombic"):
-        VaspTrajectoryState("vasprun.xml")
+        VaspTrajectory("vasprun.xml")
 
 
 # -----------------------------------------------------------------------------
-# TrajectoryState ABC
+# Trajectory ABC
 # -----------------------------------------------------------------------------
 def test_trajectory_state_is_abstract():
-    """TrajectoryState should be an abstract base class."""
-    assert issubclass(TrajectoryState, ABC)
+    """Trajectory should be an abstract base class."""
+    assert issubclass(Trajectory, ABC)
 
 
 def test_trajectory_state_cannot_be_instantiated():
-    """TrajectoryState should not be directly instantiable."""
+    """Trajectory should not be directly instantiable."""
     with pytest.raises(TypeError, match="abstract"):
-        TrajectoryState()
+        Trajectory()
 
 
 def test_concrete_classes_are_subclasses():
-    """All concrete trajectory classes should inherit from TrajectoryState."""
-    assert issubclass(MDATrajectoryState, TrajectoryState)
-    assert issubclass(NumpyTrajectoryState, TrajectoryState)
-    assert issubclass(LammpsTrajectoryState, TrajectoryState)
-    assert issubclass(VaspTrajectoryState, TrajectoryState)
+    """All concrete trajectory classes should inherit from Trajectory."""
+    assert issubclass(MDATrajectory, Trajectory)
+    assert issubclass(NumpyTrajectory, Trajectory)
+    assert issubclass(LammpsTrajectory, Trajectory)
+    assert issubclass(VaspTrajectory, Trajectory)
 
 
 # -----------------------------------------------------------------------------
-# TrajectoryState ABC - Shared validation helpers
+# Trajectory ABC - Shared validation helpers
 # -----------------------------------------------------------------------------
 class TestValidateOrthorhombic:
     """Tests for _validate_orthorhombic shared helper."""
@@ -228,21 +228,21 @@ class TestValidateOrthorhombic:
     def test_valid_orthorhombic_angles(self):
         """Should not raise for 90 degree angles."""
         # No exception expected
-        TrajectoryState._validate_orthorhombic([90.0, 90.0, 90.0])
+        Trajectory._validate_orthorhombic([90.0, 90.0, 90.0])
 
     def test_valid_orthorhombic_angles_within_tolerance(self):
         """Should accept angles within tolerance of 90 degrees."""
-        TrajectoryState._validate_orthorhombic([90.0001, 89.9999, 90.0])
+        Trajectory._validate_orthorhombic([90.0001, 89.9999, 90.0])
 
     def test_invalid_non_orthorhombic_angles(self):
         """Should raise ValueError for non-orthorhombic angles."""
         with pytest.raises(ValueError, match="orthorhombic"):
-            TrajectoryState._validate_orthorhombic([90.0, 95.0, 90.0])
+            Trajectory._validate_orthorhombic([90.0, 95.0, 90.0])
 
     def test_invalid_triclinic_angles(self):
         """Should raise ValueError for triclinic cell angles."""
         with pytest.raises(ValueError, match="orthorhombic"):
-            TrajectoryState._validate_orthorhombic([80.0, 85.0, 70.0])
+            Trajectory._validate_orthorhombic([80.0, 85.0, 70.0])
 
 
 class TestValidateBoxDimensions:
@@ -250,7 +250,7 @@ class TestValidateBoxDimensions:
 
     def test_valid_positive_dimensions(self):
         """Should return dimensions for valid positive values."""
-        lx, ly, lz = TrajectoryState._validate_box_dimensions(10.0, 20.0, 30.0)
+        lx, ly, lz = Trajectory._validate_box_dimensions(10.0, 20.0, 30.0)
         assert lx == 10.0
         assert ly == 20.0
         assert lz == 30.0
@@ -258,26 +258,26 @@ class TestValidateBoxDimensions:
     def test_invalid_zero_dimension(self):
         """Should raise ValueError if any dimension is zero."""
         with pytest.raises(ValueError, match="positive"):
-            TrajectoryState._validate_box_dimensions(10.0, 0.0, 30.0)
+            Trajectory._validate_box_dimensions(10.0, 0.0, 30.0)
 
     def test_invalid_negative_dimension(self):
         """Should raise ValueError if any dimension is negative."""
         with pytest.raises(ValueError, match="positive"):
-            TrajectoryState._validate_box_dimensions(10.0, -5.0, 30.0)
+            Trajectory._validate_box_dimensions(10.0, -5.0, 30.0)
 
     def test_invalid_non_finite_dimension(self):
         """Should raise ValueError if any dimension is non-finite."""
         with pytest.raises(ValueError, match="finite"):
-            TrajectoryState._validate_box_dimensions(10.0, np.inf, 30.0)
+            Trajectory._validate_box_dimensions(10.0, np.inf, 30.0)
 
     def test_invalid_nan_dimension(self):
         """Should raise ValueError if any dimension is NaN."""
         with pytest.raises(ValueError, match="finite"):
-            TrajectoryState._validate_box_dimensions(np.nan, 20.0, 30.0)
+            Trajectory._validate_box_dimensions(np.nan, 20.0, 30.0)
 
 
 # -----------------------------------------------------------------------------
-# iter_frames - NumpyTrajectoryState
+# iter_frames - NumpyTrajectory
 # -----------------------------------------------------------------------------
 def test_numpy_iter_frames_yields_all_frames():
     """iter_frames should yield positions and forces for each frame."""
@@ -286,7 +286,7 @@ def test_numpy_iter_frames_yields_all_frames():
     forces = np.random.rand(n_frames, n_atoms, 3)
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
     frames = list(state.iter_frames())
     assert len(frames) == n_frames
@@ -303,7 +303,7 @@ def test_numpy_iter_frames_with_start_stop_stride():
     forces = np.zeros((n_frames, n_atoms, 3))
     species = ["A", "B"]
 
-    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
     # Test start=2, stop=8, stride=2 -> frames 2, 4, 6
     frames = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -315,9 +315,9 @@ def test_numpy_iter_frames_with_start_stop_stride():
 
 
 # -----------------------------------------------------------------------------
-# iter_frames - VaspTrajectoryState
+# iter_frames - VaspTrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.Vasprun")
+@patch("revelsMD.trajectories.vasp.Vasprun")
 def test_vasp_iter_frames_yields_all_frames(mock_vasprun):
     """iter_frames should yield positions and forces for each frame."""
     n_frames, n_atoms = 3, 2
@@ -333,7 +333,7 @@ def test_vasp_iter_frames_yields_all_frames(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectoryState("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml")
 
     frames_list = list(state.iter_frames())
     assert len(frames_list) == n_frames
@@ -343,7 +343,7 @@ def test_vasp_iter_frames_yields_all_frames(mock_vasprun):
         np.testing.assert_array_equal(frc, forces[i])
 
 
-@patch("revelsMD.trajectory_states.Vasprun")
+@patch("revelsMD.trajectories.vasp.Vasprun")
 def test_vasp_iter_frames_with_start_stop_stride(mock_vasprun):
     """iter_frames should respect start, stop, and stride parameters."""
     n_frames, n_atoms = 10, 2
@@ -359,7 +359,7 @@ def test_vasp_iter_frames_with_start_stop_stride(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectoryState("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml")
 
     # Test start=2, stop=8, stride=2 -> frames 2, 4, 6
     frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -371,13 +371,13 @@ def test_vasp_iter_frames_with_start_stop_stride(mock_vasprun):
 
 
 # -----------------------------------------------------------------------------
-# iter_frames - MDATrajectoryState
+# iter_frames - MDATrajectory
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
-# iter_frames - LammpsTrajectoryState
+# iter_frames - LammpsTrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.MD.Universe")
-@patch("revelsMD.trajectory_states.first_read")
+@patch("revelsMD.trajectories.mda.MD.Universe")
+@patch("revelsMD.trajectories.lammps.first_read")
 def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_universe):
     """iter_frames should yield positions and forces for each frame."""
     n_frames, n_atoms = 3, 4
@@ -407,10 +407,10 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
         # Return combined [x, y, z, fx, fy, fz] array
         return np.hstack([positions[idx], forces[idx]])
 
-    with patch("revelsMD.trajectory_states.get_a_frame", side_effect=mock_get_a_frame):
-        with patch("revelsMD.trajectory_states.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
+    with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
+        with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("builtins.open", MagicMock()):
-                state = LammpsTrajectoryState("dump.lammpstrj", "data.lmp")
+                state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
 
                 frames_list = list(state.iter_frames())
                 assert len(frames_list) == n_frames
@@ -420,8 +420,8 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
                     np.testing.assert_array_equal(frc, forces[i])
 
 
-@patch("revelsMD.trajectory_states.MD.Universe")
-@patch("revelsMD.trajectory_states.first_read")
+@patch("revelsMD.trajectories.mda.MD.Universe")
+@patch("revelsMD.trajectories.lammps.first_read")
 def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_universe):
     """iter_frames should respect start, stop, and stride parameters."""
     n_frames, n_atoms = 10, 2
@@ -453,11 +453,11 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
     def mock_frame_skip(f, num_ats, num_skip, header_length):
         skip_calls.append(num_skip)
 
-    with patch("revelsMD.trajectory_states.get_a_frame", side_effect=mock_get_a_frame):
-        with patch("revelsMD.trajectory_states.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
-            with patch("revelsMD.trajectory_states.frame_skip", side_effect=mock_frame_skip):
+    with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
+        with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
+            with patch("revelsMD.trajectories.lammps.frame_skip", side_effect=mock_frame_skip):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectoryState("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
 
                     # Test start=2, stop=8, stride=2 -> should yield frames at indices 2, 4, 6
                     frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -465,9 +465,9 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
 
 
 # -----------------------------------------------------------------------------
-# iter_frames - MDATrajectoryState
+# iter_frames - MDATrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.MD.Universe")
+@patch("revelsMD.trajectories.mda.MD.Universe")
 def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
     """iter_frames should yield positions and forces for each frame."""
     n_frames, n_atoms = 3, 4
@@ -495,7 +495,7 @@ def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
     mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
     mock_universe.return_value = mock_uni
 
-    state = MDATrajectoryState("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb")
 
     frames_list = list(state.iter_frames())
     assert len(frames_list) == n_frames
@@ -506,7 +506,7 @@ def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
 
 
 # -----------------------------------------------------------------------------
-# get_frame - NumpyTrajectoryState
+# get_frame - NumpyTrajectory
 # -----------------------------------------------------------------------------
 def test_numpy_get_frame_returns_correct_data():
     """get_frame should return positions and forces for the specified index."""
@@ -515,7 +515,7 @@ def test_numpy_get_frame_returns_correct_data():
     forces = np.random.rand(n_frames, n_atoms, 3)
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -530,7 +530,7 @@ def test_numpy_get_frame_random_access():
     forces = np.zeros((n_frames, n_atoms, 3))
     species = ["A", "B"]
 
-    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
     # Access frames in non-sequential order
     for i in [7, 2, 9, 0, 5]:
@@ -539,9 +539,9 @@ def test_numpy_get_frame_random_access():
 
 
 # -----------------------------------------------------------------------------
-# get_frame - VaspTrajectoryState
+# get_frame - VaspTrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.Vasprun")
+@patch("revelsMD.trajectories.vasp.Vasprun")
 def test_vasp_get_frame_returns_correct_data(mock_vasprun):
     """get_frame should return positions and forces for the specified index."""
     n_frames, n_atoms = 5, 2
@@ -557,7 +557,7 @@ def test_vasp_get_frame_returns_correct_data(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectoryState("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml")
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -566,9 +566,9 @@ def test_vasp_get_frame_returns_correct_data(mock_vasprun):
 
 
 # -----------------------------------------------------------------------------
-# get_frame - MDATrajectoryState
+# get_frame - MDATrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.MD.Universe")
+@patch("revelsMD.trajectories.mda.MD.Universe")
 def test_mda_get_frame_returns_correct_data(mock_universe):
     """get_frame should return positions and forces for the specified index."""
     n_frames, n_atoms = 5, 3
@@ -592,7 +592,7 @@ def test_mda_get_frame_returns_correct_data(mock_universe):
     mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
     mock_universe.return_value = mock_uni
 
-    state = MDATrajectoryState("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb")
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -601,10 +601,10 @@ def test_mda_get_frame_returns_correct_data(mock_universe):
 
 
 # -----------------------------------------------------------------------------
-# get_frame - LammpsTrajectoryState
+# get_frame - LammpsTrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.MD.Universe")
-@patch("revelsMD.trajectory_states.first_read")
+@patch("revelsMD.trajectories.mda.MD.Universe")
+@patch("revelsMD.trajectories.lammps.first_read")
 def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
     """get_frame should return positions and forces for the specified index."""
     n_frames, n_atoms = 5, 3
@@ -628,11 +628,11 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
         return np.hstack([positions[idx], forces[idx]])
     mock_get_a_frame.call_count = 0
 
-    with patch("revelsMD.trajectory_states.get_a_frame", side_effect=mock_get_a_frame):
-        with patch("revelsMD.trajectory_states.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
-            with patch("revelsMD.trajectory_states.frame_skip"):
+    with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
+        with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
+            with patch("revelsMD.trajectories.lammps.frame_skip"):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectoryState("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
 
                     for i in range(n_frames):
                         pos, frc = state.get_frame(i)
@@ -640,8 +640,8 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
                         np.testing.assert_array_equal(frc, forces[i])
 
 
-@patch("revelsMD.trajectory_states.MD.Universe")
-@patch("revelsMD.trajectory_states.first_read")
+@patch("revelsMD.trajectories.mda.MD.Universe")
+@patch("revelsMD.trajectories.lammps.first_read")
 def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
     """get_frame should support random access after caching."""
     n_frames, n_atoms = 10, 2
@@ -665,11 +665,11 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
         return np.hstack([positions[idx], forces[idx]])
     mock_get_a_frame.call_count = 0
 
-    with patch("revelsMD.trajectory_states.get_a_frame", side_effect=mock_get_a_frame):
-        with patch("revelsMD.trajectory_states.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
-            with patch("revelsMD.trajectory_states.frame_skip"):
+    with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
+        with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
+            with patch("revelsMD.trajectories.lammps.frame_skip"):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectoryState("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
 
                     # Random access in any order
                     for i in [7, 2, 9, 0, 5]:
@@ -679,7 +679,7 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
 
 
 # -----------------------------------------------------------------------------
-# get_charges / get_masses - NumpyTrajectoryState
+# get_charges / get_masses - NumpyTrajectory
 # -----------------------------------------------------------------------------
 def test_numpy_get_charges_returns_correct_values():
     """get_charges should return charges for atoms of the specified species."""
@@ -689,7 +689,7 @@ def test_numpy_get_charges_returns_correct_values():
     charges = np.array([0.5, -0.25, -0.25])
     masses = np.array([16.0, 1.0, 1.0])
 
-    state = NumpyTrajectoryState(
+    state = NumpyTrajectory(
         positions, forces, 10, 10, 10, species,
         charge_list=charges, mass_list=masses
     )
@@ -706,7 +706,7 @@ def test_numpy_get_masses_returns_correct_values():
     charges = np.array([0.5, -0.25, -0.25])
     masses = np.array([16.0, 1.0, 1.0])
 
-    state = NumpyTrajectoryState(
+    state = NumpyTrajectory(
         positions, forces, 10, 10, 10, species,
         charge_list=charges, mass_list=masses
     )
@@ -721,7 +721,7 @@ def test_numpy_get_charges_raises_without_charge_data():
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
     with pytest.raises(DataUnavailableError, match="Charge data not available"):
         state.get_charges("O")
@@ -733,16 +733,16 @@ def test_numpy_get_masses_raises_without_mass_data():
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
     with pytest.raises(DataUnavailableError, match="Mass data not available"):
         state.get_masses("O")
 
 
 # -----------------------------------------------------------------------------
-# get_charges / get_masses - VaspTrajectoryState
+# get_charges / get_masses - VaspTrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectory_states.Vasprun")
+@patch("revelsMD.trajectories.vasp.Vasprun")
 def test_vasp_get_charges_raises_error(mock_vasprun):
     """get_charges should raise DataUnavailableError for VASP trajectories."""
     mock_instance = mock_vasprun.return_value
@@ -754,13 +754,13 @@ def test_vasp_get_charges_raises_error(mock_vasprun):
     mock_instance.cart_coords = np.zeros((1, 1, 3))
     mock_instance.forces = np.zeros((1, 1, 3))
 
-    state = VaspTrajectoryState("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml")
 
     with pytest.raises(DataUnavailableError, match="Charge data not available"):
         state.get_charges("H")
 
 
-@patch("revelsMD.trajectory_states.Vasprun")
+@patch("revelsMD.trajectories.vasp.Vasprun")
 def test_vasp_get_masses_raises_error(mock_vasprun):
     """get_masses should raise DataUnavailableError for VASP trajectories."""
     mock_instance = mock_vasprun.return_value
@@ -772,7 +772,7 @@ def test_vasp_get_masses_raises_error(mock_vasprun):
     mock_instance.cart_coords = np.zeros((1, 1, 3))
     mock_instance.forces = np.zeros((1, 1, 3))
 
-    state = VaspTrajectoryState("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml")
 
     with pytest.raises(DataUnavailableError, match="Mass data not available"):
         state.get_masses("H")
@@ -791,7 +791,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
         # stop=-1 means "all but last" -> frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
@@ -807,7 +807,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
         # start=-3 means start at frame 7 (10-3=7)
         frames = list(state.iter_frames(start=-3))
@@ -824,7 +824,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
         # start=-5 (frame 5), stop=-2 (frame 8) -> frames 5, 6, 7
         frames = list(state.iter_frames(start=-5, stop=-2))
@@ -841,14 +841,14 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectoryState(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
 
         frames = list(state.iter_frames(stop=None))
         assert len(frames) == n_frames
 
-    @patch("revelsMD.trajectory_states.Vasprun")
+    @patch("revelsMD.trajectories.vasp.Vasprun")
     def test_vasp_negative_stop(self, mock_vasprun):
-        """VaspTrajectoryState should handle negative stop index."""
+        """VaspTrajectory should handle negative stop index."""
         n_frames, n_atoms = 5, 2
         positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
         forces = np.zeros((n_frames, n_atoms, 3))
@@ -862,15 +862,15 @@ class TestIterFramesNegativeIndices:
         mock_instance.cart_coords = positions
         mock_instance.forces = forces
 
-        state = VaspTrajectoryState("vasprun.xml")
+        state = VaspTrajectory("vasprun.xml")
 
         # stop=-1 means all but last -> frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
         assert len(frames) == 4
 
-    @patch("revelsMD.trajectory_states.MD.Universe")
+    @patch("revelsMD.trajectories.mda.MD.Universe")
     def test_mda_negative_stop(self, mock_universe):
-        """MDATrajectoryState should handle negative stop index."""
+        """MDATrajectory should handle negative stop index."""
         n_frames, n_atoms = 5, 3
         positions = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
         forces = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
@@ -895,7 +895,7 @@ class TestIterFramesNegativeIndices:
         mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
         mock_universe.return_value = mock_uni
 
-        state = MDATrajectoryState("traj.xtc", "topol.pdb")
+        state = MDATrajectory("traj.xtc", "topol.pdb")
 
         # stop=-1 normalized to 4, so frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))

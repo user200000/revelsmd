@@ -23,6 +23,18 @@ test = ["pytest", "pytest-cov"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "analytical: tests against known analytical results",
+    "regression: regression tests against stored reference data",
+    "requires_example1: requires Example 1 data (~12MB)",
+    "requires_example2: requires Example 2 data (~500MB)",
+    "requires_example4: requires Example 4 data (~1.7GB)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:MDAnalysis.*:",
+]
 
 [tool.coverage.run]
 source = ["revelsMD"]

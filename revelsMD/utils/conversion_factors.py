@@ -24,9 +24,9 @@ def generate_boltzmann(units: str) -> float:
         The desired unit system. Supported values are:
 
         - ``'lj'`` : Lennard-Jones reduced units (returns 1.0)
-        - ``'real'`` : kcal·mol⁻¹·K⁻¹ (LAMMPS real units)
-        - ``'metal'`` : eV·K⁻¹ (LAMMPS metal units)
-        - ``'mda'`` : kJ·mol⁻¹·K⁻¹ (MDAnalysis units)
+        - ``'real'`` : kcal/mol/K (LAMMPS real units)
+        - ``'metal'`` : eV/K (LAMMPS metal units)
+        - ``'mda'`` : kJ/mol/K (MDAnalysis units)
 
     Returns
     -------
@@ -40,7 +40,7 @@ def generate_boltzmann(units: str) -> float:
 
     Examples
     --------
-    >>> from revelsMD.revels_tools.conversion_factors import generate_boltzmann
+    >>> from revelsMD.utils import generate_boltzmann
     >>> generate_boltzmann('metal')
     8.617333262145e-05
     >>> generate_boltzmann('lj')
@@ -51,16 +51,15 @@ def generate_boltzmann(units: str) -> float:
     if units == "lj":
         return 1.0
     elif units == "real":
-        # kcal·mol⁻¹·K⁻¹ = R / (calorie * 1000)
+        # kcal/mol/K = R / (calorie * 1000)
         return constants.physical_constants["molar gas constant"][0] / constants.calorie / 1000
     elif units == "metal":
-        # eV·K⁻¹
+        # eV/K
         return constants.physical_constants["Boltzmann constant in eV/K"][0]
     elif units == "mda":
-        # kJ·mol⁻¹·K⁻¹
+        # kJ/mol/K
         return constants.physical_constants["molar gas constant"][0] / 1000
     else:
         raise ValueError(
             f"Unsupported unit system: '{units}'. Expected one of ['lj', 'real', 'metal', 'mda']."
         )
-

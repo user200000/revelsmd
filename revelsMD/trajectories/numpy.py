@@ -1,0 +1,137 @@
+"""
+NumPy array trajectory backend for RevelsMD.
+
+This module provides the NumpyTrajectory class for trajectories stored
+directly as NumPy arrays in memory.
+"""
+
+from typing import Iterator
+
+import numpy as np
+
+from ._base import Trajectory, DataUnavailableError
+
+
+class NumpyTrajectory(Trajectory):
+    """
+    Represents a trajectory stored directly as NumPy arrays.
+
+    Designed for simulation data already resident in memory, or for synthetic
+    or analytical trajectories generated numerically.
+
+    Parameters
+    ----------
+    positions : np.ndarray
+        Atomic positions of shape ``(frames, atoms, 3)``.
+    forces : np.ndarray
+        Atomic forces of shape ``(frames, atoms, 3)``.
+    box_x, box_y, box_z : float
+        Simulation box lengths in each Cartesian direction.
+    species_list : list of str
+        Atom names corresponding to each atom index.
+    units : str, optional
+        Unit system string (default: `'real'`).
+    charge_list : np.ndarray, optional
+        Atomic charge array (optional).
+    mass_list : np.ndarray, optional
+        Atomic mass array (optional).
+
+    Raises
+    ------
+    ValueError
+        If positions and forces are inconsistent, or if box dimensions are invalid.
+
+    Notes
+    -----
+    This class provides a simple in-memory structure compatible with the
+    ``Revels3D`` and ``RevelsRDF`` interfaces.
+    """
+
+    def __init__(
+        self,
+        positions: np.ndarray,
+        forces: np.ndarray,
+        box_x: float,
+        box_y: float,
+        box_z: float,
+        species_list: list[str],
+        units: str = 'real',
+        charge_list: np.ndarray | None = None,
+        mass_list: np.ndarray | None = None,
+    ):
+        if positions.shape != forces.shape:
+            raise ValueError("Force and position arrays are incommensurate.")
+
+        if positions.shape[1] != len(species_list):
+            raise ValueError("Species list and trajectory arrays are incommensurate.")
+
+        if not all(val > 0 for val in (box_x, box_y, box_z)):
+            raise ValueError("Box dimensions must all be positive values.")
+
+        self.positions = positions
+        self.forces = forces
+        self.species_string = species_list
+        self.box_x = box_x
+        self.box_y = box_y
+        self.box_z = box_z
+        self.units = units
+        self.frames = positions.shape[0]
+
+        if charge_list is not None:
+            self.charge_list = charge_list
+        if mass_list is not None:
+            self.mass_list = mass_list
+
+    def get_indices(self, atype: str) -> np.ndarray:
+        """
+        Return atom indices for a given species.
+
+        Parameters
+        ----------
+        atype : str
+            Atom species name to select (e.g., `'O'`, `'H'`, `'C'`).
+
+        Returns
+        -------
+        np.ndarray
+            Indices of selected atoms.
+
+        Raises
+        ------
+        ValueError
+            If the species name is not present in the provided species list.
+        """
+        inds = np.where(np.array(self.species_string) == atype)[0]
+        if len(inds) == 0:
+            raise ValueError(f"Species '{atype}' not found in species list.")
+        return inds
+
+    get_indicies = get_indices
+
+    def get_charges(self, atype: str) -> np.ndarray:
+        """Return atomic charges for atoms of a given species."""
+        if not hasattr(self, 'charge_list'):
+            raise DataUnavailableError("Charge data not available for this trajectory.")
+        indices = self.get_indices(atype)
+        return self.charge_list[indices]
+
+    def get_masses(self, atype: str) -> np.ndarray:
+        """Return atomic masses for atoms of a given species."""
+        if not hasattr(self, 'mass_list'):
+            raise DataUnavailableError("Mass data not available for this trajectory.")
+        indices = self.get_indices(atype)
+        return self.mass_list[indices]
+
+    def _iter_frames_impl(
+        self,
+        start: int,
+        stop: int,
+        stride: int
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        """Iterate over in-memory position/force arrays."""
+        for i in range(start, stop, stride):
+            yield self.positions[i], self.forces[i]
+
+    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        """Return positions and forces for a specific frame by index."""
+        return self.positions[index], self.forces[index]

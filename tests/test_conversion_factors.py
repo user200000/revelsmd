@@ -4,7 +4,7 @@ pytest test suite for the generate_boltzmann() function.
 
 import pytest
 import scipy.constants as constants
-from revelsMD.revels_tools.conversion_factors import generate_boltzmann
+from revelsMD.utils import generate_boltzmann
 
 
 def test_generate_boltzmann_lj():

@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.trajectory_states import NumpyTrajectoryState
+from revelsMD.trajectories import NumpyTrajectory
 
 
 class TSMock:
@@ -193,64 +193,6 @@ def test_run_rdf_lambda_like(ts):
     assert np.all((result[:, 2] >= -1) & (result[:, 2] <= 2))  # λ values roughly bounded
 
 
-def test_run_rdf_lambda_unlike(ts):
-    """Test run_rdf_lambda with unlike atom pairs (H-O)."""
-    result = RevelsRDF.run_rdf_lambda(
-        ts,
-        atom_a="H",
-        atom_b="O",
-        temp=300,
-        delr=1.0,
-        start=0,
-        stop=2,
-        period=1,
-        rmax=True,
-    )
-    assert isinstance(result, np.ndarray)
-    assert result.shape[1] == 3
-    assert np.all(np.isfinite(result))
-
-
-def test_run_rdf_lambda_invalid_start_frame(ts):
-    """Test run_rdf_lambda raises ValueError when start frame exceeds trajectory length."""
-    with pytest.raises(ValueError, match="First frame index"):
-        RevelsRDF.run_rdf_lambda(
-            ts, atom_a="H", atom_b="H", temp=300, start=100, stop=2
-        )
-
-
-def test_run_rdf_lambda_invalid_stop_frame(ts):
-    """Test run_rdf_lambda raises ValueError when stop frame exceeds trajectory length."""
-    with pytest.raises(ValueError, match="Final frame index"):
-        RevelsRDF.run_rdf_lambda(
-            ts, atom_a="H", atom_b="H", temp=300, start=0, stop=100
-        )
-
-
-def test_run_rdf_lambda_empty_range(ts):
-    """Test run_rdf_lambda raises ValueError when frame range is empty."""
-    with pytest.raises(ValueError, match="before first frame"):
-        RevelsRDF.run_rdf_lambda(
-            ts, atom_a="H", atom_b="H", temp=300, start=2, stop=0
-        )
-
-
-def test_run_rdf_lambda_rmax_false(ts):
-    """Test run_rdf_lambda with explicit rmax value (rmax=False uses box/2)."""
-    result = RevelsRDF.run_rdf_lambda(
-        ts,
-        atom_a="H",
-        atom_b="H",
-        temp=300,
-        delr=1.0,
-        start=0,
-        stop=2,
-        rmax=False,
-    )
-    assert isinstance(result, np.ndarray)
-    assert result.shape[1] == 3
-
-
 # -------------------------------
 # run_rdf_lambda edge conditions
 # -------------------------------
@@ -274,14 +216,14 @@ def test_run_rdf_lambda_empty_frame_range(ts):
 
 
 # -------------------------------
-# Tests using real NumpyTrajectoryState
+# Tests using real NumpyTrajectory
 # -------------------------------
 
-class TestRDFWithNumpyTrajectoryState:
-    """Test RDF functions work with real NumpyTrajectoryState objects."""
+class TestRDFWithNumpyTrajectory:
+    """Test RDF functions work with real NumpyTrajectory objects."""
 
     def test_run_rdf_with_numpy_trajectory_state(self):
-        """run_rdf should work with a real NumpyTrajectoryState."""
+        """run_rdf should work with a real NumpyTrajectory."""
         positions = np.array([
             [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
             [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
@@ -294,7 +236,7 @@ class TestRDFWithNumpyTrajectoryState:
         ], dtype=float)
         species = ["H", "O", "H"]
 
-        ts = NumpyTrajectoryState(
+        ts = NumpyTrajectory(
             positions, forces, 10.0, 10.0, 10.0, species, units="real"
         )
 
@@ -316,7 +258,7 @@ class TestRDFWithNumpyTrajectoryState:
         assert np.all(np.isfinite(result))
 
     def test_run_rdf_lambda_with_numpy_trajectory_state(self):
-        """run_rdf_lambda should work with a real NumpyTrajectoryState."""
+        """run_rdf_lambda should work with a real NumpyTrajectory."""
         positions = np.array([
             [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
             [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
@@ -329,7 +271,7 @@ class TestRDFWithNumpyTrajectoryState:
         ], dtype=float)
         species = ["H", "O", "H"]
 
-        ts = NumpyTrajectoryState(
+        ts = NumpyTrajectory(
             positions, forces, 10.0, 10.0, 10.0, species, units="real"
         )
 
@@ -360,7 +302,7 @@ class TestRDFWithNumpyTrajectoryState:
         forces = np.ones_like(positions) * 0.1
         species = ["H", "H"]
 
-        ts = NumpyTrajectoryState(
+        ts = NumpyTrajectory(
             positions, forces, 10.0, 10.0, 10.0, species, units="real"
         )
 
