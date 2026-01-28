@@ -14,8 +14,6 @@ class TSMock:
         self.box_z = 10.0
         self.units = "real"
         self.frames = 2
-        self.variety = "numpy"
-        self.charge_and_mass = True
 
         # Two atoms, 2 frames
         self.positions = np.array([
@@ -40,6 +38,15 @@ class TSMock:
 
     def get_masses(self, atype):
         return self._masses[atype]
+
+    def iter_frames(self, start=0, stop=None, stride=1):
+        if stop is None:
+            stop = self.frames
+        for i in range(start, stop, stride):
+            yield self.positions[i], self.forces[i]
+
+    def get_frame(self, index):
+        return self.positions[index], self.forces[index]
 
 
 @pytest.fixture
@@ -136,6 +143,38 @@ def test_position_centre_out_of_range(ts):
         ss.position_centre(10)
 
 
+@pytest.mark.xfail(reason="Issue #10: rigid validation rejects molecules with unequal atom counts")
+def test_selectionstate_rigid_unequal_counts():
+    """Rigid molecules like water (2H + 1O) should be allowed.
+
+    Currently raises ValueError because validation requires equal counts per species.
+    """
+    class WaterTSMock:
+        box_x = box_y = box_z = 10.0
+        units = "real"
+        species = ["H", "O"]
+        # 2 water molecules: 2H + 1O each = 4H + 2O total
+        _ids = {"H": np.array([0, 1, 3, 4]), "O": np.array([2, 5])}
+        _charges = {"H": np.array([0.4, 0.4, 0.4, 0.4]), "O": np.array([-0.8, -0.8])}
+        _masses = {"H": np.array([1.0, 1.0, 1.0, 1.0]), "O": np.array([16.0, 16.0])}
+
+        def get_indices(self, atype):
+            return self._ids[atype]
+
+        def get_charges(self, atype):
+            return self._charges[atype]
+
+        def get_masses(self, atype):
+            return self._masses[atype]
+
+    ts_water = WaterTSMock()
+    # This should work but currently raises ValueError when rigid=True
+    ss = Revels3D.SelectionState(ts_water, ["H", "O"], centre_location=True, rigid=True)
+    assert len(ss.indices) == 2
+    assert len(ss.indices[0]) == 4  # 4 H atoms
+    assert len(ss.indices[1]) == 2  # 2 O atoms
+
+
 # ---------------------------
 # Full pipeline
 # ---------------------------
@@ -156,6 +195,7 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
 
 def test_get_lambda_basic(ts):
+    """Test basic get_lambda functionality."""
     gs = Revels3D.GridState(ts, "number", 300, nbins=4)
     gs.make_force_grid(ts, atom_names="H", rigid=False)
     gs.get_real_density()
@@ -185,7 +225,6 @@ def test_find_coms_dipole_known_value():
     class LinearMoleculeMock:
         def __init__(self):
             self.box_x = self.box_y = self.box_z = 20.0
-            self.charge_and_mass = True
 
         def get_indices(self, atype):
             return {"A": np.array([0]), "B": np.array([1]), "C": np.array([2])}[atype]
@@ -427,6 +466,39 @@ def test_triangular_multiple_particles():
 
     assert np.isclose(gs.counter.sum(), 3.0), f"Total count should be 3, got {gs.counter.sum()}"
     assert np.isclose(gs.forceX.sum(), 3.0), f"Total forceX should be 3, got {gs.forceX.sum()}"
+
+
+@pytest.mark.xfail(reason="Bug: triangular_allocation loses contributions when particles share voxels")
+def test_triangular_overlapping_particles():
+    """Two particles at same position should accumulate, not overwrite.
+
+    This tests for a bug where NumPy fancy indexing with += doesn't
+    accumulate when indices contain duplicates - only the last value wins.
+    """
+    gs = GridStateMock(nbins=4, box=10.0)
+
+    # Two particles at IDENTICAL positions
+    homeX = np.array([5.0, 5.0])
+    homeY = np.array([5.0, 5.0])
+    homeZ = np.array([5.0, 5.0])
+
+    x = np.digitize(homeX, gs.binsx)
+    y = np.digitize(homeY, gs.binsy)
+    z = np.digitize(homeZ, gs.binsz)
+
+    # Different forces: particle 1 has [1,0,0], particle 2 has [2,0,0]
+    Revels3D.HelperFunctions.triangular_allocation(
+        gs, x, y, z, homeX, homeY, homeZ,
+        fox=np.array([1.0, 2.0]),
+        foy=np.array([0.0, 0.0]),
+        foz=np.array([0.0, 0.0]),
+        a=1.0
+    )
+
+    # Expected: total forceX = 1 + 2 = 3, counter = 2
+    # Bug: only the last particle's contribution is kept (forceX = 2, counter = 1)
+    assert np.isclose(gs.counter.sum(), 2.0), f"Total count should be 2, got {gs.counter.sum()}"
+    assert np.isclose(gs.forceX.sum(), 3.0), f"Total forceX should be 3 (1+2), got {gs.forceX.sum()}"
 
 
 # ---------------------------
