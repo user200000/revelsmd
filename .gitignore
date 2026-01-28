@@ -26,6 +26,6 @@ examples/
 # Benchmarks
 benchmarks/
 
-# Development documentation (keep locally, never commit)
+# Development notes (local only)
 *.md
 !README.md
