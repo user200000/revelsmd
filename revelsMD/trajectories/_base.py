@@ -30,7 +30,9 @@ def compute_beta(units: str, temperature: float) -> float:
     units : str
         Unit system ('lj', 'real', 'metal', 'mda').
     temperature : float
-        Temperature in Kelvin.
+        Temperature in Kelvin for 'real', 'metal', and 'mda' units.
+        For 'lj' (Lennard-Jones reduced units), this is the dimensionless
+        reduced temperature T* = kB*T/epsilon.
 
     Returns
     -------
@@ -70,9 +72,10 @@ class Trajectory(ABC):
     box_x, box_y, box_z : float
         Simulation box dimensions in each Cartesian direction.
     units : str
-        Unit system identifier (e.g., 'real', 'metal', 'mda').
+        Unit system identifier (e.g., 'real', 'metal', 'mda', 'lj').
     temperature : float
-        Simulation temperature in Kelvin.
+        Simulation temperature in Kelvin for 'real', 'metal', and 'mda' units.
+        For 'lj' units, this is the dimensionless reduced temperature T*.
     beta : float
         Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
     """
@@ -98,7 +101,8 @@ class Trajectory(ABC):
         units : str
             Unit system identifier (e.g., 'real', 'metal', 'mda', 'lj').
         temperature : float
-            Simulation temperature in Kelvin.
+            Simulation temperature in Kelvin for 'real', 'metal', and 'mda' units.
+            For 'lj' units, this is the dimensionless reduced temperature T*.
         """
         self.units = units
         self.temperature = temperature

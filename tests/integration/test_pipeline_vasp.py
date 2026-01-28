@@ -65,17 +65,17 @@ class TestVASPPipelineExample3:
         ts = vasp_trajectory
 
         # Use temperature appropriate for AIMD (typically 600-1000K)
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=600)
+        gs = Revels3D.GridState(ts, 'number', nbins=50)
 
         assert gs.density_type == 'number'
         assert gs.nbinsx == 50
-        assert gs.temperature == 600
+        assert gs.beta == ts.beta
 
     def test_fluoride_number_density(self, vasp_trajectory):
         """Number density calculation for fluoride ions."""
         ts = vasp_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=600)
+        gs = Revels3D.GridState(ts, 'number', nbins=50)
 
         # Use all available frames (may be short trajectory)
         try:
@@ -97,7 +97,7 @@ class TestVASPPipelineExample3:
 
         try:
             rdf = RevelsRDF.run_rdf(
-                ts, 'F', 'F', temp=600,
+                ts, 'F', 'F',
                 period=1, delr=0.1
             )
         except Exception as e:
@@ -113,7 +113,7 @@ class TestVASPPipelineExample3:
 
         try:
             rdf = RevelsRDF.run_rdf(
-                ts, 'Ba', 'F', temp=600,
+                ts, 'Ba', 'F',
                 period=1, delr=0.1
             )
         except Exception as e:
@@ -126,7 +126,7 @@ class TestVASPPipelineExample3:
         """Lambda-combined density for fluoride."""
         ts = vasp_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=600)
+        gs = Revels3D.GridState(ts, 'number', nbins=30)
         gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
@@ -168,7 +168,7 @@ class TestVASPPhysicalProperties:
         """Fluoride density should show crystalline structure."""
         ts = vasp_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=600)
+        gs = Revels3D.GridState(ts, 'number', nbins=30)
 
         try:
             gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
@@ -232,14 +232,14 @@ class TestVASPSyntheticFallback:
         species = ['F'] * n_f + ['Ba'] * n_ba + ['Sn'] * n_sn
 
         return NumpyTrajectory(
-            positions, forces, box, box, box, species, units='metal'
+            positions, forces, box, box, box, species, temperature=600.0, units='metal'
         )
 
     def test_synthetic_rdf_calculation(self, synthetic_vasp_like_trajectory):
         """RDF calculation works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        rdf = RevelsRDF.run_rdf(ts, 'F', 'F', temp=600, delr=0.2)
+        rdf = RevelsRDF.run_rdf(ts, 'F', 'F', delr=0.2)
 
         assert rdf is not None
         assert np.all(np.isfinite(rdf))
@@ -248,7 +248,7 @@ class TestVASPSyntheticFallback:
         """Density calculation works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=600)
+        gs = Revels3D.GridState(ts, 'number', nbins=20)
         gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
         gs.get_real_density()
 
@@ -259,7 +259,7 @@ class TestVASPSyntheticFallback:
         """Unlike-pair RDF works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        rdf = RevelsRDF.run_rdf(ts, 'Ba', 'F', temp=600, delr=0.2)
+        rdf = RevelsRDF.run_rdf(ts, 'Ba', 'F', delr=0.2)
 
         assert rdf is not None
         assert np.all(np.isfinite(rdf))
