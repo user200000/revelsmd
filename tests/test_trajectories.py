@@ -164,7 +164,7 @@ def test_vasp_state_valid(mock_vasprun):
     mock_vasprun_instance.start.indices_from_symbol.return_value = np.array([0])
 
     # Then run the test
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
     assert np.isclose(state.box_x, 1.0)
     assert np.allclose(state.positions, np.zeros((1, 1, 3)))
     assert np.allclose(state.forces, np.zeros((1, 1, 3)))
@@ -182,7 +182,7 @@ def test_vasp_state_raises_no_forces(mock_vasprun):
     mock.cart_coords = np.zeros((1, 1, 3))
     mock_vasprun.return_value = mock
     with pytest.raises(ValueError, match="No forces found"):
-        VaspTrajectory("vasprun.xml")
+        VaspTrajectory("vasprun.xml", temperature=300.0)
 
 
 @patch("revelsMD.trajectories.vasp.Vasprun")
@@ -195,7 +195,7 @@ def test_vasp_state_invalid_angles(mock_vasprun):
     mock.cart_coords = np.zeros((1, 1, 3))
     mock_vasprun.return_value = mock
     with pytest.raises(ValueError, match="orthorhombic"):
-        VaspTrajectory("vasprun.xml")
+        VaspTrajectory("vasprun.xml", temperature=300.0)
 
 
 # -----------------------------------------------------------------------------
@@ -334,7 +334,7 @@ def test_vasp_iter_frames_yields_all_frames(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     frames_list = list(state.iter_frames())
     assert len(frames_list) == n_frames
@@ -360,7 +360,7 @@ def test_vasp_iter_frames_with_start_stop_stride(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     # Test start=2, stop=8, stride=2 -> frames 2, 4, 6
     frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -558,7 +558,7 @@ def test_vasp_get_frame_returns_correct_data(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -755,7 +755,7 @@ def test_vasp_get_charges_raises_error(mock_vasprun):
     mock_instance.cart_coords = np.zeros((1, 1, 3))
     mock_instance.forces = np.zeros((1, 1, 3))
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     with pytest.raises(DataUnavailableError, match="Charge data not available"):
         state.get_charges("H")
@@ -773,7 +773,7 @@ def test_vasp_get_masses_raises_error(mock_vasprun):
     mock_instance.cart_coords = np.zeros((1, 1, 3))
     mock_instance.forces = np.zeros((1, 1, 3))
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     with pytest.raises(DataUnavailableError, match="Mass data not available"):
         state.get_masses("H")
@@ -863,7 +863,7 @@ class TestIterFramesNegativeIndices:
         mock_instance.cart_coords = positions
         mock_instance.forces = forces
 
-        state = VaspTrajectory("vasprun.xml")
+        state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
         # stop=-1 means all but last -> frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
