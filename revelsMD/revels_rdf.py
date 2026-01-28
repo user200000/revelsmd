@@ -84,7 +84,7 @@ class RevelsRDF:
         """
         n_bins = np.size(bins)
         if n_bins == 0:
-            return np.zeros(1, dtype=np.longdouble)
+            return np.zeros(1, dtype=np.float64)
 
         pos_ang = pos_array[indices, :]
         force_total = force_array[indices, :]
@@ -135,7 +135,7 @@ class RevelsRDF:
         """
         n_bins = np.size(bins)
         if n_bins == 0:
-            return np.zeros(1, dtype=np.longdouble)
+            return np.zeros(1, dtype=np.float64)
 
         pos_ang_1 = pos_array[indices[0], :]
         force_total_1 = force_array[indices[0], :]
@@ -231,7 +231,7 @@ class RevelsRDF:
             rmax_value = float(rmax)
         bins = np.arange(0, rmax_value, delr)
 
-        accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
+        accumulated_storage_array = np.zeros(np.size(bins), dtype=np.float64)
 
         # Unified frame iteration using iter_frames
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
@@ -332,7 +332,7 @@ class RevelsRDF:
         bins = np.arange(0, rmax_value, delr)
 
         list_store: list[np.ndarray] = []
-        accumulated_storage_array = np.zeros(np.size(bins), dtype=np.longdouble)
+        accumulated_storage_array = np.zeros(np.size(bins), dtype=np.float64)
 
         # Unified frame iteration using iter_frames
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):

@@ -153,9 +153,9 @@ def compute_pairwise_contributions_like(
 
     Returns
     -------
-    r_flat : np.ndarray, shape (n*n,), dtype=np.longdouble
+    r_flat : np.ndarray, shape (n*n,), dtype=np.float64
         Flattened pairwise distances after MIC.
-    dot_prod_flat : np.ndarray, shape (n*n,), dtype=np.longdouble
+    dot_prod_flat : np.ndarray, shape (n*n,), dtype=np.float64
         Flattened force projections F[j] . r_ij / |r|^3.
 
     Notes
@@ -195,8 +195,8 @@ def compute_pairwise_contributions_like(
     dot_prod[outside_mask] = 0
 
     return (
-        r_mag.ravel().astype(np.longdouble),
-        np.nan_to_num(dot_prod.ravel(), nan=0.0, posinf=0.0, neginf=0.0).astype(np.longdouble),
+        r_mag.ravel().astype(np.float64),
+        np.nan_to_num(dot_prod.ravel(), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float64),
     )
 
 
@@ -225,9 +225,9 @@ def compute_pairwise_contributions_unlike(
 
     Returns
     -------
-    r_flat : np.ndarray, shape (n1*n2,), dtype=np.longdouble
+    r_flat : np.ndarray, shape (n1*n2,), dtype=np.float64
         Flattened pairwise distances after MIC.
-    dot_prod_flat : np.ndarray, shape (n1*n2,), dtype=np.longdouble
+    dot_prod_flat : np.ndarray, shape (n1*n2,), dtype=np.float64
         Flattened force difference projections (F_A - F_B) . r_AB / |r|^3.
 
     Notes
@@ -267,8 +267,8 @@ def compute_pairwise_contributions_unlike(
     dot_prod[outside_mask] = 0
 
     return (
-        r_mag.ravel().astype(np.longdouble),
-        np.nan_to_num(dot_prod.ravel(), nan=0.0, posinf=0.0, neginf=0.0).astype(np.longdouble),
+        r_mag.ravel().astype(np.float64),
+        np.nan_to_num(dot_prod.ravel(), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float64),
     )
 
 
@@ -291,7 +291,7 @@ def accumulate_binned_contributions(
 
     Returns
     -------
-    np.ndarray, shape (n_bins,), dtype=np.longdouble
+    np.ndarray, shape (n_bins,), dtype=np.float64
         Accumulated values per bin.
 
     Notes
@@ -304,13 +304,13 @@ def accumulate_binned_contributions(
     n_bins = len(bins)
 
     if n_bins == 0:
-        return np.zeros(1, dtype=np.longdouble)
+        return np.zeros(1, dtype=np.float64)
 
     # Bin assignment (same as original)
     bin_indices = np.digitize(distances, bins) - 1
 
     # Zero out last bin contributions (matching original behaviour)
-    values = np.asarray(values, dtype=np.longdouble).copy()
+    values = np.asarray(values, dtype=np.float64).copy()
     values[bin_indices == n_bins - 1] = 0
 
     # Clip indices to valid range for bincount
@@ -322,6 +322,6 @@ def accumulate_binned_contributions(
         bin_indices_clipped,
         weights=values,
         minlength=n_bins,
-    ).astype(np.longdouble)
+    ).astype(np.float64)
 
     return np.nan_to_num(storage, nan=0.0, posinf=0.0, neginf=0.0)
