@@ -9,7 +9,7 @@ from typing import Iterator
 
 import numpy as np
 
-from ._base import Trajectory, DataUnavailableError, compute_beta
+from ._base import Trajectory, DataUnavailableError
 
 
 class NumpyTrajectory(Trajectory):
@@ -79,16 +79,15 @@ class NumpyTrajectory(Trajectory):
         if not all(val > 0 for val in (box_x, box_y, box_z)):
             raise ValueError("Box dimensions must all be positive values.")
 
+        super().__init__(units=units, temperature=temperature)
+
         self.positions = positions
         self.forces = forces
         self.species_string = species_list
         self.box_x = box_x
         self.box_y = box_y
         self.box_z = box_z
-        self.units = units
         self.frames = positions.shape[0]
-        self.temperature = temperature
-        self.beta = compute_beta(units, temperature)
 
         if charge_list is not None:
             self.charge_list = charge_list

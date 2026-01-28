@@ -71,6 +71,10 @@ class Trajectory(ABC):
         Simulation box dimensions in each Cartesian direction.
     units : str
         Unit system identifier (e.g., 'real', 'metal', 'mda').
+    temperature : float
+        Simulation temperature in Kelvin.
+    beta : float
+        Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
     """
 
     # Required attributes - subclasses must set these
@@ -79,6 +83,26 @@ class Trajectory(ABC):
     box_y: float
     box_z: float
     units: str
+    temperature: float
+    beta: float
+
+    def __init__(self, *, units: str, temperature: float) -> None:
+        """
+        Initialise common trajectory attributes.
+
+        Subclasses should call ``super().__init__(units=..., temperature=...)``
+        after setting their own attributes.
+
+        Parameters
+        ----------
+        units : str
+            Unit system identifier (e.g., 'real', 'metal', 'mda', 'lj').
+        temperature : float
+            Simulation temperature in Kelvin.
+        """
+        self.units = units
+        self.temperature = temperature
+        self.beta = compute_beta(units, temperature)
 
     def _normalize_bounds(
         self, start: int, stop: int | None, stride: int
