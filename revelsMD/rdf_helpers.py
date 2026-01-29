@@ -28,17 +28,15 @@ from revelsMD.backends import get_backend, AVAILABLE_BACKENDS
 # ---------------------------------------------------------------------------
 
 
-def _get_numba_functions() -> tuple[Callable, Callable, Callable]:
+def _get_numba_functions() -> tuple[Callable, Callable]:
     """Import and return Numba backend functions."""
     try:
         from revelsMD.rdf_helpers_numba import (
-            compute_pairwise_contributions_like_numba,
-            compute_pairwise_contributions_unlike_numba,
+            compute_pairwise_contributions_numba,
             accumulate_binned_contributions_numba,
         )
         return (
-            compute_pairwise_contributions_like_numba,
-            compute_pairwise_contributions_unlike_numba,
+            compute_pairwise_contributions_numba,
             accumulate_binned_contributions_numba,
         )
     except ImportError as e:
@@ -50,7 +48,7 @@ def _get_numba_functions() -> tuple[Callable, Callable, Callable]:
 
 def get_backend_functions(
     backend: str | None = None,
-) -> tuple[Callable, Callable, Callable]:
+) -> tuple[Callable, Callable]:
     """
     Get the RDF helper functions for the specified backend.
 
@@ -62,8 +60,8 @@ def get_backend_functions(
 
     Returns
     -------
-    tuple of (compute_like, compute_unlike, accumulate)
-        The three helper functions for the selected backend.
+    tuple of (compute_pairwise, accumulate)
+        The two helper functions for the selected backend.
 
     Raises
     ------
@@ -86,8 +84,7 @@ def get_backend_functions(
 
     # Default: numpy backend
     return (
-        compute_pairwise_contributions_like,
-        compute_pairwise_contributions_unlike,
+        compute_pairwise_contributions,
         accumulate_binned_contributions,
     )
 
@@ -129,144 +126,6 @@ def apply_minimum_image(
             * np.sign(result[..., i])
         )
     return result
-
-
-def compute_pairwise_contributions_like(
-    pos: np.ndarray,
-    forces: np.ndarray,
-    box: tuple[float, float, float],
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Compute pairwise distances and force projections for like species.
-
-    Parameters
-    ----------
-    pos : np.ndarray, shape (n, 3)
-        Positions of atoms in the species.
-    forces : np.ndarray, shape (n, 3)
-        Forces on atoms in the species.
-    box : tuple of (box_x, box_y, box_z)
-        Orthorhombic box dimensions.
-
-    Returns
-    -------
-    r_flat : np.ndarray, shape (n*n,), dtype=np.float64
-        Flattened pairwise distances after MIC.
-    dot_prod_flat : np.ndarray, shape (n*n,), dtype=np.float64
-        Flattened force projections F[j] . r_ij / |r|^3.
-
-    Notes
-    -----
-    The force projection uses the force on atom j (the second index).
-    This matches the original implementation where F[x, :] = force_total[:, :]
-    means F[i, j] = force[j].
-    """
-    ns = pos.shape[0]
-    box_arr = np.array(box)
-
-    # Pairwise displacements: r[i, j] = pos[j] - pos[i]
-    # Shape: (ns, ns, 3)
-    r_vec = pos[np.newaxis, :, :] - pos[:, np.newaxis, :]
-
-    # Apply minimum image convention
-    r_vec = apply_minimum_image(r_vec, box_arr)
-
-    # Distance magnitudes: shape (ns, ns)
-    r_mag = np.sqrt(np.sum(r_vec ** 2, axis=2))
-
-    # Forces broadcast to (ns, ns, 3) where F[i, j, :] = forces[j, :]
-    # This matches the original: Fx[x, :] = force_total[:, 0]
-    F_vec = np.broadcast_to(forces[np.newaxis, :, :], (ns, ns, 3))
-
-    # Force projection: F[j] . r_ij / |r|^3
-    with np.errstate(divide='ignore', invalid='ignore'):
-        dot_prod = np.sum(F_vec * r_vec, axis=2) / r_mag ** 3
-
-    # Sanity filter matching legacy behaviour
-    half_box = box_arr / 2
-    outside_mask = (
-        (np.abs(r_vec[..., 0]) > half_box[0]) |
-        (np.abs(r_vec[..., 1]) > half_box[1]) |
-        (np.abs(r_vec[..., 2]) > half_box[2])
-    )
-    dot_prod[outside_mask] = 0
-
-    return (
-        r_mag.ravel().astype(np.float64),
-        np.nan_to_num(dot_prod.ravel(), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float64),
-    )
-
-
-def compute_pairwise_contributions_unlike(
-    pos_a: np.ndarray,
-    pos_b: np.ndarray,
-    forces_a: np.ndarray,
-    forces_b: np.ndarray,
-    box: tuple[float, float, float],
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Compute pairwise distances and force projections for unlike species.
-
-    Parameters
-    ----------
-    pos_a : np.ndarray, shape (n1, 3)
-        Positions of atoms in species A.
-    pos_b : np.ndarray, shape (n2, 3)
-        Positions of atoms in species B.
-    forces_a : np.ndarray, shape (n1, 3)
-        Forces on atoms in species A.
-    forces_b : np.ndarray, shape (n2, 3)
-        Forces on atoms in species B.
-    box : tuple of (box_x, box_y, box_z)
-        Orthorhombic box dimensions.
-
-    Returns
-    -------
-    r_flat : np.ndarray, shape (n1*n2,), dtype=np.float64
-        Flattened pairwise distances after MIC.
-    dot_prod_flat : np.ndarray, shape (n1*n2,), dtype=np.float64
-        Flattened force difference projections (F_A - F_B) . r_AB / |r|^3.
-
-    Notes
-    -----
-    The output shape matches the original implementation where the matrix
-    has shape (n2, n1), i.e. iterating over B atoms in the outer dimension.
-    """
-    n1 = pos_a.shape[0]
-    n2 = pos_b.shape[0]
-    box_arr = np.array(box)
-
-    # Pairwise displacements: r[i, j] = pos_a[j] - pos_b[i]
-    # Shape: (n2, n1, 3) - matches original loop structure
-    r_vec = pos_a[np.newaxis, :, :] - pos_b[:, np.newaxis, :]
-
-    # Apply minimum image convention
-    r_vec = apply_minimum_image(r_vec, box_arr)
-
-    # Distance magnitudes: shape (n2, n1)
-    r_mag = np.sqrt(np.sum(r_vec ** 2, axis=2))
-
-    # Force differences: F[i, j] = forces_a[j] - forces_b[i]
-    # Shape: (n2, n1, 3)
-    F_diff = forces_a[np.newaxis, :, :] - forces_b[:, np.newaxis, :]
-
-    # Force projection: (F_A - F_B) . r_AB / |r|^3
-    with np.errstate(divide='ignore', invalid='ignore'):
-        dot_prod = np.sum(F_diff * r_vec, axis=2) / r_mag ** 3
-
-    # Sanity filter matching legacy behaviour
-    half_box = box_arr / 2
-    outside_mask = (
-        (np.abs(r_vec[..., 0]) > half_box[0]) |
-        (np.abs(r_vec[..., 1]) > half_box[1]) |
-        (np.abs(r_vec[..., 2]) > half_box[2])
-    )
-    dot_prod[outside_mask] = 0
-
-    return (
-        r_mag.ravel().astype(np.float64),
-        np.nan_to_num(dot_prod.ravel(), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float64),
-    )
 
 
 def accumulate_binned_contributions(
@@ -322,3 +181,74 @@ def accumulate_binned_contributions(
     ).astype(np.float64)
 
     return np.nan_to_num(storage, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def compute_pairwise_contributions(
+    pos_a: np.ndarray,
+    pos_b: np.ndarray,
+    forces_a: np.ndarray,
+    forces_b: np.ndarray,
+    box: tuple[float, float, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute pairwise distances and force projections for any species combination.
+
+    This unified function handles both like-species (A-A) and unlike-species (A-B)
+    cases using the same formula: (F_a - F_b) . r_ab / |r|^3.
+
+    For like-species (detected when pos_a is pos_b), only the upper triangle
+    (j > i) is computed to avoid double-counting.
+
+    For unlike-species, all n_a * n_b pairs are computed.
+
+    Parameters
+    ----------
+    pos_a : np.ndarray, shape (n_a, 3)
+        Positions of atoms in species A.
+    pos_b : np.ndarray, shape (n_b, 3)
+        Positions of atoms in species B.
+    forces_a : np.ndarray, shape (n_a, 3)
+        Forces on atoms in species A.
+    forces_b : np.ndarray, shape (n_b, 3)
+        Forces on atoms in species B.
+    box : tuple of (box_x, box_y, box_z)
+        Orthorhombic box dimensions.
+
+    Returns
+    -------
+    r_flat : np.ndarray, dtype=np.float64
+        Flattened pairwise distances after MIC.
+        Shape is (n_a * (n_a - 1) // 2,) for like-species,
+        or (n_a * n_b,) for unlike-species.
+    dot_prod_flat : np.ndarray, dtype=np.float64
+        Flattened force projections (F_a - F_b) . r_ab / |r|^3.
+        Same shape as r_flat.
+    """
+    box_arr = np.array(box)
+    same_species = pos_a is pos_b
+
+    # Build displacement and force-difference arrays.
+    # Like-species uses upper triangle indexing (n*(n-1)/2 pairs).
+    # Unlike-species uses broadcasting (n_a * n_b pairs).
+    # Both result in arrays where the last axis is the 3D vector component.
+    if same_species:
+        n = pos_a.shape[0]
+        i_idx, j_idx = np.triu_indices(n, k=1)
+        r_vec = pos_a[j_idx] - pos_a[i_idx]
+        F_diff = forces_a[j_idx] - forces_a[i_idx]
+    else:
+        r_vec = pos_a[np.newaxis, :, :] - pos_b[:, np.newaxis, :]
+        F_diff = forces_a[np.newaxis, :, :] - forces_b[:, np.newaxis, :]
+
+    r_vec = apply_minimum_image(r_vec, box_arr)
+
+    # Compute |r| and (F_diff . r) / |r|^3. Using axis=-1 works for both
+    # 2D (n_pairs, 3) and 3D (n_b, n_a, 3) arrays.
+    r_mag = np.sqrt(np.sum(r_vec ** 2, axis=-1))
+    with np.errstate(divide='ignore', invalid='ignore'):
+        dot_prod = np.sum(F_diff * r_vec, axis=-1) / r_mag ** 3
+
+    return (
+        r_mag.ravel().astype(np.float64),
+        np.nan_to_num(dot_prod.ravel(), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float64),
+    )
