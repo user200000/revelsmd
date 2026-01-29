@@ -182,7 +182,7 @@ def test_run_rdf_lambda_like(ts):
         ts,
         atom_a="H",
         atom_b="H",
-                delr=1.0,
+        delr=1.0,
         start=0,
         stop=2,
         period=1,
