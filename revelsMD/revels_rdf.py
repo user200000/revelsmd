@@ -89,8 +89,9 @@ class RevelsRDF:
         pos_a = pos_array[indices[0], :]
         force_a = force_array[indices[0], :]
 
-        # For like-species, pass the same array to enable upper-triangle optimisation.
-        # Use array_equal for robust comparison (identity check is fragile).
+        # Detect like-species (A-A) usage by comparing the index arrays by value.
+        # The downstream helpers also use value comparison (np.array_equal) to detect
+        # like-species and apply upper-triangle optimisations.
         if np.array_equal(indices[0], indices[1]):
             pos_b = pos_a
             force_b = force_a

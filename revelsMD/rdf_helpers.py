@@ -196,7 +196,7 @@ def compute_pairwise_contributions(
     This unified function handles both like-species (A-A) and unlike-species (A-B)
     cases using the same formula: (F_a - F_b) . r_ab / |r|^3.
 
-    For like-species (detected when pos_a is pos_b), only the upper triangle
+    For like-species (detected via np.array_equal), only the upper triangle
     (j > i) is computed to avoid double-counting.
 
     For unlike-species, all n_a * n_b pairs are computed.
@@ -225,7 +225,7 @@ def compute_pairwise_contributions(
         Same shape as r_flat.
     """
     box_arr = np.array(box)
-    same_species = pos_a is pos_b
+    same_species = np.array_equal(pos_a, pos_b)
 
     # Build displacement and force-difference arrays.
     # Like-species uses upper triangle indexing (n*(n-1)/2 pairs).

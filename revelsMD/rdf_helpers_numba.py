@@ -228,7 +228,7 @@ def compute_pairwise_contributions_numba(
     This unified function handles both like-species (A-A) and unlike-species (A-B)
     cases using the same formula: (F_a - F_b) . r_ab / |r|^3.
 
-    For like-species (detected when pos_a is pos_b), only the upper triangle
+    For like-species (detected via np.array_equal), only the upper triangle
     (j > i) is computed to avoid double-counting.
 
     For unlike-species, all n_a * n_b pairs are computed.
@@ -256,7 +256,7 @@ def compute_pairwise_contributions_numba(
         Flattened force projections (F_a - F_b) . r_ab / |r|^3.
         Same shape as r_flat.
     """
-    same_species = pos_a is pos_b
+    same_species = np.array_equal(pos_a, pos_b)
     pos_a = np.ascontiguousarray(pos_a, dtype=np.float64)
     pos_b = np.ascontiguousarray(pos_b, dtype=np.float64)
     forces_a = np.ascontiguousarray(forces_a, dtype=np.float64)

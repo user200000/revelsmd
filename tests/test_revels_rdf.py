@@ -349,8 +349,9 @@ class TestMinimumImageConvention:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
+        # Use indices.copy() to ensure value comparison works (not identity)
         result = RevelsRDF.single_frame_rdf(
-            positions, forces, [indices, indices], box, box, box, bins
+            positions, forces, [indices, indices.copy()], box, box, box, bins
         )
 
         # Upper triangle: only pair (0,1) computed
@@ -375,8 +376,9 @@ class TestMinimumImageConvention:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
+        # Use indices.copy() to ensure value comparison works (not identity)
         result = RevelsRDF.single_frame_rdf(
-            positions, forces, [indices, indices], box, box, box, bins
+            positions, forces, [indices, indices.copy()], box, box, box, bins
         )
 
         # MIC wraps to r=2. Both pairs contribute -1/r² each.
@@ -399,8 +401,9 @@ class TestMinimumImageConvention:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
+        # Use indices.copy() to ensure value comparison works (not identity)
         result = RevelsRDF.single_frame_rdf(
-            positions, forces, [indices, indices], box, box, box, bins
+            positions, forces, [indices, indices.copy()], box, box, box, bins
         )
 
         expected = -2.0 / (mic_r * mic_r)
@@ -424,8 +427,9 @@ class TestMinimumImageConvention:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 30.0, 35.0])
 
+        # Use indices.copy() to ensure value comparison works (not identity)
         result = RevelsRDF.single_frame_rdf(
-            positions, forces, [indices, indices], box, box, box, bins
+            positions, forces, [indices, indices.copy()], box, box, box, bins
         )
 
         expected = -2.0 / (mic_r * mic_r)
