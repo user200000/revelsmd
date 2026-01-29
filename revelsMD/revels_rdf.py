@@ -22,8 +22,7 @@ import numpy as np
 from tqdm import tqdm
 
 from revelsMD.rdf_helpers import (
-    compute_pairwise_contributions_like,
-    compute_pairwise_contributions_unlike,
+    compute_pairwise_contributions,
     accumulate_binned_contributions,
 )
 
@@ -89,8 +88,8 @@ class RevelsRDF:
         force_total = force_array[indices, :]
 
         # Vectorised pairwise calculation and binning
-        r_flat, dot_flat = compute_pairwise_contributions_like(
-            pos_ang, force_total, (box_x, box_y, box_z)
+        r_flat, dot_flat = compute_pairwise_contributions(
+            pos_ang, pos_ang, force_total, force_total, (box_x, box_y, box_z)
         )
         return accumulate_binned_contributions(dot_flat, r_flat, bins)
 
@@ -142,7 +141,7 @@ class RevelsRDF:
         force_total_2 = force_array[indices[1], :]
 
         # Vectorised pairwise calculation and binning
-        r_flat, dot_flat = compute_pairwise_contributions_unlike(
+        r_flat, dot_flat = compute_pairwise_contributions(
             pos_ang_1, pos_ang_2, force_total_1, force_total_2,
             (box_x, box_y, box_z)
         )
