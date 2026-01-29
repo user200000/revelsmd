@@ -665,7 +665,7 @@ class TestComparisonWithOriginal:
         )
 
     def test_single_frame_rdf_like_full_comparison(self):
-        """Full single_frame_rdf_like output matches when using helpers."""
+        """Full single_frame_rdf output matches helpers for like-species."""
         from revelsMD.rdf_helpers import (
             compute_pairwise_contributions,
             accumulate_binned_contributions,
@@ -680,28 +680,28 @@ class TestComparisonWithOriginal:
         indices = np.arange(n_atoms)
         bins = np.arange(0, 7, 0.05)
 
-        # Original implementation
-        original_result = RevelsRDF.single_frame_rdf_like(
-            pos_array, force_array, indices,
+        # Using RevelsRDF.single_frame_rdf
+        rdf_result = RevelsRDF.single_frame_rdf(
+            pos_array, force_array, [indices, indices],
             box_x, box_y, box_z, bins
         )
 
-        # Vectorised implementation
+        # Direct helper implementation
         pos_ang = pos_array[indices, :]
         force_total = force_array[indices, :]
         r_vec, dot_vec = compute_pairwise_contributions(
             pos_ang, pos_ang, force_total, force_total, (box_x, box_y, box_z)
         )
-        vectorised_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
+        helper_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
 
         np.testing.assert_array_almost_equal(
-            vectorised_result, original_result,
+            helper_result, rdf_result,
             decimal=10,
-            err_msg="Vectorised single_frame_rdf_like differs from original"
+            err_msg="Helper-based single_frame_rdf differs from direct helper call"
         )
 
     def test_single_frame_rdf_unlike_full_comparison(self):
-        """Full single_frame_rdf_unlike output matches when using helpers."""
+        """Full single_frame_rdf output matches helpers for unlike-species."""
         from revelsMD.rdf_helpers import (
             compute_pairwise_contributions,
             accumulate_binned_contributions,
@@ -717,13 +717,13 @@ class TestComparisonWithOriginal:
         indices = [np.arange(n_type1), np.arange(n_type1, n_atoms)]
         bins = np.arange(0, 5, 0.05)
 
-        # Original implementation
-        original_result = RevelsRDF.single_frame_rdf_unlike(
+        # Using RevelsRDF.single_frame_rdf
+        rdf_result = RevelsRDF.single_frame_rdf(
             pos_array, force_array, indices,
             box_x, box_y, box_z, bins
         )
 
-        # Vectorised implementation
+        # Direct helper implementation
         pos_ang_1 = pos_array[indices[0], :]
         pos_ang_2 = pos_array[indices[1], :]
         force_total_1 = force_array[indices[0], :]
@@ -733,12 +733,12 @@ class TestComparisonWithOriginal:
             pos_ang_1, pos_ang_2, force_total_1, force_total_2,
             (box_x, box_y, box_z)
         )
-        vectorised_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
+        helper_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
 
         np.testing.assert_array_almost_equal(
-            vectorised_result, original_result,
+            helper_result, rdf_result,
             decimal=10,
-            err_msg="Vectorised single_frame_rdf_unlike differs from original"
+            err_msg="Helper-based single_frame_rdf differs from direct helper call"
         )
 
 

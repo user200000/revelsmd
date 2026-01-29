@@ -65,17 +65,17 @@ def ts():
 
 
 # -------------------------------
-# single_frame_rdf_like
+# single_frame_rdf (like pairs)
 # -------------------------------
 
 def test_single_frame_rdf_like(ts):
     bins = np.linspace(0, 5, 10)
-    indices = ts.get_indices("H")
+    indices_h = ts.get_indices("H")
     positions, forces = ts.get_frame(0)
-    result = RevelsRDF.single_frame_rdf_like(
+    result = RevelsRDF.single_frame_rdf(
         positions,
         forces,
-        indices,
+        [indices_h, indices_h],
         ts.box_x,
         ts.box_y,
         ts.box_z,
@@ -87,14 +87,14 @@ def test_single_frame_rdf_like(ts):
 
 
 # -------------------------------
-# single_frame_rdf_unlike
+# single_frame_rdf (unlike pairs)
 # -------------------------------
 
 def test_single_frame_rdf_unlike(ts):
     bins = np.linspace(0, 5, 10)
     indices = [ts.get_indices("H"), ts.get_indices("O")]
     positions, forces = ts.get_frame(0)
-    result = RevelsRDF.single_frame_rdf_unlike(
+    result = RevelsRDF.single_frame_rdf(
         positions,
         forces,
         indices,
@@ -328,7 +328,7 @@ class TestMinimumImageConvention:
     """
     Test that pairwise distances are computed correctly under periodic boundaries.
 
-    These tests use single_frame_rdf_like with two atoms at known positions.
+    These tests use single_frame_rdf with two atoms at known positions.
     The RDF estimator computes F[j]·r_ij/|r|³ for each pair (i,j), where
     r_ij = pos[j] - pos[i]. We verify both that contributions land in the
     correct bin AND have the expected magnitude.
@@ -349,13 +349,13 @@ class TestMinimumImageConvention:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box, box, box, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box, box, box, bins
         )
 
-        # Pair (0,1): r_01 = (3,0,0), F[1] = (-1,0,0), dot = -3, contrib = -3/27 = -1/9
-        # Pair (1,0): r_10 = (-3,0,0), F[0] = (1,0,0), dot = -3, contrib = -3/27 = -1/9
-        # Total = -2/9
+        # Upper triangle: only pair (0,1) computed
+        # r_01 = (3,0,0), F_diff = F[1] - F[0] = (-2,0,0)
+        # dot = -6, contrib = -6/27 = -2/9
         expected = -2.0 / (r * r)
         assert np.isclose(result[0], expected), f"Expected {expected}, got {result[0]}"
         assert result[1] == 0, "No contribution expected in second bin"
@@ -375,8 +375,8 @@ class TestMinimumImageConvention:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box, box, box, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box, box, box, bins
         )
 
         # MIC wraps to r=2. Both pairs contribute -1/r² each.
@@ -399,8 +399,8 @@ class TestMinimumImageConvention:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box, box, box, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box, box, box, bins
         )
 
         expected = -2.0 / (mic_r * mic_r)
@@ -424,8 +424,8 @@ class TestMinimumImageConvention:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 30.0, 35.0])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box, box, box, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box, box, box, bins
         )
 
         expected = -2.0 / (mic_r * mic_r)
@@ -458,8 +458,8 @@ class TestMinimumImageConvention:
         indices = np.array([0, 1])
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box, box, box, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box, box, box, bins
         )
 
         expected = -2.0 / (mic_r * mic_r)
@@ -481,8 +481,8 @@ class TestMinimumImageConvention:
 
         bins = np.array([half_box - 0.5, half_box + 0.5, half_box + 1.5])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box, box, box, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box, box, box, bins
         )
 
         # At exactly half-box, distance should be 10.0
@@ -504,8 +504,8 @@ class TestMinimumImageConvention:
         mic_r = 2.0  # Wrapped distance in x
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box_x, box_y, box_z, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box_x, box_y, box_z, bins
         )
 
         expected = -2.0 / (mic_r * mic_r)
@@ -540,8 +540,8 @@ class TestForceProjection:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box, box, box, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box, box, box, bins
         )
 
         expected = -0.25
@@ -560,8 +560,8 @@ class TestForceProjection:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf_like(
-            positions, forces, indices, box, box, box, bins
+        result = RevelsRDF.single_frame_rdf(
+            positions, forces, [indices, indices], box, box, box, bins
         )
 
         assert result[0] == 0, "Perpendicular force should give zero contribution"
@@ -570,7 +570,7 @@ class TestForceProjection:
 
 class TestUnlikePairRDF:
     """
-    Test single_frame_rdf_unlike correctness.
+    Test single_frame_rdf correctness for unlike pairs.
 
     Unlike pairs use force differences: (F[A] - F[B]) · r_AB / |r|³
     where r_AB = pos[A] - pos[B] (species A position minus species B position).
@@ -593,7 +593,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf_unlike(
+        result = RevelsRDF.single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -618,7 +618,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf_unlike(
+        result = RevelsRDF.single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -652,7 +652,7 @@ class TestUnlikePairRDF:
         indices = [np.array([0]), np.array([1])]
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf_unlike(
+        result = RevelsRDF.single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -687,7 +687,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf_unlike(
+        result = RevelsRDF.single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -712,7 +712,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf_unlike(
+        result = RevelsRDF.single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -729,7 +729,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf_unlike(
+        result = RevelsRDF.single_frame_rdf(
             positions, forces, indices, box_x, box_y, box_z, bins
         )
 
