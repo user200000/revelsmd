@@ -79,8 +79,9 @@ class TestBackendSelection:
         np_pairwise, np_accum = get_backend_functions('numpy')
         nb_pairwise, nb_accum = get_backend_functions('numba')
 
-        r_np, dot_np = np_pairwise(pos, pos, forces, forces, box)
-        r_nb, dot_nb = nb_pairwise(pos, pos, forces, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_np, dot_np = np_pairwise(pos, pos.copy(), forces, forces.copy(), box)
+        r_nb, dot_nb = nb_pairwise(pos, pos.copy(), forces, forces.copy(), box)
 
         storage_np = np_accum(dot_np, r_np, bins)
         storage_nb = nb_accum(dot_nb, r_nb, bins)
@@ -225,7 +226,10 @@ class TestPairwiseContributions:
         ])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions(pos, pos, forces, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
 
         # For like-species, should have n*(n-1)/2 = 1 pair
         assert r_flat.shape == (1,)
@@ -250,7 +254,10 @@ class TestPairwiseContributions:
         ])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions(pos, pos, forces, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
 
         # r_ij = pos[1] - pos[0] = (3, 0, 0), |r| = 3
         # F_j - F_i = (2, 0, 0) - (0, 0, 0) = (2, 0, 0)
@@ -274,7 +281,10 @@ class TestPairwiseContributions:
         ])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions(pos, pos, forces, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
 
         # Perpendicular force should give zero contribution
         np.testing.assert_almost_equal(dot_prod_flat[0], 0.0)
@@ -295,7 +305,10 @@ class TestPairwiseContributions:
         ])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions(pos, pos, forces, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
 
         np.testing.assert_almost_equal(r_flat[0], 2.0)
 
@@ -373,11 +386,12 @@ class TestPairwiseContributions:
         forces = np.random.randn(n, 3)
         box = (10.0, 10.0, 10.0)
 
+        # Use copies to ensure value comparison works (not identity)
         r_flat, dot_flat = compute_pairwise_contributions(
-            pos, pos, forces, forces, box
+            pos, pos.copy(), forces, forces.copy(), box
         )
 
-        # For like-species (same array), should have n*(n-1)/2 unique pairs
+        # For like-species (same values), should have n*(n-1)/2 unique pairs
         expected_pairs = n * (n - 1) // 2
         assert r_flat.shape[0] == expected_pairs, (
             f"Expected {expected_pairs} pairs for n={n}, got {r_flat.shape[0]}"
@@ -760,8 +774,9 @@ class TestPairwiseContributionsNumba:
         forces = np.random.randn(n, 3)
         box = (10.0, 10.0, 10.0)
 
+        # Use copies to ensure value comparison works (not identity)
         r_flat, dot_flat = compute_pairwise_contributions_numba(
-            pos, pos, forces, forces, box
+            pos, pos.copy(), forces, forces.copy(), box
         )
 
         expected_pairs = n * (n - 1) // 2
@@ -836,12 +851,16 @@ class TestPairwiseContributionsNumba:
         box = (10.0, 10.0, 10.0)
         bins = np.arange(0, 5, 0.1)
 
-        # NumPy
-        r_np, dot_np = compute_pairwise_contributions(pos, pos, forces, forces, box)
+        # NumPy - use copies to ensure value comparison works (not identity)
+        r_np, dot_np = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
         acc_np = accumulate_binned_contributions(dot_np, r_np, bins)
 
-        # Numba
-        r_nb, dot_nb = compute_pairwise_contributions_numba(pos, pos, forces, forces, box)
+        # Numba - use copies to ensure value comparison works (not identity)
+        r_nb, dot_nb = compute_pairwise_contributions_numba(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
         acc_nb = accumulate_binned_contributions_numba(dot_nb, r_nb, bins)
 
         np.testing.assert_allclose(
