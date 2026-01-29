@@ -94,7 +94,7 @@ class Trajectory(ABC):
         Initialise common trajectory attributes.
 
         Subclasses should call ``super().__init__(units=..., temperature=...)``
-        after setting their own attributes.
+        before setting their own attributes.
 
         Parameters
         ----------
