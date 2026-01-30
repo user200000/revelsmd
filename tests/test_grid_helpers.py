@@ -20,33 +20,33 @@ class TestBackendSelection:
 
     def test_default_backend_is_numba(self):
         """Default backend should be numba."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, box_fn = get_backend_functions()
         # Check that we got the numba versions
         assert 'numba' in tri_fn.__module__
 
     def test_explicit_numpy_backend(self):
         """Can explicitly request numpy backend."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, box_fn = get_backend_functions('numpy')
         assert 'grid_helpers' in tri_fn.__module__
         assert 'numba' not in tri_fn.__module__
 
     def test_explicit_numba_backend(self):
         """Can explicitly request numba backend."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, box_fn = get_backend_functions('numba')
         assert 'numba' in tri_fn.__module__
 
     def test_invalid_backend_raises(self):
         """Invalid backend name should raise ValueError."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         with pytest.raises(ValueError, match="Unknown grid backend"):
             get_backend_functions('invalid')
 
     def test_environment_variable_backend(self, monkeypatch):
         """Environment variable should control backend selection."""
-        from revelsMD import grid_helpers
+        from revelsMD.density import grid_helpers
         monkeypatch.setenv('REVELSMD_BACKEND', 'numpy')
         tri_fn, box_fn = grid_helpers.get_backend_functions()
         assert 'numba' not in tri_fn.__module__
@@ -95,7 +95,7 @@ class TestTriangularAllocation:
 
     def test_weights_sum_to_one(self, grid_arrays, box_params):
         """Trilinear weights for any position should sum to 1.0."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, _ = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -129,7 +129,7 @@ class TestTriangularAllocation:
 
     def test_particle_at_voxel_centre(self, grid_arrays, box_params):
         """Particle at voxel centre should distribute equally to 8 corners."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, _ = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -164,7 +164,7 @@ class TestTriangularAllocation:
 
     def test_force_direction_preserved(self, grid_arrays, box_params):
         """Force vectors should deposit with correct direction."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, _ = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -201,7 +201,7 @@ class TestTriangularAllocation:
 
     def test_multiple_distinct_particles(self, grid_arrays, box_params):
         """Multiple particles at different positions should accumulate correctly."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, _ = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -241,7 +241,7 @@ class TestTriangularAllocation:
         This is the main bug fix test. The old implementation with NumPy fancy
         indexing would only keep the last value when indices contain duplicates.
         """
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, _ = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=4)
@@ -280,7 +280,7 @@ class TestTriangularAllocation:
 
     def test_periodic_boundary(self, grid_arrays, box_params):
         """Particles near box edge should wrap correctly via periodic boundaries."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, _ = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -326,7 +326,7 @@ class TestBoxAllocation:
 
     def test_single_particle(self, grid_arrays, box_params):
         """Single particle should deposit entirely to one voxel."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         _, box_fn = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -352,7 +352,7 @@ class TestBoxAllocation:
 
     def test_multiple_distinct_particles(self, grid_arrays, box_params):
         """Multiple particles at different voxels should accumulate."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         _, box_fn = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -377,7 +377,7 @@ class TestBoxAllocation:
 
         This is the main bug fix test for box allocation.
         """
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         _, box_fn = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -410,7 +410,7 @@ class TestBackendEquivalence:
 
     def test_triangular_backends_identical(self, grid_arrays, box_params):
         """NumPy and Numba triangular allocation should produce identical results."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
 
         np.random.seed(42)
         n_particles = 50
@@ -471,7 +471,7 @@ class TestBackendEquivalence:
 
     def test_box_backends_identical(self, grid_arrays, box_params):
         """NumPy and Numba box allocation should produce identical results."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
 
         np.random.seed(42)
         n_particles = 50
@@ -515,7 +515,7 @@ class TestBackendEquivalence:
 
     def test_overlapping_particles_both_backends(self, grid_arrays, box_params):
         """Both backends should correctly handle overlapping particles."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
 
         nbins = 4
 
@@ -567,7 +567,7 @@ class TestWeightParameter:
 
     def test_scalar_a_parameter(self, grid_arrays, box_params):
         """Scalar 'a' should be applied uniformly."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, _ = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)
@@ -596,7 +596,7 @@ class TestWeightParameter:
 
     def test_array_a_parameter(self, grid_arrays, box_params):
         """Array 'a' should apply per-particle weights."""
-        from revelsMD.grid_helpers import get_backend_functions
+        from revelsMD.density.grid_helpers import get_backend_functions
         tri_fn, _ = get_backend_functions('numpy')
 
         arrays = grid_arrays(nbins=10)

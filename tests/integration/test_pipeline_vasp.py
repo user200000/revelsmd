@@ -11,7 +11,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.revels_3D import Revels3D
+from revelsMD.density import GridState
 from revelsMD.revels_rdf import RevelsRDF
 from .conftest import load_reference_data, assert_arrays_close
 
@@ -65,7 +65,7 @@ class TestVASPPipelineExample3:
         ts = vasp_trajectory
 
         # Use temperature appropriate for AIMD (typically 600-1000K)
-        gs = Revels3D.GridState(ts, 'number', nbins=50)
+        gs = GridState(ts, 'number', nbins=50)
 
         assert gs.density_type == 'number'
         assert gs.nbinsx == 50
@@ -75,7 +75,7 @@ class TestVASPPipelineExample3:
         """Number density calculation for fluoride ions."""
         ts = vasp_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50)
+        gs = GridState(ts, 'number', nbins=50)
 
         # Use all available frames (may be short trajectory)
         try:
@@ -126,7 +126,7 @@ class TestVASPPipelineExample3:
         """Lambda-combined density for fluoride."""
         ts = vasp_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=30)
+        gs = GridState(ts, 'number', nbins=30)
         gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
@@ -168,7 +168,7 @@ class TestVASPPhysicalProperties:
         """Fluoride density should show crystalline structure."""
         ts = vasp_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=30)
+        gs = GridState(ts, 'number', nbins=30)
 
         try:
             gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
@@ -248,7 +248,7 @@ class TestVASPSyntheticFallback:
         """Density calculation works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20)
+        gs = GridState(ts, 'number', nbins=20)
         gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
         gs.get_real_density()
 
