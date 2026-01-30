@@ -46,7 +46,7 @@ class SelectionState:
         self.rigid = rigid
         self.density_type = density_type
         self.polarisation_axis = polarisation_axis
-        self._trajectory = trajectory
+        self._box = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
 
         if isinstance(atom_names, list) and len(atom_names) > 1:
             self.indistinguishable_set = False
@@ -151,7 +151,7 @@ class SelectionState:
         mass_tot = self.masses[0].copy()
         mass_cumulant = ref_positions * self.masses[0][:, np.newaxis]
 
-        box = np.array([self._trajectory.box_x, self._trajectory.box_y, self._trajectory.box_z])
+        box = self._box
 
         for species_idx in range(1, len(self.indices)):
             species_positions = positions[self.indices[species_idx]]
@@ -250,7 +250,7 @@ class SelectionState:
             Dipole projection for each molecule.
         """
         coms = self._compute_com(positions)
-        box = np.array([self._trajectory.box_x, self._trajectory.box_y, self._trajectory.box_z])
+        box = self._box
 
         dipole = np.zeros((coms.shape[0], 3))
         for species_idx in range(len(self.indices)):
