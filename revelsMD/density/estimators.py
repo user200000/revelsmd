@@ -28,7 +28,7 @@ class Estimators:
     @staticmethod
     def single_frame_rigid_number_com_grid(positions, forces, trajectory, grid_state, selection_state, kernel="triangular"):
         """Rigid molecule: number density at COM position; forces summed over rigid members."""
-        coms = HelperFunctions.find_coms(positions, trajectory, grid_state, selection_state)
+        coms = HelperFunctions.find_coms(positions, trajectory, selection_state)
         rigid_forces = HelperFunctions.sum_forces(selection_state, forces)
         HelperFunctions.process_frame(trajectory, grid_state, coms, rigid_forces, kernel=kernel)
 
@@ -77,24 +77,24 @@ class Estimators:
     @staticmethod
     def single_frame_rigid_charge_com_grid(positions, forces, trajectory, grid_state, selection_state, kernel="triangular"):
         """Rigid molecule: charge-weighted density at COM."""
-        coms = HelperFunctions.find_coms(positions, trajectory, grid_state, selection_state)
+        coms = HelperFunctions.find_coms(positions, trajectory, selection_state)
         rigid_forces = HelperFunctions.sum_forces(selection_state, forces)
         HelperFunctions.process_frame(trajectory, grid_state, coms, rigid_forces, kernel=kernel, a=selection_state.charges)
 
     @staticmethod
     def single_frame_rigid_polarisation_com_grid(positions, forces, trajectory, grid_state, selection_state, kernel="triangular"):
         """Rigid molecule: polarisation density projected along `selection_state.polarisation_axis` at COM."""
-        coms, molecular_dipole = HelperFunctions.find_coms(positions, trajectory, grid_state, selection_state, calc_dipoles=True)
+        coms, molecular_dipole = HelperFunctions.find_coms(positions, trajectory, selection_state, calc_dipoles=True)
         rigid_forces = HelperFunctions.sum_forces(selection_state, forces)
         HelperFunctions.process_frame(
-            trajectory, grid_state, coms, rigid_forces, a=molecular_dipole[:, grid_state.selection_state.polarisation_axis], kernel=kernel
+            trajectory, grid_state, coms, rigid_forces, a=molecular_dipole[:, selection_state.polarisation_axis], kernel=kernel
         )
 
     @staticmethod
     def single_frame_rigid_polarisation_atom_grid(positions, forces, trajectory, grid_state, selection_state, kernel="triangular"):
         """Rigid molecule: polarisation density projected along `selection_state.polarisation_axis` at COM (per original code)."""
-        coms, molecular_dipole = HelperFunctions.find_coms(positions, trajectory, grid_state, selection_state, calc_dipoles=True)
+        coms, molecular_dipole = HelperFunctions.find_coms(positions, trajectory, selection_state, calc_dipoles=True)
         rigid_forces = HelperFunctions.sum_forces(selection_state, forces)
         HelperFunctions.process_frame(
-            trajectory, grid_state, coms, rigid_forces, a=molecular_dipole[:, grid_state.selection_state.polarisation_axis], kernel=kernel
+            trajectory, grid_state, coms, rigid_forces, a=molecular_dipole[:, selection_state.polarisation_axis], kernel=kernel
         )

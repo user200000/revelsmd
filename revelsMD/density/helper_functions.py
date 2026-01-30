@@ -174,7 +174,6 @@ class HelperFunctions:
     def find_coms(
         positions: np.ndarray,
         trajectory: Trajectory,
-        grid_state: GridState,
         selection_state: SelectionState,
         calc_dipoles: bool = False
     ):
@@ -187,8 +186,6 @@ class HelperFunctions:
             Cartesian coordinates.
         trajectory : Trajectory
             Trajectory state containing box lengths.
-        grid_state : GridState
-            Unused numerically here; preserved for signature compatibility.
         selection_state : SelectionState
             Provides `indices`, `masses`, and `charges` (if available).
         calc_dipoles : bool, optional
