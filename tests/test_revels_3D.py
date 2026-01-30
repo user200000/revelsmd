@@ -240,7 +240,7 @@ def test_find_coms_dipole_known_value():
 
     ss = SelectionState(ts, ["A", "B", "C"], centre_location=True, rigid=True)
 
-    coms, dipoles = HelperFunctions.find_coms(positions, ts, None, ss, calc_dipoles=True)
+    coms, dipoles = HelperFunctions.find_coms(positions, ts, ss, calc_dipoles=True)
 
     assert coms.shape == (1, 3)
     assert dipoles.shape == (1, 3)
@@ -546,7 +546,7 @@ def test_find_coms_equal_masses():
     # 3 atoms in a line: x=0, x=3, x=6
     positions = np.array([[0, 5, 5], [3, 5, 5], [6, 5, 5]], dtype=float)
 
-    coms = HelperFunctions.find_coms(positions, TSMock(), None, SSMock())
+    coms = HelperFunctions.find_coms(positions, TSMock(), SSMock())
 
     assert coms.shape == (1, 3)
     # COM = (0 + 3 + 6) / 3 = 3.0
@@ -567,7 +567,7 @@ def test_find_coms_unequal_masses():
     # 2 atoms: light at x=0, heavy at x=4
     positions = np.array([[0, 5, 5], [4, 5, 5]], dtype=float)
 
-    coms = HelperFunctions.find_coms(positions, TSMock(), None, SSMock())
+    coms = HelperFunctions.find_coms(positions, TSMock(), SSMock())
 
     # COM = (1*0 + 3*4) / (1+3) = 12/4 = 3.0
     assert np.isclose(coms[0, 0], 3.0)
