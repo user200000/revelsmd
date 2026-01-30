@@ -14,7 +14,10 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.utils import generate_boltzmann
 from revelsMD.density.selection_state import SelectionState
-from revelsMD.density.helper_functions import HelperFunctions
+from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
+
+# Module-level backend functions (loaded once at import)
+_triangular_allocation, _box_allocation = _get_grid_backend_functions()
 
 
 class GridState:
@@ -108,6 +111,61 @@ class GridState:
         # Progress flag
         self.grid_progress = "Generated"
 
+    def _process_frame(
+        self,
+        positions: np.ndarray,
+        forces: np.ndarray,
+        weight: float | np.ndarray = 1.0,
+        kernel: str = "triangular",
+    ) -> None:
+        """
+        Deposit a single set of positions/forces to the grid.
+
+        Parameters
+        ----------
+        positions : (N, 3) np.ndarray
+            Positions in Cartesian coordinates.
+        forces : (N, 3) np.ndarray
+            Forces corresponding to `positions`.
+        weight : float or np.ndarray, optional
+            Scalar or per-particle weight (number/charge/polarisation projection).
+        kernel : {'triangular', 'box'}
+            Assignment kernel.
+        """
+        self.count += 1
+
+        # Bring positions to the primary image (periodic remainder)
+        homeX = np.remainder(positions[:, 0], self.box_x)
+        homeY = np.remainder(positions[:, 1], self.box_y)
+        homeZ = np.remainder(positions[:, 2], self.box_z)
+
+        # Component forces
+        fox = forces[:, 0]
+        foy = forces[:, 1]
+        foz = forces[:, 2]
+
+        # Map to voxel indices (np.digitize returns 1..len(bins)-1)
+        x = np.digitize(homeX, self.binsx)
+        y = np.digitize(homeY, self.binsy)
+        z = np.digitize(homeZ, self.binsz)
+
+        if kernel.lower() == "triangular":
+            _triangular_allocation(
+                self.forceX, self.forceY, self.forceZ, self.counter,
+                x, y, z, homeX, homeY, homeZ,
+                fox, foy, foz, weight,
+                self.lx, self.ly, self.lz,
+                self.nbinsx, self.nbinsy, self.nbinsz,
+            )
+        elif kernel.lower() == "box":
+            _box_allocation(
+                self.forceX, self.forceY, self.forceZ, self.counter,
+                x - 1, y - 1, z - 1,
+                fox, foy, foz, weight,
+            )
+        else:
+            raise ValueError(f"Unsupported kernel: {kernel!r}")
+
     def deposit_to_grid(
         self,
         positions: np.ndarray | list[np.ndarray],
@@ -135,9 +193,9 @@ class GridState:
             if not isinstance(weights, list):
                 weights = [weights] * len(positions)
             for pos, frc, wgt in zip(positions, forces, weights):
-                HelperFunctions.process_frame(None, self, pos, frc, a=wgt, kernel=kernel)
+                self._process_frame(pos, frc, weight=wgt, kernel=kernel)
         else:
-            HelperFunctions.process_frame(None, self, positions, forces, a=weights, kernel=kernel)
+            self._process_frame(positions, forces, weight=weights, kernel=kernel)
 
     def make_force_grid(
         self,

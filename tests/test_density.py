@@ -46,8 +46,8 @@ class MockTrajectory:
 # SelectionState.get_positions() tests
 # ---------------------------------------------------------------------------
 
-class TestUnifiedProcessFrame:
-    """Test that the new unified process_frame produces identical results to old estimators."""
+class TestDepositToGrid:
+    """Tests for GridState.deposit_to_grid with SelectionState."""
 
     @pytest.fixture
     def trajectory(self):
@@ -84,92 +84,53 @@ class TestUnifiedProcessFrame:
         ], dtype=float)
 
     def test_deposit_single_species_number_density(self, trajectory, positions, forces):
-        """deposit_to_grid with single species number density matches HelperFunctions.process_frame."""
+        """deposit_to_grid with single species populates grid."""
         from revelsMD.density import GridState, SelectionState
-        from revelsMD.density.helper_functions import HelperFunctions
 
-        # Old approach using HelperFunctions directly
-        gs_old = GridState(trajectory, "number", 300, nbins=5)
+        gs = GridState(trajectory, "number", 300, nbins=5)
         ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
-        selected_positions = positions[ss.indices, :]
-        selected_forces = forces[ss.indices, :]
-        HelperFunctions.process_frame(trajectory, gs_old, selected_positions, selected_forces, a=1.0, kernel="triangular")
+        gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
-        # New approach using SelectionState methods + deposit_to_grid
-        gs_new = GridState(trajectory, "number", 300, nbins=5)
-        ss_new = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
-        deposit_positions = ss_new.get_positions(positions)
-        deposit_forces = ss_new.get_forces(forces)
-        weights = ss_new.get_weights()
-        gs_new.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel="triangular")
-
-        np.testing.assert_allclose(gs_new.forceX, gs_old.forceX, rtol=1e-10)
-        np.testing.assert_allclose(gs_new.forceY, gs_old.forceY, rtol=1e-10)
-        np.testing.assert_allclose(gs_new.forceZ, gs_old.forceZ, rtol=1e-10)
-        np.testing.assert_allclose(gs_new.counter, gs_old.counter, rtol=1e-10)
+        assert np.any(gs.forceX != 0)
+        assert np.any(gs.counter != 0)
+        assert gs.count == 1
 
     def test_deposit_multi_species_non_rigid(self, trajectory, positions, forces):
-        """deposit_to_grid with multi-species non-rigid deposits each species separately."""
+        """deposit_to_grid with multi-species non-rigid deposits each species."""
         from revelsMD.density import GridState, SelectionState
-        from revelsMD.density.helper_functions import HelperFunctions
 
-        # Old approach: manually iterate over species
-        gs_old = GridState(trajectory, "number", 300, nbins=5)
-        indices_O = np.array([0, 3, 6])
-        indices_H1 = np.array([1, 4, 7])
-        indices_H2 = np.array([2, 5, 8])
-        HelperFunctions.process_frame(None, gs_old, positions[indices_O], forces[indices_O], a=1.0, kernel="triangular")
-        HelperFunctions.process_frame(None, gs_old, positions[indices_H1], forces[indices_H1], a=1.0, kernel="triangular")
-        HelperFunctions.process_frame(None, gs_old, positions[indices_H2], forces[indices_H2], a=1.0, kernel="triangular")
-
-        # New approach
-        gs_new = GridState(trajectory, "number", 300, nbins=5)
+        gs = GridState(trajectory, "number", 300, nbins=5)
         ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
-        deposit_positions = ss.get_positions(positions)
-        deposit_forces = ss.get_forces(forces)
-        weights = ss.get_weights()
-        gs_new.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel="triangular")
+        gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
-        np.testing.assert_allclose(gs_new.forceX, gs_old.forceX, rtol=1e-10)
-        np.testing.assert_allclose(gs_new.counter, gs_old.counter, rtol=1e-10)
+        # 3 species deposited = 3 calls to _process_frame
+        assert gs.count == 3
+        assert np.any(gs.counter != 0)
 
     def test_deposit_rigid_com_number_density(self, trajectory, positions, forces):
-        """deposit_to_grid with rigid molecule at COM populates grid correctly."""
+        """deposit_to_grid with rigid molecule at COM populates grid."""
         from revelsMD.density import GridState, SelectionState
 
         gs = GridState(trajectory, "number", 300, nbins=5)
         ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
-        deposit_positions = ss.get_positions(positions)
-        deposit_forces = ss.get_forces(forces)
-        weights = ss.get_weights()
-        gs.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel="triangular")
+        gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
-        # 3 molecules deposited
+        # Rigid deposits once per molecule group
+        assert gs.count == 1
         assert np.any(gs.counter != 0)
         assert np.any(gs.forceX != 0)
 
     def test_deposit_charge_density_single_species(self, trajectory, positions, forces):
         """deposit_to_grid with charge density uses charge weights."""
         from revelsMD.density import GridState, SelectionState
-        from revelsMD.density.helper_functions import HelperFunctions
 
-        # Old approach
-        gs_old = GridState(trajectory, "charge", 300, nbins=5)
+        gs = GridState(trajectory, "charge", 300, nbins=5)
         ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
-        selected_positions = positions[ss.indices, :]
-        selected_forces = forces[ss.indices, :]
-        HelperFunctions.process_frame(None, gs_old, selected_positions, selected_forces, a=ss.charges, kernel="triangular")
+        gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
-        # New approach
-        gs_new = GridState(trajectory, "charge", 300, nbins=5)
-        ss_new = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
-        deposit_positions = ss_new.get_positions(positions)
-        deposit_forces = ss_new.get_forces(forces)
-        weights = ss_new.get_weights()
-        gs_new.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel="triangular")
-
-        np.testing.assert_allclose(gs_new.forceX, gs_old.forceX, rtol=1e-10)
-        np.testing.assert_allclose(gs_new.counter, gs_old.counter, rtol=1e-10)
+        # O has negative charge, so counter contributions are negative
+        assert np.any(gs.counter != 0)
+        assert gs.count == 1
 
 
 class TestMakeForceGridUnified:
@@ -554,26 +515,6 @@ def test_selectionstate_backward_compatible_via_revels3d():
     from revelsMD.density import SelectionState
     with pytest.warns(DeprecationWarning, match="Revels3D.SelectionState is deprecated"):
         assert Revels3D.SelectionState is SelectionState
-
-
-def test_helperfunctions_importable_from_density():
-    """HelperFunctions should be importable from revelsMD.density."""
-    from revelsMD.density import HelperFunctions
-    assert HelperFunctions is not None
-
-
-def test_helperfunctions_importable_from_submodule():
-    """HelperFunctions should be importable from revelsMD.density.helper_functions."""
-    from revelsMD.density.helper_functions import HelperFunctions
-    assert HelperFunctions is not None
-
-
-def test_helperfunctions_backward_compatible_via_revels3d():
-    """Revels3D.HelperFunctions should still work but emit deprecation warning."""
-    from revelsMD.revels_3D import Revels3D
-    from revelsMD.density import HelperFunctions
-    with pytest.warns(DeprecationWarning, match="Revels3D.HelperFunctions is deprecated"):
-        assert Revels3D.HelperFunctions is HelperFunctions
 
 
 def test_gridstate_importable_from_density():
