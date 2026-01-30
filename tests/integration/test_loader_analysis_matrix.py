@@ -16,7 +16,7 @@ import pytest
 import numpy as np
 
 from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.revels_3D import Revels3D
+from revelsMD.density import GridState
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ class TestNumpyAnalysisMatrix:
     def test_number_density_and_shape(self, uniform_gas_trajectory):
         """NumPy: 3D number density works and has correct shape."""
         nbins = 25
-        gs = Revels3D.GridState(
+        gs = GridState(
             uniform_gas_trajectory, 'number', nbins=nbins, temperature=1.0
         )
         gs.make_force_grid(

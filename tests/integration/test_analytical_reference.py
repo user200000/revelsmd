@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.revels_3D import Revels3D
+from revelsMD.density import GridState
 
 
 @pytest.mark.analytical
@@ -164,7 +164,7 @@ class TestDensityAnalyticalReference:
         """
         ts = single_atom_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=1.0)
+        gs = GridState(ts, 'number', nbins=20, temperature=1.0)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
 
         assert gs.grid_progress == "Allocated"
@@ -195,7 +195,7 @@ class TestDensityAnalyticalReference:
         """
         ts = uniform_gas_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=1.0)
+        gs = GridState(ts, 'number', nbins=20, temperature=1.0)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
@@ -221,7 +221,7 @@ class TestDensityAnalyticalReference:
         """
         ts = uniform_gas_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=1.0)
+        gs = GridState(ts, 'number', nbins=20, temperature=1.0)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
@@ -246,7 +246,7 @@ class TestDensityAnalyticalReference:
         ts = uniform_gas_trajectory
 
         # Test number density
-        gs_number = Revels3D.GridState(ts, 'number', nbins=20, temperature=1.0)
+        gs_number = GridState(ts, 'number', nbins=20, temperature=1.0)
         assert gs_number.density_type == 'number'
         assert gs_number.nbinsx == 20
 
@@ -320,7 +320,7 @@ class TestRigidMoleculeAnalytical:
         """
         ts = water_molecule_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=15, temperature=300)
+        gs = GridState(ts, 'number', nbins=15, temperature=300)
 
         # This may fail if rigid molecule validation is too strict
         # (known issue #10 with unequal atom counts)

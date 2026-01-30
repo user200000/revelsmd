@@ -12,7 +12,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.revels_3D import Revels3D
+from revelsMD.density import GridState
 from revelsMD.revels_rdf import RevelsRDF
 from .conftest import load_reference_data, assert_arrays_close
 
@@ -65,7 +65,7 @@ class TestRigidWaterPipelineExample4:
         """Number density for rigid water at COM (small frame subset)."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=300)
+        gs = GridState(ts, 'number', nbins=50, temperature=300)
 
         # Use very small subset for fast test
         gs.make_force_grid(
@@ -87,7 +87,7 @@ class TestRigidWaterPipelineExample4:
         """Polarisation density calculation (x-component)."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'polarisation', nbins=50, temperature=300)
+        gs = GridState(ts, 'polarisation', nbins=50, temperature=300)
 
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
@@ -108,7 +108,7 @@ class TestRigidWaterPipelineExample4:
         """Number density with larger frame subset for better statistics."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=300)
+        gs = GridState(ts, 'number', nbins=50, temperature=300)
 
         # Use 10 frames - enough for reasonable statistics, fast enough for tests
         gs.make_force_grid(
@@ -126,7 +126,7 @@ class TestRigidWaterPipelineExample4:
         """Cube file output produces valid file."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=300)
+        gs = GridState(ts, 'number', nbins=20, temperature=300)
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
             rigid=True, start=0, stop=3, period=1
@@ -237,7 +237,7 @@ class TestRigidWaterPhysicalProperties:
         """Number density should show solvation shell structure."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=300)
+        gs = GridState(ts, 'number', nbins=50, temperature=300)
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,

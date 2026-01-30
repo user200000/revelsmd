@@ -15,7 +15,7 @@ import pytest
 import numpy as np
 
 from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.revels_3D import Revels3D
+from revelsMD.density import GridState
 from .conftest import lammps_to_numpy, mda_to_numpy, assert_arrays_close
 
 
@@ -73,14 +73,14 @@ class TestLammpsVsNumpyConsistency:
 
         # Compute density via both using same explicit frame range
         n_frames_to_use = 4
-        gs_lammps = Revels3D.GridState(lammps_ts, 'number', nbins=30, temperature=1.35)
+        gs_lammps = GridState(lammps_ts, 'number', nbins=30, temperature=1.35)
         gs_lammps.make_force_grid(
             lammps_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
         )
         gs_lammps.get_real_density()
 
-        gs_numpy = Revels3D.GridState(numpy_ts, 'number', nbins=30, temperature=1.35)
+        gs_numpy = GridState(numpy_ts, 'number', nbins=30, temperature=1.35)
         gs_numpy.make_force_grid(
             numpy_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
@@ -168,7 +168,7 @@ class TestGridResolutionConsistency:
 
         densities = []
         for nbins in [20, 40, 60]:
-            gs = Revels3D.GridState(ts, 'number', nbins=nbins, temperature=1.0)
+            gs = GridState(ts, 'number', nbins=nbins, temperature=1.0)
             gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
             gs.get_real_density()
 
@@ -195,12 +195,12 @@ class TestKernelConsistency:
         ts = uniform_gas_trajectory
 
         # Triangular kernel
-        gs_tri = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.0)
+        gs_tri = GridState(ts, 'number', nbins=30, temperature=1.0)
         gs_tri.make_force_grid(ts, '1', kernel='triangular', rigid=False)
         gs_tri.get_real_density()
 
         # Box kernel
-        gs_box = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.0)
+        gs_box = GridState(ts, 'number', nbins=30, temperature=1.0)
         gs_box.make_force_grid(ts, '1', kernel='box', rigid=False)
         gs_box.get_real_density()
 
