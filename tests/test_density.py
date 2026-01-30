@@ -14,6 +14,7 @@ class MockTrajectory:
 
     def __init__(self):
         self.box_x = self.box_y = self.box_z = 10.0
+        self.units = 'real'
 
     def get_indices(self, atom_name):
         # 3 molecules, each with atoms O, H1, H2
@@ -45,6 +46,194 @@ class MockTrajectory:
 # SelectionState.get_positions() tests
 # ---------------------------------------------------------------------------
 
+class TestUnifiedProcessFrame:
+    """Test that the new unified process_frame produces identical results to old estimators."""
+
+    @pytest.fixture
+    def trajectory(self):
+        return MockTrajectory()
+
+    @pytest.fixture
+    def positions(self):
+        """9 atoms: 3 water molecules."""
+        return np.array([
+            [1.0, 5.0, 5.0],   # O (index 0)
+            [1.5, 5.0, 5.0],   # H1 (index 1)
+            [0.5, 5.0, 5.0],   # H2 (index 2)
+            [4.0, 5.0, 5.0],   # O (index 3)
+            [4.5, 5.0, 5.0],   # H1 (index 4)
+            [3.5, 5.0, 5.0],   # H2 (index 5)
+            [7.0, 5.0, 5.0],   # O (index 6)
+            [7.5, 5.0, 5.0],   # H1 (index 7)
+            [6.5, 5.0, 5.0],   # H2 (index 8)
+        ], dtype=float)
+
+    @pytest.fixture
+    def forces(self):
+        """Forces for 9 atoms."""
+        return np.array([
+            [1.0, 0.1, 0.0],   # O
+            [0.5, 0.05, 0.0],  # H1
+            [0.5, 0.05, 0.0],  # H2
+            [2.0, 0.2, 0.0],   # O
+            [1.0, 0.1, 0.0],   # H1
+            [1.0, 0.1, 0.0],   # H2
+            [3.0, 0.3, 0.0],   # O
+            [1.5, 0.15, 0.0],  # H1
+            [1.5, 0.15, 0.0],  # H2
+        ], dtype=float)
+
+    def test_deposit_single_species_number_density(self, trajectory, positions, forces):
+        """deposit_to_grid with single species number density matches HelperFunctions.process_frame."""
+        from revelsMD.density import GridState, SelectionState
+        from revelsMD.density.helper_functions import HelperFunctions
+
+        # Old approach using HelperFunctions directly
+        gs_old = GridState(trajectory, "number", 300, nbins=5)
+        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
+        selected_positions = positions[ss.indices, :]
+        selected_forces = forces[ss.indices, :]
+        HelperFunctions.process_frame(trajectory, gs_old, selected_positions, selected_forces, a=1.0, kernel="triangular")
+
+        # New approach using SelectionState methods + deposit_to_grid
+        gs_new = GridState(trajectory, "number", 300, nbins=5)
+        ss_new = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
+        deposit_positions = ss_new.get_positions(positions)
+        deposit_forces = ss_new.get_forces(forces)
+        weights = ss_new.get_weights()
+        gs_new.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel="triangular")
+
+        np.testing.assert_allclose(gs_new.forceX, gs_old.forceX, rtol=1e-10)
+        np.testing.assert_allclose(gs_new.forceY, gs_old.forceY, rtol=1e-10)
+        np.testing.assert_allclose(gs_new.forceZ, gs_old.forceZ, rtol=1e-10)
+        np.testing.assert_allclose(gs_new.counter, gs_old.counter, rtol=1e-10)
+
+    def test_deposit_multi_species_non_rigid(self, trajectory, positions, forces):
+        """deposit_to_grid with multi-species non-rigid deposits each species separately."""
+        from revelsMD.density import GridState, SelectionState
+        from revelsMD.density.helper_functions import HelperFunctions
+
+        # Old approach: manually iterate over species
+        gs_old = GridState(trajectory, "number", 300, nbins=5)
+        indices_O = np.array([0, 3, 6])
+        indices_H1 = np.array([1, 4, 7])
+        indices_H2 = np.array([2, 5, 8])
+        HelperFunctions.process_frame(None, gs_old, positions[indices_O], forces[indices_O], a=1.0, kernel="triangular")
+        HelperFunctions.process_frame(None, gs_old, positions[indices_H1], forces[indices_H1], a=1.0, kernel="triangular")
+        HelperFunctions.process_frame(None, gs_old, positions[indices_H2], forces[indices_H2], a=1.0, kernel="triangular")
+
+        # New approach
+        gs_new = GridState(trajectory, "number", 300, nbins=5)
+        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
+        deposit_positions = ss.get_positions(positions)
+        deposit_forces = ss.get_forces(forces)
+        weights = ss.get_weights()
+        gs_new.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel="triangular")
+
+        np.testing.assert_allclose(gs_new.forceX, gs_old.forceX, rtol=1e-10)
+        np.testing.assert_allclose(gs_new.counter, gs_old.counter, rtol=1e-10)
+
+    def test_deposit_rigid_com_number_density(self, trajectory, positions, forces):
+        """deposit_to_grid with rigid molecule at COM."""
+        from revelsMD.density import GridState, SelectionState
+        from revelsMD.density.helper_functions import HelperFunctions
+
+        # Old approach: compute COM and sum forces manually
+        gs_old = GridState(trajectory, "number", 300, nbins=5)
+        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
+        coms = HelperFunctions.find_coms(positions, trajectory, ss)
+        summed_forces = HelperFunctions.sum_forces(ss, forces)
+        HelperFunctions.process_frame(None, gs_old, coms, summed_forces, a=1.0, kernel="triangular")
+
+        # New approach
+        gs_new = GridState(trajectory, "number", 300, nbins=5)
+        ss_new = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
+        deposit_positions = ss_new.get_positions(positions)
+        deposit_forces = ss_new.get_forces(forces)
+        weights = ss_new.get_weights()
+        gs_new.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel="triangular")
+
+        np.testing.assert_allclose(gs_new.forceX, gs_old.forceX, rtol=1e-10)
+        np.testing.assert_allclose(gs_new.counter, gs_old.counter, rtol=1e-10)
+
+    def test_deposit_charge_density_single_species(self, trajectory, positions, forces):
+        """deposit_to_grid with charge density uses charge weights."""
+        from revelsMD.density import GridState, SelectionState
+        from revelsMD.density.helper_functions import HelperFunctions
+
+        # Old approach
+        gs_old = GridState(trajectory, "charge", 300, nbins=5)
+        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
+        selected_positions = positions[ss.indices, :]
+        selected_forces = forces[ss.indices, :]
+        HelperFunctions.process_frame(None, gs_old, selected_positions, selected_forces, a=ss.charges, kernel="triangular")
+
+        # New approach
+        gs_new = GridState(trajectory, "charge", 300, nbins=5)
+        ss_new = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
+        deposit_positions = ss_new.get_positions(positions)
+        deposit_forces = ss_new.get_forces(forces)
+        weights = ss_new.get_weights()
+        gs_new.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel="triangular")
+
+        np.testing.assert_allclose(gs_new.forceX, gs_old.forceX, rtol=1e-10)
+        np.testing.assert_allclose(gs_new.counter, gs_old.counter, rtol=1e-10)
+
+
+class TestMakeForceGridUnified:
+    """Test that make_force_grid using unified approach gives same results."""
+
+    @pytest.fixture
+    def trajectory(self):
+        """Create mock trajectory that supports iteration."""
+        class IterableMockTrajectory(MockTrajectory):
+            def __init__(self):
+                super().__init__()
+                self.frames = 2
+                self._positions = [
+                    np.array([
+                        [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
+                        [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
+                        [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
+                        [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
+                        [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
+                    ], dtype=float),
+                ]
+                self._forces = [
+                    np.array([
+                        [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
+                        [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
+                        [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
+                        [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
+                        [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
+                    ], dtype=float),
+                ]
+
+            def iter_frames(self, start, stop, period):
+                for i in range(start, stop or self.frames, period):
+                    yield self._positions[i], self._forces[i]
+
+        return IterableMockTrajectory()
+
+    def test_make_force_grid_single_species_number(self, trajectory):
+        """make_force_grid with single species number density produces correct grid."""
+        from revelsMD.density import GridState
+
+        gs = GridState(trajectory, "number", 300, nbins=5)
+        gs.make_force_grid(trajectory, atom_names="O", rigid=False, start=0, stop=2)
+
+        # Verify grid was populated
+        assert gs.count == 2
+        assert gs.counter.sum() > 0
+        assert gs.grid_progress == "Allocated"
+
+
 class TestSelectionStateGetWeights:
     """Tests for SelectionState.get_weights() method."""
 
@@ -74,8 +263,7 @@ class TestSelectionStateGetWeights:
         """Number density should return weight of 1.0."""
         from revelsMD.density import SelectionState
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False)
-        ss.density_type = 'number'
+        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         result = ss.get_weights()
 
         assert result == 1.0
@@ -84,8 +272,7 @@ class TestSelectionStateGetWeights:
         """Charge density for single species should return charge array."""
         from revelsMD.density import SelectionState
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False)
-        ss.density_type = 'charge'
+        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
         result = ss.get_weights()
 
         expected = np.array([-0.8, -0.8, -0.8])  # O charges
@@ -95,8 +282,7 @@ class TestSelectionStateGetWeights:
         """Charge density for multi-species non-rigid should return list of charge arrays."""
         from revelsMD.density import SelectionState
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False)
-        ss.density_type = 'charge'
+        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='charge')
         result = ss.get_weights()
 
         assert isinstance(result, list)
@@ -109,8 +295,7 @@ class TestSelectionStateGetWeights:
         """Charge density for rigid should return total charge per molecule."""
         from revelsMD.density import SelectionState
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
-        ss.density_type = 'charge'
+        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='charge')
         result = ss.get_weights()
 
         # Total charge per molecule: -0.8 + 0.4 + 0.4 = 0.0
@@ -121,10 +306,10 @@ class TestSelectionStateGetWeights:
         """Polarisation density should return dipole projected along axis."""
         from revelsMD.density import SelectionState
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
-        ss.density_type = 'polarisation'
-        ss.polarisation_axis = 0  # x-axis
-
+        ss = SelectionState(
+            trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True,
+            density_type='polarisation', polarisation_axis=0
+        )
         result = ss.get_weights(positions)
 
         # COM for each molecule is at x = (16*x_O + 1*x_H1 + 1*x_H2) / 18
@@ -318,26 +503,6 @@ def test_helperfunctions_backward_compatible_via_revels3d():
     from revelsMD.density import HelperFunctions
     with pytest.warns(DeprecationWarning, match="Revels3D.HelperFunctions is deprecated"):
         assert Revels3D.HelperFunctions is HelperFunctions
-
-
-def test_estimators_importable_from_density():
-    """Estimators should be importable from revelsMD.density."""
-    from revelsMD.density import Estimators
-    assert Estimators is not None
-
-
-def test_estimators_importable_from_submodule():
-    """Estimators should be importable from revelsMD.density.estimators."""
-    from revelsMD.density.estimators import Estimators
-    assert Estimators is not None
-
-
-def test_estimators_backward_compatible_via_revels3d():
-    """Revels3D.Estimators should still work but emit deprecation warning."""
-    from revelsMD.revels_3D import Revels3D
-    from revelsMD.density import Estimators
-    with pytest.warns(DeprecationWarning, match="Revels3D.Estimators is deprecated"):
-        assert Revels3D.Estimators is Estimators
 
 
 def test_gridstate_importable_from_density():

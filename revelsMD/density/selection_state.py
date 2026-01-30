@@ -34,9 +34,19 @@ class SelectionState:
         Axis for polarisation projection (set by GridState when needed).
     """
 
-    def __init__(self, trajectory: Trajectory, atom_names: str | list[str], centre_location: bool | int, rigid: bool = False):
+    def __init__(
+        self,
+        trajectory: Trajectory,
+        atom_names: str | list[str],
+        centre_location: bool | int,
+        rigid: bool = False,
+        density_type: str = 'number',
+        polarisation_axis: int = 0,
+    ):
         self.rigid = rigid
-        self._trajectory = trajectory  # Keep reference for box dimensions in COM calculation
+        self.density_type = density_type
+        self.polarisation_axis = polarisation_axis
+        self._trajectory = trajectory
 
         if isinstance(atom_names, list) and len(atom_names) > 1:
             self.indistinguishable_set = False
@@ -189,9 +199,7 @@ class SelectionState:
             - Charge density: charges (array or list of arrays)
             - Polarisation density: dipole projection along polarisation_axis
         """
-        density_type = getattr(self, 'density_type', 'number')
-
-        match density_type:
+        match self.density_type:
             case 'number':
                 return 1.0
 
@@ -209,7 +217,7 @@ class SelectionState:
                 return self._compute_dipole_projection(positions)
 
             case _:
-                raise ValueError(f"Unknown density_type: {density_type!r}")
+                raise ValueError(f"Unknown density_type: {self.density_type!r}")
 
     def _compute_dipole_projection(self, positions: np.ndarray) -> np.ndarray:
         """

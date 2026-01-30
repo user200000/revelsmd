@@ -14,7 +14,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.utils import generate_boltzmann
 from revelsMD.density.selection_state import SelectionState
-from revelsMD.density.estimators import Estimators
+from revelsMD.density.helper_functions import HelperFunctions
 
 
 class GridState:
@@ -108,6 +108,37 @@ class GridState:
         # Progress flag
         self.grid_progress = "Generated"
 
+    def deposit_to_grid(
+        self,
+        positions: np.ndarray | list[np.ndarray],
+        forces: np.ndarray | list[np.ndarray],
+        weights: float | np.ndarray | list[np.ndarray],
+        kernel: str = "triangular",
+    ) -> None:
+        """
+        Deposit positions/forces to the grid using weights.
+
+        Parameters
+        ----------
+        positions : np.ndarray or list of np.ndarray
+            Deposit positions. Single array for single species or rigid COM.
+            List of arrays for multi-species non-rigid.
+        forces : np.ndarray or list of np.ndarray
+            Deposit forces. Same structure as positions.
+        weights : float, np.ndarray, or list of np.ndarray
+            Weight factor. 1.0 for number density, charges for charge density,
+            dipole projection for polarisation.
+        kernel : {'triangular', 'box'}
+            Deposition kernel (default: 'triangular').
+        """
+        if isinstance(positions, list):
+            if not isinstance(weights, list):
+                weights = [weights] * len(positions)
+            for pos, frc, wgt in zip(positions, forces, weights):
+                HelperFunctions.process_frame(None, self, pos, frc, a=wgt, kernel=kernel)
+        else:
+            HelperFunctions.process_frame(None, self, positions, forces, a=weights, kernel=kernel)
+
     def make_force_grid(
         self,
         trajectory: Trajectory,
@@ -189,61 +220,33 @@ class GridState:
         self.kernel = kernel
         self.to_run = to_run
 
-        # Build selection wrapper
-        self.selection_state = SelectionState(trajectory, atom_names=atom_names, centre_location=centre_location, rigid=rigid)
+        # Validate centre_location
+        if not isinstance(centre_location, (bool, int)):
+            raise ValueError("centre_location must be True (COM) or int (specific atom index).")
 
-        # Choose estimator based on density type and rigid settings
-        if self.density_type == "number":
-            if not self.selection_state.indistinguishable_set:
-                if rigid:
-                    if centre_location is True:
-                        self.single_frame_function = Estimators.single_frame_rigid_number_com_grid
-                    elif isinstance(centre_location, int):
-                        self.single_frame_function = Estimators.single_frame_rigid_number_atom_grid
-                    else:
-                        raise ValueError("centre_location must be True (COM) or int (specific atom index).")
-                else:
-                    self.single_frame_function = Estimators.single_frame_number_many_grid
-            else:
-                self.single_frame_function = Estimators.single_frame_number_single_grid
-
-        elif self.density_type == "charge":
-            if not self.selection_state.indistinguishable_set:
-                if rigid:
-                    if centre_location is True:
-                        self.single_frame_function = Estimators.single_frame_rigid_charge_com_grid
-                    elif isinstance(centre_location, int):
-                        self.single_frame_function = Estimators.single_frame_rigid_charge_atom_grid
-                    else:
-                        raise ValueError("centre_location must be True (COM) or int (specific atom index).")
-                else:
-                    self.single_frame_function = Estimators.single_frame_charge_many_grid
-            else:
-                self.single_frame_function = Estimators.single_frame_number_single_grid
-
-        elif self.density_type == "polarisation":
-            if not self.selection_state.indistinguishable_set:
-                if rigid:
-                    if centre_location is True:
-                        self.single_frame_function = Estimators.single_frame_rigid_polarisation_com_grid
-                        self.selection_state.polarisation_axis = polarisation_axis
-                    elif isinstance(centre_location, int):
-                        self.single_frame_function = Estimators.single_frame_rigid_polarisation_atom_grid
-                        self.selection_state.polarisation_axis = polarisation_axis
-                    else:
-                        raise ValueError("centre_location must be True (COM) or an integer atom index.")
-                else:
-                    raise ValueError("Polarisation densities are only implemented for rigid molecules.")
-            else:
+        # Validate polarisation constraints
+        if self.density_type == "polarisation":
+            if isinstance(atom_names, str) and len(atom_names.replace(',', ' ').split()) == 1:
                 raise ValueError("A single atom does not have a polarisation density; specify a rigid molecule.")
-        else:
-            raise ValueError("Supported densities: 'number', 'polarisation', 'charge'.")
+            if not rigid:
+                raise ValueError("Polarisation densities are only implemented for rigid molecules.")
 
-        # Unified frame iteration using iter_frames
+        # Build selection wrapper with density configuration
+        self.selection_state = SelectionState(
+            trajectory,
+            atom_names=atom_names,
+            centre_location=centre_location,
+            rigid=rigid,
+            density_type=self.density_type,
+            polarisation_axis=polarisation_axis,
+        )
+
+        # Process frames using unified approach
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(self.to_run)):
-            self.single_frame_function(
-                positions, forces, trajectory, self, self.selection_state, kernel=self.kernel
-            )
+            deposit_positions = self.selection_state.get_positions(positions)
+            deposit_forces = self.selection_state.get_forces(forces)
+            weights = self.selection_state.get_weights(positions)
+            self.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=self.kernel)
 
         self.frames_processed = self.to_run
         self.grid_progress = "Allocated"
@@ -454,9 +457,10 @@ class GridState:
             ]
             for frame_idx in frame_indices:
                 positions, forces = trajectory.get_frame(frame_idx)
-                grid_state_lambda.single_frame_function(
-                    positions, forces, trajectory, grid_state_lambda, grid_state_lambda.selection_state, kernel=grid_state_lambda.kernel
-                )
+                deposit_positions = grid_state_lambda.selection_state.get_positions(positions)
+                deposit_forces = grid_state_lambda.selection_state.get_forces(forces)
+                weights = grid_state_lambda.selection_state.get_weights(positions)
+                grid_state_lambda.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=grid_state_lambda.kernel)
 
             # Compute densities for this section and accumulate statistics
             grid_state_lambda.get_real_density()
