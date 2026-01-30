@@ -190,7 +190,7 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
     cube_file = tmp_path / "density.cube"
     atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-    gs.write_to_cube(atoms, gs.rho, cube_file, convert_pmg=False)
+    gs.write_to_cube(atoms, gs.rho, cube_file)
     assert cube_file.exists()
 
 

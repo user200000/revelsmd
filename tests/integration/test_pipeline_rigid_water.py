@@ -138,7 +138,7 @@ class TestRigidWaterPipelineExample4:
         atoms = Atoms('OH2', positions=[[0, 0, 0], [0, 0, 1], [0, 1, 0]])
 
         cube_file = tmp_path / "test_water_density.cube"
-        gs.write_to_cube(atoms, gs.rho, str(cube_file), convert_pmg=False)
+        gs.write_to_cube(atoms, gs.rho, str(cube_file))
 
         assert cube_file.exists()
         assert cube_file.stat().st_size > 0
