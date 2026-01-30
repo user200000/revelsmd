@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from pathlib import Path
-from types import SimpleNamespace
 from revelsMD.revels_3D import Revels3D
 from revelsMD.density import SelectionState, HelperFunctions, Estimators, GridState
 from ase import Atoms
@@ -240,9 +239,8 @@ def test_find_coms_dipole_known_value():
     positions = np.array([[0, 5, 5], [1, 5, 5], [2, 5, 5]], dtype=float)
 
     ss = SelectionState(ts, ["A", "B", "C"], centre_location=True, rigid=True)
-    gs = SimpleNamespace(SS=ss)
 
-    coms, dipoles = HelperFunctions.find_coms(positions, ts, gs, ss, calc_dipoles=True)
+    coms, dipoles = HelperFunctions.find_coms(positions, ts, None, ss, calc_dipoles=True)
 
     assert coms.shape == (1, 3)
     assert dipoles.shape == (1, 3)
@@ -762,14 +760,14 @@ class TestEstimatorSelection:
         gs = GridState(ts_multi_species, "polarisation", 300, nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True, polarisation_axis=0)
         assert gs.single_frame_function == Estimators.single_frame_rigid_polarisation_com_grid
-        assert gs.SS.polarisation_axis == 0
+        assert gs.selection_state.polarisation_axis == 0
 
     def test_polarisation_rigid_atom(self, ts_multi_species):
         """Rigid polarisation density at specific atom uses single_frame_rigid_polarisation_atom_grid."""
         gs = GridState(ts_multi_species, "polarisation", 300, nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0, polarisation_axis=1)
         assert gs.single_frame_function == Estimators.single_frame_rigid_polarisation_atom_grid
-        assert gs.SS.polarisation_axis == 1
+        assert gs.selection_state.polarisation_axis == 1
 
     # --- Error cases ---
 

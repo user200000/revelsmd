@@ -189,12 +189,12 @@ class GridState:
         self.kernel = kernel
         self.to_run = to_run
 
-        # Build selection wrapper (keeps original attribute spellings)
-        self.SS = SelectionState(trajectory, atom_names=atom_names, centre_location=centre_location, rigid=rigid)
+        # Build selection wrapper
+        self.selection_state = SelectionState(trajectory, atom_names=atom_names, centre_location=centre_location, rigid=rigid)
 
         # Choose estimator based on density type and rigid settings
         if self.density_type == "number":
-            if not self.SS.indistinguishable_set:
+            if not self.selection_state.indistinguishable_set:
                 if rigid:
                     if centre_location is True:
                         self.single_frame_function = Estimators.single_frame_rigid_number_com_grid
@@ -208,7 +208,7 @@ class GridState:
                 self.single_frame_function = Estimators.single_frame_number_single_grid
 
         elif self.density_type == "charge":
-            if not self.SS.indistinguishable_set:
+            if not self.selection_state.indistinguishable_set:
                 if rigid:
                     if centre_location is True:
                         self.single_frame_function = Estimators.single_frame_rigid_charge_com_grid
@@ -222,14 +222,14 @@ class GridState:
                 self.single_frame_function = Estimators.single_frame_number_single_grid
 
         elif self.density_type == "polarisation":
-            if not self.SS.indistinguishable_set:
+            if not self.selection_state.indistinguishable_set:
                 if rigid:
                     if centre_location is True:
                         self.single_frame_function = Estimators.single_frame_rigid_polarisation_com_grid
-                        self.SS.polarisation_axis = polarisation_axis
+                        self.selection_state.polarisation_axis = polarisation_axis
                     elif isinstance(centre_location, int):
                         self.single_frame_function = Estimators.single_frame_rigid_polarisation_atom_grid
-                        self.SS.polarisation_axis = polarisation_axis
+                        self.selection_state.polarisation_axis = polarisation_axis
                     else:
                         raise ValueError("centre_location must be True (COM) or an integer atom index.")
                 else:
@@ -242,7 +242,7 @@ class GridState:
         # Unified frame iteration using iter_frames
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(self.to_run)):
             self.single_frame_function(
-                positions, forces, trajectory, self, self.SS, kernel=self.kernel
+                positions, forces, trajectory, self, self.selection_state, kernel=self.kernel
             )
 
         self.frames_processed = self.to_run
@@ -375,10 +375,9 @@ class GridState:
             atoms = structure
 
         # Optional removal (e.g., to drop solute atoms from density writeout)
-        # Keep attribute name `indices` for backward compatibility
-        if hasattr(self, "SS") and hasattr(self.SS, "indices") and self.SS.indices is not None:
+        if hasattr(self, "selection_state") and hasattr(self.selection_state, "indices") and self.selection_state.indices is not None:
             try:
-                del atoms[np.array(self.SS.indices)]
+                del atoms[np.array(self.selection_state.indices)]
             except Exception:
                 # If selection is a list of arrays (multi-species), do nothing silently
                 pass
@@ -421,56 +420,56 @@ class GridState:
         if self.grid_progress == "Lambda":
             raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
-        GS_Lambda = copy.deepcopy(self)
+        grid_state_lambda = copy.deepcopy(self)
         if sections is None:
             sections = trajectory.frames
 
         # Baseline expectation from full accumulation
-        GS_Lambda.get_real_density()
-        GS_Lambda.expected_rho = np.copy(GS_Lambda.rho)
-        GS_Lambda.expected_particle_density = np.copy(GS_Lambda.particle_density)
-        GS_Lambda.delta = GS_Lambda.expected_rho - GS_Lambda.expected_particle_density
+        grid_state_lambda.get_real_density()
+        grid_state_lambda.expected_rho = np.copy(grid_state_lambda.rho)
+        grid_state_lambda.expected_particle_density = np.copy(grid_state_lambda.particle_density)
+        grid_state_lambda.delta = grid_state_lambda.expected_rho - grid_state_lambda.expected_particle_density
 
         # Covariance/variance accumulators
-        GS_Lambda.cov_buffer_particle = np.zeros((GS_Lambda.nbinsx, GS_Lambda.nbinsy, GS_Lambda.nbinsz))
-        GS_Lambda.cov_buffer_force = np.zeros((GS_Lambda.nbinsx, GS_Lambda.nbinsy, GS_Lambda.nbinsz))
-        GS_Lambda.var_buffer = np.zeros((GS_Lambda.nbinsx, GS_Lambda.nbinsy, GS_Lambda.nbinsz))
+        grid_state_lambda.cov_buffer_particle = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))
+        grid_state_lambda.cov_buffer_force = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))
+        grid_state_lambda.var_buffer = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))
 
         # Interleaved accumulation across sections
         for k in tqdm(range(sections)):
             # Reset accumulators for this section
-            GS_Lambda.forceX *= 0
-            GS_Lambda.forceY *= 0
-            GS_Lambda.forceZ *= 0
-            GS_Lambda.particle_density *= 0
-            GS_Lambda.counter *= 0
-            GS_Lambda.del_rho_k *= 0
-            GS_Lambda.del_rho_n *= 0
-            GS_Lambda.rho *= 0
-            GS_Lambda.count *= 0
+            grid_state_lambda.forceX *= 0
+            grid_state_lambda.forceY *= 0
+            grid_state_lambda.forceZ *= 0
+            grid_state_lambda.particle_density *= 0
+            grid_state_lambda.counter *= 0
+            grid_state_lambda.del_rho_k *= 0
+            grid_state_lambda.del_rho_n *= 0
+            grid_state_lambda.rho *= 0
+            grid_state_lambda.count *= 0
 
             # Frame indices for this section (interleaved sampling)
-            frame_indices = np.array(GS_Lambda.to_run)[
-                np.arange(k, sections * (len(GS_Lambda.to_run) // sections), sections)
+            frame_indices = np.array(grid_state_lambda.to_run)[
+                np.arange(k, sections * (len(grid_state_lambda.to_run) // sections), sections)
             ]
             for frame_idx in frame_indices:
                 positions, forces = trajectory.get_frame(frame_idx)
-                GS_Lambda.single_frame_function(
-                    positions, forces, trajectory, GS_Lambda, GS_Lambda.SS, kernel=GS_Lambda.kernel
+                grid_state_lambda.single_frame_function(
+                    positions, forces, trajectory, grid_state_lambda, grid_state_lambda.selection_state, kernel=grid_state_lambda.kernel
                 )
 
             # Compute densities for this section and accumulate statistics
-            GS_Lambda.get_real_density()
-            delta_cur = GS_Lambda.rho - GS_Lambda.particle_density
-            GS_Lambda.var_buffer += (delta_cur - GS_Lambda.delta) ** 2
-            GS_Lambda.cov_buffer_force += (delta_cur - GS_Lambda.delta) * (GS_Lambda.rho - GS_Lambda.expected_rho)
-            GS_Lambda.cov_buffer_particle += (delta_cur - GS_Lambda.delta) * (
-                GS_Lambda.particle_density - GS_Lambda.expected_particle_density
+            grid_state_lambda.get_real_density()
+            delta_cur = grid_state_lambda.rho - grid_state_lambda.particle_density
+            grid_state_lambda.var_buffer += (delta_cur - grid_state_lambda.delta) ** 2
+            grid_state_lambda.cov_buffer_force += (delta_cur - grid_state_lambda.delta) * (grid_state_lambda.rho - grid_state_lambda.expected_rho)
+            grid_state_lambda.cov_buffer_particle += (delta_cur - grid_state_lambda.delta) * (
+                grid_state_lambda.particle_density - grid_state_lambda.expected_particle_density
             )
 
         # lambda = 1 - cov(force)/var(delta); optimal density = (1-lambda)*count + lambda*force
-        GS_Lambda.combination = 1.0 - (GS_Lambda.cov_buffer_force / GS_Lambda.var_buffer)
-        GS_Lambda.optimal_density = (1.0 - GS_Lambda.combination) * GS_Lambda.expected_particle_density + \
-            GS_Lambda.combination * GS_Lambda.expected_rho
-        GS_Lambda.grid_progress = "Lambda"
-        return GS_Lambda
+        grid_state_lambda.combination = 1.0 - (grid_state_lambda.cov_buffer_force / grid_state_lambda.var_buffer)
+        grid_state_lambda.optimal_density = (1.0 - grid_state_lambda.combination) * grid_state_lambda.expected_particle_density + \
+            grid_state_lambda.combination * grid_state_lambda.expected_rho
+        grid_state_lambda.grid_progress = "Lambda"
+        return grid_state_lambda

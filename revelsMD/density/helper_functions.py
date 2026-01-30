@@ -23,7 +23,14 @@ class HelperFunctions:
     """
 
     @staticmethod
-    def process_frame(trajectory: Trajectory, GS: GridState, positions: np.ndarray, forces: np.ndarray, a: float = 1.0, kernel: str = "triangular") -> None:
+    def process_frame(
+        trajectory: Trajectory,
+        grid_state: GridState,
+        positions: np.ndarray,
+        forces: np.ndarray,
+        a: float = 1.0,
+        kernel: str = "triangular"
+    ) -> None:
         """
         Deposit a frame's positions/forces to the grid using a given kernel.
 
@@ -31,7 +38,7 @@ class HelperFunctions:
         ----------
         trajectory : Trajectory
             Trajectory state (box lengths used here).
-        GS : GridState
+        grid_state : GridState
             Grid accumulators and bin geometry.
         positions : (N, 3) np.ndarray
             Positions in Cartesian coordinates.
@@ -48,12 +55,12 @@ class HelperFunctions:
         - `np.digitize` is used to map positions to voxel indices; subsequent kernels
           deposit weighted contributions to neighbors (triangular) or the host voxel (box).
         """
-        GS.count += 1
+        grid_state.count += 1
 
         # Bring positions to the primary image (periodic remainder)
-        homeZ = np.remainder(positions[:, 2], GS.box_z)
-        homeY = np.remainder(positions[:, 1], GS.box_y)
-        homeX = np.remainder(positions[:, 0], GS.box_x)
+        homeZ = np.remainder(positions[:, 2], grid_state.box_z)
+        homeY = np.remainder(positions[:, 1], grid_state.box_y)
+        homeX = np.remainder(positions[:, 0], grid_state.box_x)
 
         # Component forces (scalar arrays for vectorized deposition)
         fox = forces[:, 0]
@@ -61,22 +68,22 @@ class HelperFunctions:
         foz = forces[:, 2]
 
         # Map to voxel indices (np.digitize returns 1..len(bins)-1)
-        x = np.digitize(homeX, GS.binsx)
-        y = np.digitize(homeY, GS.binsy)
-        z = np.digitize(homeZ, GS.binsz)
+        x = np.digitize(homeX, grid_state.binsx)
+        y = np.digitize(homeY, grid_state.binsy)
+        z = np.digitize(homeZ, grid_state.binsz)
 
         if kernel.lower() == "triangular":
             _triangular_allocation(
-                GS.forceX, GS.forceY, GS.forceZ, GS.counter,
+                grid_state.forceX, grid_state.forceY, grid_state.forceZ, grid_state.counter,
                 x, y, z, homeX, homeY, homeZ,
                 fox, foy, foz, a,
-                GS.lx, GS.ly, GS.lz,
-                GS.nbinsx, GS.nbinsy, GS.nbinsz,
+                grid_state.lx, grid_state.ly, grid_state.lz,
+                grid_state.nbinsx, grid_state.nbinsy, grid_state.nbinsz,
             )
         elif kernel.lower() == "box":
             # Convert to 0-based indices for box allocation
             _box_allocation(
-                GS.forceX, GS.forceY, GS.forceZ, GS.counter,
+                grid_state.forceX, grid_state.forceY, grid_state.forceZ, grid_state.counter,
                 x - 1, y - 1, z - 1,
                 fox, foy, foz, a,
             )
@@ -84,7 +91,16 @@ class HelperFunctions:
             raise ValueError(f"Unsupported kernel: {kernel!r}")
 
     @staticmethod
-    def box_allocation(GS: GridState, x: np.ndarray, y: np.ndarray, z: np.ndarray, fox: np.ndarray, foy: np.ndarray, foz: np.ndarray, a: float | np.ndarray) -> None:
+    def box_allocation(
+        grid_state: GridState,
+        x: np.ndarray,
+        y: np.ndarray,
+        z: np.ndarray,
+        fox: np.ndarray,
+        foy: np.ndarray,
+        foz: np.ndarray,
+        a: float | np.ndarray
+    ) -> None:
         """
         Deposit contributions to the host voxel (no neighbour spreading).
 
@@ -94,7 +110,7 @@ class HelperFunctions:
 
         Parameters
         ----------
-        GS : GridState
+        grid_state : GridState
             Grid state object with forceX, forceY, forceZ, counter arrays.
         x, y, z : np.ndarray
             Voxel indices (1-based from np.digitize).
@@ -105,14 +121,14 @@ class HelperFunctions:
         """
         # Convert to 0-based voxel indices
         _box_allocation(
-            GS.forceX, GS.forceY, GS.forceZ, GS.counter,
+            grid_state.forceX, grid_state.forceY, grid_state.forceZ, grid_state.counter,
             x - 1, y - 1, z - 1,
             fox, foy, foz, a,
         )
 
     @staticmethod
     def triangular_allocation(
-        GS: GridState,
+        grid_state: GridState,
         x: np.ndarray,
         y: np.ndarray,
         z: np.ndarray,
@@ -133,7 +149,7 @@ class HelperFunctions:
 
         Parameters
         ----------
-        GS : GridState
+        grid_state : GridState
             Grid state object with forceX, forceY, forceZ, counter arrays
             and grid parameters (lx, ly, lz, nbinsx, nbinsy, nbinsz).
         x, y, z : np.ndarray
@@ -146,16 +162,22 @@ class HelperFunctions:
             Weight factor (scalar or per-particle array).
         """
         _triangular_allocation(
-            GS.forceX, GS.forceY, GS.forceZ, GS.counter,
+            grid_state.forceX, grid_state.forceY, grid_state.forceZ, grid_state.counter,
             x, y, z, homeX, homeY, homeZ,
             fox, foy, foz, a,
-            GS.lx, GS.ly, GS.lz,
-            GS.nbinsx, GS.nbinsy, GS.nbinsz,
+            grid_state.lx, grid_state.ly, grid_state.lz,
+            grid_state.nbinsx, grid_state.nbinsy, grid_state.nbinsz,
         )
 
 
     @staticmethod
-    def find_coms(positions: np.ndarray, trajectory: Trajectory, GS: GridState, SS: SelectionState, calc_dipoles: bool = False):
+    def find_coms(
+        positions: np.ndarray,
+        trajectory: Trajectory,
+        grid_state: GridState,
+        selection_state: SelectionState,
+        calc_dipoles: bool = False
+    ):
         """
         Compute centers-of-mass (and optionally molecular dipoles) for a rigid set.
 
@@ -165,9 +187,9 @@ class HelperFunctions:
             Cartesian coordinates.
         trajectory : Trajectory
             Trajectory state containing box lengths.
-        GS : GridState
+        grid_state : GridState
             Unused numerically here; preserved for signature compatibility.
-        SS : SelectionState
+        selection_state : SelectionState
             Provides `indices`, `masses`, and `charges` (if available).
         calc_dipoles : bool, optional
             If True, also compute per-molecule dipole moments relative to COMs.
@@ -184,10 +206,10 @@ class HelperFunctions:
         Enforces minimum-image displacements when aligning species to a reference
         for COM and dipole accumulation.
         """
-        mass_tot = SS.masses[0]
-        mass_cumulant = positions[SS.indices[0]] * SS.masses[0][:, np.newaxis]
-        for species_index in range(1, len(SS.indices)):
-            diffs = positions[SS.indices[0]] - positions[SS.indices[species_index]]
+        mass_tot = selection_state.masses[0]
+        mass_cumulant = positions[selection_state.indices[0]] * selection_state.masses[0][:, np.newaxis]
+        for species_index in range(1, len(selection_state.indices)):
+            diffs = positions[selection_state.indices[0]] - positions[selection_state.indices[species_index]]
             logical_diffs = np.transpose(
                 np.array(
                     [
@@ -198,32 +220,35 @@ class HelperFunctions:
                 )
             )
             diffs += logical_diffs
-            mass_tot += SS.masses[species_index]
-            mass_cumulant += positions[SS.indices[species_index]] * SS.masses[species_index][:, np.newaxis]
+            mass_tot += selection_state.masses[species_index]
+            mass_cumulant += positions[selection_state.indices[species_index]] * selection_state.masses[species_index][:, np.newaxis]
         coms = mass_cumulant / mass_tot[:, np.newaxis]
 
         if calc_dipoles:
-            charges_cumulant = GS.SS.charges[0][:, np.newaxis] * (positions[SS.indices[0]] - coms)
-            for species_index in range(1, len(SS.indices)):
-                separation = (positions[SS.indices[species_index]] - coms)
+            charges_cumulant = selection_state.charges[0][:, np.newaxis] * (positions[selection_state.indices[0]] - coms)
+            for species_index in range(1, len(selection_state.indices)):
+                separation = (positions[selection_state.indices[species_index]] - coms)
                 # Minimum-image correction component-wise
                 separation[:, 0] -= (np.ceil((np.abs(separation[:, 0]) - trajectory.box_x / 2) / trajectory.box_x)) * (trajectory.box_x) * np.sign(separation[:, 0])
                 separation[:, 1] -= (np.ceil((np.abs(separation[:, 1]) - trajectory.box_y / 2) / trajectory.box_y)) * (trajectory.box_y) * np.sign(separation[:, 1])
                 separation[:, 2] -= (np.ceil((np.abs(separation[:, 2]) - trajectory.box_z / 2) / trajectory.box_z)) * (trajectory.box_z) * np.sign(separation[:, 2])
-                charges_cumulant += GS.SS.charges[species_index][:, np.newaxis] * separation
+                charges_cumulant += selection_state.charges[species_index][:, np.newaxis] * separation
             molecular_dipole = charges_cumulant
             return coms, molecular_dipole
         else:
             return coms
 
     @staticmethod
-    def sum_forces(SS: SelectionState, forces: np.ndarray) -> np.ndarray:
+    def sum_forces(
+        selection_state: SelectionState,
+        forces: np.ndarray
+    ) -> np.ndarray:
         """
         Sum forces across a rigid group (species lists).
 
         Parameters
         ----------
-        SS : SelectionState
+        selection_state : SelectionState
             Selection containing per-species atom index arrays.
         forces : (N, 3) np.ndarray
             Force array for all atoms.
@@ -233,7 +258,7 @@ class HelperFunctions:
         (M, 3) np.ndarray
             Per-molecule net force for the rigid group (M = multiplicity).
         """
-        rigid_forces = forces[SS.indices[0], :]
-        for rigid_body_component in SS.indices[1:]:
+        rigid_forces = forces[selection_state.indices[0], :]
+        for rigid_body_component in selection_state.indices[1:]:
             rigid_forces += forces[rigid_body_component, :]
         return rigid_forces
