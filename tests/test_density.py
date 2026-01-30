@@ -386,6 +386,85 @@ class TestSelectionStateGetForces:
         np.testing.assert_allclose(result[:, 1], [0.0, 0.0, 0.0])
 
 
+class TestSelectionStateGetPositionsPeriodicBoundary:
+    """Tests for SelectionState.get_positions() with molecules spanning periodic boundaries."""
+
+    @pytest.fixture
+    def trajectory(self):
+        """Single molecule trajectory."""
+        class SingleMolTrajectory:
+            def __init__(self):
+                self.box_x = self.box_y = self.box_z = 10.0
+                self.units = 'real'
+
+            def get_indices(self, atom_name):
+                return {'O': np.array([0]), 'H1': np.array([1]), 'H2': np.array([2])}[atom_name]
+
+            def get_masses(self, atom_name):
+                return {'O': np.array([16.0]), 'H1': np.array([1.0]), 'H2': np.array([1.0])}[atom_name]
+
+            def get_charges(self, atom_name):
+                return {'O': np.array([-0.8]), 'H1': np.array([0.4]), 'H2': np.array([0.4])}[atom_name]
+
+        return SingleMolTrajectory()
+
+    @pytest.fixture
+    def positions_across_boundary(self):
+        """Molecule spanning periodic boundary: O at x=9.5, H1 at x=0.3, H2 at x=0.5."""
+        return np.array([
+            [9.5, 5.0, 5.0],   # O (index 0) - near right edge
+            [0.3, 5.0, 5.0],   # H1 (index 1) - wrapped to left edge
+            [0.5, 5.0, 5.0],   # H2 (index 2) - wrapped to left edge
+        ], dtype=float)
+
+    def test_com_with_molecule_spanning_periodic_boundary(self, trajectory, positions_across_boundary):
+        """COM should handle molecules that span periodic boundaries correctly."""
+        from revelsMD.density import SelectionState
+
+        # Box is 10x10x10, molecule spans boundary in x
+        # O at x=9.5, H1 at x=0.3 (really at x=10.3, i.e. 0.8 from O)
+        # H2 at x=0.5 (really at x=10.5, i.e. 1.0 from O)
+        ss = SelectionState(
+            trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True
+        )
+        result = ss.get_positions(positions_across_boundary)
+
+        # With minimum image: H1 is at x=10.3, H2 is at x=10.5 relative to O
+        # COM_x = (16*9.5 + 1*10.3 + 1*10.5) / 18 = (152 + 10.3 + 10.5) / 18 = 172.8 / 18 = 9.6
+        # Then wrapped to box: 9.6 (already in box)
+        #
+        # Without minimum image (BUG):
+        # COM_x = (16*9.5 + 1*0.3 + 1*0.5) / 18 = (152 + 0.8) / 18 = 8.49 (WRONG!)
+
+        # The COM should be near x=9.6, not x=8.49
+        assert result[0, 0] > 9.0, f"COM x={result[0, 0]} should be > 9.0 (near the O atom)"
+
+    def test_dipole_with_molecule_spanning_periodic_boundary(self, trajectory, positions_across_boundary):
+        """Dipole calculation should handle molecules that span periodic boundaries."""
+        from revelsMD.density import SelectionState
+
+        ss = SelectionState(
+            trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True,
+            density_type='polarisation', polarisation_axis=0
+        )
+        result = ss.get_weights(positions_across_boundary)
+
+        # The molecule is symmetric around COM in y and z, but asymmetric in x
+        # H1 is at x=10.3 (0.7 from COM at 9.6), H2 is at x=10.5 (0.9 from COM)
+        # O is at x=9.5 (-0.1 from COM)
+        # Dipole_x = q_O*(x_O - COM_x) + q_H1*(x_H1 - COM_x) + q_H2*(x_H2 - COM_x)
+        #          = -0.8*(-0.1) + 0.4*(0.7) + 0.4*(0.9)
+        #          = 0.08 + 0.28 + 0.36 = 0.72
+        #
+        # Without minimum image (BUG), H atoms would appear far from COM:
+        # Dipole_x = -0.8*(-0.1) + 0.4*(0.3-9.6) + 0.4*(0.5-9.6)
+        #          = 0.08 + 0.4*(-9.3) + 0.4*(-9.1) = 0.08 - 3.72 - 3.64 = -7.28
+
+        # The dipole should be small and positive, not large and negative
+        assert result[0] > 0, f"Dipole x={result[0]} should be > 0"
+        assert result[0] < 1.0, f"Dipole x={result[0]} should be < 1.0 (small molecule)"
+
+
 class TestSelectionStateGetPositions:
     """Tests for SelectionState.get_positions() method."""
 
