@@ -5,7 +5,7 @@ This module provides backward-compatible access to density estimation classes.
 The classes have been moved to revelsMD.density package.
 
 Preferred imports:
-    from revelsMD.density import GridState, SelectionState, Estimators, HelperFunctions
+    from revelsMD.density import GridState, SelectionState, HelperFunctions
 
 Deprecated (but still works):
     from revelsMD.revels_3D import Revels3D
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import warnings
 
-from revelsMD.density import SelectionState, HelperFunctions, Estimators, GridState
+from revelsMD.density import SelectionState, HelperFunctions, GridState
 
 
 class _DeprecatedClassDescriptor:
@@ -38,11 +38,10 @@ class _DeprecatedClassDescriptor:
 
 class Revels3D:
     """
-    Namespace wrapper for grid building, estimators, selection state, and helpers.
+    Namespace wrapper for grid building, selection state, and helpers.
 
     The nested classes are deprecated. Use revelsMD.density imports instead:
     - `GridState`: use `from revelsMD.density import GridState`
-    - `Estimators`: use `from revelsMD.density import Estimators`
     - `SelectionState`: use `from revelsMD.density import SelectionState`
     - `HelperFunctions`: use `from revelsMD.density import HelperFunctions`
     """
@@ -51,4 +50,3 @@ class Revels3D:
     GridState = _DeprecatedClassDescriptor(GridState, "GridState")
     SelectionState = _DeprecatedClassDescriptor(SelectionState, "SelectionState")
     HelperFunctions = _DeprecatedClassDescriptor(HelperFunctions, "HelperFunctions")
-    Estimators = _DeprecatedClassDescriptor(Estimators, "Estimators")
