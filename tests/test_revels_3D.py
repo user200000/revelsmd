@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 from revelsMD.revels_3D import Revels3D
-from revelsMD.density import SelectionState, HelperFunctions, GridState
+from revelsMD.density import SelectionState, GridState
 from ase import Atoms
 
 
@@ -93,17 +93,82 @@ def test_kvectors_ksquared_shapes(ts):
 
 
 # ---------------------------
-# HelperFunctions: Box & Triangular kernels
+# GridState._process_frame: Box & Triangular kernels
 # ---------------------------
 
 @pytest.mark.parametrize("kernel", ["box", "triangular"])
-def test_helper_process_frame_kernels(ts, kernel):
+def test_process_frame_kernels(ts, kernel):
+    """_process_frame deposits positions/forces to grid using specified kernel."""
     gs = GridState(ts, "number", 300, nbins=4)
     pos = np.array([[1.0, 2.0, 3.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
-    HelperFunctions.process_frame(ts, gs, pos, frc, a=1.0, kernel=kernel)
+    gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
     assert np.any(gs.forceX != 0)
     assert np.any(gs.counter != 0)
+
+
+def test_process_frame_increments_count(ts):
+    """_process_frame increments the frame count."""
+    gs = GridState(ts, "number", 300, nbins=4)
+    assert gs.count == 0
+    gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]))
+    assert gs.count == 1
+    gs._process_frame(np.array([[2.0, 3.0, 4.0]]), np.array([[0.0, 0.5, 0.0]]))
+    assert gs.count == 2
+
+
+def test_process_frame_invalid_kernel(ts):
+    """_process_frame raises ValueError for unknown kernel."""
+    gs = GridState(ts, "number", 300, nbins=4)
+    with pytest.raises(ValueError, match="Unsupported kernel"):
+        gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), kernel="invalid")
+
+
+# ---------------------------
+# GridState.deposit_to_grid
+# ---------------------------
+
+def test_deposit_to_grid_single_array(ts, mocker):
+    """deposit_to_grid with single array calls _process_frame once."""
+    gs = GridState(ts, "number", 300, nbins=4)
+    mock_process = mocker.patch.object(gs, '_process_frame')
+
+    pos = np.array([[1.0, 2.0, 3.0]])
+    frc = np.array([[0.5, 0.0, 0.0]])
+    gs.deposit_to_grid(pos, frc, weights=1.0, kernel="triangular")
+
+    mock_process.assert_called_once()
+    call_args = mock_process.call_args
+    np.testing.assert_array_equal(call_args[0][0], pos)
+    np.testing.assert_array_equal(call_args[0][1], frc)
+    assert call_args[1]['weight'] == 1.0
+    assert call_args[1]['kernel'] == "triangular"
+
+
+def test_deposit_to_grid_list_of_arrays(ts, mocker):
+    """deposit_to_grid with list of arrays calls _process_frame for each."""
+    gs = GridState(ts, "number", 300, nbins=4)
+    mock_process = mocker.patch.object(gs, '_process_frame')
+
+    pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
+    frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
+    gs.deposit_to_grid(pos_list, frc_list, weights=1.0, kernel="box")
+
+    assert mock_process.call_count == 2
+
+
+def test_deposit_to_grid_broadcasts_scalar_weight(ts, mocker):
+    """deposit_to_grid broadcasts scalar weight to all position arrays."""
+    gs = GridState(ts, "number", 300, nbins=4)
+    mock_process = mocker.patch.object(gs, '_process_frame')
+
+    pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
+    frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
+    gs.deposit_to_grid(pos_list, frc_list, weights=2.5, kernel="triangular")
+
+    # Both calls should have weight=2.5
+    for call in mock_process.call_args_list:
+        assert call[1]['weight'] == 2.5
 
 
 # ---------------------------
