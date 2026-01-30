@@ -12,14 +12,13 @@ Notes
 - All kernels and gridding logic preserve your existing numerical behavior.
 """
 
-import copy
-from typing import Any
+from __future__ import annotations
 
 import copy
-from typing import Any
 
 import numpy as np
 from tqdm import tqdm
+from ase import Atoms
 from ase.io.cube import write_cube
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
@@ -368,10 +367,9 @@ class Revels3D:
 
         def write_to_cube(
             self,
-            structure: Structure | Any,
+            structure: Structure | Atoms,
             grid: np.ndarray,
             filename: str,
-            convert_pmg: bool = True,
         ) -> None:
             """
             Write a 3D density grid to a Gaussian `.cube` file.
@@ -379,25 +377,20 @@ class Revels3D:
             Parameters
             ----------
             structure : pymatgen.Structure or ase.Atoms
-                Input structure used to define the cell geometry. If `convert_pmg=True`,
-                this is interpreted as a pymatgen `Structure` and converted to ASE `Atoms`.
-                If `convert_pmg=False`, it is assumed to be an ASE `Atoms` already.
+                Input structure used to define the cell geometry. Pymatgen structures
+                are automatically converted to ASE Atoms.
             grid : np.ndarray
-                3D grid data to write (shape: nbinsx×nbinsy×nbinsz).
+                3D grid data to write (shape: nbinsx x nbinsy x nbinsz).
             filename : str
                 Output filename.
-            convert_pmg : bool, optional
-                If True, convert from pymatgen.Structure → ASE Atoms first, then
-                delete any atoms specified by `self.SS.indices`. If False, assume
-                `structure` is already an ASE Atoms and write directly.
 
             Notes
             -----
             - Atom deletion occurs **after** conversion from pymatgen to ASE,
               preserving your original intent.
             """
-            # Convert from pymatgen if requested; otherwise assume ASE atoms object
-            if convert_pmg is True:
+            # Convert from pymatgen if needed; otherwise assume ASE Atoms
+            if isinstance(structure, Structure):
                 atoms = AseAtomsAdaptor.get_atoms(structure)
             else:
                 atoms = structure
@@ -414,7 +407,7 @@ class Revels3D:
             with open(filename, "w") as f:
                 write_cube(f, atoms, data=grid)
 
-        def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> "Revels3D.GridState":
+        def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> "GridState":
             """
             Compute optimal λ(r) to combine counting and force densities.
 
@@ -431,7 +424,7 @@ class Revels3D:
 
             Returns
             -------
-            Revels3D.GridState
+            GridState
                 A deep-copied `GridState` instance with
                 `expected_rho`, `expected_particle_density`, `delta`,
                 covariance/variance buffers, `combination` (=1−cov_F/var),
@@ -679,7 +672,7 @@ class Revels3D:
         """
 
         @staticmethod
-        def process_frame(trajectory: Trajectory, GS: Any, positions: np.ndarray, forces: np.ndarray, a: float = 1.0, kernel: str = "triangular") -> None:
+        def process_frame(trajectory: Trajectory, GS: GridState, positions: np.ndarray, forces: np.ndarray, a: float = 1.0, kernel: str = "triangular") -> None:
             """
             Deposit a frame's positions/forces to the grid using a given kernel.
 
@@ -740,7 +733,7 @@ class Revels3D:
                 raise ValueError(f"Unsupported kernel: {kernel!r}")
 
         @staticmethod
-        def box_allocation(GS: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray, fox: np.ndarray, foy: np.ndarray, foz: np.ndarray, a: float | np.ndarray) -> None:
+        def box_allocation(GS: GridState, x: np.ndarray, y: np.ndarray, z: np.ndarray, fox: np.ndarray, foy: np.ndarray, foz: np.ndarray, a: float | np.ndarray) -> None:
             """
             Deposit contributions to the host voxel (no neighbour spreading).
 
@@ -768,7 +761,7 @@ class Revels3D:
 
         @staticmethod
         def triangular_allocation(
-            GS: Any,
+            GS: GridState,
             x: np.ndarray,
             y: np.ndarray,
             z: np.ndarray,
@@ -811,7 +804,7 @@ class Revels3D:
 
 
         @staticmethod
-        def find_coms(positions: np.ndarray, trajectory: Trajectory, GS: Any, SS: Any, calc_dipoles: bool = False):
+        def find_coms(positions: np.ndarray, trajectory: Trajectory, GS: GridState, SS: SelectionState, calc_dipoles: bool = False):
             """
             Compute centers-of-mass (and optionally molecular dipoles) for a rigid set.
 
@@ -873,7 +866,7 @@ class Revels3D:
                 return coms
 
         @staticmethod
-        def sum_forces(SS: Any, forces: np.ndarray) -> np.ndarray:
+        def sum_forces(SS: SelectionState, forces: np.ndarray) -> np.ndarray:
             """
             Sum forces across a rigid group (species lists).
 
