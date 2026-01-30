@@ -135,6 +135,8 @@ class SelectionState:
         """
         Compute center-of-mass positions for rigid molecules.
 
+        Uses minimum image convention to handle molecules spanning periodic boundaries.
+
         Parameters
         ----------
         positions : (N, 3) np.ndarray
@@ -145,13 +147,25 @@ class SelectionState:
         (M, 3) np.ndarray
             Center-of-mass positions for M molecules.
         """
+        ref_positions = positions[self.indices[0]]
         mass_tot = self.masses[0].copy()
-        mass_cumulant = positions[self.indices[0]] * self.masses[0][:, np.newaxis]
+        mass_cumulant = ref_positions * self.masses[0][:, np.newaxis]
+
+        box = np.array([self._trajectory.box_x, self._trajectory.box_y, self._trajectory.box_z])
 
         for species_idx in range(1, len(self.indices)):
+            species_positions = positions[self.indices[species_idx]]
             species_mass = self.masses[species_idx]
+
+            # Apply minimum image convention relative to reference species
+            diff = ref_positions - species_positions
+            # If diff > box/2, species is wrapped left, shift it right (+box)
+            # If diff < -box/2, species is wrapped right, shift it left (-box)
+            shift = np.where(diff > box / 2, box, np.where(diff < -box / 2, -box, 0))
+            species_positions_unwrapped = species_positions + shift
+
             mass_tot = mass_tot + species_mass
-            mass_cumulant = mass_cumulant + positions[self.indices[species_idx]] * species_mass[:, np.newaxis]
+            mass_cumulant = mass_cumulant + species_positions_unwrapped * species_mass[:, np.newaxis]
 
         return mass_cumulant / mass_tot[:, np.newaxis]
 
@@ -223,6 +237,8 @@ class SelectionState:
         """
         Compute molecular dipole moment projected along polarisation_axis.
 
+        Uses minimum image convention to handle molecules spanning periodic boundaries.
+
         Parameters
         ----------
         positions : (N, 3) np.ndarray
@@ -233,15 +249,19 @@ class SelectionState:
         (M,) np.ndarray
             Dipole projection for each molecule.
         """
-        # Compute COM first
         coms = self._compute_com(positions)
+        box = np.array([self._trajectory.box_x, self._trajectory.box_y, self._trajectory.box_z])
 
-        # Compute dipole: sum of q_i * (r_i - COM)
         dipole = np.zeros((coms.shape[0], 3))
         for species_idx in range(len(self.indices)):
             species_positions = positions[self.indices[species_idx]]
             species_charges = self.charges[species_idx]
+
+            # Apply minimum image convention for displacement from COM
             displacement = species_positions - coms
+            shift = np.where(displacement > box / 2, -box, np.where(displacement < -box / 2, box, 0))
+            displacement = displacement + shift
+
             dipole = dipole + species_charges[:, np.newaxis] * displacement
 
         return dipole[:, self.polarisation_axis]
