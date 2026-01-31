@@ -240,6 +240,7 @@ class RDF:
 
     def _compute_standard(self, integration: str) -> None:
         """Compute forward or backward integrated g(r)."""
+        assert self._accumulated is not None  # Checked by get_rdf()
         scaled = np.nan_to_num(self._accumulated.copy())
         scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
 
@@ -254,6 +255,7 @@ class RDF:
 
     def _compute_lambda(self) -> None:
         """Compute lambda-corrected g(r)."""
+        assert self._accumulated is not None  # Checked by get_rdf()
         base_array = np.nan_to_num(np.array(self._frame_data))
         base_array *= self._prefactor * self._beta / (4 * np.pi)
 
