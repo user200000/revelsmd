@@ -12,7 +12,6 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
-from revelsMD.utils import generate_boltzmann
 from revelsMD.density.selection_state import SelectionState
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
 
@@ -30,8 +29,6 @@ class GridState:
         Trajectory-state object providing `box_x`, `box_y`, `box_z`, and `units`.
     density_type : {'number', 'charge', 'polarisation'}
         Type of density to be constructed (controls the estimator weighting).
-    temperature : float
-        System temperature (K) used for force->density conversion in k-space.
     nbins : int, optional
         Default number of voxels per box dimension (overridden by `nbinsx/y/z`).
     nbinsx, nbinsy, nbinsz : int or bool, optional
@@ -59,7 +56,6 @@ class GridState:
         self,
         trajectory: Trajectory,
         density_type: str,
-        temperature: float,
         nbins: int = 100,
         nbinsx: int | bool = False,
         nbinsy: int | bool = False,
@@ -90,7 +86,7 @@ class GridState:
 
         # Bookkeeping
         self.voxel_volume = float(np.prod(self.box_array) / (nbinsx * nbinsy * nbinsz))
-        self.temperature = float(temperature)
+        self.beta = trajectory.beta
         self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
         self.count = 0
         self.units = trajectory.units
@@ -343,11 +339,11 @@ class GridState:
         for l in range(len(zrep)):
             forceZ[:, :, l] = zrep[l] * forceZ[:, :, l]
 
-        # delta_rho(k): i/(k_B T k^2) * (F.k); handle k^2=0 via errstate; enforce delta_rho(0)=0
+        # delta_rho(k): i * beta / k^2 * (F.k); handle k^2=0 via errstate; enforce delta_rho(0)=0
         with np.errstate(divide="ignore", invalid="ignore"):
             self.del_rho_k = (
                 complex(0, 1)
-                / (self.temperature * generate_boltzmann(self.units) * self.get_ksquared())
+                * self.beta / self.get_ksquared()
                 * (forceX + forceY + forceZ)
             )
         self.del_rho_k[0, 0, 0] = 0.0

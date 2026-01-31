@@ -14,6 +14,7 @@ class MockTrajectory:
     def __init__(self):
         self.box_x = self.box_y = self.box_z = 10.0
         self.units = 'real'
+        self.beta = 1.0 / (300.0 * 0.0019872041)  # 1/(kB*T) for T=300K in real units
 
     def get_indices(self, atom_name):
         # 3 molecules, each with atoms O, H1, H2
@@ -86,7 +87,7 @@ class TestDepositToGrid:
         """deposit_to_grid with single species populates grid."""
         from revelsMD.density import GridState, SelectionState
 
-        gs = GridState(trajectory, "number", 300, nbins=5)
+        gs = GridState(trajectory, "number", nbins=5)
         ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -98,7 +99,7 @@ class TestDepositToGrid:
         """deposit_to_grid with multi-species non-rigid deposits each species."""
         from revelsMD.density import GridState, SelectionState
 
-        gs = GridState(trajectory, "number", 300, nbins=5)
+        gs = GridState(trajectory, "number", nbins=5)
         ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -110,7 +111,7 @@ class TestDepositToGrid:
         """deposit_to_grid with rigid molecule at COM populates grid."""
         from revelsMD.density import GridState, SelectionState
 
-        gs = GridState(trajectory, "number", 300, nbins=5)
+        gs = GridState(trajectory, "number", nbins=5)
         ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -123,7 +124,7 @@ class TestDepositToGrid:
         """deposit_to_grid with charge density uses charge weights."""
         from revelsMD.density import GridState, SelectionState
 
-        gs = GridState(trajectory, "charge", 300, nbins=5)
+        gs = GridState(trajectory, "charge", nbins=5)
         ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -177,7 +178,7 @@ class TestMakeForceGridUnified:
         """make_force_grid with single species number density produces correct grid."""
         from revelsMD.density import GridState
 
-        gs = GridState(trajectory, "number", 300, nbins=5)
+        gs = GridState(trajectory, "number", nbins=5)
         gs.make_force_grid(trajectory, atom_names="O", rigid=False, start=0, stop=2)
 
         # Verify grid was populated
