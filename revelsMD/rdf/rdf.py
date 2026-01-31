@@ -26,6 +26,14 @@ from revelsMD.rdf.rdf_helpers import (
 )
 
 
+def _get_species_indices(trajectory, species: str) -> np.ndarray:
+    """Get indices for a species, with RDF-specific error message."""
+    try:
+        return trajectory.get_indices(species)
+    except ValueError:
+        raise ValueError(f"No atoms found for species '{species}'.")
+
+
 def single_frame_rdf(
     pos_array: np.ndarray,
     force_array: np.ndarray,
@@ -131,7 +139,7 @@ def run_rdf(
         or the frame range is empty).
     """
     if atom_a == atom_b:
-        indices_a = trajectory.get_indices(atom_a)
+        indices_a = _get_species_indices(trajectory, atom_a)
         n_a = len(indices_a)
         if n_a < 2:
             raise ValueError(
@@ -141,12 +149,8 @@ def run_rdf(
         indices = [indices_a, indices_a]
         prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
     else:
-        indices_a = np.array(trajectory.get_indices(atom_a))
-        indices_b = np.array(trajectory.get_indices(atom_b))
-        if len(indices_a) == 0:
-            raise ValueError(f"No atoms found for species '{atom_a}'.")
-        if len(indices_b) == 0:
-            raise ValueError(f"No atoms found for species '{atom_b}'.")
+        indices_a = np.array(_get_species_indices(trajectory, atom_a))
+        indices_b = np.array(_get_species_indices(trajectory, atom_b))
         indices = [indices_a, indices_b]
         prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
 
@@ -236,7 +240,7 @@ def run_rdf_lambda(
     delta = g_inf - g_zero from the accumulated estimator.
     """
     if atom_a == atom_b:
-        indices_a = trajectory.get_indices(atom_a)
+        indices_a = _get_species_indices(trajectory, atom_a)
         n_a = len(indices_a)
         if n_a < 2:
             raise ValueError(
@@ -246,12 +250,8 @@ def run_rdf_lambda(
         indices = [indices_a, indices_a]
         prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
     else:
-        indices_a = trajectory.get_indices(atom_a)
-        indices_b = trajectory.get_indices(atom_b)
-        if len(indices_a) == 0:
-            raise ValueError(f"No atoms found for species '{atom_a}'.")
-        if len(indices_b) == 0:
-            raise ValueError(f"No atoms found for species '{atom_b}'.")
+        indices_a = _get_species_indices(trajectory, atom_a)
+        indices_b = _get_species_indices(trajectory, atom_b)
         indices = [indices_a, indices_b]
         prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
 

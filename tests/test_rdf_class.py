@@ -196,3 +196,67 @@ class TestComputeRDFConvenience:
 
         np.testing.assert_allclose(rdf1.r, rdf2.r)
         np.testing.assert_allclose(rdf1.g, rdf2.g)
+
+
+class TestRDFSpeciesValidation:
+    """Test validation of species atom counts."""
+
+    def test_like_species_with_one_atom_raises(self):
+        """Like-species RDF with only 1 atom should raise ValueError."""
+        from revelsMD.rdf import RDF
+
+        positions = np.array([[[1, 2, 3]]], dtype=float)
+        forces = np.array([[[0.1, 0.0, 0.0]]], dtype=float)
+        species = ["O"]
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        with pytest.raises(ValueError, match="at least 2 atoms"):
+            RDF(ts, 'O', 'O')
+
+    def test_like_species_with_zero_atoms_raises(self):
+        """Like-species RDF with 0 atoms should raise ValueError."""
+        from revelsMD.rdf import RDF
+
+        positions = np.array([[[1, 2, 3], [4, 5, 6]]], dtype=float)
+        forces = np.array([[[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]]], dtype=float)
+        species = ["H", "H"]
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        with pytest.raises(ValueError, match="No atoms found for species 'O'"):
+            RDF(ts, 'O', 'O')
+
+    def test_unlike_species_with_empty_first_raises(self):
+        """Unlike-species RDF with no atoms for first species should raise ValueError."""
+        from revelsMD.rdf import RDF
+
+        positions = np.array([[[1, 2, 3], [4, 5, 6]]], dtype=float)
+        forces = np.array([[[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]]], dtype=float)
+        species = ["H", "H"]
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        with pytest.raises(ValueError, match="No atoms found for species 'O'"):
+            RDF(ts, 'O', 'H')
+
+    def test_unlike_species_with_empty_second_raises(self):
+        """Unlike-species RDF with no atoms for second species should raise ValueError."""
+        from revelsMD.rdf import RDF
+
+        positions = np.array([[[1, 2, 3], [4, 5, 6]]], dtype=float)
+        forces = np.array([[[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]]], dtype=float)
+        species = ["O", "O"]
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        with pytest.raises(ValueError, match="No atoms found for species 'H'"):
+            RDF(ts, 'O', 'H')

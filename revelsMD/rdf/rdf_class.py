@@ -77,7 +77,7 @@ class RDF:
 
         # Get indices and compute prefactor
         self._like_species = (species_a == species_b)
-        indices_a = trajectory.get_indices(species_a)
+        indices_a = self._get_species_indices(trajectory, species_a)
         if self._like_species:
             n_a = len(indices_a)
             if n_a < 2:
@@ -88,11 +88,7 @@ class RDF:
             self._indices = [indices_a, indices_a]
             self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
         else:
-            indices_b = trajectory.get_indices(species_b)
-            if len(indices_a) == 0:
-                raise ValueError(f"No atoms found for species '{species_a}'.")
-            if len(indices_b) == 0:
-                raise ValueError(f"No atoms found for species '{species_b}'.")
+            indices_b = self._get_species_indices(trajectory, species_b)
             self._indices = [indices_a, indices_b]
             self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
 
@@ -106,6 +102,14 @@ class RDF:
         self._r: np.ndarray | None = None
         self._g: np.ndarray | None = None
         self._lam: np.ndarray | None = None
+
+    @staticmethod
+    def _get_species_indices(trajectory, species: str) -> np.ndarray:
+        """Get indices for a species, with RDF-specific error message."""
+        try:
+            return trajectory.get_indices(species)
+        except ValueError:
+            raise ValueError(f"No atoms found for species '{species}'.")
 
     @property
     def r(self) -> np.ndarray | None:

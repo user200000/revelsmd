@@ -218,6 +218,66 @@ def test_run_rdf_lambda_empty_frame_range(ts):
 
 
 # -------------------------------
+# Species validation tests
+# -------------------------------
+
+class TestSpeciesValidation:
+    """Test validation of species atom counts in RDF functions."""
+
+    def test_run_rdf_like_species_one_atom_raises(self):
+        """run_rdf with like-species and only 1 atom should raise ValueError."""
+        positions = np.array([[[1, 2, 3]]], dtype=float)
+        forces = np.array([[[0.1, 0.0, 0.0]]], dtype=float)
+        species = ["O"]
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        with pytest.raises(ValueError, match="at least 2 atoms"):
+            run_rdf(ts, 'O', 'O')
+
+    def test_run_rdf_unlike_species_empty_raises(self):
+        """run_rdf with unlike-species and empty selection should raise ValueError."""
+        positions = np.array([[[1, 2, 3], [4, 5, 6]]], dtype=float)
+        forces = np.array([[[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]]], dtype=float)
+        species = ["H", "H"]
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        with pytest.raises(ValueError, match="No atoms found for species 'O'"):
+            run_rdf(ts, 'O', 'H')
+
+    def test_run_rdf_lambda_like_species_one_atom_raises(self):
+        """run_rdf_lambda with like-species and only 1 atom should raise ValueError."""
+        positions = np.array([[[1, 2, 3]]], dtype=float)
+        forces = np.array([[[0.1, 0.0, 0.0]]], dtype=float)
+        species = ["O"]
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        with pytest.raises(ValueError, match="at least 2 atoms"):
+            run_rdf_lambda(ts, 'O', 'O')
+
+    def test_run_rdf_lambda_unlike_species_empty_raises(self):
+        """run_rdf_lambda with unlike-species and empty selection should raise ValueError."""
+        positions = np.array([[[1, 2, 3], [4, 5, 6]]], dtype=float)
+        forces = np.array([[[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]]], dtype=float)
+        species = ["O", "O"]
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        with pytest.raises(ValueError, match="No atoms found for species 'H'"):
+            run_rdf_lambda(ts, 'O', 'H')
+
+
+# -------------------------------
 # Tests using real NumpyTrajectory
 # -------------------------------
 
