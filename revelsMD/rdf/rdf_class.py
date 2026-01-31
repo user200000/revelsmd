@@ -94,7 +94,7 @@ class RDF:
 
         # State
         self.progress = 'initialized'
-        self._accumulated: np.ndarray | None = None
+        self._accumulated = np.zeros(len(self._bins), dtype=np.float64)
         self._frame_data: list[np.ndarray] = []
         self._frame_count = 0
 
@@ -139,10 +139,6 @@ class RDF:
         forces : (N, 3) np.ndarray
             Atomic forces for this frame.
         """
-        # Initialize accumulator on first call
-        if self._accumulated is None:
-            self._accumulated = np.zeros(len(self._bins), dtype=np.float64)
-
         # Compute and accumulate
         frame_result = self._single_frame(positions, forces)
         self._accumulated += frame_result
@@ -240,7 +236,6 @@ class RDF:
 
     def _compute_standard(self, integration: str) -> None:
         """Compute forward or backward integrated g(r)."""
-        assert self._accumulated is not None  # Checked by get_rdf()
         scaled = np.nan_to_num(self._accumulated.copy())
         scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
 
@@ -255,7 +250,6 @@ class RDF:
 
     def _compute_lambda(self) -> None:
         """Compute lambda-corrected g(r)."""
-        assert self._accumulated is not None  # Checked by get_rdf()
         base_array = np.nan_to_num(np.array(self._frame_data))
         base_array *= self._prefactor * self._beta / (4 * np.pi)
 
