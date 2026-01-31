@@ -532,3 +532,79 @@ class DensityGrid:
         )
         grid_state_lambda.grid_progress = "Lambda"
         return grid_state_lambda
+
+
+def compute_density(
+    trajectory: Trajectory,
+    atom_names: str | list[str],
+    rigid: bool = False,
+    centre_location: bool | int = True,
+    density_type: str = "number",
+    temperature: float = 300.0,
+    nbins: int | tuple[int, int, int] = 100,
+    kernel: str = "triangular",
+    polarisation_axis: int = 0,
+    start: int = 0,
+    stop: int | None = None,
+    period: int = 1,
+) -> DensityGrid:
+    """
+    Compute density from trajectory with a single function call.
+
+    This is a convenience wrapper that creates a DensityGrid, accumulates
+    force data from the trajectory, and computes the real-space density.
+
+    Parameters
+    ----------
+    trajectory : Trajectory
+        Trajectory-state object providing positions, forces, and box dimensions.
+    atom_names : str or list of str
+        Atom type(s) to include in the density calculation.
+    rigid : bool, optional
+        Whether to treat multi-atom selections as rigid molecules (default: False).
+    centre_location : bool or int, optional
+        For rigid molecules, where to locate the density:
+        True = centre of mass, int = index of atom in atom_names list.
+    density_type : {'number', 'charge', 'polarisation'}, optional
+        Type of density to compute (default: 'number').
+    temperature : float, optional
+        System temperature in Kelvin (default: 300.0).
+    nbins : int or tuple of int, optional
+        Number of grid voxels. Either a single int for uniform binning
+        or a tuple (nbinsx, nbinsy, nbinsz) for per-axis control (default: 100).
+    kernel : {'triangular', 'box'}, optional
+        Deposition kernel for force allocation (default: 'triangular').
+    polarisation_axis : int, optional
+        Axis for polarisation density projection, 0=x, 1=y, 2=z (default: 0).
+    start : int, optional
+        First frame to process (default: 0).
+    stop : int or None, optional
+        Last frame to process, None for all frames (default: None).
+    period : int, optional
+        Frame stride (default: 1).
+
+    Returns
+    -------
+    DensityGrid
+        Grid with computed density available as the `rho` attribute.
+
+    Examples
+    --------
+    >>> from revelsMD.density import compute_density
+    >>> grid = compute_density(trajectory, 'O', temperature=300, nbins=50)
+    >>> density = grid.rho
+    """
+    grid = DensityGrid(trajectory, density_type, temperature, nbins=nbins)
+    grid.make_force_grid(
+        trajectory,
+        atom_names=atom_names,
+        rigid=rigid,
+        centre_location=centre_location,
+        kernel=kernel,
+        polarisation_axis=polarisation_axis,
+        start=start,
+        stop=stop,
+        period=period,
+    )
+    grid.get_real_density()
+    return grid

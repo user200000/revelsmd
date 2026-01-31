@@ -599,3 +599,80 @@ def test_gridstate_backward_compatible_via_revels3d():
     from revelsMD.density import DensityGrid
     with pytest.warns(DeprecationWarning, match="Revels3D.GridState is deprecated.*import DensityGrid"):
         assert Revels3D.GridState is DensityGrid
+
+
+# ---------------------------------------------------------------------------
+# compute_density() convenience function
+# ---------------------------------------------------------------------------
+
+class TestComputeDensity:
+    """Tests for compute_density() convenience function."""
+
+    @pytest.fixture
+    def trajectory(self):
+        """Create mock trajectory that supports iteration."""
+        class IterableMockTrajectory(MockTrajectory):
+            def __init__(self):
+                super().__init__()
+                self.frames = 2
+                self._positions = [
+                    np.array([
+                        [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
+                        [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
+                        [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
+                        [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
+                        [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
+                    ], dtype=float),
+                ]
+                self._forces = [
+                    np.array([
+                        [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
+                        [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
+                        [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
+                        [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
+                        [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
+                    ], dtype=float),
+                ]
+
+            def iter_frames(self, start, stop, period):
+                for i in range(start, stop or self.frames, period):
+                    yield self._positions[i], self._forces[i]
+
+        return IterableMockTrajectory()
+
+    def test_compute_density_returns_densitygrid(self, trajectory):
+        """compute_density should return a DensityGrid with computed density."""
+        from revelsMD.density import compute_density, DensityGrid
+
+        result = compute_density(trajectory, atom_names='O', temperature=300, nbins=5)
+
+        assert isinstance(result, DensityGrid)
+        assert hasattr(result, 'rho')
+        assert result.rho.shape == (5, 5, 5)
+        assert np.all(np.isfinite(result.rho))
+
+    def test_compute_density_with_rigid_molecules(self, trajectory):
+        """compute_density should work with rigid molecules."""
+        from revelsMD.density import compute_density
+
+        result = compute_density(
+            trajectory,
+            atom_names=['O', 'H1', 'H2'],
+            rigid=True,
+            temperature=300,
+            nbins=5
+        )
+
+        assert hasattr(result, 'rho')
+        assert result.rho.shape == (5, 5, 5)
+
+    def test_compute_density_importable_from_density(self):
+        """compute_density should be importable from revelsMD.density."""
+        from revelsMD.density import compute_density
+        assert compute_density is not None
