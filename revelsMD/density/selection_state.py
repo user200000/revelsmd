@@ -1,4 +1,4 @@
-"""SelectionState class for atom selection and center choice."""
+"""Selection class for atom selection and center choice."""
 
 from __future__ import annotations
 
@@ -7,13 +7,9 @@ import numpy as np
 from revelsMD.trajectories._base import Trajectory, DataUnavailableError
 
 
-class SelectionState:
+class Selection:
     """
     Atom selection, charges/masses, and center choice for grid deposition.
-
-    Note: indices/charges/masses are currently np.ndarray for single species
-    and list[np.ndarray] for multi-species. A future refactor will normalise
-    to list[np.ndarray] always (see refactor/normalise-selection-state-types).
 
     Parameters
     ----------

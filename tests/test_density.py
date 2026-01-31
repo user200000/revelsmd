@@ -5,11 +5,11 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------------
-# Mock trajectory for SelectionState tests
+# Mock trajectory for Selection tests
 # ---------------------------------------------------------------------------
 
 class MockTrajectory:
-    """Mock trajectory for testing SelectionState methods."""
+    """Mock trajectory for testing Selection methods."""
 
     def __init__(self):
         self.box_x = self.box_y = self.box_z = 10.0
@@ -43,11 +43,11 @@ class MockTrajectory:
 
 
 # ---------------------------------------------------------------------------
-# SelectionState.get_positions() tests
+# Selection.get_positions() tests
 # ---------------------------------------------------------------------------
 
 class TestDepositToGrid:
-    """Tests for GridState.deposit_to_grid with SelectionState."""
+    """Tests for GridState.deposit_to_grid with Selection."""
 
     @pytest.fixture
     def trajectory(self):
@@ -85,10 +85,10 @@ class TestDepositToGrid:
 
     def test_deposit_single_species_number_density(self, trajectory, positions, forces):
         """deposit_to_grid with single species populates grid."""
-        from revelsMD.density import GridState, SelectionState
+        from revelsMD.density import GridState, Selection
 
         gs = GridState(trajectory, "number", nbins=5)
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         assert np.any(gs.forceX != 0)
@@ -97,10 +97,10 @@ class TestDepositToGrid:
 
     def test_deposit_multi_species_non_rigid(self, trajectory, positions, forces):
         """deposit_to_grid with multi-species non-rigid deposits each species."""
-        from revelsMD.density import GridState, SelectionState
+        from revelsMD.density import GridState, Selection
 
         gs = GridState(trajectory, "number", nbins=5)
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         # 3 species deposited = 3 calls to _process_frame
@@ -109,10 +109,10 @@ class TestDepositToGrid:
 
     def test_deposit_rigid_com_number_density(self, trajectory, positions, forces):
         """deposit_to_grid with rigid molecule at COM populates grid."""
-        from revelsMD.density import GridState, SelectionState
+        from revelsMD.density import GridState, Selection
 
         gs = GridState(trajectory, "number", nbins=5)
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         # Rigid deposits once per molecule group
@@ -122,10 +122,10 @@ class TestDepositToGrid:
 
     def test_deposit_charge_density_single_species(self, trajectory, positions, forces):
         """deposit_to_grid with charge density uses charge weights."""
-        from revelsMD.density import GridState, SelectionState
+        from revelsMD.density import GridState, Selection
 
         gs = GridState(trajectory, "charge", nbins=5)
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         # O has negative charge, so counter contributions are negative
@@ -187,8 +187,8 @@ class TestMakeForceGridUnified:
         assert gs.grid_progress == "Allocated"
 
 
-class TestSelectionStateGetWeights:
-    """Tests for SelectionState.get_weights() method."""
+class TestSelectionGetWeights:
+    """Tests for Selection.get_weights() method."""
 
     @pytest.fixture
     def trajectory(self):
@@ -214,18 +214,18 @@ class TestSelectionStateGetWeights:
 
     def test_number_density_returns_one(self, trajectory):
         """Number density should return weight of 1.0."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         result = ss.get_weights()
 
         assert result == 1.0
 
     def test_charge_single_species_returns_charges(self, trajectory):
         """Charge density for single species should return charge array."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
         result = ss.get_weights()
 
         expected = np.array([-0.8, -0.8, -0.8])  # O charges
@@ -233,9 +233,9 @@ class TestSelectionStateGetWeights:
 
     def test_charge_multi_species_not_rigid_returns_list(self, trajectory):
         """Charge density for multi-species non-rigid should return list of charge arrays."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='charge')
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='charge')
         result = ss.get_weights()
 
         assert isinstance(result, list)
@@ -246,9 +246,9 @@ class TestSelectionStateGetWeights:
 
     def test_charge_rigid_returns_summed_charges(self, trajectory):
         """Charge density for rigid should return total charge per molecule."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='charge')
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='charge')
         result = ss.get_weights()
 
         # Total charge per molecule: -0.8 + 0.4 + 0.4 = 0.0
@@ -257,9 +257,9 @@ class TestSelectionStateGetWeights:
 
     def test_polarisation_returns_dipole_projection(self, trajectory, positions):
         """Polarisation density should return dipole projected along axis."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(
+        ss = Selection(
             trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True,
             density_type='polarisation', polarisation_axis=0
         )
@@ -275,8 +275,8 @@ class TestSelectionStateGetWeights:
         np.testing.assert_allclose(result, expected, atol=1e-10)
 
 
-class TestSelectionStateGetForces:
-    """Tests for SelectionState.get_forces() method."""
+class TestSelectionGetForces:
+    """Tests for Selection.get_forces() method."""
 
     @pytest.fixture
     def trajectory(self):
@@ -302,9 +302,9 @@ class TestSelectionStateGetForces:
 
     def test_single_species_returns_forces_at_indices(self, trajectory, forces):
         """Single species should return forces at selected indices."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False)
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False)
         result = ss.get_forces(forces)
 
         expected = forces[[0, 3, 6], :]  # O atoms
@@ -312,9 +312,9 @@ class TestSelectionStateGetForces:
 
     def test_multi_species_not_rigid_returns_list(self, trajectory, forces):
         """Multi-species, non-rigid should return list of force arrays."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False)
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False)
         result = ss.get_forces(forces)
 
         assert isinstance(result, list)
@@ -325,9 +325,9 @@ class TestSelectionStateGetForces:
 
     def test_rigid_sums_forces_across_molecule(self, trajectory, forces):
         """Rigid molecule should sum forces across all atoms in molecule."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
         result = ss.get_forces(forces)
 
         # Sum forces for each molecule
@@ -339,8 +339,8 @@ class TestSelectionStateGetForces:
         np.testing.assert_allclose(result[:, 1], [0.0, 0.0, 0.0])
 
 
-class TestSelectionStateGetPositionsPeriodicBoundary:
-    """Tests for SelectionState.get_positions() with molecules spanning periodic boundaries."""
+class TestSelectionGetPositionsPeriodicBoundary:
+    """Tests for Selection.get_positions() with molecules spanning periodic boundaries."""
 
     @pytest.fixture
     def trajectory(self):
@@ -372,12 +372,12 @@ class TestSelectionStateGetPositionsPeriodicBoundary:
 
     def test_com_with_molecule_spanning_periodic_boundary(self, trajectory, positions_across_boundary):
         """COM should handle molecules that span periodic boundaries correctly."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
         # Box is 10x10x10, molecule spans boundary in x
         # O at x=9.5, H1 at x=0.3 (really at x=10.3, i.e. 0.8 from O)
         # H2 at x=0.5 (really at x=10.5, i.e. 1.0 from O)
-        ss = SelectionState(
+        ss = Selection(
             trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True
         )
         result = ss.get_positions(positions_across_boundary)
@@ -394,9 +394,9 @@ class TestSelectionStateGetPositionsPeriodicBoundary:
 
     def test_dipole_with_molecule_spanning_periodic_boundary(self, trajectory, positions_across_boundary):
         """Dipole calculation should handle molecules that span periodic boundaries."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(
+        ss = Selection(
             trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True,
             density_type='polarisation', polarisation_axis=0
         )
@@ -418,8 +418,8 @@ class TestSelectionStateGetPositionsPeriodicBoundary:
         assert result[0] < 1.0, f"Dipole x={result[0]} should be < 1.0 (small molecule)"
 
 
-class TestSelectionStateExtract:
-    """Tests for SelectionState.extract() method."""
+class TestSelectionExtract:
+    """Tests for Selection.extract() method."""
 
     @pytest.fixture
     def trajectory(self):
@@ -445,9 +445,9 @@ class TestSelectionStateExtract:
 
     def test_extract_returns_tuple_of_three(self, trajectory, positions, forces):
         """extract() should return a tuple of (positions, forces, weights)."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         result = ss.extract(positions, forces)
 
         assert isinstance(result, tuple)
@@ -455,9 +455,9 @@ class TestSelectionStateExtract:
 
     def test_extract_matches_individual_methods_single_species(self, trajectory, positions, forces):
         """extract() should return same values as calling get_positions, get_forces, get_weights."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
 
         np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
@@ -466,9 +466,9 @@ class TestSelectionStateExtract:
 
     def test_extract_matches_individual_methods_rigid_com(self, trajectory, positions, forces):
         """extract() should match individual methods for rigid COM case."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
         extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
 
         np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
@@ -477,9 +477,9 @@ class TestSelectionStateExtract:
 
     def test_extract_matches_individual_methods_charge_density(self, trajectory, positions, forces):
         """extract() should match individual methods for charge density."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
         extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
 
         np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
@@ -487,8 +487,8 @@ class TestSelectionStateExtract:
         np.testing.assert_array_equal(extracted_weights, ss.get_weights(positions))
 
 
-class TestSelectionStateGetPositions:
-    """Tests for SelectionState.get_positions() method."""
+class TestSelectionGetPositions:
+    """Tests for Selection.get_positions() method."""
 
     @pytest.fixture
     def trajectory(self):
@@ -514,9 +514,9 @@ class TestSelectionStateGetPositions:
 
     def test_single_species_returns_positions_at_indices(self, trajectory, positions):
         """Single species should return positions at selected indices."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False)
+        ss = Selection(trajectory, 'O', centre_location=True, rigid=False)
         result = ss.get_positions(positions)
 
         expected = positions[[0, 3, 6], :]  # O atoms
@@ -524,9 +524,9 @@ class TestSelectionStateGetPositions:
 
     def test_multi_species_not_rigid_returns_list(self, trajectory, positions):
         """Multi-species, non-rigid should return list of position arrays."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False)
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False)
         result = ss.get_positions(positions)
 
         assert isinstance(result, list)
@@ -537,9 +537,9 @@ class TestSelectionStateGetPositions:
 
     def test_rigid_com_returns_center_of_mass(self, trajectory, positions):
         """Rigid molecule with COM should return mass-weighted center positions."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
         result = ss.get_positions(positions)
 
         # COM for each molecule (masses: O=16, H1=1, H2=1, total=18)
@@ -552,10 +552,10 @@ class TestSelectionStateGetPositions:
 
     def test_rigid_specific_atom_returns_that_atoms_positions(self, trajectory, positions):
         """Rigid molecule with specific atom index should return that atom's positions."""
-        from revelsMD.density import SelectionState
+        from revelsMD.density import Selection
 
         # centre_location=1 means use H1 positions
-        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=1, rigid=True)
+        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=1, rigid=True)
         result = ss.get_positions(positions)
 
         expected = positions[[1, 4, 7], :]  # H1 atoms
@@ -567,23 +567,23 @@ class TestSelectionStateGetPositions:
 # ---------------------------------------------------------------------------
 
 def test_selectionstate_importable_from_density():
-    """SelectionState should be importable from revelsMD.density."""
-    from revelsMD.density import SelectionState
-    assert SelectionState is not None
+    """Selection should be importable from revelsMD.density."""
+    from revelsMD.density import Selection
+    assert Selection is not None
 
 
 def test_selectionstate_importable_from_submodule():
-    """SelectionState should be importable from revelsMD.density.selection_state."""
-    from revelsMD.density.selection_state import SelectionState
-    assert SelectionState is not None
+    """Selection should be importable from revelsMD.density.selection_state."""
+    from revelsMD.density.selection_state import Selection
+    assert Selection is not None
 
 
 def test_selectionstate_backward_compatible_via_revels3d():
     """Revels3D.SelectionState should still work but emit deprecation warning."""
     from revelsMD.revels_3D import Revels3D
-    from revelsMD.density import SelectionState
+    from revelsMD.density import Selection
     with pytest.warns(DeprecationWarning, match="Revels3D.SelectionState is deprecated"):
-        assert Revels3D.SelectionState is SelectionState
+        assert Revels3D.SelectionState is Selection
 
 
 def test_gridstate_importable_from_density():

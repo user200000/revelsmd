@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 from revelsMD.revels_3D import Revels3D
-from revelsMD.density import SelectionState, GridState
+from revelsMD.density import Selection, GridState
 from ase import Atoms
 
 
@@ -175,52 +175,52 @@ def test_deposit_to_grid_broadcasts_scalar_weight(ts):
 
 
 # ---------------------------
-# SelectionState
+# Selection
 # ---------------------------
 
 def test_selectionstate_single(ts):
-    ss = SelectionState(ts, "H", centre_location=True)
+    ss = Selection(ts, "H", centre_location=True)
     assert ss.single_species
     assert isinstance(ss.indices, np.ndarray)
 
 
 def test_selectionstate_single_with_charges(ts):
-    ss = SelectionState(ts, "H", centre_location=True, density_type='charge')
+    ss = Selection(ts, "H", centre_location=True, density_type='charge')
     assert np.all(ss.charges == 0.1)
 
 
 def test_selectionstate_single_with_polarisation(ts):
-    ss = SelectionState(ts, "H", centre_location=True, density_type='polarisation')
+    ss = Selection(ts, "H", centre_location=True, density_type='polarisation')
     assert np.all(ss.charges == 0.1)
     assert np.all(ss.masses == 1.0)
 
 
 def test_selectionstate_rigid(ts):
-    ss = SelectionState(ts, ["H", "O"], centre_location=True)
+    ss = Selection(ts, ["H", "O"], centre_location=True)
     assert not ss.single_species
     assert isinstance(ss.indices, list)
     assert len(ss.indices) == 2
 
 
 def test_selectionstate_rigid_with_polarisation(ts):
-    ss = SelectionState(ts, ["H", "O"], centre_location=True, density_type='polarisation')
+    ss = Selection(ts, ["H", "O"], centre_location=True, density_type='polarisation')
     assert len(ss.masses) == 2
     assert len(ss.charges) == 2
 
 
 def test_selectionstate_badcentre(ts):
     with pytest.raises(ValueError):
-        SelectionState(ts, ["H", "O"], centre_location="invalid")
+        Selection(ts, ["H", "O"], centre_location="invalid")
 
 
 def test_position_centre_valid(ts):
-    ss = SelectionState(ts, ["H", "O"], centre_location=True)
+    ss = Selection(ts, ["H", "O"], centre_location=True)
     ss.position_centre(1)
     assert ss.species_number == 1
 
 
 def test_position_centre_out_of_range(ts):
-    ss = SelectionState(ts, ["H", "O"], centre_location=True)
+    ss = Selection(ts, ["H", "O"], centre_location=True)
     with pytest.raises(ValueError):
         ss.position_centre(10)
 
@@ -250,7 +250,7 @@ def test_selectionstate_rigid_water():
             return self._masses[atype]
 
     ts_water = WaterTSMock()
-    ss = SelectionState(ts_water, ["Ow", "Hw1", "Hw2"], centre_location=True, rigid=True)
+    ss = Selection(ts_water, ["Ow", "Hw1", "Hw2"], centre_location=True, rigid=True)
     assert len(ss.indices) == 3
     assert len(ss.indices[0]) == 2  # 2 Ow atoms
     assert len(ss.indices[1]) == 2  # 2 Hw1 atoms

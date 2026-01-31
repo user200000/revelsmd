@@ -5,7 +5,7 @@ This module provides backward-compatible access to density estimation classes.
 The classes have been moved to revelsMD.density package.
 
 Preferred imports:
-    from revelsMD.density import GridState, SelectionState
+    from revelsMD.density import GridState, Selection
 
 Deprecated (but still works):
     from revelsMD.revels_3D import Revels3D
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import warnings
 
-from revelsMD.density import SelectionState, GridState
+from revelsMD.density import Selection, GridState
 
 
 class _DeprecatedClassDescriptor:
@@ -42,9 +42,9 @@ class Revels3D:
 
     The nested classes are deprecated. Use revelsMD.density imports instead:
     - `GridState`: use `from revelsMD.density import GridState`
-    - `SelectionState`: use `from revelsMD.density import SelectionState`
+    - `Selection`: use `from revelsMD.density import Selection`
     """
 
     # Deprecated aliases - use revelsMD.density imports instead
     GridState = _DeprecatedClassDescriptor(GridState, "GridState")
-    SelectionState = _DeprecatedClassDescriptor(SelectionState, "SelectionState")
+    SelectionState = _DeprecatedClassDescriptor(Selection, "SelectionState")

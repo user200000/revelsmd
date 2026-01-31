@@ -12,7 +12,7 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
-from revelsMD.density.selection_state import SelectionState
+from revelsMD.density.selection_state import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
 
 # Module-level backend functions (loaded once at import)
@@ -286,7 +286,7 @@ class GridState:
                 raise ValueError("Polarisation densities are only implemented for rigid molecules.")
 
         # Build selection wrapper with density configuration
-        self.selection_state = SelectionState(
+        self.selection_state = Selection(
             trajectory,
             atom_names=atom_names,
             centre_location=centre_location,
