@@ -11,6 +11,10 @@ class SelectionState:
     """
     Atom selection, charges/masses, and center choice for grid deposition.
 
+    Note: indices/charges/masses are currently np.ndarray for single species
+    and list[np.ndarray] for multi-species. A future refactor will normalise
+    to list[np.ndarray] always (see refactor/normalise-selection-state-types).
+
     Parameters
     ----------
     trajectory : Trajectory
@@ -41,6 +45,11 @@ class SelectionState:
         Per-species arrays (rigid) or single array (single species). Only
         populated when required by density_type.
     """
+
+    # Type declarations (union types until normalisation refactor)
+    indices: np.ndarray | list[np.ndarray]
+    charges: np.ndarray | list[np.ndarray]
+    masses: np.ndarray | list[np.ndarray]
 
     def __init__(
         self,
