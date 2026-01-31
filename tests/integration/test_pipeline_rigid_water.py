@@ -163,7 +163,7 @@ class TestRigidWaterRDF:
         ts = example4_trajectory
 
         rdf = RevelsRDF.run_rdf(
-            ts, 'Ow', 'Ow', temp=300,
+            ts, 'Ow', 'Ow',
             period=1, delr=0.1, start=0, stop=5
         )
 
@@ -184,7 +184,7 @@ class TestRigidWaterRDF:
         ts = example4_trajectory
 
         rdf = RevelsRDF.run_rdf(
-            ts, 'Ow', 'Hw1', temp=300,
+            ts, 'Ow', 'Hw1',
             period=1, delr=0.1, start=0, stop=5
         )
 

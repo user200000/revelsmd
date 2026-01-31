@@ -27,7 +27,7 @@ class TestRDFAnalyticalReference:
         ts = uniform_gas_trajectory
 
         # Use backward integration which should give g(r) ~ 1 for uniform gas
-        rdf = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, start=0, stop=-1, from_zero=False)
+        rdf = RevelsRDF.run_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, from_zero=False)
 
         assert rdf is not None
         assert rdf.shape[0] == 2  # [r, g(r)]
@@ -50,7 +50,7 @@ class TestRDFAnalyticalReference:
         ts = two_atom_trajectory
 
         # Use fine binning to resolve the peak
-        rdf = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, start=0, stop=-1)
+        rdf = RevelsRDF.run_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1)
 
         assert rdf is not None
         assert np.all(np.isfinite(rdf))
@@ -79,7 +79,7 @@ class TestRDFAnalyticalReference:
         ts = cubic_lattice_trajectory
 
         # Use backward integration for cleaner results
-        rdf = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, start=0, stop=-1, from_zero=False)
+        rdf = RevelsRDF.run_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, from_zero=False)
 
         assert rdf is not None
         assert np.all(np.isfinite(rdf))
@@ -105,10 +105,10 @@ class TestRDFAnalyticalReference:
         ts = uniform_gas_trajectory
 
         rdf_forward = RevelsRDF.run_rdf(
-            ts, '1', '1', temp=1.0, delr=0.1, from_zero=True
+            ts, '1', '1', delr=0.1, from_zero=True
         )
         rdf_backward = RevelsRDF.run_rdf(
-            ts, '1', '1', temp=1.0, delr=0.1, from_zero=False
+            ts, '1', '1', delr=0.1, from_zero=False
         )
 
         assert rdf_forward is not None
@@ -138,7 +138,7 @@ class TestRDFAnalyticalReference:
         """
         ts = uniform_gas_trajectory
 
-        rdf_lambda = RevelsRDF.run_rdf_lambda(ts, '1', '1', temp=1.0, delr=0.2)
+        rdf_lambda = RevelsRDF.run_rdf_lambda(ts, '1', '1', delr=0.2)
 
         assert rdf_lambda is not None
         assert rdf_lambda.shape[1] == 3  # [r, g_lambda, lambda]
@@ -267,10 +267,10 @@ class TestMultispeciesRDF:
         ts = multispecies_trajectory
 
         # Like pairs (1-1) with backward integration for g(r) ~ 1
-        rdf_like = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.2, from_zero=False)
+        rdf_like = RevelsRDF.run_rdf(ts, '1', '1', delr=0.2, from_zero=False)
 
         # Unlike pairs (1-2) with backward integration
-        rdf_unlike = RevelsRDF.run_rdf(ts, '1', '2', temp=1.0, delr=0.2, from_zero=False)
+        rdf_unlike = RevelsRDF.run_rdf(ts, '1', '2', delr=0.2, from_zero=False)
 
         assert rdf_like is not None
         assert rdf_unlike is not None

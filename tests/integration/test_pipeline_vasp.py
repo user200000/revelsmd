@@ -69,7 +69,10 @@ class TestVASPPipelineExample3:
 
         assert gs.density_type == 'number'
         assert gs.nbinsx == 50
-        assert gs.temperature == 600
+        # beta = 1/(kB*T) for metal units at 600K
+        import scipy.constants
+        kB_eV = scipy.constants.physical_constants["Boltzmann constant in eV/K"][0]
+        assert np.isclose(gs.beta, 1.0 / (kB_eV * 600))
 
     def test_fluoride_number_density(self, vasp_trajectory):
         """Number density calculation for fluoride ions."""
@@ -97,7 +100,7 @@ class TestVASPPipelineExample3:
 
         try:
             rdf = RevelsRDF.run_rdf(
-                ts, 'F', 'F', temp=600,
+                ts, 'F', 'F',
                 period=1, delr=0.1
             )
         except Exception as e:
@@ -113,7 +116,7 @@ class TestVASPPipelineExample3:
 
         try:
             rdf = RevelsRDF.run_rdf(
-                ts, 'Ba', 'F', temp=600,
+                ts, 'Ba', 'F',
                 period=1, delr=0.1
             )
         except Exception as e:
@@ -232,14 +235,14 @@ class TestVASPSyntheticFallback:
         species = ['F'] * n_f + ['Ba'] * n_ba + ['Sn'] * n_sn
 
         return NumpyTrajectory(
-            positions, forces, box, box, box, species, units='metal'
+            positions, forces, box, box, box, species, units='metal', temperature=600
         )
 
     def test_synthetic_rdf_calculation(self, synthetic_vasp_like_trajectory):
         """RDF calculation works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        rdf = RevelsRDF.run_rdf(ts, 'F', 'F', temp=600, delr=0.2)
+        rdf = RevelsRDF.run_rdf(ts, 'F', 'F', delr=0.2)
 
         assert rdf is not None
         assert np.all(np.isfinite(rdf))
@@ -259,7 +262,7 @@ class TestVASPSyntheticFallback:
         """Unlike-pair RDF works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        rdf = RevelsRDF.run_rdf(ts, 'Ba', 'F', temp=600, delr=0.2)
+        rdf = RevelsRDF.run_rdf(ts, 'Ba', 'F', delr=0.2)
 
         assert rdf is not None
         assert np.all(np.isfinite(rdf))

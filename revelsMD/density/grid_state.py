@@ -540,7 +540,6 @@ def compute_density(
     rigid: bool = False,
     centre_location: bool | int = True,
     density_type: str = "number",
-    temperature: float = 300.0,
     nbins: int | tuple[int, int, int] = 100,
     kernel: str = "triangular",
     polarisation_axis: int = 0,
@@ -567,8 +566,6 @@ def compute_density(
         True = centre of mass, int = index of atom in atom_names list.
     density_type : {'number', 'charge', 'polarisation'}, optional
         Type of density to compute (default: 'number').
-    temperature : float, optional
-        System temperature in Kelvin (default: 300.0).
     nbins : int or tuple of int, optional
         Number of grid voxels. Either a single int for uniform binning
         or a tuple (nbinsx, nbinsy, nbinsz) for per-axis control (default: 100).
@@ -591,10 +588,10 @@ def compute_density(
     Examples
     --------
     >>> from revelsMD.density import compute_density
-    >>> grid = compute_density(trajectory, 'O', temperature=300, nbins=50)
+    >>> grid = compute_density(trajectory, 'O', nbins=50)
     >>> density = grid.rho
     """
-    grid = DensityGrid(trajectory, density_type, temperature, nbins=nbins)
+    grid = DensityGrid(trajectory, density_type, nbins=nbins)
     grid.make_force_grid(
         trajectory,
         atom_names=atom_names,

@@ -41,12 +41,12 @@ class TestLammpsVsNumpyConsistency:
         # So use stop=4 on both to process frames 0,1,2,3
         n_frames_to_use = 4
         rdf_lammps = RevelsRDF.run_rdf(
-            lammps_ts, '1', '1', temp=1.35,
+            lammps_ts, '1', '1',
             delr=0.02, start=0, stop=n_frames_to_use
         )
 
         rdf_numpy = RevelsRDF.run_rdf(
-            numpy_ts, '1', '1', temp=1.35,
+            numpy_ts, '1', '1',
             delr=0.02, start=0, stop=n_frames_to_use
         )
 
@@ -128,12 +128,12 @@ class TestMDAVsNumpyConsistency:
 
         # Compute RDF via both using same frame range
         rdf_mda = RevelsRDF.run_rdf(
-            mda_ts, 'Ow', 'Ow', temp=300,
+            mda_ts, 'Ow', 'Ow',
             delr=0.1, start=0, stop=n_frames
         )
 
         rdf_numpy = RevelsRDF.run_rdf(
-            numpy_ts, 'Ow', 'Ow', temp=300,
+            numpy_ts, 'Ow', 'Ow',
             delr=0.1, start=0, stop=None  # Process all frames in NumPy trajectory
         )
 

@@ -87,6 +87,7 @@ class TestDeposit:
         """deposit with single species populates grid."""
         from revelsMD.density import DensityGrid, Selection
 
+        gs = DensityGrid(trajectory, "number", nbins=5)
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -98,6 +99,7 @@ class TestDeposit:
         """deposit with multi-species non-rigid deposits each species."""
         from revelsMD.density import DensityGrid, Selection
 
+        gs = DensityGrid(trajectory, "number", nbins=5)
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
         gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -109,6 +111,7 @@ class TestDeposit:
         """deposit with rigid molecule at COM populates grid."""
         from revelsMD.density import DensityGrid, Selection
 
+        gs = DensityGrid(trajectory, "number", nbins=5)
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
         gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -121,6 +124,7 @@ class TestDeposit:
         """deposit with charge density uses charge weights."""
         from revelsMD.density import DensityGrid, Selection
 
+        gs = DensityGrid(trajectory, "charge", nbins=5)
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
         gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -174,6 +178,7 @@ class TestMakeForceGridUnified:
         """make_force_grid with single species number density produces correct grid."""
         from revelsMD.density import DensityGrid
 
+        gs = DensityGrid(trajectory, "number", nbins=5)
         gs.make_force_grid(trajectory, atom_names="O", rigid=False, start=0, stop=2)
 
         # Verify grid was populated
@@ -650,7 +655,7 @@ class TestComputeDensity:
         """compute_density should return a DensityGrid with computed density."""
         from revelsMD.density import compute_density, DensityGrid
 
-        result = compute_density(trajectory, atom_names='O', temperature=300, nbins=5)
+        result = compute_density(trajectory, atom_names='O', nbins=5)
 
         assert isinstance(result, DensityGrid)
         assert hasattr(result, 'rho')
@@ -665,7 +670,6 @@ class TestComputeDensity:
             trajectory,
             atom_names=['O', 'H1', 'H2'],
             rigid=True,
-            temperature=300,
             nbins=5
         )
 
