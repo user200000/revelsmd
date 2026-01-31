@@ -208,7 +208,7 @@ class RevelsRDF:
             prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices)) * float(len(indices) - 1))
         else:
             indices = [np.array(trajectory.get_indices(atom_a)), np.array(trajectory.get_indices(atom_b))]
-            single_frame_function = RevelsRDF.single_frame_rdf_unlike
+            single_frame_function = RevelsRDF.single_frame_rdf_unlike  # type: ignore[assignment]
             prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
 
         # Validate frame bounds
@@ -308,7 +308,7 @@ class RevelsRDF:
             prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices)) * float(len(indices) - 1))
         else:
             indices = [trajectory.get_indices(atom_a), trajectory.get_indices(atom_b)]
-            single_frame_function = RevelsRDF.single_frame_rdf_unlike
+            single_frame_function = RevelsRDF.single_frame_rdf_unlike  # type: ignore[assignment]
             prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
 
         # Validate frame bounds

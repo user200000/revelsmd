@@ -308,7 +308,7 @@ class VaspTrajectory(Trajectory):
             self.forces = self.Vasprun.forces
 
         # Backwards compatibility: expose start structure via Vasprun.start
-        self.Vasprun.start = self._start_structure
+        self.Vasprun.start = self._start_structure  # type: ignore[attr-defined]
 
     @staticmethod
     def _validate_cell(lattice: Lattice):
