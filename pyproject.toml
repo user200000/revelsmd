@@ -20,7 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 docs = ["recommonmark"]
-test = ["pytest", "pytest-cov"]
+test = ["pytest", "pytest-cov", "mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
