@@ -37,8 +37,8 @@ class SelectionState:
 
     Attributes
     ----------
-    indistinguishable_set : bool
-        True if a single species is selected; False for multi-species (rigid).
+    single_species : bool
+        True if selection contains a single species (all atoms interchangeable).
     indices : np.ndarray or list of np.ndarray
         Atom indices of the selection (kept name for compatibility).
     charges, masses : list or np.ndarray
@@ -50,6 +50,11 @@ class SelectionState:
     indices: np.ndarray | list[np.ndarray]
     charges: np.ndarray | list[np.ndarray]
     masses: np.ndarray | list[np.ndarray]
+
+    @property
+    def single_species(self) -> bool:
+        """True if selection contains a single species (all atoms interchangeable)."""
+        return not isinstance(self.indices, list)
 
     def __init__(
         self,
@@ -70,7 +75,6 @@ class SelectionState:
         needs_masses = density_type == 'polarisation' or (rigid and centre_location is True)
 
         if isinstance(atom_names, list) and len(atom_names) > 1:
-            self.indistinguishable_set = False
             self.indices: list[np.ndarray] = []
             for atom in atom_names:
                 self.indices.append(trajectory.get_indices(atom))
@@ -102,7 +106,6 @@ class SelectionState:
             # Single species
             if isinstance(atom_names, list):
                 atom_names = atom_names[0]
-            self.indistinguishable_set = True
             self.indices = trajectory.get_indices(atom_names)
 
             if needs_charges:
@@ -147,7 +150,7 @@ class SelectionState:
             - Rigid, COM: (M, 3) array of center-of-mass positions
             - Rigid, specific atom: (M, 3) array of that atom's positions
         """
-        if self.indistinguishable_set:
+        if self.single_species:
             return positions[self.indices, :]
 
         if not self.rigid:
@@ -211,7 +214,7 @@ class SelectionState:
             - Multi-species, not rigid: list of (M, 3) arrays per species
             - Rigid: (M, 3) array of summed forces per molecule
         """
-        if self.indistinguishable_set:
+        if self.single_species:
             return forces[self.indices, :]
 
         if not self.rigid:
@@ -244,7 +247,7 @@ class SelectionState:
                 return 1.0
 
             case 'charge':
-                if self.indistinguishable_set or not self.rigid:
+                if self.single_species or not self.rigid:
                     return self.charges
                 total_charge = self.charges[0].copy()
                 for species_idx in range(1, len(self.charges)):
