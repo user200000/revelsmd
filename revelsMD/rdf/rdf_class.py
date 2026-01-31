@@ -79,11 +79,20 @@ class RDF:
         self._like_species = (species_a == species_b)
         indices_a = trajectory.get_indices(species_a)
         if self._like_species:
-            self._indices = [indices_a, indices_a]
             n_a = len(indices_a)
+            if n_a < 2:
+                raise ValueError(
+                    f"Like-species RDF requires at least 2 atoms of species '{species_a}', "
+                    f"but only {n_a} found."
+                )
+            self._indices = [indices_a, indices_a]
             self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
         else:
             indices_b = trajectory.get_indices(species_b)
+            if len(indices_a) == 0:
+                raise ValueError(f"No atoms found for species '{species_a}'.")
+            if len(indices_b) == 0:
+                raise ValueError(f"No atoms found for species '{species_b}'.")
             self._indices = [indices_a, indices_b]
             self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
 
