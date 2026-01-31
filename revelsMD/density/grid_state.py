@@ -162,7 +162,7 @@ class DensityGrid:
         else:
             raise ValueError(f"Unsupported kernel: {kernel!r}")
 
-    def deposit_to_grid(
+    def deposit(
         self,
         positions: np.ndarray | list[np.ndarray],
         forces: np.ndarray | list[np.ndarray],
@@ -300,7 +300,7 @@ class DensityGrid:
             deposit_positions = self.selection_state.get_positions(positions)
             deposit_forces = self.selection_state.get_forces(forces)
             weights = self.selection_state.get_weights(positions)
-            self.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=self.kernel)  # type: ignore[arg-type]
+            self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)  # type: ignore[arg-type]
 
         self.frames_processed = self.to_run
         self.grid_progress = "Allocated"
@@ -516,7 +516,7 @@ class DensityGrid:
                 deposit_positions = grid_state_lambda.selection_state.get_positions(positions)
                 deposit_forces = grid_state_lambda.selection_state.get_forces(forces)
                 weights = grid_state_lambda.selection_state.get_weights(positions)
-                grid_state_lambda.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=grid_state_lambda.kernel)  # type: ignore[arg-type]
+                grid_state_lambda.deposit(deposit_positions, deposit_forces, weights, kernel=grid_state_lambda.kernel)  # type: ignore[arg-type]
 
             # Compute densities for this section and accumulate statistics
             grid_state_lambda.get_real_density()

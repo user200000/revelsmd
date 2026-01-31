@@ -136,38 +136,38 @@ def test_process_frame_invalid_kernel(ts):
 
 
 # ---------------------------
-# DensityGrid.deposit_to_grid
+# DensityGrid.deposit
 # ---------------------------
 
-def test_deposit_to_grid_single_array(ts):
-    """deposit_to_grid with single array deposits once."""
+def test_deposit_single_array(ts):
+    """deposit with single array deposits once."""
     gs = DensityGrid(ts, "number", nbins=4)
     pos = np.array([[1.0, 2.0, 3.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
-    gs.deposit_to_grid(pos, frc, weights=1.0, kernel="triangular")
+    gs.deposit(pos, frc, weights=1.0, kernel="triangular")
 
     assert gs.count == 1
     assert np.any(gs.counter != 0)
     assert np.any(gs.forceX != 0)
 
 
-def test_deposit_to_grid_list_of_arrays(ts):
-    """deposit_to_grid with list of arrays deposits each separately."""
+def test_deposit_list_of_arrays(ts):
+    """deposit with list of arrays deposits each separately."""
     gs = DensityGrid(ts, "number", nbins=4)
     pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
     frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
-    gs.deposit_to_grid(pos_list, frc_list, weights=1.0, kernel="box")
+    gs.deposit(pos_list, frc_list, weights=1.0, kernel="box")
 
     assert gs.count == 2
     assert np.any(gs.counter != 0)
 
 
-def test_deposit_to_grid_broadcasts_scalar_weight(ts):
-    """deposit_to_grid broadcasts scalar weight to all position arrays."""
+def test_deposit_broadcasts_scalar_weight(ts):
+    """deposit broadcasts scalar weight to all position arrays."""
     gs = DensityGrid(ts, "number", nbins=4)
     pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
     frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
-    gs.deposit_to_grid(pos_list, frc_list, weights=1.0, kernel="triangular")
+    gs.deposit(pos_list, frc_list, weights=1.0, kernel="triangular")
 
     # Both depositions should have been made
     assert gs.count == 2

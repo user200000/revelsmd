@@ -46,8 +46,8 @@ class MockTrajectory:
 # Selection.get_positions() tests
 # ---------------------------------------------------------------------------
 
-class TestDepositToGrid:
-    """Tests for DensityGrid.deposit_to_grid with Selection."""
+class TestDeposit:
+    """Tests for DensityGrid.deposit with Selection."""
 
     @pytest.fixture
     def trajectory(self):
@@ -84,33 +84,33 @@ class TestDepositToGrid:
         ], dtype=float)
 
     def test_deposit_single_species_number_density(self, trajectory, positions, forces):
-        """deposit_to_grid with single species populates grid."""
+        """deposit with single species populates grid."""
         from revelsMD.density import DensityGrid, Selection
 
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
-        gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         assert np.any(gs.forceX != 0)
         assert np.any(gs.counter != 0)
         assert gs.count == 1
 
     def test_deposit_multi_species_non_rigid(self, trajectory, positions, forces):
-        """deposit_to_grid with multi-species non-rigid deposits each species."""
+        """deposit with multi-species non-rigid deposits each species."""
         from revelsMD.density import DensityGrid, Selection
 
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
-        gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         # 3 species deposited = 3 calls to _process_frame
         assert gs.count == 3
         assert np.any(gs.counter != 0)
 
     def test_deposit_rigid_com_number_density(self, trajectory, positions, forces):
-        """deposit_to_grid with rigid molecule at COM populates grid."""
+        """deposit with rigid molecule at COM populates grid."""
         from revelsMD.density import DensityGrid, Selection
 
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
-        gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         # Rigid deposits once per molecule group
         assert gs.count == 1
@@ -118,11 +118,11 @@ class TestDepositToGrid:
         assert np.any(gs.forceX != 0)
 
     def test_deposit_charge_density_single_species(self, trajectory, positions, forces):
-        """deposit_to_grid with charge density uses charge weights."""
+        """deposit with charge density uses charge weights."""
         from revelsMD.density import DensityGrid, Selection
 
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
-        gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         # O has negative charge, so counter contributions are negative
         assert np.any(gs.counter != 0)
