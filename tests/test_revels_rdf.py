@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
 from revelsMD.trajectories import NumpyTrajectory
 
 
@@ -72,7 +72,7 @@ def test_single_frame_rdf_like(ts):
     bins = np.linspace(0, 5, 10)
     indices_h = ts.get_indices("H")
     positions, forces = ts.get_frame(0)
-    result = RevelsRDF.single_frame_rdf(
+    result = single_frame_rdf(
         positions,
         forces,
         [indices_h, indices_h],
@@ -94,7 +94,7 @@ def test_single_frame_rdf_unlike(ts):
     bins = np.linspace(0, 5, 10)
     indices = [ts.get_indices("H"), ts.get_indices("O")]
     positions, forces = ts.get_frame(0)
-    result = RevelsRDF.single_frame_rdf(
+    result = single_frame_rdf(
         positions,
         forces,
         indices,
@@ -113,7 +113,7 @@ def test_single_frame_rdf_unlike(ts):
 # -------------------------------
 
 def test_run_rdf_like_pairs(ts):
-    result = RevelsRDF.run_rdf(
+    result = run_rdf(
         ts,
         atom_a="H",
         atom_b="H",
@@ -135,7 +135,7 @@ def test_run_rdf_like_pairs(ts):
 # -------------------------------
 
 def test_run_rdf_unlike_pairs(ts):
-    result = RevelsRDF.run_rdf(
+    result = run_rdf(
         ts,
         atom_a="H",
         atom_b="O",
@@ -158,19 +158,19 @@ def test_run_rdf_unlike_pairs(ts):
 def test_run_rdf_start_exceeds_frames(ts):
     """run_rdf should raise ValueError when start exceeds trajectory frames."""
     with pytest.raises(ValueError, match="First frame index exceeds"):
-        RevelsRDF.run_rdf(ts, "H", "O", start=10)
+        run_rdf(ts, "H", "O", start=10)
 
 
 def test_run_rdf_stop_exceeds_frames(ts):
     """run_rdf should raise ValueError when stop exceeds trajectory frames."""
     with pytest.raises(ValueError, match="Final frame index exceeds"):
-        RevelsRDF.run_rdf(ts, "H", "O", stop=10)
+        run_rdf(ts, "H", "O", stop=10)
 
 
 def test_run_rdf_empty_frame_range(ts):
     """run_rdf should raise ValueError when frame range is empty."""
     with pytest.raises(ValueError, match="Final frame occurs before"):
-        RevelsRDF.run_rdf(ts, "H", "O", start=2, stop=1)
+        run_rdf(ts, "H", "O", start=2, stop=1)
 
 
 # -------------------------------
@@ -178,7 +178,7 @@ def test_run_rdf_empty_frame_range(ts):
 # -------------------------------
 
 def test_run_rdf_lambda_like(ts):
-    result = RevelsRDF.run_rdf_lambda(
+    result = run_rdf_lambda(
         ts,
         atom_a="H",
         atom_b="H",
@@ -202,19 +202,19 @@ def test_run_rdf_lambda_like(ts):
 def test_run_rdf_lambda_start_exceeds_frames(ts):
     """run_rdf_lambda should raise ValueError when start exceeds trajectory frames."""
     with pytest.raises(ValueError, match="First frame index exceeds"):
-        RevelsRDF.run_rdf_lambda(ts, "H", "O", start=10)
+        run_rdf_lambda(ts, "H", "O", start=10)
 
 
 def test_run_rdf_lambda_stop_exceeds_frames(ts):
     """run_rdf_lambda should raise ValueError when stop exceeds trajectory frames."""
     with pytest.raises(ValueError, match="Final frame index exceeds"):
-        RevelsRDF.run_rdf_lambda(ts, "H", "O", stop=10)
+        run_rdf_lambda(ts, "H", "O", stop=10)
 
 
 def test_run_rdf_lambda_empty_frame_range(ts):
     """run_rdf_lambda should raise ValueError when frame range is empty."""
     with pytest.raises(ValueError, match="Final frame occurs before"):
-        RevelsRDF.run_rdf_lambda(ts, "H", "O", start=2, stop=1)
+        run_rdf_lambda(ts, "H", "O", start=2, stop=1)
 
 
 # -------------------------------
@@ -242,7 +242,7 @@ class TestRDFWithNumpyTrajectory:
             positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
         )
 
-        result = RevelsRDF.run_rdf(
+        result = run_rdf(
             ts,
             atom_a="H",
             atom_b="H",
@@ -276,7 +276,7 @@ class TestRDFWithNumpyTrajectory:
             positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
         )
 
-        result = RevelsRDF.run_rdf_lambda(
+        result = run_rdf_lambda(
             ts,
             atom_a="H",
             atom_b="H",
@@ -307,7 +307,7 @@ class TestRDFWithNumpyTrajectory:
         )
 
         # With stop=None, should process all 4 frames
-        result = RevelsRDF.run_rdf(
+        result = run_rdf(
             ts,
             atom_a="H",
             atom_b="H",
@@ -350,7 +350,7 @@ class TestMinimumImageConvention:
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
         # Use indices.copy() to ensure value comparison works (not identity)
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices.copy()], box, box, box, bins
         )
 
@@ -377,7 +377,7 @@ class TestMinimumImageConvention:
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
         # Use indices.copy() to ensure value comparison works (not identity)
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices.copy()], box, box, box, bins
         )
 
@@ -402,7 +402,7 @@ class TestMinimumImageConvention:
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
         # Use indices.copy() to ensure value comparison works (not identity)
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices.copy()], box, box, box, bins
         )
 
@@ -428,7 +428,7 @@ class TestMinimumImageConvention:
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 30.0, 35.0])
 
         # Use indices.copy() to ensure value comparison works (not identity)
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices.copy()], box, box, box, bins
         )
 
@@ -462,7 +462,7 @@ class TestMinimumImageConvention:
         indices = np.array([0, 1])
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices], box, box, box, bins
         )
 
@@ -485,7 +485,7 @@ class TestMinimumImageConvention:
 
         bins = np.array([half_box - 0.5, half_box + 0.5, half_box + 1.5])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices], box, box, box, bins
         )
 
@@ -508,7 +508,7 @@ class TestMinimumImageConvention:
         mic_r = 2.0  # Wrapped distance in x
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices], box_x, box_y, box_z, bins
         )
 
@@ -544,7 +544,7 @@ class TestForceProjection:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices], box, box, box, bins
         )
 
@@ -564,7 +564,7 @@ class TestForceProjection:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, [indices, indices], box, box, box, bins
         )
 
@@ -597,7 +597,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -622,7 +622,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -656,7 +656,7 @@ class TestUnlikePairRDF:
         indices = [np.array([0]), np.array([1])]
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -691,7 +691,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -716,7 +716,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([r - 0.5, r + 0.5, r + 1.5])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, indices, box, box, box, bins
         )
 
@@ -733,7 +733,7 @@ class TestUnlikePairRDF:
 
         bins = np.array([mic_r - 0.5, mic_r + 0.5, 15.0, 20.0])
 
-        result = RevelsRDF.single_frame_rdf(
+        result = single_frame_rdf(
             positions, forces, indices, box_x, box_y, box_z, bins
         )
 

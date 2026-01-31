@@ -13,7 +13,7 @@ import numpy as np
 from pathlib import Path
 
 from revelsMD.density import DensityGrid
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import run_rdf
 from .conftest import load_reference_data, assert_arrays_close
 
 
@@ -162,7 +162,7 @@ class TestRigidWaterRDF:
         """O-O RDF calculation for water."""
         ts = example4_trajectory
 
-        rdf = RevelsRDF.run_rdf(
+        rdf = run_rdf(
             ts, 'Ow', 'Ow',
             period=1, delr=0.1, start=0, stop=5
         )
@@ -183,7 +183,7 @@ class TestRigidWaterRDF:
         """O-H RDF calculation for water."""
         ts = example4_trajectory
 
-        rdf = RevelsRDF.run_rdf(
+        rdf = run_rdf(
             ts, 'Ow', 'Hw1',
             period=1, delr=0.1, start=0, stop=5
         )

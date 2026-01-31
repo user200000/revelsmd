@@ -12,7 +12,7 @@ import numpy as np
 from pathlib import Path
 
 from revelsMD.density import DensityGrid
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import run_rdf
 from .conftest import load_reference_data, assert_arrays_close
 
 
@@ -99,7 +99,7 @@ class TestVASPPipelineExample3:
         ts = vasp_trajectory
 
         try:
-            rdf = RevelsRDF.run_rdf(
+            rdf = run_rdf(
                 ts, 'F', 'F',
                 period=1, delr=0.1
             )
@@ -115,7 +115,7 @@ class TestVASPPipelineExample3:
         ts = vasp_trajectory
 
         try:
-            rdf = RevelsRDF.run_rdf(
+            rdf = run_rdf(
                 ts, 'Ba', 'F',
                 period=1, delr=0.1
             )
@@ -242,7 +242,7 @@ class TestVASPSyntheticFallback:
         """RDF calculation works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        rdf = RevelsRDF.run_rdf(ts, 'F', 'F', delr=0.2)
+        rdf = run_rdf(ts, 'F', 'F', delr=0.2)
 
         assert rdf is not None
         assert np.all(np.isfinite(rdf))
@@ -262,7 +262,7 @@ class TestVASPSyntheticFallback:
         """Unlike-pair RDF works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        rdf = RevelsRDF.run_rdf(ts, 'Ba', 'F', delr=0.2)
+        rdf = run_rdf(ts, 'Ba', 'F', delr=0.2)
 
         assert rdf is not None
         assert np.all(np.isfinite(rdf))

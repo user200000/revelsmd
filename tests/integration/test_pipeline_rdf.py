@@ -14,7 +14,7 @@ Note: Forward integration with physical property checks is in test_regression.py
 import pytest
 import numpy as np
 
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import run_rdf, run_rdf_lambda
 
 
 @pytest.mark.integration
@@ -42,7 +42,7 @@ class TestRDFPipelineExample1:
         """RDF calculation with backward integration."""
         ts = example1_trajectory
 
-        rdf = RevelsRDF.run_rdf(
+        rdf = run_rdf(
             ts, '1', '1',
             period=1, delr=0.02, from_zero=False,
             start=0, stop=5
@@ -70,7 +70,7 @@ class TestRDFPipelineExample1:
         if not has_type2:
             pytest.skip("Example 1 data has only one atom type")
 
-        rdf = RevelsRDF.run_rdf(
+        rdf = run_rdf(
             ts, '1', '2',
             period=1, delr=0.02, from_zero=True,
             start=0, stop=5
@@ -83,7 +83,7 @@ class TestRDFPipelineExample1:
         """Lambda-combined RDF calculation produces valid output."""
         ts = example1_trajectory
 
-        rdf_lambda = RevelsRDF.run_rdf_lambda(
+        rdf_lambda = run_rdf_lambda(
             ts, '1', '1',
             period=1, delr=0.02,
             start=0, stop=5
@@ -111,7 +111,7 @@ class TestRDFPipelineExample1:
         ts = example1_trajectory
 
         # Use only first 10 frames with coarser resolution
-        rdf_subset = RevelsRDF.run_rdf(
+        rdf_subset = run_rdf(
             ts, '1', '1',
             start=0, stop=5, period=1, delr=0.05
         )
@@ -124,7 +124,7 @@ class TestRDFPipelineExample1:
         ts = example1_trajectory
 
         # Use every 5th frame with coarser resolution
-        rdf_strided = RevelsRDF.run_rdf(
+        rdf_strided = run_rdf(
             ts, '1', '1',
             period=5, delr=0.05, start=0, stop=25
         )

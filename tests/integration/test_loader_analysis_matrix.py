@@ -15,7 +15,7 @@ RDF unlike          |   X   |
 import pytest
 import numpy as np
 
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import run_rdf, run_rdf_lambda
 from revelsMD.density import DensityGrid
 
 
@@ -30,7 +30,7 @@ class TestNumpyAnalysisMatrix:
 
     def test_rdf_like_and_shape(self, uniform_gas_trajectory):
         """NumPy: like-pair RDF works and has correct shape."""
-        result = RevelsRDF.run_rdf(
+        result = run_rdf(
             uniform_gas_trajectory, '1', '1',
             delr=0.1, start=0, stop=-1
         )
@@ -42,7 +42,7 @@ class TestNumpyAnalysisMatrix:
 
     def test_rdf_unlike(self, multispecies_trajectory):
         """NumPy: unlike-pair RDF works."""
-        result = RevelsRDF.run_rdf(
+        result = run_rdf(
             multispecies_trajectory, '1', '2',
             delr=0.1, start=0, stop=-1
         )
@@ -51,7 +51,7 @@ class TestNumpyAnalysisMatrix:
 
     def test_rdf_lambda_and_shape(self, uniform_gas_trajectory):
         """NumPy: lambda-combined RDF works and has correct shape."""
-        result = RevelsRDF.run_rdf_lambda(
+        result = run_rdf_lambda(
             uniform_gas_trajectory, '1', '1',
             delr=0.1, start=0, stop=-1
         )

@@ -12,7 +12,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import run_rdf
 from revelsMD.density import DensityGrid
 from .conftest import assert_arrays_close
 
@@ -41,7 +41,7 @@ class TestLammpsRegression:
         """RDF forward integration matches stored reference and has valid physics."""
         ref = load_reference("lammps_example1", "rdf_forward.npz")
 
-        result = RevelsRDF.run_rdf(
+        result = run_rdf(
             example1_trajectory, '1', '1',
             delr=0.02, from_zero=True, start=0, stop=5
         )
@@ -80,7 +80,7 @@ class TestLammpsRegression:
         """RDF backward integration matches stored reference."""
         ref = load_reference("lammps_example1", "rdf_backward.npz")
 
-        result = RevelsRDF.run_rdf(
+        result = run_rdf(
             example1_trajectory, '1', '1',
             delr=0.02, from_zero=False, start=0, stop=5
         )
@@ -98,7 +98,7 @@ class TestLammpsRegression:
         """RDF lambda combination matches stored reference."""
         ref = load_reference("lammps_example1", "rdf_lambda.npz")
 
-        result = RevelsRDF.run_rdf_lambda(
+        result = run_rdf_lambda(
             example1_trajectory, '1', '1',
             delr=0.02, start=0, stop=5
         )
@@ -141,7 +141,7 @@ class TestMDARegression:
         """RDF lambda matches stored reference."""
         ref = load_reference("mda_example4", "rdf_lambda_ow.npz")
 
-        result = RevelsRDF.run_rdf_lambda(
+        result = run_rdf_lambda(
             example4_trajectory, 'Ow', 'Ow',
             delr=0.1, start=0, stop=5
         )
@@ -220,7 +220,7 @@ class TestVASPRegression:
         """RDF lambda matches stored reference."""
         ref = load_reference("vasp_example3", "rdf_lambda_f_f.npz")
 
-        result = RevelsRDF.run_rdf_lambda(
+        result = run_rdf_lambda(
             vasp_trajectory, 'F', 'F',
             delr=0.1, start=0, stop=10
         )
@@ -268,7 +268,7 @@ class TestSyntheticRegression:
         """Uniform gas RDF matches stored reference."""
         ref = load_reference("synthetic", "uniform_gas_rdf.npz")
 
-        result = RevelsRDF.run_rdf_lambda(
+        result = run_rdf_lambda(
             uniform_gas_trajectory, '1', '1',
             delr=0.1, start=0, stop=None
         )

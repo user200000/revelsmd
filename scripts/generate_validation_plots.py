@@ -33,7 +33,7 @@ def plot_uniform_gas_rdf():
     Expected: g(r) ~ 1 for all r (with statistical noise)
     """
     from revelsMD.trajectory_states import NumpyTrajectoryState
-    from revelsMD.revels_rdf import RevelsRDF
+    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
 
     print("\n=== Uniform Gas RDF ===")
 
@@ -49,8 +49,8 @@ def plot_uniform_gas_rdf():
     ts = NumpyTrajectoryState(positions, forces, box, box, box, species, units='lj')
 
     # Forward and backward integration
-    rdf_forward = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, from_zero=True)
-    rdf_backward = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, from_zero=False)
+    rdf_forward = run_rdf(ts, '1', '1', temp=1.0, delr=0.1, from_zero=True)
+    rdf_backward = run_rdf(ts, '1', '1', temp=1.0, delr=0.1, from_zero=False)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -87,7 +87,7 @@ def plot_two_atom_rdf():
     Expected: Sharp peak at r = 3.0 (the separation distance)
     """
     from revelsMD.trajectory_states import NumpyTrajectoryState
-    from revelsMD.revels_rdf import RevelsRDF
+    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
 
     print("\n=== Two Atom RDF ===")
 
@@ -105,7 +105,7 @@ def plot_two_atom_rdf():
 
     ts = NumpyTrajectoryState(positions, forces, box, box, box, species, units='lj')
 
-    rdf = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1)
+    rdf = run_rdf(ts, '1', '1', temp=1.0, delr=0.1)
 
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(rdf[0], rdf[1], 'b-', linewidth=2)
@@ -136,7 +136,7 @@ def plot_cubic_lattice_rdf():
     Expected: Peaks at lattice spacings (2.5, 3.54, 4.33, ...)
     """
     from revelsMD.trajectory_states import NumpyTrajectoryState
-    from revelsMD.revels_rdf import RevelsRDF
+    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
 
     print("\n=== Cubic Lattice RDF ===")
 
@@ -164,7 +164,7 @@ def plot_cubic_lattice_rdf():
 
     ts = NumpyTrajectoryState(positions, forces, box, box, box, species, units='lj')
 
-    rdf = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, from_zero=False)
+    rdf = run_rdf(ts, '1', '1', temp=1.0, delr=0.1, from_zero=False)
 
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(rdf[0], rdf[1], 'b-', linewidth=2)
@@ -328,7 +328,7 @@ def plot_lj_rdf():
 
     Expected: Classic LJ fluid RDF with peak at ~1.1 sigma, g(r)=1 in bulk
     """
-    from revelsMD.revels_rdf import RevelsRDF
+    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
 
     print("\n=== LJ Fluid RDF (Example 1) ===")
 
@@ -350,8 +350,8 @@ def plot_lj_rdf():
     )
 
     # Only use first 10 frames for speed
-    rdf_forward = RevelsRDF.run_rdf(ts, '1', '1', temp=1.35, delr=0.02, start=0, stop=10, from_zero=True)
-    rdf_backward = RevelsRDF.run_rdf(ts, '1', '1', temp=1.35, delr=0.02, start=0, stop=10, from_zero=False)
+    rdf_forward = run_rdf(ts, '1', '1', temp=1.35, delr=0.02, start=0, stop=10, from_zero=True)
+    rdf_backward = run_rdf(ts, '1', '1', temp=1.35, delr=0.02, start=0, stop=10, from_zero=False)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
@@ -401,7 +401,7 @@ def plot_vasp_rdf():
 
     Expected: Ionic structure peaks
     """
-    from revelsMD.revels_rdf import RevelsRDF
+    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
 
     print("\n=== VASP BaSnF4 RDF ===")
 
@@ -416,7 +416,7 @@ def plot_vasp_rdf():
     ts = VaspTrajectoryState(str(vasprun_file))
 
     # F-F RDF
-    rdf_ff = RevelsRDF.run_rdf(ts, 'F', 'F', temp=600, delr=0.1)
+    rdf_ff = run_rdf(ts, 'F', 'F', temp=600, delr=0.1)
 
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.plot(rdf_ff[0], rdf_ff[1], 'b-', linewidth=2, label='F-F')
@@ -438,7 +438,7 @@ def plot_lambda_combination():
     Plot lambda-combined RDF showing optimal variance reduction.
     """
     from revelsMD.trajectory_states import NumpyTrajectoryState
-    from revelsMD.revels_rdf import RevelsRDF
+    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
 
     print("\n=== Lambda-Combined RDF ===")
 
@@ -453,7 +453,7 @@ def plot_lambda_combination():
 
     ts = NumpyTrajectoryState(positions, forces, box, box, box, species, units='lj')
 
-    rdf_lambda = RevelsRDF.run_rdf_lambda(ts, '1', '1', temp=1.0, delr=0.2)
+    rdf_lambda = run_rdf_lambda(ts, '1', '1', temp=1.0, delr=0.2)
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
 

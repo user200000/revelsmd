@@ -24,7 +24,7 @@ import sys
 project_root = Path(__file__).parents[1]
 sys.path.insert(0, str(project_root))
 
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
 from revelsMD.revels_3D import Revels3D
 
 EXAMPLES_DIR = project_root / "examples"
@@ -61,7 +61,7 @@ def generate_lammps_references():
 
     # RDF forward integration (5 frames for speed)
     print("  Computing RDF (forward integration)...")
-    rdf_forward = RevelsRDF.run_rdf(
+    rdf_forward = run_rdf(
         ts, '1', '1', temp=1.35,
         delr=0.02, from_zero=True, start=0, stop=5
     )
@@ -77,7 +77,7 @@ def generate_lammps_references():
 
     # RDF backward integration
     print("  Computing RDF (backward integration)...")
-    rdf_backward = RevelsRDF.run_rdf(
+    rdf_backward = run_rdf(
         ts, '1', '1', temp=1.35,
         delr=0.02, from_zero=False, start=0, stop=5
     )
@@ -93,7 +93,7 @@ def generate_lammps_references():
 
     # RDF lambda combination
     print("  Computing RDF lambda...")
-    rdf_lambda = RevelsRDF.run_rdf_lambda(
+    rdf_lambda = run_rdf_lambda(
         ts, '1', '1', temp=1.35,
         delr=0.02, start=0, stop=5
     )
@@ -150,7 +150,7 @@ def generate_mda_references():
 
     # RDF lambda (run_rdf has a bug with MDA, but run_rdf_lambda works)
     print("  Computing RDF lambda...")
-    rdf_lambda = RevelsRDF.run_rdf_lambda(
+    rdf_lambda = run_rdf_lambda(
         ts, 'Ow', 'Ow', temp=300,
         delr=0.1, start=0, stop=5
     )
@@ -235,7 +235,7 @@ def generate_vasp_references():
 
     # RDF lambda for F-F (BaSnF4 contains F atoms)
     print("  Computing F-F RDF lambda...")
-    rdf_lambda = RevelsRDF.run_rdf_lambda(
+    rdf_lambda = run_rdf_lambda(
         ts, 'F', 'F', temp=600,
         delr=0.1, start=0, stop=10
     )
@@ -290,7 +290,7 @@ def generate_synthetic_references():
 
     # RDF for uniform gas (use all frames)
     print("  Computing uniform gas RDF...")
-    rdf = RevelsRDF.run_rdf_lambda(
+    rdf = run_rdf_lambda(
         ts, '1', '1', temp=1.0,
         delr=0.1, start=0, stop=None
     )

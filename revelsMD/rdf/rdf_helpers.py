@@ -31,7 +31,7 @@ from revelsMD.backends import get_backend, AVAILABLE_BACKENDS
 def _get_numba_functions() -> tuple[Callable, Callable]:
     """Import and return Numba backend functions."""
     try:
-        from revelsMD.rdf_helpers_numba import (
+        from revelsMD.rdf.rdf_helpers_numba import (
             compute_pairwise_contributions_numba,
             accumulate_binned_contributions_numba,
         )
