@@ -418,6 +418,75 @@ class TestSelectionStateGetPositionsPeriodicBoundary:
         assert result[0] < 1.0, f"Dipole x={result[0]} should be < 1.0 (small molecule)"
 
 
+class TestSelectionStateExtract:
+    """Tests for SelectionState.extract() method."""
+
+    @pytest.fixture
+    def trajectory(self):
+        return MockTrajectory()
+
+    @pytest.fixture
+    def positions(self):
+        """9 atoms: 3 water molecules."""
+        return np.array([
+            [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
+            [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
+            [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
+        ], dtype=float)
+
+    @pytest.fixture
+    def forces(self):
+        """Forces for 9 atoms."""
+        return np.array([
+            [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
+            [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
+            [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
+        ], dtype=float)
+
+    def test_extract_returns_tuple_of_three(self, trajectory, positions, forces):
+        """extract() should return a tuple of (positions, forces, weights)."""
+        from revelsMD.density import SelectionState
+
+        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
+        result = ss.extract(positions, forces)
+
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+
+    def test_extract_matches_individual_methods_single_species(self, trajectory, positions, forces):
+        """extract() should return same values as calling get_positions, get_forces, get_weights."""
+        from revelsMD.density import SelectionState
+
+        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
+        extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
+
+        np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
+        np.testing.assert_array_equal(extracted_forces, ss.get_forces(forces))
+        assert extracted_weights == ss.get_weights(positions)
+
+    def test_extract_matches_individual_methods_rigid_com(self, trajectory, positions, forces):
+        """extract() should match individual methods for rigid COM case."""
+        from revelsMD.density import SelectionState
+
+        ss = SelectionState(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
+        extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
+
+        np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
+        np.testing.assert_array_equal(extracted_forces, ss.get_forces(forces))
+        assert extracted_weights == ss.get_weights(positions)
+
+    def test_extract_matches_individual_methods_charge_density(self, trajectory, positions, forces):
+        """extract() should match individual methods for charge density."""
+        from revelsMD.density import SelectionState
+
+        ss = SelectionState(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
+        extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
+
+        np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
+        np.testing.assert_array_equal(extracted_forces, ss.get_forces(forces))
+        np.testing.assert_array_equal(extracted_weights, ss.get_weights(positions))
+
+
 class TestSelectionStateGetPositions:
     """Tests for SelectionState.get_positions() method."""
 

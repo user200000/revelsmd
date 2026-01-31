@@ -226,6 +226,36 @@ class SelectionState:
             result = result + forces[self.indices[species_idx], :]
         return result
 
+    def extract(
+        self,
+        positions: np.ndarray,
+        forces: np.ndarray,
+    ) -> tuple[
+        np.ndarray | list[np.ndarray],
+        np.ndarray | list[np.ndarray],
+        float | np.ndarray | list[np.ndarray],
+    ]:
+        """
+        Extract deposit positions, forces, and weights in a single call.
+
+        Parameters
+        ----------
+        positions : (N, 3) np.ndarray
+            Full frame positions for all atoms.
+        forces : (N, 3) np.ndarray
+            Full frame forces for all atoms.
+
+        Returns
+        -------
+        tuple of (positions, forces, weights)
+            Ready for passing to grid.deposit().
+        """
+        return (
+            self.get_positions(positions),
+            self.get_forces(forces),
+            self.get_weights(positions),
+        )
+
     def get_weights(self, positions: np.ndarray | None = None) -> float | np.ndarray | list[np.ndarray]:
         """
         Get deposit weights based on density type.
