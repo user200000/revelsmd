@@ -180,7 +180,7 @@ def test_deposit_to_grid_broadcasts_scalar_weight(ts):
 
 def test_selectionstate_single(ts):
     ss = SelectionState(ts, "H", centre_location=True)
-    assert ss.indistinguishable_set
+    assert ss.single_species
     assert isinstance(ss.indices, np.ndarray)
 
 
@@ -197,7 +197,7 @@ def test_selectionstate_single_with_polarisation(ts):
 
 def test_selectionstate_rigid(ts):
     ss = SelectionState(ts, ["H", "O"], centre_location=True)
-    assert not ss.indistinguishable_set
+    assert not ss.single_species
     assert isinstance(ss.indices, list)
     assert len(ss.indices) == 2
 
