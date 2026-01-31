@@ -47,7 +47,7 @@ class MockTrajectory:
 # ---------------------------------------------------------------------------
 
 class TestDepositToGrid:
-    """Tests for GridState.deposit_to_grid with Selection."""
+    """Tests for DensityGrid.deposit_to_grid with Selection."""
 
     @pytest.fixture
     def trajectory(self):
@@ -85,9 +85,8 @@ class TestDepositToGrid:
 
     def test_deposit_single_species_number_density(self, trajectory, positions, forces):
         """deposit_to_grid with single species populates grid."""
-        from revelsMD.density import GridState, Selection
+        from revelsMD.density import DensityGrid, Selection
 
-        gs = GridState(trajectory, "number", nbins=5)
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -97,9 +96,8 @@ class TestDepositToGrid:
 
     def test_deposit_multi_species_non_rigid(self, trajectory, positions, forces):
         """deposit_to_grid with multi-species non-rigid deposits each species."""
-        from revelsMD.density import GridState, Selection
+        from revelsMD.density import DensityGrid, Selection
 
-        gs = GridState(trajectory, "number", nbins=5)
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -109,9 +107,8 @@ class TestDepositToGrid:
 
     def test_deposit_rigid_com_number_density(self, trajectory, positions, forces):
         """deposit_to_grid with rigid molecule at COM populates grid."""
-        from revelsMD.density import GridState, Selection
+        from revelsMD.density import DensityGrid, Selection
 
-        gs = GridState(trajectory, "number", nbins=5)
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -122,9 +119,8 @@ class TestDepositToGrid:
 
     def test_deposit_charge_density_single_species(self, trajectory, positions, forces):
         """deposit_to_grid with charge density uses charge weights."""
-        from revelsMD.density import GridState, Selection
+        from revelsMD.density import DensityGrid, Selection
 
-        gs = GridState(trajectory, "charge", nbins=5)
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
         gs.deposit_to_grid(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
@@ -176,9 +172,8 @@ class TestMakeForceGridUnified:
 
     def test_make_force_grid_single_species_number(self, trajectory):
         """make_force_grid with single species number density produces correct grid."""
-        from revelsMD.density import GridState
+        from revelsMD.density import DensityGrid
 
-        gs = GridState(trajectory, "number", nbins=5)
         gs.make_force_grid(trajectory, atom_names="O", rigid=False, start=0, stop=2)
 
         # Verify grid was populated
@@ -582,25 +577,25 @@ def test_selectionstate_backward_compatible_via_revels3d():
     """Revels3D.SelectionState should still work but emit deprecation warning."""
     from revelsMD.revels_3D import Revels3D
     from revelsMD.density import Selection
-    with pytest.warns(DeprecationWarning, match="Revels3D.SelectionState is deprecated"):
+    with pytest.warns(DeprecationWarning, match="Revels3D.SelectionState is deprecated.*import Selection"):
         assert Revels3D.SelectionState is Selection
 
 
 def test_gridstate_importable_from_density():
-    """GridState should be importable from revelsMD.density."""
-    from revelsMD.density import GridState
-    assert GridState is not None
+    """DensityGrid should be importable from revelsMD.density."""
+    from revelsMD.density import DensityGrid
+    assert DensityGrid is not None
 
 
 def test_gridstate_importable_from_submodule():
-    """GridState should be importable from revelsMD.density.grid_state."""
-    from revelsMD.density.grid_state import GridState
-    assert GridState is not None
+    """DensityGrid should be importable from revelsMD.density.grid_state."""
+    from revelsMD.density.grid_state import DensityGrid
+    assert DensityGrid is not None
 
 
 def test_gridstate_backward_compatible_via_revels3d():
     """Revels3D.GridState should still work but emit deprecation warning."""
     from revelsMD.revels_3D import Revels3D
-    from revelsMD.density import GridState
-    with pytest.warns(DeprecationWarning, match="Revels3D.GridState is deprecated"):
-        assert Revels3D.GridState is GridState
+    from revelsMD.density import DensityGrid
+    with pytest.warns(DeprecationWarning, match="Revels3D.GridState is deprecated.*import DensityGrid"):
+        assert Revels3D.GridState is DensityGrid

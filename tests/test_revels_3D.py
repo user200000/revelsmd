@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 from revelsMD.revels_3D import Revels3D
-from revelsMD.density import Selection, GridState
+from revelsMD.density import Selection, DensityGrid
 from ase import Atoms
 
 
@@ -61,11 +61,11 @@ def ts():
 
 
 # ---------------------------
-# GridState Initialization
+# DensityGrid Initialization
 # ---------------------------
 
 def test_gridstate_initialization(ts):
-    gs = GridState(ts, density_type="number", nbins=4)
+    gs = DensityGrid(ts, density_type="number", nbins=4)
     assert gs.nbinsx == 4
     assert gs.lx == pytest.approx(ts.box_x / 4)
     assert gs.voxel_volume > 0
@@ -74,20 +74,20 @@ def test_gridstate_initialization(ts):
 
 
 def test_gridstate_uses_trajectory_beta(ts):
-    """GridState should use beta from the trajectory object."""
-    gs = GridState(ts, density_type="number", nbins=4)
+    """DensityGrid should use beta from the trajectory object."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
     assert gs.beta == ts.beta
 
 
 def test_invalid_box(ts):
     ts.box_x = -10.0
     with pytest.raises(ValueError):
-        GridState(ts, "number")
+        DensityGrid(ts, "number")
 
 
 def test_invalid_bins(ts):
     with pytest.raises(ValueError):
-        GridState(ts, "number", nbinsx=0, nbinsy=4, nbinsz=4)
+        DensityGrid(ts, "number", nbinsx=0, nbinsy=4, nbinsz=4)
 
 
 # ---------------------------
@@ -95,7 +95,7 @@ def test_invalid_bins(ts):
 # ---------------------------
 
 def test_kvectors_ksquared_shapes(ts):
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     kx, ky, kz = gs.get_kvectors()
     assert kx.shape[0] == gs.nbinsx
     ks = gs.get_ksquared()
@@ -104,13 +104,13 @@ def test_kvectors_ksquared_shapes(ts):
 
 
 # ---------------------------
-# GridState._process_frame: Box & Triangular kernels
+# DensityGrid._process_frame: Box & Triangular kernels
 # ---------------------------
 
 @pytest.mark.parametrize("kernel", ["box", "triangular"])
 def test_process_frame_kernels(ts, kernel):
     """_process_frame deposits positions/forces to grid using specified kernel."""
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     pos = np.array([[1.0, 2.0, 3.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
     gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
@@ -120,7 +120,7 @@ def test_process_frame_kernels(ts, kernel):
 
 def test_process_frame_increments_count(ts):
     """_process_frame increments the frame count."""
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     assert gs.count == 0
     gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]))
     assert gs.count == 1
@@ -130,18 +130,18 @@ def test_process_frame_increments_count(ts):
 
 def test_process_frame_invalid_kernel(ts):
     """_process_frame raises ValueError for unknown kernel."""
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     with pytest.raises(ValueError, match="Unsupported kernel"):
         gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), kernel="invalid")
 
 
 # ---------------------------
-# GridState.deposit_to_grid
+# DensityGrid.deposit_to_grid
 # ---------------------------
 
 def test_deposit_to_grid_single_array(ts):
     """deposit_to_grid with single array deposits once."""
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     pos = np.array([[1.0, 2.0, 3.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
     gs.deposit_to_grid(pos, frc, weights=1.0, kernel="triangular")
@@ -153,7 +153,7 @@ def test_deposit_to_grid_single_array(ts):
 
 def test_deposit_to_grid_list_of_arrays(ts):
     """deposit_to_grid with list of arrays deposits each separately."""
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
     frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
     gs.deposit_to_grid(pos_list, frc_list, weights=1.0, kernel="box")
@@ -164,7 +164,7 @@ def test_deposit_to_grid_list_of_arrays(ts):
 
 def test_deposit_to_grid_broadcasts_scalar_weight(ts):
     """deposit_to_grid broadcasts scalar weight to all position arrays."""
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
     frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
     gs.deposit_to_grid(pos_list, frc_list, weights=1.0, kernel="triangular")
@@ -262,7 +262,7 @@ def test_selectionstate_rigid_water():
 # ---------------------------
 
 def test_full_number_density_pipeline(tmp_path, ts):
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     gs.make_force_grid(ts, atom_names="H", rigid=False)
     assert gs.grid_progress == "Allocated"
 
@@ -278,7 +278,7 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
 def test_get_lambda_basic(ts):
     """Test basic get_lambda functionality."""
-    gs = GridState(ts, "number", nbins=4)
+    gs = DensityGrid(ts, "number", nbins=4)
     gs.make_force_grid(ts, atom_names="H", rigid=False)
     gs.get_real_density()
     gs2 = gs.get_lambda(ts, sections=1)

@@ -1,4 +1,4 @@
-"""GridState class for accumulating 3D force fields and converting to densities."""
+"""DensityGrid class for accumulating 3D force fields and converting to densities."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_bac
 _triangular_allocation, _box_allocation = _get_grid_backend_functions()
 
 
-class GridState:
+class DensityGrid:
     """
     State for accumulating 3D force fields and converting to densities.
 
@@ -442,7 +442,7 @@ class GridState:
         with open(filename, "w") as f:
             write_cube(f, atoms, data=grid)
 
-    def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> "GridState":
+    def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> "DensityGrid":
         """
         Compute optimal lambda(r) to combine counting and force densities.
 
@@ -459,8 +459,8 @@ class GridState:
 
         Returns
         -------
-        GridState
-            A deep-copied `GridState` instance with
+        DensityGrid
+            A deep-copied `DensityGrid` instance with
             `expected_rho`, `expected_particle_density`, `delta`,
             covariance/variance buffers, `combination` (=1-cov_F/var),
             and `optimal_density` populated.
@@ -478,7 +478,7 @@ class GridState:
             raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
         # TODO: Future refactor - integrate uncertainty/statistics accumulation into
-        # base GridState, eliminating need for dynamic attributes here.
+        # base DensityGrid, eliminating need for dynamic attributes here.
         grid_state_lambda = copy.deepcopy(self)
         if sections is None:
             sections = trajectory.frames
