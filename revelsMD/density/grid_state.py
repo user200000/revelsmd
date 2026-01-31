@@ -170,7 +170,7 @@ class GridState:
         self,
         positions: np.ndarray | list[np.ndarray],
         forces: np.ndarray | list[np.ndarray],
-        weights: float | np.ndarray | list[np.ndarray],
+        weights: float | np.ndarray | list[float | np.ndarray],
         kernel: str = "triangular",
     ) -> None:
         """
@@ -193,9 +193,9 @@ class GridState:
             if not isinstance(weights, list):
                 weights = [weights] * len(positions)
             for pos, frc, wgt in zip(positions, forces, weights):
-                self._process_frame(pos, frc, weight=wgt, kernel=kernel)
+                self._process_frame(pos, frc, weight=wgt, kernel=kernel)  # type: ignore[arg-type]
         else:
-            self._process_frame(positions, forces, weight=weights, kernel=kernel)
+            self._process_frame(positions, forces, weight=weights, kernel=kernel)  # type: ignore[arg-type]
 
     def make_force_grid(
         self,
@@ -304,7 +304,7 @@ class GridState:
             deposit_positions = self.selection_state.get_positions(positions)
             deposit_forces = self.selection_state.get_forces(forces)
             weights = self.selection_state.get_weights(positions)
-            self.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=self.kernel)
+            self.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=self.kernel)  # type: ignore[arg-type]
 
         self.frames_processed = self.to_run
         self.grid_progress = "Allocated"
@@ -481,20 +481,22 @@ class GridState:
         if self.grid_progress == "Lambda":
             raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
+        # TODO: Future refactor - integrate uncertainty/statistics accumulation into
+        # base GridState, eliminating need for dynamic attributes here.
         grid_state_lambda = copy.deepcopy(self)
         if sections is None:
             sections = trajectory.frames
 
         # Baseline expectation from full accumulation
         grid_state_lambda.get_real_density()
-        grid_state_lambda.expected_rho = np.copy(grid_state_lambda.rho)
-        grid_state_lambda.expected_particle_density = np.copy(grid_state_lambda.particle_density)
-        grid_state_lambda.delta = grid_state_lambda.expected_rho - grid_state_lambda.expected_particle_density
+        grid_state_lambda.expected_rho = np.copy(grid_state_lambda.rho)  # type: ignore[attr-defined]
+        grid_state_lambda.expected_particle_density = np.copy(grid_state_lambda.particle_density)  # type: ignore[attr-defined]
+        grid_state_lambda.delta = grid_state_lambda.expected_rho - grid_state_lambda.expected_particle_density  # type: ignore[attr-defined]
 
         # Covariance/variance accumulators
-        grid_state_lambda.cov_buffer_particle = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))
-        grid_state_lambda.cov_buffer_force = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))
-        grid_state_lambda.var_buffer = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))
+        grid_state_lambda.cov_buffer_particle = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))  # type: ignore[attr-defined]
+        grid_state_lambda.cov_buffer_force = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))  # type: ignore[attr-defined]
+        grid_state_lambda.var_buffer = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))  # type: ignore[attr-defined]
 
         # Interleaved accumulation across sections
         for k in tqdm(range(sections)):
@@ -518,20 +520,22 @@ class GridState:
                 deposit_positions = grid_state_lambda.selection_state.get_positions(positions)
                 deposit_forces = grid_state_lambda.selection_state.get_forces(forces)
                 weights = grid_state_lambda.selection_state.get_weights(positions)
-                grid_state_lambda.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=grid_state_lambda.kernel)
+                grid_state_lambda.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=grid_state_lambda.kernel)  # type: ignore[arg-type]
 
             # Compute densities for this section and accumulate statistics
             grid_state_lambda.get_real_density()
             delta_cur = grid_state_lambda.rho - grid_state_lambda.particle_density
-            grid_state_lambda.var_buffer += (delta_cur - grid_state_lambda.delta) ** 2
-            grid_state_lambda.cov_buffer_force += (delta_cur - grid_state_lambda.delta) * (grid_state_lambda.rho - grid_state_lambda.expected_rho)
-            grid_state_lambda.cov_buffer_particle += (delta_cur - grid_state_lambda.delta) * (
-                grid_state_lambda.particle_density - grid_state_lambda.expected_particle_density
+            grid_state_lambda.var_buffer += (delta_cur - grid_state_lambda.delta) ** 2  # type: ignore[attr-defined]
+            grid_state_lambda.cov_buffer_force += (delta_cur - grid_state_lambda.delta) * (grid_state_lambda.rho - grid_state_lambda.expected_rho)  # type: ignore[attr-defined]
+            grid_state_lambda.cov_buffer_particle += (delta_cur - grid_state_lambda.delta) * (  # type: ignore[attr-defined]
+                grid_state_lambda.particle_density - grid_state_lambda.expected_particle_density  # type: ignore[attr-defined]
             )
 
         # lambda = 1 - cov(force)/var(delta); optimal density = (1-lambda)*count + lambda*force
-        grid_state_lambda.combination = 1.0 - (grid_state_lambda.cov_buffer_force / grid_state_lambda.var_buffer)
-        grid_state_lambda.optimal_density = (1.0 - grid_state_lambda.combination) * grid_state_lambda.expected_particle_density + \
-            grid_state_lambda.combination * grid_state_lambda.expected_rho
+        grid_state_lambda.combination = 1.0 - (grid_state_lambda.cov_buffer_force / grid_state_lambda.var_buffer)  # type: ignore[attr-defined]
+        grid_state_lambda.optimal_density = (  # type: ignore[attr-defined]
+            (1.0 - grid_state_lambda.combination) * grid_state_lambda.expected_particle_density +  # type: ignore[attr-defined]
+            grid_state_lambda.combination * grid_state_lambda.expected_rho  # type: ignore[attr-defined]
+        )
         grid_state_lambda.grid_progress = "Lambda"
         return grid_state_lambda
