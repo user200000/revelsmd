@@ -21,6 +21,15 @@ class SelectionState:
     centre_location : bool or int
         If a rigid group is provided: `True` selects COM; `int` selects one species'
         index within the rigid set as the center.
+    rigid : bool
+        Whether to treat the selection as a rigid molecule.
+    density_type : {'number', 'charge', 'polarisation'}
+        Type of density. Data requirements:
+        - 'number': No charge/mass data required (but masses needed if rigid with COM)
+        - 'charge': Trajectory must provide charges
+        - 'polarisation': Trajectory must provide charges and masses
+    polarisation_axis : int
+        Axis for polarisation projection (0=x, 1=y, 2=z).
 
     Attributes
     ----------
@@ -29,9 +38,8 @@ class SelectionState:
     indices : np.ndarray or list of np.ndarray
         Atom indices of the selection (kept name for compatibility).
     charges, masses : list or np.ndarray
-        Per-species arrays (rigid) or single array (single species) if available.
-    polarisation_axis : int
-        Axis for polarisation projection (set by GridState when needed).
+        Per-species arrays (rigid) or single array (single species). Only
+        populated when required by density_type.
     """
 
     def __init__(
@@ -48,18 +56,26 @@ class SelectionState:
         self.polarisation_axis = polarisation_axis
         self._box = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
 
+        # Determine what data we need
+        needs_charges = density_type in ('charge', 'polarisation')
+        needs_masses = density_type == 'polarisation' or (rigid and centre_location is True)
+
         if isinstance(atom_names, list) and len(atom_names) > 1:
             self.indistinguishable_set = False
             self.indices: list[np.ndarray] = []
-            self.charges: list[np.ndarray] = []
-            self.masses: list[np.ndarray] = []
             for atom in atom_names:
                 self.indices.append(trajectory.get_indices(atom))
-                try:
+
+            if needs_charges:
+                self.charges: list[np.ndarray] = []
+                for atom in atom_names:
                     self.charges.append(trajectory.get_charges(atom))
+
+            if needs_masses:
+                self.masses: list[np.ndarray] = []
+                for atom in atom_names:
                     self.masses.append(trajectory.get_masses(atom))
-                except DataUnavailableError:
-                    pass
+
             if rigid:
                 lengths = [len(idx) for idx in self.indices]
                 if len(set(lengths)) != 1:
@@ -79,11 +95,12 @@ class SelectionState:
                 atom_names = atom_names[0]
             self.indistinguishable_set = True
             self.indices = trajectory.get_indices(atom_names)
-            try:
+
+            if needs_charges:
                 self.charges = trajectory.get_charges(atom_names)
+
+            if needs_masses:
                 self.masses = trajectory.get_masses(atom_names)
-            except DataUnavailableError:
-                pass
 
     def position_centre(self, species_number: int) -> None:
         """

@@ -171,6 +171,15 @@ def test_selectionstate_single(ts):
     ss = SelectionState(ts, "H", centre_location=True)
     assert ss.indistinguishable_set
     assert isinstance(ss.indices, np.ndarray)
+
+
+def test_selectionstate_single_with_charges(ts):
+    ss = SelectionState(ts, "H", centre_location=True, density_type='charge')
+    assert np.all(ss.charges == 0.1)
+
+
+def test_selectionstate_single_with_polarisation(ts):
+    ss = SelectionState(ts, "H", centre_location=True, density_type='polarisation')
     assert np.all(ss.charges == 0.1)
     assert np.all(ss.masses == 1.0)
 
@@ -180,7 +189,12 @@ def test_selectionstate_rigid(ts):
     assert not ss.indistinguishable_set
     assert isinstance(ss.indices, list)
     assert len(ss.indices) == 2
+
+
+def test_selectionstate_rigid_with_polarisation(ts):
+    ss = SelectionState(ts, ["H", "O"], centre_location=True, density_type='polarisation')
     assert len(ss.masses) == 2
+    assert len(ss.charges) == 2
 
 
 def test_selectionstate_badcentre(ts):

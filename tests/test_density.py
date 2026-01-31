@@ -1,7 +1,6 @@
 """Tests for revelsMD.density package and its module structure."""
 
 import pytest
-import warnings
 import numpy as np
 
 
