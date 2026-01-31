@@ -29,10 +29,9 @@ class DensityGrid:
         Trajectory-state object providing `box_x`, `box_y`, `box_z`, and `units`.
     density_type : {'number', 'charge', 'polarisation'}
         Type of density to be constructed (controls the estimator weighting).
-    nbins : int, optional
-        Default number of voxels per box dimension (overridden by `nbinsx/y/z`).
-    nbinsx, nbinsy, nbinsz : int or bool, optional
-        Explicit voxel counts per dimension. If `False`, fall back to `nbins`.
+    nbins : int or tuple of int
+        Number of voxels per dimension. Either a single int for uniform binning
+        or a tuple (nbinsx, nbinsy, nbinsz) for per-axis bin counts.
 
     Attributes
     ----------
@@ -56,17 +55,15 @@ class DensityGrid:
         self,
         trajectory: Trajectory,
         density_type: str,
-        nbins: int = 100,
-        nbinsx: int | bool = False,
-        nbinsy: int | bool = False,
-        nbinsz: int | bool = False,
+        nbins: int | tuple[int, int, int] = 100,
     ):
         # Resolve per-dimension bin counts
-        nbinsx = nbins if nbinsx is False else int(nbinsx)
-        nbinsy = nbins if nbinsy is False else int(nbinsy)
-        nbinsz = nbins if nbinsz is False else int(nbinsz)
+        if isinstance(nbins, tuple):
+            nbinsx, nbinsy, nbinsz = nbins
+        else:
+            nbinsx = nbinsy = nbinsz = nbins
         if min(nbinsx, nbinsy, nbinsz) <= 0:
-            raise ValueError("nbinsx, nbinsy, nbinsz must be positive integers.")
+            raise ValueError("nbins values must be positive integers.")
 
         # Voxel sizes
         lx = trajectory.box_x / nbinsx

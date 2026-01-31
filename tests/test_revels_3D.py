@@ -87,7 +87,7 @@ def test_invalid_box(ts):
 
 def test_invalid_bins(ts):
     with pytest.raises(ValueError):
-        DensityGrid(ts, "number", nbinsx=0, nbinsy=4, nbinsz=4)
+        DensityGrid(ts, "number", nbins=(0, 4, 4))
 
 
 # ---------------------------

@@ -16,7 +16,7 @@ import pytest
 import numpy as np
 
 from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.density import GridState
+from revelsMD.density import DensityGrid
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ class TestNumpyAnalysisMatrix:
     def test_rdf_like_and_shape(self, uniform_gas_trajectory):
         """NumPy: like-pair RDF works and has correct shape."""
         result = RevelsRDF.run_rdf(
-            uniform_gas_trajectory, '1', '1',
+            uniform_gas_trajectory, '1', '1', temp=1.0,
             delr=0.1, start=0, stop=-1
         )
         assert result is not None
@@ -43,7 +43,7 @@ class TestNumpyAnalysisMatrix:
     def test_rdf_unlike(self, multispecies_trajectory):
         """NumPy: unlike-pair RDF works."""
         result = RevelsRDF.run_rdf(
-            multispecies_trajectory, '1', '2',
+            multispecies_trajectory, '1', '2', temp=1.0,
             delr=0.1, start=0, stop=-1
         )
         assert result is not None
@@ -52,7 +52,7 @@ class TestNumpyAnalysisMatrix:
     def test_rdf_lambda_and_shape(self, uniform_gas_trajectory):
         """NumPy: lambda-combined RDF works and has correct shape."""
         result = RevelsRDF.run_rdf_lambda(
-            uniform_gas_trajectory, '1', '1',
+            uniform_gas_trajectory, '1', '1', temp=1.0,
             delr=0.1, start=0, stop=-1
         )
         assert result is not None
@@ -64,7 +64,7 @@ class TestNumpyAnalysisMatrix:
     def test_number_density_and_shape(self, uniform_gas_trajectory):
         """NumPy: 3D number density works and has correct shape."""
         nbins = 25
-        gs = GridState(
+        gs = DensityGrid(
             uniform_gas_trajectory, 'number', nbins=nbins
         )
         gs.make_force_grid(

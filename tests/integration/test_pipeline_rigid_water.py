@@ -12,7 +12,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.density import GridState
+from revelsMD.density import DensityGrid
 from revelsMD.revels_rdf import RevelsRDF
 from .conftest import load_reference_data, assert_arrays_close
 
@@ -65,7 +65,7 @@ class TestRigidWaterPipelineExample4:
         """Number density for rigid water at COM (small frame subset)."""
         ts = example4_trajectory
 
-        gs = GridState(ts, 'number', nbins=50)
+        gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use very small subset for fast test
         gs.make_force_grid(
@@ -87,7 +87,7 @@ class TestRigidWaterPipelineExample4:
         """Polarisation density calculation (x-component)."""
         ts = example4_trajectory
 
-        gs = GridState(ts, 'polarisation', nbins=50)
+        gs = DensityGrid(ts, 'polarisation', nbins=50)
 
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
@@ -108,7 +108,7 @@ class TestRigidWaterPipelineExample4:
         """Number density with larger frame subset for better statistics."""
         ts = example4_trajectory
 
-        gs = GridState(ts, 'number', nbins=50)
+        gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use 10 frames - enough for reasonable statistics, fast enough for tests
         gs.make_force_grid(
@@ -126,7 +126,7 @@ class TestRigidWaterPipelineExample4:
         """Cube file output produces valid file."""
         ts = example4_trajectory
 
-        gs = GridState(ts, 'number', nbins=20)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
             rigid=True, start=0, stop=3, period=1
@@ -163,7 +163,7 @@ class TestRigidWaterRDF:
         ts = example4_trajectory
 
         rdf = RevelsRDF.run_rdf(
-            ts, 'Ow', 'Ow',
+            ts, 'Ow', 'Ow', temp=300,
             period=1, delr=0.1, start=0, stop=5
         )
 
@@ -184,7 +184,7 @@ class TestRigidWaterRDF:
         ts = example4_trajectory
 
         rdf = RevelsRDF.run_rdf(
-            ts, 'Ow', 'Hw1',
+            ts, 'Ow', 'Hw1', temp=300,
             period=1, delr=0.1, start=0, stop=5
         )
 
@@ -237,7 +237,7 @@ class TestRigidWaterPhysicalProperties:
         """Number density should show solvation shell structure."""
         ts = example4_trajectory
 
-        gs = GridState(ts, 'number', nbins=50)
+        gs = DensityGrid(ts, 'number', nbins=50)
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
