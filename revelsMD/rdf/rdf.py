@@ -9,6 +9,7 @@ from revelsMD.rdf.rdf_helpers import (
     compute_pairwise_contributions,
     accumulate_binned_contributions,
 )
+from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
 
 class RDF:
@@ -269,14 +270,10 @@ class RDF:
         # Lambda from covariance/variance
         var_del = np.mean((base_delta - exp_delta) ** 2, axis=0)
         cov_inf = np.mean((base_delta - exp_delta) * (base_inf_rdf - exp_inf_rdf), axis=0)
-        var_del_safe = np.where(var_del == 0, 1.0, var_del)
-        combination = np.divide(cov_inf, var_del_safe)
-        combination = np.nan_to_num(combination, nan=0.0, posinf=0.0, neginf=0.0)
+        combination = compute_lambda_weights(var_del, cov_inf)
 
-        g_lambda = np.nan_to_num(
-            np.mean(base_inf_rdf * (1 - combination) + base_zero_rdf * combination, axis=0),
-            nan=0.0, posinf=0.0, neginf=0.0
-        )
+        per_frame_combined = combine_estimators(base_inf_rdf, base_zero_rdf, combination)
+        g_lambda = np.mean(per_frame_combined, axis=0)
 
         self._r = self._bins[1:]
         self._g = g_lambda
