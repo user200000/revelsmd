@@ -1,7 +1,6 @@
 """Tests for revelsMD.statistics module."""
 
 import numpy as np
-import pytest
 
 from revelsMD.statistics import combine_estimators, compute_lambda_weights
 
@@ -251,7 +250,6 @@ class TestIntegration:
         # Generate mock density data
         expected_rho = np.random.randn(*grid_shape) * 0.1 + 1.0
         expected_particle = np.random.randn(*grid_shape) * 0.1 + 1.0
-        delta = expected_rho - expected_particle
 
         # Simulate variance and covariance buffers
         var_buffer = np.abs(np.random.randn(*grid_shape)) + 0.01
