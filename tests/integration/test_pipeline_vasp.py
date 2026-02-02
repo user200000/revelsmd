@@ -12,7 +12,7 @@ import numpy as np
 from pathlib import Path
 
 from revelsMD.density import DensityGrid
-from revelsMD.rdf import run_rdf
+from revelsMD.rdf import RDF, compute_rdf
 from .conftest import load_reference_data, assert_arrays_close
 
 
@@ -99,7 +99,7 @@ class TestVASPPipelineExample3:
         ts = vasp_trajectory
 
         try:
-            rdf = run_rdf(
+            rdf = compute_rdf(
                 ts, 'F', 'F',
                 period=1, delr=0.1
             )
@@ -107,15 +107,17 @@ class TestVASPPipelineExample3:
             pytest.skip(f"Could not compute RDF: {e}")
 
         assert rdf is not None
-        assert rdf.shape[0] == 2
-        assert np.all(np.isfinite(rdf))
+        assert rdf.r.ndim == 1
+        assert rdf.g.ndim == 1
+        assert np.all(np.isfinite(rdf.r))
+        assert np.all(np.isfinite(rdf.g))
 
     def test_ba_f_rdf(self, vasp_trajectory):
         """Ba-F RDF calculation (cation-anion correlation)."""
         ts = vasp_trajectory
 
         try:
-            rdf = run_rdf(
+            rdf = compute_rdf(
                 ts, 'Ba', 'F',
                 period=1, delr=0.1
             )
@@ -123,7 +125,8 @@ class TestVASPPipelineExample3:
             pytest.skip(f"Could not compute Ba-F RDF: {e}")
 
         assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert np.all(np.isfinite(rdf.r))
+        assert np.all(np.isfinite(rdf.g))
 
     def test_lambda_density(self, vasp_trajectory):
         """Lambda-combined density for fluoride."""
@@ -242,10 +245,11 @@ class TestVASPSyntheticFallback:
         """RDF calculation works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        rdf = run_rdf(ts, 'F', 'F', delr=0.2)
+        rdf = compute_rdf(ts, 'F', 'F', delr=0.2)
 
         assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert np.all(np.isfinite(rdf.r))
+        assert np.all(np.isfinite(rdf.g))
 
     def test_synthetic_density_calculation(self, synthetic_vasp_like_trajectory):
         """Density calculation works with VASP-like synthetic data."""
@@ -262,7 +266,8 @@ class TestVASPSyntheticFallback:
         """Unlike-pair RDF works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        rdf = run_rdf(ts, 'Ba', 'F', delr=0.2)
+        rdf = compute_rdf(ts, 'Ba', 'F', delr=0.2)
 
         assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert np.all(np.isfinite(rdf.r))
+        assert np.all(np.isfinite(rdf.g))

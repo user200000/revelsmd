@@ -14,7 +14,7 @@ Tests include:
 import pytest
 import numpy as np
 
-from revelsMD.rdf import run_rdf
+from revelsMD.rdf import compute_rdf
 from revelsMD.density import DensityGrid
 from .conftest import lammps_to_numpy, mda_to_numpy, assert_arrays_close
 
@@ -40,27 +40,27 @@ class TestLammpsVsNumpyConsistency:
         # Note: stop=-1 gives (frames-1) due to stop % frames implementation
         # So use stop=4 on both to process frames 0,1,2,3
         n_frames_to_use = 4
-        rdf_lammps = run_rdf(
+        rdf_lammps = compute_rdf(
             lammps_ts, '1', '1',
             delr=0.02, start=0, stop=n_frames_to_use
         )
 
-        rdf_numpy = run_rdf(
+        rdf_numpy = compute_rdf(
             numpy_ts, '1', '1',
             delr=0.02, start=0, stop=n_frames_to_use
         )
 
-        assert rdf_lammps is not None
-        assert rdf_numpy is not None
+        assert rdf_lammps.r is not None
+        assert rdf_numpy.r is not None
 
         # Results should be very close (small numerical differences expected
         # due to different frame iteration methods between LAMMPS/NumPy backends)
         assert_arrays_close(
-            rdf_lammps[0], rdf_numpy[0],
+            rdf_lammps.r, rdf_numpy.r,
             rtol=1e-10, context="r values"
         )
         assert_arrays_close(
-            rdf_lammps[1], rdf_numpy[1],
+            rdf_lammps.g, rdf_numpy.g,
             rtol=1e-3, atol=1e-3, context="g(r) values"
         )
 
@@ -127,27 +127,27 @@ class TestMDAVsNumpyConsistency:
         numpy_ts = mda_to_numpy(mda_ts, start=0, stop=n_frames, stride=1)
 
         # Compute RDF via both using same frame range
-        rdf_mda = run_rdf(
+        rdf_mda = compute_rdf(
             mda_ts, 'Ow', 'Ow',
             delr=0.1, start=0, stop=n_frames
         )
 
-        rdf_numpy = run_rdf(
+        rdf_numpy = compute_rdf(
             numpy_ts, 'Ow', 'Ow',
             delr=0.1, start=0, stop=None  # Process all frames in NumPy trajectory
         )
 
-        assert rdf_mda is not None
-        assert rdf_numpy is not None
+        assert rdf_mda.r is not None
+        assert rdf_numpy.r is not None
 
         # Results should be very close (small numerical differences possible
         # due to different frame iteration between MDA and NumPy backends)
         assert_arrays_close(
-            rdf_mda[0], rdf_numpy[0],
+            rdf_mda.r, rdf_numpy.r,
             rtol=1e-10, context="r values"
         )
         assert_arrays_close(
-            rdf_mda[1], rdf_numpy[1],
+            rdf_mda.g, rdf_numpy.g,
             rtol=1e-3, atol=1e-3, context="g(r) values"
         )
 

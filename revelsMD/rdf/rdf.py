@@ -1,19 +1,4 @@
-"""
-Force-based radial distribution function (RDF) estimators for RevelsMD.
-
-This module provides reduced-variance, force-weighted radial distribution
-functions using atomic positions and forces from trajectory-state objects.
-
-The estimators support both like- and unlike-species RDFs and can compute
-variance-minimised lambda-corrected RDFs via a linear combination of forward
-and backward Heaviside integrations.
-
-Notes
------
-- Assumes an orthorhombic (or cubic) periodic simulation cell.
-- Algorithm uses a 1/r^3 weighting of projected forces between atom pairs.
-- Physical sensibility of results depends on user-supplied forces/units.
-"""
+"""Stateful RDF class for revelsMD, following the DensityGrid pattern."""
 
 from __future__ import annotations
 
@@ -26,290 +11,333 @@ from revelsMD.rdf.rdf_helpers import (
 )
 
 
-def _get_species_indices(trajectory, species: str) -> np.ndarray:
-    """Get indices for a species, with RDF-specific error message."""
-    try:
-        return trajectory.get_indices(species)
-    except ValueError:
-        raise ValueError(f"No atoms found for species '{species}'.")
-
-
-def single_frame_rdf(
-    pos_array: np.ndarray,
-    force_array: np.ndarray,
-    indices: list[np.ndarray],
-    box_x: float,
-    box_y: float,
-    box_z: float,
-    bins: np.ndarray,
-) -> np.ndarray:
+class RDF:
     """
-    Compute a single-frame reduced-variance RDF.
+    Radial distribution function calculator.
 
-    Handles both like-species (A-A) and unlike-species (A-B) RDFs.
-    Like-species is indicated by passing the same array twice:
-    ``[indices_A, indices_A]``. Unlike-species uses two different arrays.
+    Follows the same pattern as DensityGrid:
+    - Constructor sets up bins and indices
+    - deposit() adds single-frame contributions (low-level, user-controlled iteration)
+    - accumulate() iterates frames and calls deposit (convenience wrapper)
+    - get_rdf() computes final g(r) with chosen integration
 
     Parameters
     ----------
-    pos_array : (N, 3) np.ndarray
-        Atomic positions in Cartesian coordinates.
-    force_array : (N, 3) np.ndarray
-        Atomic forces in Cartesian coordinates.
-    indices : list of two np.ndarray
-        ``[indices_species_A, indices_species_B]``.
-        For like-species, pass the same array twice.
-    box_x, box_y, box_z : float
-        Orthorhombic cell lengths.
-    bins : np.ndarray
-        Radial grid at which cumulative Heaviside contributions are accumulated.
+    trajectory : Trajectory
+        Trajectory object providing positions, forces, and box dimensions.
+        Used to set up bins, indices, and prefactor.
+    species_a : str
+        First species name.
+    species_b : str
+        Second species name (same as species_a for like-species RDF).
+    delr : float
+        Bin spacing (default: 0.01).
+    rmax : float or None
+        Maximum r value. If None, uses half the minimum box dimension.
+
+    Attributes
+    ----------
+    r : np.ndarray or None
+        Bin centres (available after get_rdf).
+    g : np.ndarray or None
+        g(r) values (available after get_rdf).
+    lam : np.ndarray or None
+        Lambda(r) values (only for integration='lambda').
+    progress : str
+        State: 'initialized', 'accumulated', or 'computed'.
+    """
+
+    def __init__(
+        self,
+        trajectory,
+        species_a: str,
+        species_b: str,
+        delr: float = 0.01,
+        rmax: float | None = None,
+    ):
+        self._trajectory = trajectory
+        self.species_a = species_a
+        self.species_b = species_b
+        self.delr = delr
+
+        # Store box dimensions for use in deposit
+        self._box_x = trajectory.box_x
+        self._box_y = trajectory.box_y
+        self._box_z = trajectory.box_z
+        self._beta = trajectory.beta
+
+        # Compute rmax
+        if rmax is None:
+            self.rmax = min(trajectory.box_x, trajectory.box_y, trajectory.box_z) / 2
+        else:
+            self.rmax = rmax
+
+        # Set up bins
+        self._bins = np.arange(0, self.rmax, delr)
+
+        # Get indices and compute prefactor
+        self._like_species = (species_a == species_b)
+        indices_a = self._get_species_indices(trajectory, species_a)
+        if self._like_species:
+            n_a = len(indices_a)
+            if n_a < 2:
+                raise ValueError(
+                    f"Like-species RDF requires at least 2 atoms of species '{species_a}', "
+                    f"but only {n_a} found."
+                )
+            self._indices = [indices_a, indices_a]
+            self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
+        else:
+            indices_b = self._get_species_indices(trajectory, species_b)
+            self._indices = [indices_a, indices_b]
+            self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
+
+        # State
+        self.progress = 'initialized'
+        self._accumulated = np.zeros(len(self._bins), dtype=np.float64)
+        self._frame_data: list[np.ndarray] = []
+        self._frame_count = 0
+
+        # Results (set by get_rdf())
+        self._r: np.ndarray | None = None
+        self._g: np.ndarray | None = None
+        self._lam: np.ndarray | None = None
+
+    @staticmethod
+    def _get_species_indices(trajectory, species: str) -> np.ndarray:
+        """Get indices for a species, with RDF-specific error message."""
+        try:
+            return trajectory.get_indices(species)
+        except ValueError:
+            raise ValueError(f"No atoms found for species '{species}'.")
+
+    @property
+    def r(self) -> np.ndarray | None:
+        """Bin centres."""
+        return self._r
+
+    @property
+    def g(self) -> np.ndarray | None:
+        """g(r) values."""
+        return self._g
+
+    @property
+    def lam(self) -> np.ndarray | None:
+        """Lambda(r) values (only available after get_rdf(integration='lambda'))."""
+        return self._lam
+
+    def deposit(self, positions: np.ndarray, forces: np.ndarray) -> None:
+        """
+        Deposit a single frame's contribution to the RDF accumulator.
+
+        Low-level method for user-controlled iteration. Mirrors DensityGrid.deposit().
+
+        Parameters
+        ----------
+        positions : (N, 3) np.ndarray
+            Atomic positions for this frame.
+        forces : (N, 3) np.ndarray
+            Atomic forces for this frame.
+        """
+        # Compute and accumulate
+        frame_result = self._single_frame(positions, forces)
+        self._accumulated += frame_result
+        self._frame_data.append(frame_result)
+        self._frame_count += 1
+
+        self.progress = 'accumulated'
+
+    def accumulate(
+        self,
+        trajectory,
+        start: int = 0,
+        stop: int | None = None,
+        period: int = 1,
+    ) -> None:
+        """
+        Accumulate RDF contributions from trajectory frames.
+
+        Convenience wrapper that handles frame iteration. Mirrors DensityGrid.make_force_grid().
+
+        Parameters
+        ----------
+        trajectory : Trajectory
+            Trajectory object to iterate over.
+        start : int
+            First frame index (default: 0).
+        stop : int or None
+            Stop frame index (default: None for all frames).
+        period : int
+            Frame stride (default: 1).
+        """
+        # Validate frame bounds
+        if start > trajectory.frames:
+            raise ValueError("First frame index exceeds frames in trajectory.")
+        if stop is not None and stop > trajectory.frames:
+            raise ValueError("Final frame index exceeds frames in trajectory.")
+
+        # Calculate frame range for progress bar
+        effective_stop = trajectory.frames if stop is None else (
+            trajectory.frames + stop if stop < 0 else stop
+        )
+        norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
+        to_run = range(int(norm_start), int(effective_stop), period)
+        if len(to_run) == 0:
+            raise ValueError("Final frame occurs before first frame in trajectory.")
+
+        # Process frames using deposit
+        for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
+            self.deposit(positions, forces)
+
+    def _single_frame(self, positions: np.ndarray, forces: np.ndarray) -> np.ndarray:
+        """Compute single-frame RDF contribution."""
+        pos_a = positions[self._indices[0], :]
+        force_a = forces[self._indices[0], :]
+
+        if self._like_species:
+            pos_b = pos_a
+            force_b = force_a
+        else:
+            pos_b = positions[self._indices[1], :]
+            force_b = forces[self._indices[1], :]
+
+        r_flat, dot_flat = compute_pairwise_contributions(
+            pos_a, pos_b, force_a, force_b,
+            (self._box_x, self._box_y, self._box_z)
+        )
+        return accumulate_binned_contributions(dot_flat, r_flat, self._bins)
+
+    def get_rdf(self, integration: str = 'forward') -> None:
+        """
+        Compute g(r) from accumulated data.
+
+        Mirrors DensityGrid.get_real_density() pattern.
+
+        Parameters
+        ----------
+        integration : {'forward', 'backward', 'lambda'}
+            Integration direction:
+            - 'forward': integrate from r=0, g(0)=0
+            - 'backward': integrate from r=inf, g(inf)=1
+            - 'lambda': variance-minimised combination
+        """
+        if self.progress == 'initialized':
+            raise RuntimeError("Call accumulate() or deposit() before get_rdf().")
+
+        if integration not in ('forward', 'backward', 'lambda'):
+            raise ValueError(f"integration must be 'forward', 'backward', or 'lambda', got {integration!r}")
+
+        if integration == 'lambda':
+            self._compute_lambda()
+        else:
+            self._compute_standard(integration)
+
+        self.progress = 'computed'
+
+    def _compute_standard(self, integration: str) -> None:
+        """Compute forward or backward integrated g(r)."""
+        scaled = np.nan_to_num(self._accumulated.copy())
+        scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
+
+        if integration == 'forward':
+            self._r = self._bins
+            self._g = np.cumsum(scaled)
+        else:  # backward
+            self._r = self._bins
+            self._g = 1 - np.cumsum(scaled[::-1])[::-1]
+
+        self._lam = None
+
+    def _compute_lambda(self) -> None:
+        """Compute lambda-corrected g(r)."""
+        base_array = np.nan_to_num(np.array(self._frame_data))
+        base_array *= self._prefactor * self._beta / (4 * np.pi)
+
+        mean_scaled = np.nan_to_num(self._accumulated.copy())
+        mean_scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
+
+        # Expectation curves
+        exp_zero_rdf = np.cumsum(mean_scaled)[:-1]
+        exp_inf_rdf = 1 - np.cumsum(mean_scaled[::-1])[::-1][1:]
+        exp_delta = exp_inf_rdf - exp_zero_rdf
+
+        # Per-frame curves
+        base_zero_rdf = np.cumsum(base_array, axis=1)[:, :-1]
+        base_inf_rdf = 1 - np.cumsum(base_array[:, ::-1], axis=1)[:, ::-1][:, 1:]
+        base_delta = base_inf_rdf - base_zero_rdf
+
+        # Lambda from covariance/variance
+        var_del = np.mean((base_delta - exp_delta) ** 2, axis=0)
+        cov_inf = np.mean((base_delta - exp_delta) * (base_inf_rdf - exp_inf_rdf), axis=0)
+        var_del_safe = np.where(var_del == 0, 1.0, var_del)
+        combination = np.divide(cov_inf, var_del_safe)
+        combination = np.nan_to_num(combination, nan=0.0, posinf=0.0, neginf=0.0)
+
+        g_lambda = np.nan_to_num(
+            np.mean(base_inf_rdf * (1 - combination) + base_zero_rdf * combination, axis=0),
+            nan=0.0, posinf=0.0, neginf=0.0
+        )
+
+        self._r = self._bins[1:]
+        self._g = g_lambda
+        self._lam = combination
+
+
+def compute_rdf(
+    trajectory,
+    species_a: str,
+    species_b: str,
+    delr: float = 0.01,
+    rmax: float | None = None,
+    start: int = 0,
+    stop: int | None = None,
+    period: int = 1,
+    integration: str = 'forward',
+) -> RDF:
+    """
+    Compute RDF from trajectory with a single function call.
+
+    Mirrors compute_density() pattern.
+
+    Parameters
+    ----------
+    trajectory : Trajectory
+        Trajectory object providing positions, forces, and box dimensions.
+    species_a : str
+        First species name.
+    species_b : str
+        Second species name (same as species_a for like-species RDF).
+    delr : float
+        Bin spacing (default: 0.01).
+    rmax : float or None
+        Maximum r value. If None, uses half the minimum box dimension.
+    start : int
+        First frame index (default: 0).
+    stop : int or None
+        Stop frame index (default: None for all frames).
+    period : int
+        Frame stride (default: 1).
+    integration : {'forward', 'backward', 'lambda'}
+        Integration method (default: 'forward').
 
     Returns
     -------
-    np.ndarray
-        Accumulated force-weighted contributions per bin for this frame.
+    RDF
+        RDF object with computed results available as properties.
+
+    Examples
+    --------
+    >>> from revelsMD.rdf import compute_rdf
+    >>> rdf = compute_rdf(trajectory, 'O', 'H', integration='forward')
+    >>> print(rdf.r, rdf.g)
     """
-    n_bins = np.size(bins)
-    if n_bins == 0:
-        return np.zeros(1, dtype=np.float64)
-
-    pos_a = pos_array[indices[0], :]
-    force_a = force_array[indices[0], :]
-
-    # Detect like-species (A-A) usage by comparing the index arrays by value.
-    # The downstream helpers also use value comparison (np.array_equal) to detect
-    # like-species and apply upper-triangle optimisations.
-    if np.array_equal(indices[0], indices[1]):
-        pos_b = pos_a
-        force_b = force_a
-    else:
-        pos_b = pos_array[indices[1], :]
-        force_b = force_array[indices[1], :]
-
-    # Vectorised pairwise calculation and binning
-    r_flat, dot_flat = compute_pairwise_contributions(
-        pos_a, pos_b, force_a, force_b, (box_x, box_y, box_z)
+    rdf = RDF(
+        trajectory,
+        species_a=species_a,
+        species_b=species_b,
+        delr=delr,
+        rmax=rmax,
     )
-    return accumulate_binned_contributions(dot_flat, r_flat, bins)
-
-
-def run_rdf(
-    trajectory,
-    atom_a: str,
-    atom_b: str,
-    delr: float = 0.01,
-    start: int = 0,
-    stop: int | None = None,
-    period: int = 1,
-    rmax: bool | float = True,
-    from_zero: bool = True,
-) -> np.ndarray:
-    """
-    Compute the force-weighted RDF across multiple frames.
-
-    Parameters
-    ----------
-    trajectory : TrajectoryState
-        Trajectory state object providing positions, forces, box dimensions, and beta.
-    atom_a, atom_b : str
-        Species identifiers. If identical, computes like-pair RDF.
-    delr : float, optional
-        Bin spacing in distance (default: 0.01).
-    start : int, optional
-        First frame index (default: 0).
-    stop : int or None, optional
-        Stop frame index (default: None, meaning all frames).
-        Negative indices count from end (e.g., -1 = all but last).
-    period : int, optional
-        Frame stride (default: 1).
-    rmax : bool or float, optional
-        If True, use half the minimum box dimension; otherwise, set numeric cutoff.
-    from_zero : bool, optional
-        If True, integrate from r=0, else from rmax.
-
-    Returns
-    -------
-    numpy.ndarray of shape (2, n)
-        RDF array ``[r, g(r)]``.
-
-    Raises
-    ------
-    ValueError
-        If frame bounds are invalid (start/stop exceed trajectory length,
-        or the frame range is empty).
-    """
-    if atom_a == atom_b:
-        indices_a = _get_species_indices(trajectory, atom_a)
-        n_a = len(indices_a)
-        if n_a < 2:
-            raise ValueError(
-                f"Like-species RDF requires at least 2 atoms of species '{atom_a}', "
-                f"but only {n_a} found."
-            )
-        indices = [indices_a, indices_a]
-        prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
-    else:
-        indices_a = np.array(_get_species_indices(trajectory, atom_a))
-        indices_b = np.array(_get_species_indices(trajectory, atom_b))
-        indices = [indices_a, indices_b]
-        prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
-
-    # Validate frame bounds
-    if start > trajectory.frames:
-        raise ValueError("First frame index exceeds frames in trajectory.")
-    if stop is not None and stop > trajectory.frames:
-        raise ValueError("Final frame index exceeds frames in trajectory.")
-
-    # Calculate frame count for scaling
-    effective_stop = trajectory.frames if stop is None else (trajectory.frames + stop if stop < 0 else stop)
-    norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
-    to_run = range(int(norm_start), int(effective_stop), period)
-    if len(to_run) == 0:
-        raise ValueError("Final frame occurs before first frame in trajectory.")
-
-    # Bin grid: use half the minimum box dimension
-    if rmax is True:
-        rmax_value = min(trajectory.box_x, trajectory.box_y, trajectory.box_z) / 2
-    else:
-        rmax_value = float(rmax)
-    bins = np.arange(0, rmax_value, delr)
-
-    accumulated_storage_array = np.zeros(np.size(bins), dtype=np.float64)
-
-    # Unified frame iteration using iter_frames
-    for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
-        accumulated_storage_array += single_frame_rdf(
-            positions, forces, indices, trajectory.box_x, trajectory.box_y, trajectory.box_z, bins
-        )
-
-    # Scale and integrate
-    accumulated_storage_array = np.nan_to_num(accumulated_storage_array)
-    accumulated_storage_array *= prefactor * trajectory.beta / (4 * np.pi * len(to_run))
-
-    if from_zero is True:
-        return np.array([bins, np.cumsum(accumulated_storage_array)])
-    else:
-        return np.array([bins, 1 - np.cumsum(accumulated_storage_array[::-1])[::-1]])
-
-
-def run_rdf_lambda(
-    trajectory,
-    atom_a: str,
-    atom_b: str,
-    delr: float = 0.01,
-    start: int = 0,
-    stop: int | None = None,
-    period: int = 1,
-    rmax: bool | float = True,
-) -> np.ndarray:
-    """
-    Compute the lambda-corrected RDF by combining forward and backward estimates.
-
-    Parameters
-    ----------
-    trajectory : TrajectoryState
-        Trajectory state object providing positions, forces, box dimensions, and beta.
-    atom_a, atom_b : str
-        Species identifiers. If identical, computes like-pair RDF.
-    delr : float, optional
-        Bin spacing in distance (default: 0.01).
-    start : int, optional
-        First frame index (default: 0).
-    stop : int or None, optional
-        Stop frame index (default: None, meaning all frames).
-        Negative indices count from end (e.g., -1 = all but last).
-    period : int, optional
-        Frame stride (default: 1).
-    rmax : bool or float, optional
-        If True, use half the minimum box dimension; otherwise, set numeric cutoff.
-
-    Returns
-    -------
-    numpy.ndarray of shape (n, 3)
-        Columns: `[r, g_lambda(r), lambda(r)]`.
-
-    Raises
-    ------
-    ValueError
-        If frame bounds are invalid (start/stop exceed trajectory length,
-        or the frame range is empty).
-
-    Notes
-    -----
-    Uses covariance-based lambda(r) = cov(delta, g_inf) / var(delta) with
-    delta = g_inf - g_zero from the accumulated estimator.
-    """
-    if atom_a == atom_b:
-        indices_a = _get_species_indices(trajectory, atom_a)
-        n_a = len(indices_a)
-        if n_a < 2:
-            raise ValueError(
-                f"Like-species RDF requires at least 2 atoms of species '{atom_a}', "
-                f"but only {n_a} found."
-            )
-        indices = [indices_a, indices_a]
-        prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
-    else:
-        indices_a = _get_species_indices(trajectory, atom_a)
-        indices_b = _get_species_indices(trajectory, atom_b)
-        indices = [indices_a, indices_b]
-        prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
-
-    # Validate frame bounds
-    if start > trajectory.frames:
-        raise ValueError("First frame index exceeds frames in trajectory.")
-    if stop is not None and stop > trajectory.frames:
-        raise ValueError("Final frame index exceeds frames in trajectory.")
-
-    # Calculate frame count for scaling
-    effective_stop = trajectory.frames if stop is None else (trajectory.frames + stop if stop < 0 else stop)
-    norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
-    to_run = range(int(norm_start), int(effective_stop), period)
-    if len(to_run) == 0:
-        raise ValueError("Final frame occurs before first frame in trajectory.")
-
-    # Bin grid: use half the minimum box dimension
-    if rmax is True:
-        rmax_value = min(trajectory.box_x, trajectory.box_y, trajectory.box_z) / 2
-    else:
-        rmax_value = float(rmax)
-    bins = np.arange(0, rmax_value, delr)
-
-    list_store: list[np.ndarray] = []
-    accumulated_storage_array = np.zeros(np.size(bins), dtype=np.float64)
-
-    # Unified frame iteration using iter_frames
-    for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
-        this_frame = single_frame_rdf(
-            positions, forces, indices, trajectory.box_x, trajectory.box_y, trajectory.box_z, bins
-        )
-        accumulated_storage_array += this_frame
-        list_store.append(this_frame)
-
-    # Build arrays and prefactors
-    base_array = np.nan_to_num(np.array(list_store))
-    base_array *= prefactor * trajectory.beta / (4 * np.pi)
-
-    accumulated_storage_array = np.nan_to_num(accumulated_storage_array)
-    accumulated_storage_array *= prefactor * trajectory.beta / (4 * np.pi * len(to_run))
-
-    # Expectation curves from accumulated estimator
-    exp_zero_rdf = np.array(np.cumsum(accumulated_storage_array)[:-1])
-    exp_inf_rdf = np.array(1 - np.cumsum(accumulated_storage_array[::-1])[::-1][1:])
-    exp_delta = exp_inf_rdf - exp_zero_rdf
-
-    # Per-frame forward/backward curves
-    base_zero_rdf = np.array(np.cumsum(base_array, axis=1))[:, :-1]
-    base_inf_rdf = np.array(1 - np.cumsum(base_array[:, ::-1], axis=1)[:, ::-1][:, 1:])
-    base_delta = base_inf_rdf - base_zero_rdf
-
-    # lambda(r) from covariance/variance with numerical safety
-    var_del = np.mean((base_delta - exp_delta) ** 2, axis=0)
-    cov_inf = np.mean((base_delta - exp_delta) * (base_inf_rdf - exp_inf_rdf), axis=0)
-    var_del_safe = np.where(var_del == 0, 1.0, var_del)
-    combination = np.divide(cov_inf, var_del_safe)
-    combination = np.nan_to_num(combination, nan=0.0, posinf=0.0, neginf=0.0)
-
-    g_lambda = np.nan_to_num(np.mean(base_inf_rdf * (1 - combination) + base_zero_rdf * combination, axis=0), nan=0.0, posinf=0.0, neginf=0.0)
-
-    return np.transpose(np.array([bins[1:], g_lambda, combination]))
+    rdf.accumulate(trajectory, start=start, stop=stop, period=period)
+    rdf.get_rdf(integration=integration)
+    return rdf

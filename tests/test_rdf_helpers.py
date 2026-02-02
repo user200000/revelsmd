@@ -11,7 +11,10 @@ import os
 import numpy as np
 import pytest
 
-from revelsMD.rdf import single_frame_rdf
+from revelsMD.rdf.rdf_helpers import (
+    compute_pairwise_contributions,
+    accumulate_binned_contributions,
+)
 
 
 class TestBackendSelection:
@@ -678,82 +681,6 @@ class TestComparisonWithOriginal:
             err_msg="Vectorised unlike-pair calculation differs from original"
         )
 
-    def test_single_frame_rdf_like_full_comparison(self):
-        """Full single_frame_rdf output matches helpers for like-species."""
-        from revelsMD.rdf.rdf_helpers import (
-            compute_pairwise_contributions,
-            accumulate_binned_contributions,
-        )
-
-        np.random.seed(44)
-        n_atoms = 100
-        box_x, box_y, box_z = 15.0, 15.0, 15.0
-
-        pos_array = np.random.uniform(0, box_x, (n_atoms, 3))
-        force_array = np.random.randn(n_atoms, 3)
-        indices = np.arange(n_atoms)
-        bins = np.arange(0, 7, 0.05)
-
-        # Using single_frame_rdf
-        rdf_result = single_frame_rdf(
-            pos_array, force_array, [indices, indices],
-            box_x, box_y, box_z, bins
-        )
-
-        # Direct helper implementation
-        pos_ang = pos_array[indices, :]
-        force_total = force_array[indices, :]
-        r_vec, dot_vec = compute_pairwise_contributions(
-            pos_ang, pos_ang, force_total, force_total, (box_x, box_y, box_z)
-        )
-        helper_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
-
-        np.testing.assert_array_almost_equal(
-            helper_result, rdf_result,
-            decimal=10,
-            err_msg="Helper-based single_frame_rdf differs from direct helper call"
-        )
-
-    def test_single_frame_rdf_unlike_full_comparison(self):
-        """Full single_frame_rdf output matches helpers for unlike-species."""
-        from revelsMD.rdf.rdf_helpers import (
-            compute_pairwise_contributions,
-            accumulate_binned_contributions,
-        )
-
-        np.random.seed(45)
-        n_atoms = 120
-        n_type1 = 70
-        box_x, box_y, box_z = 12.0, 14.0, 10.0
-
-        pos_array = np.random.uniform(0, min(box_x, box_y, box_z), (n_atoms, 3))
-        force_array = np.random.randn(n_atoms, 3)
-        indices = [np.arange(n_type1), np.arange(n_type1, n_atoms)]
-        bins = np.arange(0, 5, 0.05)
-
-        # Using single_frame_rdf
-        rdf_result = single_frame_rdf(
-            pos_array, force_array, indices,
-            box_x, box_y, box_z, bins
-        )
-
-        # Direct helper implementation
-        pos_ang_1 = pos_array[indices[0], :]
-        pos_ang_2 = pos_array[indices[1], :]
-        force_total_1 = force_array[indices[0], :]
-        force_total_2 = force_array[indices[1], :]
-
-        r_vec, dot_vec = compute_pairwise_contributions(
-            pos_ang_1, pos_ang_2, force_total_1, force_total_2,
-            (box_x, box_y, box_z)
-        )
-        helper_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
-
-        np.testing.assert_array_almost_equal(
-            helper_result, rdf_result,
-            decimal=10,
-            err_msg="Helper-based single_frame_rdf differs from direct helper call"
-        )
 
 
 class TestPairwiseContributionsNumba:

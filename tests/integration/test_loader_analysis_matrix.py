@@ -15,7 +15,7 @@ RDF unlike          |   X   |
 import pytest
 import numpy as np
 
-from revelsMD.rdf import run_rdf, run_rdf_lambda
+from revelsMD.rdf import RDF, compute_rdf
 from revelsMD.density import DensityGrid
 
 
@@ -30,36 +30,43 @@ class TestNumpyAnalysisMatrix:
 
     def test_rdf_like_and_shape(self, uniform_gas_trajectory):
         """NumPy: like-pair RDF works and has correct shape."""
-        result = run_rdf(
+        result = compute_rdf(
             uniform_gas_trajectory, '1', '1',
             delr=0.1, start=0, stop=-1
         )
         assert result is not None
-        assert np.all(np.isfinite(result))
-        # Shape check: RDF output should be 2 x n_bins
-        assert result.shape[0] == 2
-        assert len(result.shape) == 2
+        assert np.all(np.isfinite(result.r))
+        assert np.all(np.isfinite(result.g))
+        # Shape check: RDF r and g should be 1D arrays of same length
+        assert result.r.ndim == 1
+        assert result.g.ndim == 1
+        assert len(result.r) == len(result.g)
 
     def test_rdf_unlike(self, multispecies_trajectory):
         """NumPy: unlike-pair RDF works."""
-        result = run_rdf(
+        result = compute_rdf(
             multispecies_trajectory, '1', '2',
             delr=0.1, start=0, stop=-1
         )
         assert result is not None
-        assert np.all(np.isfinite(result))
+        assert np.all(np.isfinite(result.r))
+        assert np.all(np.isfinite(result.g))
 
     def test_rdf_lambda_and_shape(self, uniform_gas_trajectory):
         """NumPy: lambda-combined RDF works and has correct shape."""
-        result = run_rdf_lambda(
+        result = compute_rdf(
             uniform_gas_trajectory, '1', '1',
-            delr=0.1, start=0, stop=-1
+            delr=0.1, start=0, stop=-1, integration='lambda'
         )
         assert result is not None
-        assert np.all(np.isfinite(result))
-        # Shape check: Lambda RDF output should be n_bins x 3
-        assert result.shape[1] == 3
-        assert len(result.shape) == 2
+        assert np.all(np.isfinite(result.r))
+        assert np.all(np.isfinite(result.g))
+        assert np.all(np.isfinite(result.lam))
+        # Shape check: r, g, lam should all be 1D arrays of same length
+        assert result.r.ndim == 1
+        assert result.g.ndim == 1
+        assert result.lam.ndim == 1
+        assert len(result.r) == len(result.g) == len(result.lam)
 
     def test_number_density_and_shape(self, uniform_gas_trajectory):
         """NumPy: 3D number density works and has correct shape."""
