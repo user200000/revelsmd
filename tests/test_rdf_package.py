@@ -2,8 +2,6 @@
 
 import warnings
 
-import pytest
-
 
 class TestRDFPackageImports:
     """Test that RDF functions are importable from the new package location."""

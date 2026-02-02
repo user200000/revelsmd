@@ -24,7 +24,7 @@ import sys
 project_root = Path(__file__).parents[1]
 sys.path.insert(0, str(project_root))
 
-from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
+from revelsMD.rdf import run_rdf, run_rdf_lambda
 from revelsMD.revels_3D import Revels3D
 
 EXAMPLES_DIR = project_root / "examples"
