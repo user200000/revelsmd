@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revelsMD.trajectories._base import Trajectory, DataUnavailableError
+from revelsMD.trajectories._base import Trajectory
 
 
 class Selection:
