@@ -1,9 +1,9 @@
 """Integration tests for make_force_grid with different configurations."""
 
-import pytest
 import numpy as np
+import pytest
 
-from revelsMD.density import GridState
+from revelsMD.density import GridState, SelectionState
 
 
 class TSMock:
@@ -163,35 +163,32 @@ class TestMakeForceGridConfigurations:
         with pytest.raises(ValueError, match="single atom"):
             gs.make_force_grid(ts_single_species, atom_names="H", rigid=True, centre_location=True)
 
-    def test_density_type_validation_called_at_grid_state(self, ts_single_species):
+    def test_density_type_validation_called_at_grid_state(self, ts_single_species, mocker):
         """GridState should call validate_density_type with the provided value."""
-        from unittest.mock import patch
-
-        with patch(
+        mock_validate = mocker.patch(
             'revelsMD.density.grid_state.validate_density_type',
             return_value='number'
-        ) as mock_validate:
-            GridState(ts_single_species, "NUMBER", nbins=4)
+        )
 
-            mock_validate.assert_called_once_with("NUMBER")
+        GridState(ts_single_species, "NUMBER", nbins=4)
 
-    def test_density_type_validation_called_at_selection_state(self, ts_single_species):
+        mock_validate.assert_called_once_with("NUMBER")
+
+    def test_density_type_validation_called_at_selection_state(self, ts_single_species, mocker):
         """SelectionState should call validate_density_type with the provided value."""
-        from unittest.mock import patch
-        from revelsMD.density import SelectionState
-
-        with patch(
+        mock_validate = mocker.patch(
             'revelsMD.density.selection_state.validate_density_type',
             return_value='number'
-        ) as mock_validate:
-            SelectionState(
-                ts_single_species,
-                atom_names="H",
-                centre_location=True,
-                density_type="NUMBER",
-            )
+        )
 
-            mock_validate.assert_called_once_with("NUMBER")
+        SelectionState(
+            ts_single_species,
+            atom_names="H",
+            centre_location=True,
+            density_type="NUMBER",
+        )
+
+        mock_validate.assert_called_once_with("NUMBER")
 
     def test_rigid_invalid_centre_location_raises(self, ts_multi_species):
         """Rigid with invalid centre_location raises ValueError."""
