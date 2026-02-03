@@ -100,8 +100,10 @@ class GridState:
 
         # Density selection
         dty = density_type.lower().strip()
-        if dty not in {"number", "charge", "polarisation"}:
-            raise ValueError("density_type must be one of {'number','charge','polarisation'}.")
+        if dty not in SelectionState.VALID_DENSITY_TYPES:
+            raise ValueError(
+                f"density_type must be one of {SelectionState.VALID_DENSITY_TYPES}, got {density_type!r}"
+            )
         self.density_type = dty
 
         # Progress flag
