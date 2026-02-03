@@ -1070,3 +1070,23 @@ class TestComputeBeta:
         """Unsupported unit system should raise ValueError."""
         with pytest.raises(ValueError, match="Unsupported unit system"):
             compute_beta('quantum-donut', 300.0)
+
+    def test_compute_beta_zero_temperature_raises(self):
+        """Zero temperature should raise ValueError."""
+        with pytest.raises(ValueError, match="Temperature must be positive"):
+            compute_beta('real', 0.0)
+
+    def test_compute_beta_negative_temperature_raises(self):
+        """Negative temperature should raise ValueError."""
+        with pytest.raises(ValueError, match="Temperature must be positive"):
+            compute_beta('real', -100.0)
+
+    def test_compute_beta_infinite_temperature_raises(self):
+        """Infinite temperature should raise ValueError."""
+        with pytest.raises(ValueError, match="Temperature must be finite"):
+            compute_beta('real', float('inf'))
+
+    def test_compute_beta_nan_temperature_raises(self):
+        """NaN temperature should raise ValueError."""
+        with pytest.raises(ValueError, match="Temperature must be finite"):
+            compute_beta('real', float('nan'))
