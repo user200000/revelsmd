@@ -165,10 +165,8 @@ class TestMakeForceGridConfigurations:
 
     def test_invalid_density_type_raises(self, ts_single_species):
         """Invalid density type raises ValueError."""
-        gs = GridState(ts_single_species, "number", nbins=4)
-        gs.density_type = "invalid"
-        with pytest.raises(ValueError, match="Unknown density_type"):
-            gs.make_force_grid(ts_single_species, atom_names="H", rigid=False)
+        with pytest.raises(ValueError, match="density_type must be one of"):
+            GridState(ts_single_species, "invalid", nbins=4)
 
     def test_rigid_invalid_centre_location_raises(self, ts_multi_species):
         """Rigid with invalid centre_location raises ValueError."""
