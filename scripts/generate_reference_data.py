@@ -24,7 +24,7 @@ import sys
 project_root = Path(__file__).parents[1]
 sys.path.insert(0, str(project_root))
 
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import run_rdf, run_rdf_lambda
 from revelsMD.revels_3D import Revels3D
 
 EXAMPLES_DIR = project_root / "examples"
@@ -54,6 +54,7 @@ def generate_lammps_references():
         str(data_file),
         units='lj',
         atom_style="id resid type q x y z ix iy iz",
+        temperature=1.35,
     )
 
     output_dir = REFERENCE_DIR / "lammps_example1"
@@ -61,8 +62,8 @@ def generate_lammps_references():
 
     # RDF forward integration (5 frames for speed)
     print("  Computing RDF (forward integration)...")
-    rdf_forward = RevelsRDF.run_rdf(
-        ts, '1', '1', temp=1.35,
+    rdf_forward = run_rdf(
+        ts, '1', '1',
         delr=0.02, from_zero=True, start=0, stop=5
     )
     np.savez(
@@ -77,8 +78,8 @@ def generate_lammps_references():
 
     # RDF backward integration
     print("  Computing RDF (backward integration)...")
-    rdf_backward = RevelsRDF.run_rdf(
-        ts, '1', '1', temp=1.35,
+    rdf_backward = run_rdf(
+        ts, '1', '1',
         delr=0.02, from_zero=False, start=0, stop=5
     )
     np.savez(
@@ -93,8 +94,8 @@ def generate_lammps_references():
 
     # RDF lambda combination
     print("  Computing RDF lambda...")
-    rdf_lambda = RevelsRDF.run_rdf_lambda(
-        ts, '1', '1', temp=1.35,
+    rdf_lambda = run_rdf_lambda(
+        ts, '1', '1',
         delr=0.02, start=0, stop=5
     )
     np.savez(
@@ -143,15 +144,15 @@ def generate_mda_references():
         return
 
     print("Loading Example 4 MDA trajectory...")
-    ts = MDATrajectory(str(trr_file), str(tpr_file))
+    ts = MDATrajectory(str(trr_file), str(tpr_file), temperature=300)
 
     output_dir = REFERENCE_DIR / "mda_example4"
     ensure_dir(output_dir)
 
     # RDF lambda (run_rdf has a bug with MDA, but run_rdf_lambda works)
     print("  Computing RDF lambda...")
-    rdf_lambda = RevelsRDF.run_rdf_lambda(
-        ts, 'Ow', 'Ow', temp=300,
+    rdf_lambda = run_rdf_lambda(
+        ts, 'Ow', 'Ow',
         delr=0.1, start=0, stop=5
     )
     np.savez(
@@ -228,15 +229,15 @@ def generate_vasp_references():
         return
 
     print("Loading VASP trajectory (BaSnF4 subset)...")
-    ts = VaspTrajectory(str(vasprun_file))
+    ts = VaspTrajectory(str(vasprun_file), temperature=600)
 
     output_dir = REFERENCE_DIR / "vasp_example3"
     ensure_dir(output_dir)
 
     # RDF lambda for F-F (BaSnF4 contains F atoms)
     print("  Computing F-F RDF lambda...")
-    rdf_lambda = RevelsRDF.run_rdf_lambda(
-        ts, 'F', 'F', temp=600,
+    rdf_lambda = run_rdf_lambda(
+        ts, 'F', 'F',
         delr=0.1, start=0, stop=10
     )
     np.savez(
@@ -285,13 +286,13 @@ def generate_synthetic_references():
     species = ['1'] * n_atoms
 
     ts = NumpyTrajectory(
-        positions, forces, box, box, box, species, units='lj'
+        positions, forces, box, box, box, species, units='lj', temperature=1.0
     )
 
     # RDF for uniform gas (use all frames)
     print("  Computing uniform gas RDF...")
-    rdf = RevelsRDF.run_rdf_lambda(
-        ts, '1', '1', temp=1.0,
+    rdf = run_rdf_lambda(
+        ts, '1', '1',
         delr=0.1, start=0, stop=None
     )
     np.savez(

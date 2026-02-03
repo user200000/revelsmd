@@ -13,7 +13,7 @@ import numpy as np
 from pathlib import Path
 
 from revelsMD.density import DensityGrid
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.rdf import RDF, compute_rdf
 from .conftest import load_reference_data, assert_arrays_close
 
 
@@ -162,18 +162,19 @@ class TestRigidWaterRDF:
         """O-O RDF calculation for water."""
         ts = example4_trajectory
 
-        rdf = RevelsRDF.run_rdf(
+        rdf = compute_rdf(
             ts, 'Ow', 'Ow',
             period=1, delr=0.1, start=0, stop=5
         )
 
         assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert np.all(np.isfinite(rdf.r))
+        assert np.all(np.isfinite(rdf.g))
 
         # Water O-O RDF should have first peak near 2.8 Angstrom
         # Find first peak
-        peak_idx = np.argmax(rdf[1])
-        peak_r = rdf[0, peak_idx]
+        peak_idx = np.argmax(rdf.g)
+        peak_r = rdf.r[peak_idx]
 
         # Peak should be in reasonable range for water (2.5-3.5 A)
         assert 2.0 < peak_r < 4.0, \
@@ -183,13 +184,14 @@ class TestRigidWaterRDF:
         """O-H RDF calculation for water."""
         ts = example4_trajectory
 
-        rdf = RevelsRDF.run_rdf(
+        rdf = compute_rdf(
             ts, 'Ow', 'Hw1',
             period=1, delr=0.1, start=0, stop=5
         )
 
         assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert np.all(np.isfinite(rdf.r))
+        assert np.all(np.isfinite(rdf.g))
 
 
 @pytest.mark.integration
