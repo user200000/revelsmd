@@ -23,13 +23,42 @@ AVAILABLE_BACKENDS = frozenset({'numpy', 'numba'})
 DEFAULT_BACKEND = 'numba'
 
 
+def _resolve_backend() -> str:
+    """Resolve and validate backend from environment variable.
+
+    Called once at module import time to ensure the backend is valid.
+
+    Returns
+    -------
+    str
+        Validated backend name ('numpy' or 'numba').
+
+    Raises
+    ------
+    ValueError
+        If the environment variable contains an invalid backend name.
+    """
+    value = os.environ.get(BACKEND_ENV_VAR, DEFAULT_BACKEND).lower().strip()
+    if not value:
+        return DEFAULT_BACKEND
+    if value not in AVAILABLE_BACKENDS:
+        raise ValueError(
+            f"Invalid REVELSMD_BACKEND '{value}'. "
+            f"Must be one of: {', '.join(sorted(AVAILABLE_BACKENDS))}"
+        )
+    return value
+
+
+BACKEND = _resolve_backend()
+
+
 def get_backend() -> str:
     """
-    Get the current backend from environment variable.
+    Get the current backend.
 
     Returns
     -------
     str
         Backend name ('numpy' or 'numba').
     """
-    return os.environ.get(BACKEND_ENV_VAR, DEFAULT_BACKEND).lower()
+    return BACKEND
