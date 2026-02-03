@@ -3,7 +3,7 @@ Pipeline integration tests for 3D number density (Example 2).
 
 These tests exercise the full 3D density workflow using the Example 2 LJ data:
 - LammpsTrajectoryState loading
-- GridState creation and configuration
+- DensityGrid creation and configuration
 - make_force_grid() with triangular kernel
 - get_real_density() integration
 - get_lambda() for optimal linear combination
@@ -14,7 +14,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.revels_3D import Revels3D
+from revelsMD.density import DensityGrid
 from .conftest import load_reference_data, assert_arrays_close
 
 
@@ -38,16 +38,16 @@ class TestNumberDensityPipelineExample2:
         assert len(type2_indices) > 0
 
     def test_gridstate_initialisation(self, example2_trajectory):
-        """GridState initialises correctly for number density."""
+        """DensityGrid initialises correctly for number density."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
+        gs = DensityGrid(ts, 'number', nbins=50)
 
         assert gs.density_type == 'number'
         assert gs.nbinsx == 50
         assert gs.nbinsy == 50
         assert gs.nbinsz == 50
-        assert gs.temperature == 1.35
+        assert gs.beta == ts.beta
 
         # Grids should be initialised to zero
         assert gs.forceX.shape == (50, 50, 50)
@@ -59,7 +59,7 @@ class TestNumberDensityPipelineExample2:
         """Force grid accumulation works on frame subset."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
+        gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use only first 5 frames for fast test
         gs.make_force_grid(
@@ -77,7 +77,7 @@ class TestNumberDensityPipelineExample2:
         """Density integration produces valid output."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
+        gs = DensityGrid(ts, 'number', nbins=50)
         gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
         gs.get_real_density()
 
@@ -89,7 +89,7 @@ class TestNumberDensityPipelineExample2:
         """Box kernel produces valid (though higher variance) output."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
+        gs = DensityGrid(ts, 'number', nbins=50)
         gs.make_force_grid(ts, '2', kernel='box', rigid=False, start=0, stop=5)
         gs.get_real_density()
 
@@ -100,7 +100,7 @@ class TestNumberDensityPipelineExample2:
         """Density with larger frame subset for better statistics."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
+        gs = DensityGrid(ts, 'number', nbins=50)
         gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
@@ -125,7 +125,7 @@ class TestNumberDensityPipelineExample2:
         """Lambda combination produces valid optimal density."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.35)
+        gs = DensityGrid(ts, 'number', nbins=30)
         gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
@@ -153,7 +153,7 @@ class TestDensityPhysicalProperties:
         """Number density should be non-negative everywhere."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
+        gs = DensityGrid(ts, 'number', nbins=50)
         gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
@@ -167,7 +167,7 @@ class TestDensityPhysicalProperties:
         """Density magnitude should be physically reasonable."""
         ts = example2_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=1.35)
+        gs = DensityGrid(ts, 'number', nbins=50)
         gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
@@ -188,12 +188,12 @@ class TestDensityPhysicalProperties:
         ts = example2_trajectory
 
         # Triangular kernel
-        gs_tri = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.35)
+        gs_tri = DensityGrid(ts, 'number', nbins=30)
         gs_tri.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs_tri.get_real_density()
 
         # Box kernel
-        gs_box = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.35)
+        gs_box = DensityGrid(ts, 'number', nbins=30)
         gs_box.make_force_grid(ts, '2', kernel='box', rigid=False, start=0, stop=10)
         gs_box.get_real_density()
 
@@ -216,7 +216,7 @@ class TestDensityGridResolution:
         ts = example2_trajectory
 
         for nbins in [20, 50, 100]:
-            gs = Revels3D.GridState(ts, 'number', nbins=nbins, temperature=1.35)
+            gs = DensityGrid(ts, 'number', nbins=nbins)
             gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
             gs.get_real_density()
 
@@ -230,7 +230,7 @@ class TestDensityGridResolution:
         totals = []
 
         for nbins in [20, 40]:
-            gs = Revels3D.GridState(ts, 'number', nbins=nbins, temperature=1.35)
+            gs = DensityGrid(ts, 'number', nbins=nbins)
             gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
             gs.get_real_density()
 

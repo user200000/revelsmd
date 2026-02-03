@@ -26,6 +26,8 @@ class MDATrajectory(Trajectory):
         Path to the trajectory file (e.g., `.xtc`, `.trr`, `.dcd`, `.lammpstrj`).
     topology_file : str
         Path to the topology file (e.g., `.pdb`, `.gro`, `.data`).
+    temperature : float
+        Simulation temperature in Kelvin.
 
     Attributes
     ----------
@@ -35,6 +37,10 @@ class MDATrajectory(Trajectory):
         Orthorhombic simulation box dimensions in each Cartesian direction.
     units : str
         Unit system identifier (`'mda'`).
+    temperature : float
+        Simulation temperature in Kelvin.
+    beta : float
+        Inverse thermal energy 1/(kB*T) in kJ/mol.
 
     Raises
     ------
@@ -49,9 +55,11 @@ class MDATrajectory(Trajectory):
     - For triclinic boxes, preprocessing to orthorhombic form is required.
     """
 
-    def __init__(self, trajectory_file: str, topology_file: str):
+    def __init__(self, trajectory_file: str, topology_file: str, *, temperature: float):
         if not topology_file:
             raise ValueError("A topology file is required for MDAnalysis trajectories.")
+
+        super().__init__(units='mda', temperature=temperature)
 
         self.trajectory_file = trajectory_file
         self.topology_file = topology_file
@@ -63,7 +71,6 @@ class MDATrajectory(Trajectory):
 
         self.mdanalysis_universe = mdanalysis_universe
         self.frames = len(mdanalysis_universe.trajectory)
-        self.units = 'mda'
 
         dims = mdanalysis_universe.dimensions
         if len(dims) < 3:

@@ -8,7 +8,7 @@ along with helper functions for parsing the LAMMPS dump format.
 from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
-from MDAnalysis.exceptions import NoDataError
+from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
 import numpy as np
 
 from ._base import Trajectory, DataUnavailableError
@@ -175,10 +175,19 @@ class LammpsTrajectory(Trajectory):
         Path(s) to LAMMPS dump files.
     topology_file : str
         Path to corresponding LAMMPS data or topology file.
+    temperature : float
+        Simulation temperature in Kelvin.
     units : str, optional
         LAMMPS unit system (default: `'real'`).
     atom_style : str, optional
         LAMMPS atom style (default: `'full'`).
+
+    Attributes
+    ----------
+    temperature : float
+        Simulation temperature in Kelvin.
+    beta : float
+        Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
 
     Raises
     ------
@@ -192,12 +201,15 @@ class LammpsTrajectory(Trajectory):
         self,
         trajectory_file: str | list[str],
         topology_file: str | None = None,
+        *,
+        temperature: float,
         units: str = 'real',
         atom_style: str = 'full',
     ):
+        super().__init__(units=units, temperature=temperature)
+
         self.trajectory_file = trajectory_file
         self.topology_file = topology_file
-        self.units = units
 
         if topology_file is None:
             raise ValueError("A topology file is required for LAMMPS trajectories.")

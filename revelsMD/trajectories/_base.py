@@ -9,6 +9,53 @@ from abc import ABC, abstractmethod
 from typing import Iterator
 
 import numpy as np
+import scipy.constants as constants
+
+
+# Boltzmann constants in different unit systems
+_BOLTZMANN_CONSTANTS: dict[str, float] = {
+    'lj': 1.0,
+    'real': constants.physical_constants["molar gas constant"][0] / constants.calorie / 1000,
+    'metal': constants.physical_constants["Boltzmann constant in eV/K"][0],
+    'mda': constants.physical_constants["molar gas constant"][0] / 1000,
+}
+
+
+def compute_beta(units: str, temperature: float) -> float:
+    """
+    Compute beta = 1/(kB*T) for the given unit system and temperature.
+
+    Parameters
+    ----------
+    units : str
+        Unit system ('lj', 'real', 'metal', 'mda').
+    temperature : float
+        Temperature in Kelvin for 'real', 'metal', and 'mda' units.
+        For 'lj' (Lennard-Jones reduced units), this is the dimensionless
+        reduced temperature T* = kB*T/epsilon.
+
+    Returns
+    -------
+    float
+        Inverse thermal energy in the appropriate units.
+
+    Raises
+    ------
+    ValueError
+        If the unit system is not recognised, or if temperature is not
+        finite and positive.
+    """
+    units = units.lower().strip()
+    if units not in _BOLTZMANN_CONSTANTS:
+        raise ValueError(
+            f"Unsupported unit system: '{units}'. "
+            f"Expected one of {list(_BOLTZMANN_CONSTANTS.keys())}."
+        )
+    if not np.isfinite(temperature):
+        raise ValueError(f"Temperature must be finite. Got: {temperature!r}")
+    if temperature <= 0.0:
+        raise ValueError(f"Temperature must be positive. Got: {temperature!r}")
+    return 1.0 / (_BOLTZMANN_CONSTANTS[units] * temperature)
 
 
 class DataUnavailableError(Exception):
@@ -30,7 +77,12 @@ class Trajectory(ABC):
     box_x, box_y, box_z : float
         Simulation box dimensions in each Cartesian direction.
     units : str
-        Unit system identifier (e.g., 'real', 'metal', 'mda').
+        Unit system identifier (e.g., 'real', 'metal', 'mda', 'lj').
+    temperature : float
+        Simulation temperature in Kelvin for 'real', 'metal', and 'mda' units.
+        For 'lj' units, this is the dimensionless reduced temperature T*.
+    beta : float
+        Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
     """
 
     # Required attributes - subclasses must set these
@@ -39,6 +91,27 @@ class Trajectory(ABC):
     box_y: float
     box_z: float
     units: str
+    temperature: float
+    beta: float
+
+    def __init__(self, *, units: str, temperature: float) -> None:
+        """
+        Initialise common trajectory attributes.
+
+        Subclasses should call ``super().__init__(units=..., temperature=...)``
+        before setting their own attributes.
+
+        Parameters
+        ----------
+        units : str
+            Unit system identifier (e.g., 'real', 'metal', 'mda', 'lj').
+        temperature : float
+            Simulation temperature in Kelvin for 'real', 'metal', and 'mda' units.
+            For 'lj' units, this is the dimensionless reduced temperature T*.
+        """
+        self.units = units
+        self.temperature = temperature
+        self.beta = compute_beta(units, temperature)
 
     def _normalize_bounds(
         self, start: int, stop: int | None, stride: int

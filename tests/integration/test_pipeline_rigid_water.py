@@ -12,8 +12,8 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.revels_3D import Revels3D
-from revelsMD.revels_rdf import RevelsRDF
+from revelsMD.density import DensityGrid
+from revelsMD.rdf import RDF, compute_rdf
 from .conftest import load_reference_data, assert_arrays_close
 
 
@@ -65,7 +65,7 @@ class TestRigidWaterPipelineExample4:
         """Number density for rigid water at COM (small frame subset)."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=300)
+        gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use very small subset for fast test
         gs.make_force_grid(
@@ -87,7 +87,7 @@ class TestRigidWaterPipelineExample4:
         """Polarisation density calculation (x-component)."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'polarisation', nbins=50, temperature=300)
+        gs = DensityGrid(ts, 'polarisation', nbins=50)
 
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
@@ -108,7 +108,7 @@ class TestRigidWaterPipelineExample4:
         """Number density with larger frame subset for better statistics."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=300)
+        gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use 10 frames - enough for reasonable statistics, fast enough for tests
         gs.make_force_grid(
@@ -126,7 +126,7 @@ class TestRigidWaterPipelineExample4:
         """Cube file output produces valid file."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=300)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
             rigid=True, start=0, stop=3, period=1
@@ -138,7 +138,7 @@ class TestRigidWaterPipelineExample4:
         atoms = Atoms('OH2', positions=[[0, 0, 0], [0, 0, 1], [0, 1, 0]])
 
         cube_file = tmp_path / "test_water_density.cube"
-        gs.write_to_cube(atoms, gs.rho, str(cube_file), convert_pmg=False)
+        gs.write_to_cube(atoms, gs.rho, str(cube_file))
 
         assert cube_file.exists()
         assert cube_file.stat().st_size > 0
@@ -162,18 +162,19 @@ class TestRigidWaterRDF:
         """O-O RDF calculation for water."""
         ts = example4_trajectory
 
-        rdf = RevelsRDF.run_rdf(
-            ts, 'Ow', 'Ow', temp=300,
+        rdf = compute_rdf(
+            ts, 'Ow', 'Ow',
             period=1, delr=0.1, start=0, stop=5
         )
 
         assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert np.all(np.isfinite(rdf.r))
+        assert np.all(np.isfinite(rdf.g))
 
         # Water O-O RDF should have first peak near 2.8 Angstrom
         # Find first peak
-        peak_idx = np.argmax(rdf[1])
-        peak_r = rdf[0, peak_idx]
+        peak_idx = np.argmax(rdf.g)
+        peak_r = rdf.r[peak_idx]
 
         # Peak should be in reasonable range for water (2.5-3.5 A)
         assert 2.0 < peak_r < 4.0, \
@@ -183,13 +184,14 @@ class TestRigidWaterRDF:
         """O-H RDF calculation for water."""
         ts = example4_trajectory
 
-        rdf = RevelsRDF.run_rdf(
-            ts, 'Ow', 'Hw1', temp=300,
+        rdf = compute_rdf(
+            ts, 'Ow', 'Hw1',
             period=1, delr=0.1, start=0, stop=5
         )
 
         assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert np.all(np.isfinite(rdf.r))
+        assert np.all(np.isfinite(rdf.g))
 
 
 @pytest.mark.integration
@@ -237,7 +239,7 @@ class TestRigidWaterPhysicalProperties:
         """Number density should show solvation shell structure."""
         ts = example4_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=50, temperature=300)
+        gs = DensityGrid(ts, 'number', nbins=50)
         gs.make_force_grid(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,

@@ -8,8 +8,8 @@ using synthetic NumpyTrajectoryState data. They require no external data files.
 import pytest
 import numpy as np
 
-from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.revels_3D import Revels3D
+from revelsMD.rdf import RDF, compute_rdf
+from revelsMD.density import DensityGrid
 
 
 @pytest.mark.analytical
@@ -21,23 +21,23 @@ class TestRDFAnalyticalReference:
         """
         Uniform random gas should have g(r) approaching 1 at large r.
 
-        The from_zero=False (backward) integration should give g(r)~1 in bulk.
-        The from_zero=True (forward) integration starts from 0 and accumulates.
+        The backward integration should give g(r)~1 in bulk.
+        The forward integration starts from 0 and accumulates.
         """
         ts = uniform_gas_trajectory
 
         # Use backward integration which should give g(r) ~ 1 for uniform gas
-        rdf = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, start=0, stop=-1, from_zero=False)
+        rdf = compute_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, integration='backward')
 
-        assert rdf is not None
-        assert rdf.shape[0] == 2  # [r, g(r)]
-        assert np.all(np.isfinite(rdf))
+        assert rdf.r is not None
+        assert rdf.g is not None
+        assert np.all(np.isfinite(rdf.g))
 
         # Beyond short-range (r > 2), g(r) should be close to 1
         # Allow generous tolerance due to finite-size effects and statistics
-        mask = rdf[0] > 2.0
+        mask = rdf.r > 2.0
         if np.any(mask):
-            mean_gr = np.mean(rdf[1][mask])
+            mean_gr = np.mean(rdf.g[mask])
             assert abs(mean_gr - 1.0) < 0.5, f"Mean g(r) in bulk region = {mean_gr}, expected ~1.0"
 
     def test_two_atoms_rdf_peak_at_separation(self, two_atom_trajectory):
@@ -50,14 +50,15 @@ class TestRDFAnalyticalReference:
         ts = two_atom_trajectory
 
         # Use fine binning to resolve the peak
-        rdf = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, start=0, stop=-1)
+        rdf = compute_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, integration='forward')
 
-        assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert rdf.r is not None
+        assert rdf.g is not None
+        assert np.all(np.isfinite(rdf.g))
 
         # Find the peak location
-        peak_idx = np.argmax(rdf[1])
-        peak_r = rdf[0, peak_idx]
+        peak_idx = np.argmax(rdf.g)
+        peak_r = rdf.r[peak_idx]
 
         # Peak should be near r = 3.0 (the separation distance)
         expected_separation = 3.0
@@ -79,51 +80,48 @@ class TestRDFAnalyticalReference:
         ts = cubic_lattice_trajectory
 
         # Use backward integration for cleaner results
-        rdf = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.1, start=0, stop=-1, from_zero=False)
+        rdf = compute_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, integration='backward')
 
-        assert rdf is not None
-        assert np.all(np.isfinite(rdf))
+        assert rdf.r is not None
+        assert rdf.g is not None
+        assert np.all(np.isfinite(rdf.g))
 
         # For force-sampling with random forces on a static lattice,
         # we mainly check that the calculation completes and produces finite values.
         # The structure may not be as pronounced as with histogram methods.
-        bulk_mask = (rdf[0] > 1.0) & (rdf[0] < 5.0)
+        bulk_mask = (rdf.r > 1.0) & (rdf.r < 5.0)
         if np.any(bulk_mask):
             # Check that g(r) values are reasonable (not all zeros or infinities)
-            bulk_values = rdf[1][bulk_mask]
+            bulk_values = rdf.g[bulk_mask]
             assert np.mean(np.abs(bulk_values)) > 0, "RDF should have non-zero values"
 
     def test_rdf_forward_backward_consistency(self, uniform_gas_trajectory):
         """
         Forward and backward RDF integration produce consistent results.
 
-        The from_zero=True (forward) starts from g(0)=0 and accumulates upward.
-        The from_zero=False (backward) starts from g(inf)=1 and accumulates downward.
+        The forward integration starts from g(0)=0 and accumulates upward.
+        The backward integration starts from g(inf)=1 and accumulates downward.
 
         For the lambda-combined method, both should contribute to a consistent result.
         """
         ts = uniform_gas_trajectory
 
-        rdf_forward = RevelsRDF.run_rdf(
-            ts, '1', '1', temp=1.0, delr=0.1, from_zero=True
-        )
-        rdf_backward = RevelsRDF.run_rdf(
-            ts, '1', '1', temp=1.0, delr=0.1, from_zero=False
-        )
+        rdf_forward = compute_rdf(ts, '1', '1', delr=0.1, integration='forward')
+        rdf_backward = compute_rdf(ts, '1', '1', delr=0.1, integration='backward')
 
-        assert rdf_forward is not None
-        assert rdf_backward is not None
+        assert rdf_forward.r is not None
+        assert rdf_backward.r is not None
 
         # Both should produce finite values
-        assert np.all(np.isfinite(rdf_forward))
-        assert np.all(np.isfinite(rdf_backward))
+        assert np.all(np.isfinite(rdf_forward.g))
+        assert np.all(np.isfinite(rdf_backward.g))
 
         # Forward starts from 0, backward starts from 1
         # The two methods are complementary - their sum should be approximately 1
         # at each r value (this is the basis of the lambda combination)
-        mid_range_mask = (rdf_forward[0] > 1.5) & (rdf_forward[0] < 3.5)
+        mid_range_mask = (rdf_forward.r > 1.5) & (rdf_forward.r < 3.5)
         if np.any(mid_range_mask):
-            combined = rdf_forward[1][mid_range_mask] + (1 - rdf_backward[1][mid_range_mask])
+            combined = rdf_forward.g[mid_range_mask] + (1 - rdf_backward.g[mid_range_mask])
             # The "complementary" check: forward + (1 - backward) should be small
             # This is an approximation of how the lambda method works
             mean_combined = np.mean(np.abs(combined))
@@ -131,23 +129,23 @@ class TestRDFAnalyticalReference:
 
     def test_rdf_lambda_produces_valid_output(self, uniform_gas_trajectory):
         """
-        Lambda-combined RDF should produce valid output with correct shape.
+        Lambda-combined RDF should produce valid output with correct properties.
 
-        The run_rdf_lambda method should return an array with 3 columns:
-        [r, g_lambda(r), lambda(r)]
+        The lambda integration should provide r, g, and lam arrays.
         """
         ts = uniform_gas_trajectory
 
-        rdf_lambda = RevelsRDF.run_rdf_lambda(ts, '1', '1', temp=1.0, delr=0.2)
+        rdf = compute_rdf(ts, '1', '1', delr=0.2, integration='lambda')
 
-        assert rdf_lambda is not None
-        assert rdf_lambda.shape[1] == 3  # [r, g_lambda, lambda]
-        assert np.all(np.isfinite(rdf_lambda))
+        assert rdf.r is not None
+        assert rdf.g is not None
+        assert rdf.lam is not None
+        assert np.all(np.isfinite(rdf.g))
+        assert np.all(np.isfinite(rdf.lam))
 
         # Lambda should be between 0 and 1 (approximately)
-        lambda_vals = rdf_lambda[:, 2]
-        assert np.all(lambda_vals >= -0.5), "Lambda values should not be strongly negative"
-        assert np.all(lambda_vals <= 1.5), "Lambda values should not exceed 1 significantly"
+        assert np.all(rdf.lam >= -0.5), "Lambda values should not be strongly negative"
+        assert np.all(rdf.lam <= 1.5), "Lambda values should not exceed 1 significantly"
 
 
 @pytest.mark.analytical
@@ -164,7 +162,7 @@ class TestDensityAnalyticalReference:
         """
         ts = single_atom_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=1.0)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
 
         assert gs.grid_progress == "Allocated"
@@ -195,7 +193,7 @@ class TestDensityAnalyticalReference:
         """
         ts = uniform_gas_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=1.0)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
@@ -221,7 +219,7 @@ class TestDensityAnalyticalReference:
         """
         ts = uniform_gas_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=20, temperature=1.0)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
@@ -241,12 +239,12 @@ class TestDensityAnalyticalReference:
 
     def test_gridstate_initialisation(self, uniform_gas_trajectory):
         """
-        GridState should initialise correctly with various density types.
+        DensityGrid should initialise correctly with various density types.
         """
         ts = uniform_gas_trajectory
 
         # Test number density
-        gs_number = Revels3D.GridState(ts, 'number', nbins=20, temperature=1.0)
+        gs_number = DensityGrid(ts, 'number', nbins=20)
         assert gs_number.density_type == 'number'
         assert gs_number.nbinsx == 20
 
@@ -267,21 +265,21 @@ class TestMultispeciesRDF:
         ts = multispecies_trajectory
 
         # Like pairs (1-1) with backward integration for g(r) ~ 1
-        rdf_like = RevelsRDF.run_rdf(ts, '1', '1', temp=1.0, delr=0.2, from_zero=False)
+        rdf_like = compute_rdf(ts, '1', '1', delr=0.2, integration='backward')
 
         # Unlike pairs (1-2) with backward integration
-        rdf_unlike = RevelsRDF.run_rdf(ts, '1', '2', temp=1.0, delr=0.2, from_zero=False)
+        rdf_unlike = compute_rdf(ts, '1', '2', delr=0.2, integration='backward')
 
-        assert rdf_like is not None
-        assert rdf_unlike is not None
-        assert np.all(np.isfinite(rdf_like))
-        assert np.all(np.isfinite(rdf_unlike))
+        assert rdf_like.r is not None
+        assert rdf_unlike.r is not None
+        assert np.all(np.isfinite(rdf_like.g))
+        assert np.all(np.isfinite(rdf_unlike.g))
 
         # With backward integration, both should approach 1 in bulk
-        bulk_mask = rdf_like[0] > 2.0
+        bulk_mask = rdf_like.r > 2.0
         if np.any(bulk_mask):
-            mean_like = np.mean(rdf_like[1][bulk_mask])
-            mean_unlike = np.mean(rdf_unlike[1][bulk_mask])
+            mean_like = np.mean(rdf_like.g[bulk_mask])
+            mean_unlike = np.mean(rdf_unlike.g[bulk_mask])
 
             # Both should be roughly 1 (with tolerance for statistics)
             assert abs(mean_like - 1.0) < 0.5, f"Like-pair bulk g(r) = {mean_like}"
@@ -320,7 +318,7 @@ class TestRigidMoleculeAnalytical:
         """
         ts = water_molecule_trajectory
 
-        gs = Revels3D.GridState(ts, 'number', nbins=15, temperature=300)
+        gs = DensityGrid(ts, 'number', nbins=15)
 
         # This may fail if rigid molecule validation is too strict
         # (known issue #10 with unequal atom counts)

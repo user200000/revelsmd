@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import scipy.constants as constants
 from abc import ABC
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +11,7 @@ from revelsMD.trajectories import (
     VaspTrajectory,
     DataUnavailableError,
 )
-from revelsMD.trajectories._base import Trajectory
+from revelsMD.trajectories._base import Trajectory, compute_beta
 
 
 # -----------------------------------------------------------------------------
@@ -55,7 +56,7 @@ def mock_vasprun():
 @patch("revelsMD.trajectories.mda.MD.Universe")
 def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
-    state = MDATrajectory("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
     assert state.frames == 3
     assert np.isclose(state.box_x, 10.0)
@@ -73,12 +74,12 @@ def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_univers
 @patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("fail"))
 def test_mda_raises_on_universe_failure(mock_universe):
     with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
-        MDATrajectory("traj.xtc", "topol.pdb")
+        MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
 
 def test_mda_raises_no_topology():
     with pytest.raises(ValueError, match="topology file is required"):
-        MDATrajectory("traj.xtc", "")
+        MDATrajectory("traj.xtc", "", temperature=300.0)
 
 
 # -----------------------------------------------------------------------------
@@ -89,7 +90,7 @@ def test_numpy_state_valid_and_accessors():
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
     assert state.frames == 5
     assert np.allclose(state.get_indices("H"), [1, 2])
 
@@ -101,20 +102,20 @@ def test_numpy_state_species_not_found():
     positions = np.zeros((1, 2, 3))
     forces = np.ones((1, 2, 3))
     species = ["O", "H"]
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
     with pytest.raises(ValueError, match="Species 'C' not found"):
         state.get_indices("C")
 
 
 def test_numpy_state_invalid_shapes_and_box():
     with pytest.raises(ValueError, match="incommensurate"):
-        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 3, 3)), 10, 10, 10, ["O", "H"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 3, 3)), 10, 10, 10, ["O", "H"], temperature=300.0)
 
     with pytest.raises(ValueError, match="incommensurate"):
-        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), 10, 10, 10, ["O"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), 10, 10, 10, ["O"], temperature=300.0)
 
     with pytest.raises(ValueError, match="positive values"):
-        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), -1, 10, 10, ["O", "H"])
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), -1, 10, 10, ["O", "H"], temperature=300.0)
 
 
 # -----------------------------------------------------------------------------
@@ -124,7 +125,7 @@ def test_numpy_state_invalid_shapes_and_box():
 @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
 def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
-    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
     assert np.isclose(state.box_x, 10.0)
     assert state.frames == 3
 
@@ -133,12 +134,12 @@ def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_univ
 @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, [], 9, np.zeros((3, 2))))
 def test_lammps_state_universe_error(mock_first_read, mock_universe):
     with pytest.raises(RuntimeError, match="Failed to load LAMMPS trajectory"):
-        LammpsTrajectory("dump.lammpstrj", "data.lmp")
+        LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
 
 def test_lammps_state_requires_topology():
     with pytest.raises(ValueError, match="topology file is required"):
-        LammpsTrajectory("dump.lammpstrj", None)
+        LammpsTrajectory("dump.lammpstrj", None, temperature=300.0)
 
 
 # -----------------------------------------------------------------------------
@@ -163,7 +164,7 @@ def test_vasp_state_valid(mock_vasprun):
     mock_vasprun_instance.start.indices_from_symbol.return_value = np.array([0])
 
     # Then run the test
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
     assert np.isclose(state.box_x, 1.0)
     assert np.allclose(state.positions, np.zeros((1, 1, 3)))
     assert np.allclose(state.forces, np.zeros((1, 1, 3)))
@@ -181,7 +182,7 @@ def test_vasp_state_raises_no_forces(mock_vasprun):
     mock.cart_coords = np.zeros((1, 1, 3))
     mock_vasprun.return_value = mock
     with pytest.raises(ValueError, match="No forces found"):
-        VaspTrajectory("vasprun.xml")
+        VaspTrajectory("vasprun.xml", temperature=300.0)
 
 
 @patch("revelsMD.trajectories.vasp.Vasprun")
@@ -194,7 +195,7 @@ def test_vasp_state_invalid_angles(mock_vasprun):
     mock.cart_coords = np.zeros((1, 1, 3))
     mock_vasprun.return_value = mock
     with pytest.raises(ValueError, match="orthorhombic"):
-        VaspTrajectory("vasprun.xml")
+        VaspTrajectory("vasprun.xml", temperature=300.0)
 
 
 # -----------------------------------------------------------------------------
@@ -286,7 +287,7 @@ def test_numpy_iter_frames_yields_all_frames():
     forces = np.random.rand(n_frames, n_atoms, 3)
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     frames = list(state.iter_frames())
     assert len(frames) == n_frames
@@ -303,7 +304,7 @@ def test_numpy_iter_frames_with_start_stop_stride():
     forces = np.zeros((n_frames, n_atoms, 3))
     species = ["A", "B"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     # Test start=2, stop=8, stride=2 -> frames 2, 4, 6
     frames = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -333,7 +334,7 @@ def test_vasp_iter_frames_yields_all_frames(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     frames_list = list(state.iter_frames())
     assert len(frames_list) == n_frames
@@ -359,7 +360,7 @@ def test_vasp_iter_frames_with_start_stop_stride(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     # Test start=2, stop=8, stride=2 -> frames 2, 4, 6
     frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -410,7 +411,7 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
     with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("builtins.open", MagicMock()):
-                state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+                state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                 frames_list = list(state.iter_frames())
                 assert len(frames_list) == n_frames
@@ -457,7 +458,7 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip", side_effect=mock_frame_skip):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                     # Test start=2, stop=8, stride=2 -> should yield frames at indices 2, 4, 6
                     frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
@@ -495,7 +496,7 @@ def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
     mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
     mock_universe.return_value = mock_uni
 
-    state = MDATrajectory("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
     frames_list = list(state.iter_frames())
     assert len(frames_list) == n_frames
@@ -515,7 +516,7 @@ def test_numpy_get_frame_returns_correct_data():
     forces = np.random.rand(n_frames, n_atoms, 3)
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -530,7 +531,7 @@ def test_numpy_get_frame_random_access():
     forces = np.zeros((n_frames, n_atoms, 3))
     species = ["A", "B"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     # Access frames in non-sequential order
     for i in [7, 2, 9, 0, 5]:
@@ -557,7 +558,7 @@ def test_vasp_get_frame_returns_correct_data(mock_vasprun):
     mock_instance.cart_coords = positions
     mock_instance.forces = forces
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -592,7 +593,7 @@ def test_mda_get_frame_returns_correct_data(mock_universe):
     mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
     mock_universe.return_value = mock_uni
 
-    state = MDATrajectory("traj.xtc", "topol.pdb")
+    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
     for i in range(n_frames):
         pos, frc = state.get_frame(i)
@@ -632,7 +633,7 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip"):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                     for i in range(n_frames):
                         pos, frc = state.get_frame(i)
@@ -669,7 +670,7 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip"):
                 with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp")
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                     # Random access in any order
                     for i in [7, 2, 9, 0, 5]:
@@ -691,7 +692,7 @@ def test_numpy_get_charges_returns_correct_values():
 
     state = NumpyTrajectory(
         positions, forces, 10, 10, 10, species,
-        charge_list=charges, mass_list=masses
+        temperature=300.0, charge_list=charges, mass_list=masses
     )
 
     np.testing.assert_array_equal(state.get_charges("O"), [0.5])
@@ -708,7 +709,7 @@ def test_numpy_get_masses_returns_correct_values():
 
     state = NumpyTrajectory(
         positions, forces, 10, 10, 10, species,
-        charge_list=charges, mass_list=masses
+        temperature=300.0, charge_list=charges, mass_list=masses
     )
 
     np.testing.assert_array_equal(state.get_masses("O"), [16.0])
@@ -721,7 +722,7 @@ def test_numpy_get_charges_raises_without_charge_data():
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     with pytest.raises(DataUnavailableError, match="Charge data not available"):
         state.get_charges("O")
@@ -733,7 +734,7 @@ def test_numpy_get_masses_raises_without_mass_data():
     forces = np.ones((5, 3, 3))
     species = ["O", "H", "H"]
 
-    state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     with pytest.raises(DataUnavailableError, match="Mass data not available"):
         state.get_masses("O")
@@ -754,7 +755,7 @@ def test_vasp_get_charges_raises_error(mock_vasprun):
     mock_instance.cart_coords = np.zeros((1, 1, 3))
     mock_instance.forces = np.zeros((1, 1, 3))
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     with pytest.raises(DataUnavailableError, match="Charge data not available"):
         state.get_charges("H")
@@ -772,7 +773,7 @@ def test_vasp_get_masses_raises_error(mock_vasprun):
     mock_instance.cart_coords = np.zeros((1, 1, 3))
     mock_instance.forces = np.zeros((1, 1, 3))
 
-    state = VaspTrajectory("vasprun.xml")
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     with pytest.raises(DataUnavailableError, match="Mass data not available"):
         state.get_masses("H")
@@ -791,7 +792,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
         # stop=-1 means "all but last" -> frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
@@ -807,7 +808,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
         # start=-3 means start at frame 7 (10-3=7)
         frames = list(state.iter_frames(start=-3))
@@ -824,7 +825,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
         # start=-5 (frame 5), stop=-2 (frame 8) -> frames 5, 6, 7
         frames = list(state.iter_frames(start=-5, stop=-2))
@@ -841,7 +842,7 @@ class TestIterFramesNegativeIndices:
         forces = np.zeros((n_frames, n_atoms, 3))
         species = ["A", "B"]
 
-        state = NumpyTrajectory(positions, forces, 10, 10, 10, species)
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
         frames = list(state.iter_frames(stop=None))
         assert len(frames) == n_frames
@@ -862,7 +863,7 @@ class TestIterFramesNegativeIndices:
         mock_instance.cart_coords = positions
         mock_instance.forces = forces
 
-        state = VaspTrajectory("vasprun.xml")
+        state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
         # stop=-1 means all but last -> frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
@@ -895,8 +896,197 @@ class TestIterFramesNegativeIndices:
         mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
         mock_universe.return_value = mock_uni
 
-        state = MDATrajectory("traj.xtc", "topol.pdb")
+        state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
         # stop=-1 normalized to 4, so frames 0, 1, 2, 3
         frames = list(state.iter_frames(stop=-1))
         assert len(frames) == 4
+
+
+# -----------------------------------------------------------------------------
+# compute_beta - Unit conversion function
+# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Trajectory temperature and beta attributes
+# -----------------------------------------------------------------------------
+class TestTrajectoryBetaAttribute:
+    """Tests for temperature and beta attributes on trajectory classes."""
+
+    def test_numpy_trajectory_requires_temperature(self):
+        """NumpyTrajectory should require temperature as a keyword argument."""
+        positions = np.zeros((5, 3, 3))
+        forces = np.ones((5, 3, 3))
+        species = ["O", "H", "H"]
+
+        with pytest.raises(TypeError):
+            NumpyTrajectory(positions, forces, 10, 10, 10, species)
+
+    def test_numpy_trajectory_stores_temperature(self):
+        """NumpyTrajectory should store the temperature attribute."""
+        positions = np.zeros((5, 3, 3))
+        forces = np.ones((5, 3, 3))
+        species = ["O", "H", "H"]
+
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
+        assert state.temperature == 300.0
+
+    def test_numpy_trajectory_computes_beta(self):
+        """NumpyTrajectory should compute beta from temperature and units."""
+        positions = np.zeros((5, 3, 3))
+        forces = np.ones((5, 3, 3))
+        species = ["O", "H", "H"]
+
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0, units='real')
+        expected_beta = compute_beta('real', 300.0)
+        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
+    def test_numpy_trajectory_beta_with_lj_units(self):
+        """In LJ units at T=1, beta should be 1.0."""
+        positions = np.zeros((5, 3, 3))
+        forces = np.ones((5, 3, 3))
+        species = ["O", "H", "H"]
+
+        state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=1.0, units='lj')
+        assert state.beta == 1.0
+
+    @patch("revelsMD.trajectories.mda.MD.Universe")
+    def test_mda_trajectory_requires_temperature(self, mock_universe, mock_mdanalysis_universe):
+        """MDATrajectory should require temperature as a keyword argument."""
+        mock_universe.return_value = mock_mdanalysis_universe
+
+        with pytest.raises(TypeError):
+            MDATrajectory("traj.xtc", "topol.pdb")
+
+    @patch("revelsMD.trajectories.mda.MD.Universe")
+    def test_mda_trajectory_stores_temperature_and_beta(self, mock_universe, mock_mdanalysis_universe):
+        """MDATrajectory should store temperature and compute beta."""
+        mock_universe.return_value = mock_mdanalysis_universe
+
+        state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
+        assert state.temperature == 300.0
+        expected_beta = compute_beta('mda', 300.0)
+        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
+    @patch("revelsMD.trajectories.vasp.Vasprun")
+    def test_vasp_trajectory_requires_temperature(self, mock_vasprun):
+        """VaspTrajectory should require temperature as a keyword argument."""
+        mock_instance = mock_vasprun.return_value
+        mock_instance.structures = [MagicMock()]
+        mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
+        mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
+        mock_instance.start = mock_instance.structures[0]
+        mock_instance.cart_coords = np.zeros((1, 1, 3))
+        mock_instance.forces = np.zeros((1, 1, 3))
+
+        with pytest.raises(TypeError):
+            VaspTrajectory("vasprun.xml")
+
+    @patch("revelsMD.trajectories.vasp.Vasprun")
+    def test_vasp_trajectory_stores_temperature_and_beta(self, mock_vasprun):
+        """VaspTrajectory should store temperature and compute beta in metal units."""
+        mock_instance = mock_vasprun.return_value
+        mock_instance.structures = [MagicMock()]
+        mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
+        mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
+        mock_instance.start = mock_instance.structures[0]
+        mock_instance.start.indices_from_symbol.return_value = np.array([0])
+        mock_instance.cart_coords = np.zeros((1, 1, 3))
+        mock_instance.forces = np.zeros((1, 1, 3))
+
+        state = VaspTrajectory("vasprun.xml", temperature=500.0)
+        assert state.temperature == 500.0
+        expected_beta = compute_beta('metal', 500.0)
+        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
+    @patch("revelsMD.trajectories.mda.MD.Universe")
+    @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+    def test_lammps_trajectory_requires_temperature(self, mock_first_read, mock_universe, mock_mdanalysis_universe):
+        """LammpsTrajectory should require temperature as a keyword argument."""
+        mock_universe.return_value = mock_mdanalysis_universe
+
+        with pytest.raises(TypeError):
+            LammpsTrajectory("dump.lammpstrj", "data.lmp")
+
+    @patch("revelsMD.trajectories.mda.MD.Universe")
+    @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+    def test_lammps_trajectory_stores_temperature_and_beta(self, mock_first_read, mock_universe, mock_mdanalysis_universe):
+        """LammpsTrajectory should store temperature and compute beta."""
+        mock_universe.return_value = mock_mdanalysis_universe
+
+        state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=350.0, units='real')
+        assert state.temperature == 350.0
+        expected_beta = compute_beta('real', 350.0)
+        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
+
+class TestComputeBeta:
+    """Tests for the compute_beta() function."""
+
+    def test_compute_beta_lj_at_unit_temperature(self):
+        """In LJ units at T=1, beta should be 1.0."""
+        assert compute_beta('lj', 1.0) == 1.0
+
+    def test_compute_beta_lj_at_higher_temperature(self):
+        """In LJ units, beta = 1/T."""
+        assert compute_beta('lj', 2.0) == 0.5
+        assert compute_beta('lj', 0.5) == 2.0
+
+    def test_compute_beta_real_units(self):
+        """Verify beta in 'real' units (LAMMPS kcal/mol)."""
+        # kB in real units = R / (calorie * 1000) ≈ 0.001987 kcal/mol/K
+        k_real = constants.physical_constants['molar gas constant'][0] / constants.calorie / 1000
+        temperature = 300.0
+        expected = 1.0 / (k_real * temperature)
+        assert pytest.approx(compute_beta('real', temperature), rel=1e-12) == expected
+
+    def test_compute_beta_metal_units(self):
+        """Verify beta in 'metal' units (LAMMPS eV)."""
+        # kB in metal units ≈ 8.617e-5 eV/K
+        k_metal = constants.physical_constants['Boltzmann constant in eV/K'][0]
+        temperature = 300.0
+        expected = 1.0 / (k_metal * temperature)
+        assert pytest.approx(compute_beta('metal', temperature), rel=1e-12) == expected
+
+    def test_compute_beta_mda_units(self):
+        """Verify beta in 'mda' units (MDAnalysis kJ/mol)."""
+        # kB in mda units = R / 1000 ≈ 0.008314 kJ/mol/K
+        k_mda = constants.physical_constants['molar gas constant'][0] / 1000
+        temperature = 300.0
+        expected = 1.0 / (k_mda * temperature)
+        assert pytest.approx(compute_beta('mda', temperature), rel=1e-12) == expected
+
+    def test_compute_beta_case_insensitive(self):
+        """Unit system should be case-insensitive."""
+        assert compute_beta('LJ', 1.0) == compute_beta('lj', 1.0)
+        assert compute_beta('REAL', 300.0) == compute_beta('real', 300.0)
+        assert compute_beta('Metal', 300.0) == compute_beta('metal', 300.0)
+        assert compute_beta('MDA', 300.0) == compute_beta('mda', 300.0)
+
+    def test_compute_beta_strips_whitespace(self):
+        """Unit system should ignore leading/trailing whitespace."""
+        assert compute_beta('  lj  ', 1.0) == compute_beta('lj', 1.0)
+
+    def test_compute_beta_invalid_unit_raises(self):
+        """Unsupported unit system should raise ValueError."""
+        with pytest.raises(ValueError, match="Unsupported unit system"):
+            compute_beta('quantum-donut', 300.0)
+
+    def test_compute_beta_zero_temperature_raises(self):
+        """Zero temperature should raise ValueError."""
+        with pytest.raises(ValueError, match="Temperature must be positive"):
+            compute_beta('real', 0.0)
+
+    def test_compute_beta_negative_temperature_raises(self):
+        """Negative temperature should raise ValueError."""
+        with pytest.raises(ValueError, match="Temperature must be positive"):
+            compute_beta('real', -100.0)
+
+    def test_compute_beta_infinite_temperature_raises(self):
+        """Infinite temperature should raise ValueError."""
+        with pytest.raises(ValueError, match="Temperature must be finite"):
+            compute_beta('real', float('inf'))
+
+    def test_compute_beta_nan_temperature_raises(self):
+        """NaN temperature should raise ValueError."""
+        with pytest.raises(ValueError, match="Temperature must be finite"):
+            compute_beta('real', float('nan'))

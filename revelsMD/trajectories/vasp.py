@@ -248,6 +248,8 @@ class VaspTrajectory(Trajectory):
     ----------
     trajectory_file : str or list of str
         Path or list of paths to ``vasprun.xml`` file(s).
+    temperature : float
+        Simulation temperature in Kelvin.
 
     Attributes
     ----------
@@ -259,6 +261,10 @@ class VaspTrajectory(Trajectory):
         Cartesian coordinates array of shape ``(frames, atoms, 3)``.
     forces : np.ndarray
         Cartesian forces array of shape ``(frames, atoms, 3)``.
+    temperature : float
+        Simulation temperature in Kelvin.
+    beta : float
+        Inverse thermal energy 1/(kB*T) in eV.
 
     Raises
     ------
@@ -271,8 +277,9 @@ class VaspTrajectory(Trajectory):
     - For NVT/NVE MD, ensure `IBRION=-1` and `NSW > 0` during VASP runs.
     """
 
-    def __init__(self, trajectory_file: str | list[str]):
-        self.units = 'metal'
+    def __init__(self, trajectory_file: str | list[str], *, temperature: float):
+        super().__init__(units='metal', temperature=temperature)
+
         self.trajectory_file: str | list[str] = trajectory_file
 
         if isinstance(trajectory_file, list):
@@ -308,7 +315,7 @@ class VaspTrajectory(Trajectory):
             self.forces = self.Vasprun.forces
 
         # Backwards compatibility: expose start structure via Vasprun.start
-        self.Vasprun.start = self._start_structure
+        self.Vasprun.start = self._start_structure  # type: ignore[attr-defined]
 
     @staticmethod
     def _validate_cell(lattice: Lattice):
