@@ -163,22 +163,34 @@ class TestMakeForceGridConfigurations:
         with pytest.raises(ValueError, match="single atom"):
             gs.make_force_grid(ts_single_species, atom_names="H", rigid=True, centre_location=True)
 
-    def test_invalid_density_type_raises_at_grid_state(self, ts_single_species):
-        """Invalid density type raises ValueError at GridState construction."""
-        with pytest.raises(ValueError, match="density_type must be one of"):
-            GridState(ts_single_species, "invalid", nbins=4)
+    def test_density_type_validation_called_at_grid_state(self, ts_single_species, mocker):
+        """GridState should call validate_density_type with the provided value."""
+        mock_validate = mocker.patch(
+            'revelsMD.density.grid_state.validate_density_type',
+            return_value='number'
+        )
 
-    def test_invalid_density_type_raises_at_selection_state(self, ts_single_species):
-        """Invalid density type raises ValueError at SelectionState construction."""
+        GridState(ts_single_species, "NUMBER", nbins=4)
+
+        mock_validate.assert_called_once_with("NUMBER")
+
+    def test_density_type_validation_called_at_selection_state(self, ts_single_species, mocker):
+        """SelectionState should call validate_density_type with the provided value."""
         from revelsMD.density import SelectionState
 
-        with pytest.raises(ValueError, match="density_type must be one of"):
-            SelectionState(
-                ts_single_species,
-                atom_names="H",
-                centre_location=True,
-                density_type="invalid",
-            )
+        mock_validate = mocker.patch(
+            'revelsMD.density.selection_state.validate_density_type',
+            return_value='number'
+        )
+
+        SelectionState(
+            ts_single_species,
+            atom_names="H",
+            centre_location=True,
+            density_type="NUMBER",
+        )
+
+        mock_validate.assert_called_once_with("NUMBER")
 
     def test_rigid_invalid_centre_location_raises(self, ts_multi_species):
         """Rigid with invalid centre_location raises ValueError."""

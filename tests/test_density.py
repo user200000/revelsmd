@@ -282,30 +282,23 @@ class TestSelectionStateValidation:
     def trajectory(self):
         return MockTrajectory()
 
-    def test_invalid_density_type_raises_at_construction(self, trajectory):
-        """Invalid density_type should raise ValueError immediately."""
+    def test_density_type_validation_called(self, trajectory, mocker):
+        """SelectionState should call validate_density_type with the provided value."""
         from revelsMD.density import SelectionState
 
-        with pytest.raises(ValueError, match="density_type must be one of"):
-            SelectionState(
-                trajectory,
-                atom_names='O',
-                centre_location=True,
-                density_type='invalid_type',
-            )
+        mock_validate = mocker.patch(
+            'revelsMD.density.selection_state.validate_density_type',
+            return_value='number'
+        )
 
-    def test_valid_density_types_accepted(self, trajectory):
-        """All valid density types should be accepted."""
-        from revelsMD.density import SelectionState
+        SelectionState(
+            trajectory,
+            atom_names='O',
+            centre_location=True,
+            density_type='NUMBER',
+        )
 
-        for density_type in SelectionState.VALID_DENSITY_TYPES:
-            # Should not raise
-            SelectionState(
-                trajectory,
-                atom_names='O',
-                centre_location=True,
-                density_type=density_type,
-            )
+        mock_validate.assert_called_once_with('NUMBER')
 
 
 class TestSelectionStateGetForces:
