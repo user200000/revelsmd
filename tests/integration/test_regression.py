@@ -42,7 +42,7 @@ class TestLammpsRegression:
         ref = load_reference("lammps_example1", "rdf_forward.npz")
 
         result = RevelsRDF.run_rdf(
-            example1_trajectory, '1', '1', temp=1.35,
+            example1_trajectory, '1', '1',
             delr=0.02, from_zero=True, start=0, stop=5
         )
 
@@ -81,7 +81,7 @@ class TestLammpsRegression:
         ref = load_reference("lammps_example1", "rdf_backward.npz")
 
         result = RevelsRDF.run_rdf(
-            example1_trajectory, '1', '1', temp=1.35,
+            example1_trajectory, '1', '1',
             delr=0.02, from_zero=False, start=0, stop=5
         )
 
@@ -99,7 +99,7 @@ class TestLammpsRegression:
         ref = load_reference("lammps_example1", "rdf_lambda.npz")
 
         result = RevelsRDF.run_rdf_lambda(
-            example1_trajectory, '1', '1', temp=1.35,
+            example1_trajectory, '1', '1',
             delr=0.02, start=0, stop=5
         )
 
@@ -113,7 +113,7 @@ class TestLammpsRegression:
         ref = load_reference("lammps_example1", "number_density.npz")
 
         gs = Revels3D.GridState(
-            example1_trajectory, 'number', nbins=30, temperature=1.35
+            example1_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
             example1_trajectory, '1', kernel='triangular',
@@ -142,7 +142,7 @@ class TestMDARegression:
         ref = load_reference("mda_example4", "rdf_lambda_ow.npz")
 
         result = RevelsRDF.run_rdf_lambda(
-            example4_trajectory, 'Ow', 'Ow', temp=300,
+            example4_trajectory, 'Ow', 'Ow',
             delr=0.1, start=0, stop=5
         )
 
@@ -156,7 +156,7 @@ class TestMDARegression:
         ref = load_reference("mda_example4", "number_density_ow.npz")
 
         gs = Revels3D.GridState(
-            example4_trajectory, 'number', nbins=30, temperature=300
+            example4_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
             example4_trajectory, 'Ow', kernel='triangular',
@@ -174,7 +174,7 @@ class TestMDARegression:
         ref = load_reference("mda_example4", "number_density_rigid.npz")
 
         gs = Revels3D.GridState(
-            example4_trajectory, 'number', nbins=30, temperature=300
+            example4_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
             example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
@@ -192,7 +192,7 @@ class TestMDARegression:
         ref = load_reference("mda_example4", "polarisation_density.npz")
 
         gs = Revels3D.GridState(
-            example4_trajectory, 'polarisation', nbins=30, temperature=300
+            example4_trajectory, 'polarisation', nbins=30
         )
         gs.make_force_grid(
             example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
@@ -221,7 +221,7 @@ class TestVASPRegression:
         ref = load_reference("vasp_example3", "rdf_lambda_f_f.npz")
 
         result = RevelsRDF.run_rdf_lambda(
-            vasp_trajectory, 'F', 'F', temp=600,
+            vasp_trajectory, 'F', 'F',
             delr=0.1, start=0, stop=10
         )
 
@@ -235,7 +235,7 @@ class TestVASPRegression:
         ref = load_reference("vasp_example3", "number_density_f.npz")
 
         gs = Revels3D.GridState(
-            vasp_trajectory, 'number', nbins=30, temperature=600
+            vasp_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
             vasp_trajectory, 'F', kernel='triangular',
@@ -269,7 +269,7 @@ class TestSyntheticRegression:
         ref = load_reference("synthetic", "uniform_gas_rdf.npz")
 
         result = RevelsRDF.run_rdf_lambda(
-            uniform_gas_trajectory, '1', '1', temp=1.0,
+            uniform_gas_trajectory, '1', '1',
             delr=0.1, start=0, stop=None
         )
 
@@ -283,7 +283,7 @@ class TestSyntheticRegression:
         ref = load_reference("synthetic", "uniform_gas_density.npz")
 
         gs = Revels3D.GridState(
-            uniform_gas_trajectory, 'number', nbins=30, temperature=1.0
+            uniform_gas_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
             uniform_gas_trajectory, '1', kernel='triangular', rigid=False

@@ -93,6 +93,7 @@ def example1_trajectory():
     return LammpsTrajectory(
         str(dump_file),
         str(data_file),
+        temperature=1.35,  # LJ reduced temperature from simulation
         units='lj',
         atom_style="id resid type q x y z ix iy iz",
     )
@@ -119,6 +120,7 @@ def example2_trajectory():
     return LammpsTrajectory(
         str(dump_file),
         str(data_file),
+        temperature=1.35,  # LJ reduced temperature from simulation
         units='lj',
         atom_style="id resid type q x y z ix iy iz",
     )
@@ -156,7 +158,7 @@ def example4_trajectory():
     if not trr_file.exists():
         pytest.skip("Example 4 data not available")
 
-    return MDATrajectory(str(trr_file), str(tpr_file))
+    return MDATrajectory(str(trr_file), str(tpr_file), temperature=300.0)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +184,7 @@ def vasp_trajectory():
     if not vasprun_file.exists():
         pytest.skip("VASP test data not available")
 
-    return VaspTrajectory(str(vasprun_file))
+    return VaspTrajectory(str(vasprun_file), temperature=600.0)  # BaSnF4 at 600K
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +212,7 @@ def uniform_gas_trajectory():
     species = ['1'] * n_atoms
 
     return NumpyTrajectory(
-        positions, forces, box, box, box, species, units='lj'
+        positions, forces, box, box, box, species, temperature=1.0, units='lj'
     )
 
 
@@ -238,7 +240,7 @@ def two_atom_trajectory():
     species = ['1', '1']
 
     return NumpyTrajectory(
-        positions, forces, box, box, box, species, units='lj'
+        positions, forces, box, box, box, species, temperature=1.0, units='lj'
     )
 
 
@@ -264,7 +266,7 @@ def single_atom_trajectory():
     species = ['1']
 
     return NumpyTrajectory(
-        positions, forces, box, box, box, species, units='lj'
+        positions, forces, box, box, box, species, temperature=1.0, units='lj'
     )
 
 
@@ -303,7 +305,7 @@ def cubic_lattice_trajectory():
     species = ['1'] * n_atoms
 
     return NumpyTrajectory(
-        positions, forces, box, box, box, species, units='lj'
+        positions, forces, box, box, box, species, temperature=1.0, units='lj'
     )
 
 
@@ -355,7 +357,7 @@ def water_molecule_trajectory():
 
     return NumpyTrajectory(
         positions, forces, box, box, box, species,
-        units='real', charge_list=charges, mass_list=masses
+        temperature=300.0, units='real', charge_list=charges, mass_list=masses
     )
 
 
@@ -381,7 +383,7 @@ def multispecies_trajectory():
     species = ['1'] * n_type1 + ['2'] * n_type2
 
     return NumpyTrajectory(
-        positions, forces, box, box, box, species, units='lj'
+        positions, forces, box, box, box, species, temperature=1.0, units='lj'
     )
 
 
@@ -430,7 +432,7 @@ def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
     return NumpyTrajectory(
         positions, forces,
         lammps_ts.box_x, lammps_ts.box_y, lammps_ts.box_z,
-        species, units=lammps_ts.units
+        species, temperature=lammps_ts.temperature, units=lammps_ts.units
     )
 
 
@@ -483,6 +485,6 @@ def mda_to_numpy(mda_ts, start=0, stop=None, stride=1):
     return NumpyTrajectory(
         positions, forces,
         mda_ts.box_x, mda_ts.box_y, mda_ts.box_z,
-        species, units=mda_ts.units,
+        species, temperature=mda_ts.temperature, units=mda_ts.units,
         charge_list=charges, mass_list=masses
     )

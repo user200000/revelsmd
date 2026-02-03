@@ -41,12 +41,12 @@ class TestLammpsVsNumpyConsistency:
         # So use stop=4 on both to process frames 0,1,2,3
         n_frames_to_use = 4
         rdf_lammps = RevelsRDF.run_rdf(
-            lammps_ts, '1', '1', temp=1.35,
+            lammps_ts, '1', '1',
             delr=0.02, start=0, stop=n_frames_to_use
         )
 
         rdf_numpy = RevelsRDF.run_rdf(
-            numpy_ts, '1', '1', temp=1.35,
+            numpy_ts, '1', '1',
             delr=0.02, start=0, stop=n_frames_to_use
         )
 
@@ -73,14 +73,14 @@ class TestLammpsVsNumpyConsistency:
 
         # Compute density via both using same explicit frame range
         n_frames_to_use = 4
-        gs_lammps = Revels3D.GridState(lammps_ts, 'number', nbins=30, temperature=1.35)
+        gs_lammps = Revels3D.GridState(lammps_ts, 'number', nbins=30)
         gs_lammps.make_force_grid(
             lammps_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
         )
         gs_lammps.get_real_density()
 
-        gs_numpy = Revels3D.GridState(numpy_ts, 'number', nbins=30, temperature=1.35)
+        gs_numpy = Revels3D.GridState(numpy_ts, 'number', nbins=30)
         gs_numpy.make_force_grid(
             numpy_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
@@ -128,12 +128,12 @@ class TestMDAVsNumpyConsistency:
 
         # Compute RDF via both using same frame range
         rdf_mda = RevelsRDF.run_rdf(
-            mda_ts, 'Ow', 'Ow', temp=300,
+            mda_ts, 'Ow', 'Ow',
             delr=0.1, start=0, stop=n_frames
         )
 
         rdf_numpy = RevelsRDF.run_rdf(
-            numpy_ts, 'Ow', 'Ow', temp=300,
+            numpy_ts, 'Ow', 'Ow',
             delr=0.1, start=0, stop=None  # Process all frames in NumPy trajectory
         )
 
@@ -168,7 +168,7 @@ class TestGridResolutionConsistency:
 
         densities = []
         for nbins in [20, 40, 60]:
-            gs = Revels3D.GridState(ts, 'number', nbins=nbins, temperature=1.0)
+            gs = Revels3D.GridState(ts, 'number', nbins=nbins)
             gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
             gs.get_real_density()
 
@@ -195,12 +195,12 @@ class TestKernelConsistency:
         ts = uniform_gas_trajectory
 
         # Triangular kernel
-        gs_tri = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.0)
+        gs_tri = Revels3D.GridState(ts, 'number', nbins=30)
         gs_tri.make_force_grid(ts, '1', kernel='triangular', rigid=False)
         gs_tri.get_real_density()
 
         # Box kernel
-        gs_box = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.0)
+        gs_box = Revels3D.GridState(ts, 'number', nbins=30)
         gs_box.make_force_grid(ts, '1', kernel='box', rigid=False)
         gs_box.get_real_density()
 

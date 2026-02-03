@@ -29,12 +29,21 @@ class NumpyTrajectory(Trajectory):
         Simulation box lengths in each Cartesian direction.
     species_list : list of str
         Atom names corresponding to each atom index.
+    temperature : float
+        Simulation temperature in Kelvin.
     units : str, optional
         Unit system string (default: `'real'`).
     charge_list : np.ndarray, optional
         Atomic charge array (optional).
     mass_list : np.ndarray, optional
         Atomic mass array (optional).
+
+    Attributes
+    ----------
+    temperature : float
+        Simulation temperature in Kelvin.
+    beta : float
+        Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
 
     Raises
     ------
@@ -55,6 +64,8 @@ class NumpyTrajectory(Trajectory):
         box_y: float,
         box_z: float,
         species_list: list[str],
+        *,
+        temperature: float,
         units: str = 'real',
         charge_list: np.ndarray | None = None,
         mass_list: np.ndarray | None = None,
@@ -68,13 +79,14 @@ class NumpyTrajectory(Trajectory):
         if not all(val > 0 for val in (box_x, box_y, box_z)):
             raise ValueError("Box dimensions must all be positive values.")
 
+        super().__init__(units=units, temperature=temperature)
+
         self.positions = positions
         self.forces = forces
         self.species_string = species_list
         self.box_x = box_x
         self.box_y = box_y
         self.box_z = box_z
-        self.units = units
         self.frames = positions.shape[0]
 
         if charge_list is not None:

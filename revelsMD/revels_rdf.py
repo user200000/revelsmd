@@ -21,7 +21,6 @@ from collections.abc import Sequence
 import numpy as np
 from tqdm import tqdm
 
-from revelsMD.utils import generate_boltzmann
 from revelsMD.rdf_helpers import (
     compute_pairwise_contributions_like,
     compute_pairwise_contributions_unlike,
@@ -158,7 +157,6 @@ class RevelsRDF:
         trajectory,
         atom_a: str,
         atom_b: str,
-        temp: float,
         delr: float = 0.01,
         start: int = 0,
         stop: int | None = None,
@@ -172,11 +170,9 @@ class RevelsRDF:
         Parameters
         ----------
         trajectory : TrajectoryState
-            Trajectory state object providing positions, forces, and box dimensions.
+            Trajectory state object providing positions, forces, box dimensions, and beta.
         atom_a, atom_b : str
             Species identifiers. If identical, computes like-pair RDF.
-        temp : float
-            Temperature in Kelvin.
         delr : float, optional
             Bin spacing in distance (default: 0.01).
         start : int, optional
@@ -241,7 +237,7 @@ class RevelsRDF:
 
         # Scale and integrate
         accumulated_storage_array = np.nan_to_num(accumulated_storage_array)
-        accumulated_storage_array *= prefactor / (4 * np.pi * len(to_run) * generate_boltzmann(trajectory.units) * temp)
+        accumulated_storage_array *= prefactor * trajectory.beta / (4 * np.pi * len(to_run))
 
         if from_zero is True:
             return np.array([bins, np.cumsum(accumulated_storage_array)])
@@ -256,7 +252,6 @@ class RevelsRDF:
         trajectory,
         atom_a: str,
         atom_b: str,
-        temp: float,
         delr: float = 0.01,
         start: int = 0,
         stop: int | None = None,
@@ -269,11 +264,9 @@ class RevelsRDF:
         Parameters
         ----------
         trajectory : TrajectoryState
-            Trajectory state object providing positions, forces, and box dimensions.
+            Trajectory state object providing positions, forces, box dimensions, and beta.
         atom_a, atom_b : str
             Species identifiers. If identical, computes like-pair RDF.
-        temp : float
-            Temperature in Kelvin.
         delr : float, optional
             Bin spacing in distance (default: 0.01).
         start : int, optional
@@ -344,10 +337,10 @@ class RevelsRDF:
 
         # Build arrays and prefactors
         base_array = np.nan_to_num(np.array(list_store))
-        base_array *= prefactor / (4 * np.pi * generate_boltzmann(trajectory.units) * temp)
+        base_array *= prefactor * trajectory.beta / (4 * np.pi)
 
         accumulated_storage_array = np.nan_to_num(accumulated_storage_array)
-        accumulated_storage_array *= prefactor / (4 * np.pi * len(to_run) * generate_boltzmann(trajectory.units) * temp)
+        accumulated_storage_array *= prefactor * trajectory.beta / (4 * np.pi * len(to_run))
 
         # Expectation curves from accumulated estimator
         exp_zero_rdf = np.array(np.cumsum(accumulated_storage_array)[:-1])
