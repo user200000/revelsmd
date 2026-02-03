@@ -42,7 +42,8 @@ def compute_beta(units: str, temperature: float) -> float:
     Raises
     ------
     ValueError
-        If the unit system is not recognised.
+        If the unit system is not recognised, or if temperature is not
+        finite and positive.
     """
     units = units.lower().strip()
     if units not in _BOLTZMANN_CONSTANTS:
@@ -50,6 +51,10 @@ def compute_beta(units: str, temperature: float) -> float:
             f"Unsupported unit system: '{units}'. "
             f"Expected one of {list(_BOLTZMANN_CONSTANTS.keys())}."
         )
+    if not np.isfinite(temperature):
+        raise ValueError(f"Temperature must be finite. Got: {temperature!r}")
+    if temperature <= 0.0:
+        raise ValueError(f"Temperature must be positive. Got: {temperature!r}")
     return 1.0 / (_BOLTZMANN_CONSTANTS[units] * temperature)
 
 

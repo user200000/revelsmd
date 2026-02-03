@@ -682,7 +682,6 @@ class TestComparisonWithOriginal:
         )
 
 
-
 class TestPairwiseContributionsNumba:
     """Test Numba implementation of pairwise contributions."""
 

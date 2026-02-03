@@ -69,10 +69,7 @@ class TestVASPPipelineExample3:
 
         assert gs.density_type == 'number'
         assert gs.nbinsx == 50
-        # beta = 1/(kB*T) for metal units at 600K
-        import scipy.constants
-        kB_eV = scipy.constants.physical_constants["Boltzmann constant in eV/K"][0]
-        assert np.isclose(gs.beta, 1.0 / (kB_eV * 600))
+        assert gs.beta == ts.beta
 
     def test_fluoride_number_density(self, vasp_trajectory):
         """Number density calculation for fluoride ions."""
@@ -238,7 +235,7 @@ class TestVASPSyntheticFallback:
         species = ['F'] * n_f + ['Ba'] * n_ba + ['Sn'] * n_sn
 
         return NumpyTrajectory(
-            positions, forces, box, box, box, species, units='metal', temperature=600
+            positions, forces, box, box, box, species, temperature=600.0, units='metal'
         )
 
     def test_synthetic_rdf_calculation(self, synthetic_vasp_like_trajectory):

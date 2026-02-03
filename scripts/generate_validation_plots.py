@@ -33,7 +33,7 @@ def plot_uniform_gas_rdf():
     Expected: g(r) ~ 1 for all r (with statistical noise)
     """
     from revelsMD.trajectories import NumpyTrajectory
-    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
+    from revelsMD.rdf import run_rdf, run_rdf_lambda
 
     print("\n=== Uniform Gas RDF ===")
 
@@ -87,7 +87,7 @@ def plot_two_atom_rdf():
     Expected: Sharp peak at r = 3.0 (the separation distance)
     """
     from revelsMD.trajectories import NumpyTrajectory
-    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
+    from revelsMD.rdf import run_rdf, run_rdf_lambda
 
     print("\n=== Two Atom RDF ===")
 
@@ -136,7 +136,7 @@ def plot_cubic_lattice_rdf():
     Expected: Peaks at lattice spacings (2.5, 3.54, 4.33, ...)
     """
     from revelsMD.trajectories import NumpyTrajectory
-    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
+    from revelsMD.rdf import run_rdf, run_rdf_lambda
 
     print("\n=== Cubic Lattice RDF ===")
 
@@ -328,7 +328,7 @@ def plot_lj_rdf():
 
     Expected: Classic LJ fluid RDF with peak at ~1.1 sigma, g(r)=1 in bulk
     """
-    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
+    from revelsMD.rdf import run_rdf, run_rdf_lambda
 
     print("\n=== LJ Fluid RDF (Example 1) ===")
 
@@ -401,7 +401,7 @@ def plot_vasp_rdf():
 
     Expected: Ionic structure peaks
     """
-    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
+    from revelsMD.rdf import run_rdf, run_rdf_lambda
 
     print("\n=== VASP BaSnF4 RDF ===")
 
@@ -438,7 +438,7 @@ def plot_lambda_combination():
     Plot lambda-combined RDF showing optimal variance reduction.
     """
     from revelsMD.trajectories import NumpyTrajectory
-    from revelsMD.rdf import run_rdf, run_rdf_lambda, single_frame_rdf
+    from revelsMD.rdf import run_rdf, run_rdf_lambda
 
     print("\n=== Lambda-Combined RDF ===")
 
