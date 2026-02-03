@@ -46,6 +46,8 @@ class SelectionState:
         populated when required by density_type.
     """
 
+    VALID_DENSITY_TYPES = ('number', 'charge', 'polarisation')
+
     # Type declarations (union types until normalisation refactor)
     indices: np.ndarray | list[np.ndarray]
     charges: np.ndarray | list[np.ndarray]
@@ -65,6 +67,11 @@ class SelectionState:
         density_type: str = 'number',
         polarisation_axis: int = 0,
     ):
+        if density_type not in self.VALID_DENSITY_TYPES:
+            raise ValueError(
+                f"density_type must be one of {self.VALID_DENSITY_TYPES}, got {density_type!r}"
+            )
+
         self.rigid = rigid
         self.density_type = density_type
         self.polarisation_axis = polarisation_axis

@@ -275,6 +275,39 @@ class TestSelectionStateGetWeights:
         np.testing.assert_allclose(result, expected, atol=1e-10)
 
 
+class TestSelectionStateValidation:
+    """Tests for SelectionState input validation."""
+
+    @pytest.fixture
+    def trajectory(self):
+        return MockTrajectory()
+
+    def test_invalid_density_type_raises_at_construction(self, trajectory):
+        """Invalid density_type should raise ValueError immediately."""
+        from revelsMD.density import SelectionState
+
+        with pytest.raises(ValueError, match="density_type must be one of"):
+            SelectionState(
+                trajectory,
+                atom_names='O',
+                centre_location=True,
+                density_type='invalid_type',
+            )
+
+    def test_valid_density_types_accepted(self, trajectory):
+        """All valid density types should be accepted."""
+        from revelsMD.density import SelectionState
+
+        for density_type in SelectionState.VALID_DENSITY_TYPES:
+            # Should not raise
+            SelectionState(
+                trajectory,
+                atom_names='O',
+                centre_location=True,
+                density_type=density_type,
+            )
+
+
 class TestSelectionStateGetForces:
     """Tests for SelectionState.get_forces() method."""
 
