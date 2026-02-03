@@ -21,26 +21,26 @@ class TestBackendSelection:
         """Default backend should be numba."""
         from revelsMD.rdf_helpers import get_backend_functions
 
-        like_fn, unlike_fn, accum_fn = get_backend_functions()
+        pairwise_fn, accum_fn = get_backend_functions()
 
-        assert 'numba' in like_fn.__module__
+        assert 'numba' in pairwise_fn.__module__
 
     def test_explicit_numpy_backend(self):
         """Explicit numpy backend selection."""
         from revelsMD.rdf_helpers import get_backend_functions
 
-        like_fn, _, _ = get_backend_functions('numpy')
+        pairwise_fn, _ = get_backend_functions('numpy')
 
-        assert 'numba' not in like_fn.__module__
+        assert 'numba' not in pairwise_fn.__module__
 
     def test_explicit_numba_backend(self):
         """Explicit numba backend selection."""
         pytest.importorskip('numba')
         from revelsMD.rdf_helpers import get_backend_functions
 
-        like_fn, _, _ = get_backend_functions('numba')
+        pairwise_fn, _ = get_backend_functions('numba')
 
-        assert 'numba' in like_fn.__module__
+        assert 'numba' in pairwise_fn.__module__
 
     def test_invalid_backend_raises(self):
         """Invalid backend should raise ValueError."""
@@ -57,8 +57,8 @@ class TestBackendSelection:
         old_val = os.environ.get('REVELSMD_BACKEND')
         try:
             os.environ['REVELSMD_BACKEND'] = 'numba'
-            like_fn, _, _ = get_backend_functions()
-            assert 'numba' in like_fn.__module__
+            pairwise_fn, _ = get_backend_functions()
+            assert 'numba' in pairwise_fn.__module__
         finally:
             if old_val is None:
                 os.environ.pop('REVELSMD_BACKEND', None)
@@ -76,11 +76,12 @@ class TestBackendSelection:
         box = (10.0, 10.0, 10.0)
         bins = np.arange(0, 5, 0.1)
 
-        np_like, _, np_accum = get_backend_functions('numpy')
-        nb_like, _, nb_accum = get_backend_functions('numba')
+        np_pairwise, np_accum = get_backend_functions('numpy')
+        nb_pairwise, nb_accum = get_backend_functions('numba')
 
-        r_np, dot_np = np_like(pos, forces, box)
-        r_nb, dot_nb = nb_like(pos, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_np, dot_np = np_pairwise(pos, pos.copy(), forces, forces.copy(), box)
+        r_nb, dot_nb = nb_pairwise(pos, pos.copy(), forces, forces.copy(), box)
 
         storage_np = np_accum(dot_np, r_np, bins)
         storage_nb = nb_accum(dot_nb, r_nb, bins)
@@ -208,12 +209,12 @@ class TestMinimumImage:
         np.testing.assert_array_almost_equal(result, expected)
 
 
-class TestPairwiseContributionsLike:
-    """Test like-pair pairwise distance and force projection calculation."""
+class TestPairwiseContributions:
+    """Test pairwise distance and force projection calculation."""
 
-    def test_two_atoms_direct_distance(self):
-        """Two atoms with known separation."""
-        from revelsMD.rdf_helpers import compute_pairwise_contributions_like
+    def test_two_atoms_like_species_distance(self):
+        """Two atoms of the same species with known separation."""
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
 
         pos = np.array([
             [0.0, 0.0, 0.0],
@@ -225,71 +226,72 @@ class TestPairwiseContributionsLike:
         ])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions_like(pos, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
 
-        # Should have 4 pairs: (0,0), (0,1), (1,0), (1,1)
-        assert r_flat.shape == (4,)
-        assert dot_prod_flat.shape == (4,)
+        # For like-species, should have n*(n-1)/2 = 1 pair
+        assert r_flat.shape == (1,)
+        assert dot_prod_flat.shape == (1,)
 
         # Distance between atoms 0 and 1 should be 3.0
-        # The matrix is (ns, ns) so pairs are at indices [0,1] and [1,0]
-        # Flattened: index 1 is (0,1), index 2 is (1,0)
-        r_matrix = r_flat.reshape(2, 2)
-        assert r_matrix[0, 0] == 0.0  # Self distance
-        assert r_matrix[1, 1] == 0.0  # Self distance
-        np.testing.assert_almost_equal(r_matrix[0, 1], 3.0)
-        np.testing.assert_almost_equal(r_matrix[1, 0], 3.0)
+        np.testing.assert_almost_equal(r_flat[0], 3.0)
 
-    def test_force_projection_radial(self):
-        """Force along r gives F.r/|r|^3 = |F|/|r|^2."""
-        from revelsMD.rdf_helpers import compute_pairwise_contributions_like
+    def test_force_difference_projection(self):
+        """(F_j - F_i) . r_ij / |r|^3 computed correctly for like-species."""
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
 
         # Atom 0 at origin, atom 1 at (3, 0, 0)
-        # Force on atom 1 is (2, 0, 0) - purely radial
+        # Force on atom 0 is (0, 0, 0), force on atom 1 is (2, 0, 0)
         pos = np.array([
             [0.0, 0.0, 0.0],
             [3.0, 0.0, 0.0],
         ])
         forces = np.array([
             [0.0, 0.0, 0.0],
-            [2.0, 0.0, 0.0],  # Force on atom 1
+            [2.0, 0.0, 0.0],
         ])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions_like(pos, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
 
-        # For like pairs, the force used is F[j] (the second atom in the pair)
-        # Pair (0, 1): r = (3, 0, 0), F[1] = (2, 0, 0)
-        # dot_prod = F.r / |r|^3 = (2*3) / 27 = 6/27 = 2/9
-        dot_prod_matrix = dot_prod_flat.reshape(2, 2)
+        # r_ij = pos[1] - pos[0] = (3, 0, 0), |r| = 3
+        # F_j - F_i = (2, 0, 0) - (0, 0, 0) = (2, 0, 0)
+        # dot_prod = (F_j - F_i) . r_ij / |r|^3 = (2*3) / 27 = 6/27 = 2/9
         expected = 2.0 / 9.0
-        np.testing.assert_almost_equal(dot_prod_matrix[0, 1], expected)
+        np.testing.assert_almost_equal(dot_prod_flat[0], expected)
 
     def test_force_projection_perpendicular(self):
         """Force perpendicular to r gives zero projection."""
-        from revelsMD.rdf_helpers import compute_pairwise_contributions_like
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
 
         # Atom 0 at origin, atom 1 at (3, 0, 0)
-        # Force on atom 1 is (0, 2, 0) - perpendicular to r
+        # Force difference perpendicular to r
         pos = np.array([
             [0.0, 0.0, 0.0],
             [3.0, 0.0, 0.0],
         ])
         forces = np.array([
             [0.0, 0.0, 0.0],
-            [0.0, 2.0, 0.0],  # Perpendicular force
+            [0.0, 2.0, 0.0],  # Perpendicular force difference
         ])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions_like(pos, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
 
-        dot_prod_matrix = dot_prod_flat.reshape(2, 2)
         # Perpendicular force should give zero contribution
-        np.testing.assert_almost_equal(dot_prod_matrix[0, 1], 0.0)
+        np.testing.assert_almost_equal(dot_prod_flat[0], 0.0)
 
     def test_wrapped_distance(self):
         """Atoms requiring MIC wrapping."""
-        from revelsMD.rdf_helpers import compute_pairwise_contributions_like
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
 
         # Atom 0 at (1, 0, 0), atom 1 at (9, 0, 0) in box of 10
         # Wrapped distance should be 2.0, not 8.0
@@ -303,19 +305,16 @@ class TestPairwiseContributionsLike:
         ])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions_like(pos, forces, box)
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
 
-        r_matrix = r_flat.reshape(2, 2)
-        np.testing.assert_almost_equal(r_matrix[0, 1], 2.0)
-        np.testing.assert_almost_equal(r_matrix[1, 0], 2.0)
+        np.testing.assert_almost_equal(r_flat[0], 2.0)
 
-
-class TestPairwiseContributionsUnlike:
-    """Test unlike-pair pairwise distance and force projection calculation."""
-
-    def test_one_atom_each_species(self):
-        """Simplest case: one A, one B."""
-        from revelsMD.rdf_helpers import compute_pairwise_contributions_unlike
+    def test_unlike_species_one_each(self):
+        """Simplest unlike-species case: one A, one B."""
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
 
         pos_a = np.array([[0.0, 0.0, 0.0]])
         pos_b = np.array([[4.0, 0.0, 0.0]])
@@ -323,7 +322,7 @@ class TestPairwiseContributionsUnlike:
         forces_b = np.array([[0.5, 0.0, 0.0]])
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions_unlike(
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
             pos_a, pos_b, forces_a, forces_b, box
         )
 
@@ -332,9 +331,9 @@ class TestPairwiseContributionsUnlike:
         assert dot_prod_flat.shape == (1,)
         np.testing.assert_almost_equal(r_flat[0], 4.0)
 
-    def test_force_difference_projection(self):
-        """(F_A - F_B) . r_AB / |r|^3 computed correctly."""
-        from revelsMD.rdf_helpers import compute_pairwise_contributions_unlike
+    def test_unlike_force_difference_projection(self):
+        """(F_A - F_B) . r_AB / |r|^3 computed correctly for unlike-species."""
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
 
         pos_a = np.array([[0.0, 0.0, 0.0]])
         pos_b = np.array([[3.0, 0.0, 0.0]])
@@ -342,7 +341,7 @@ class TestPairwiseContributionsUnlike:
         forces_b = np.array([[0.5, 0.0, 0.0]])  # F_B
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions_unlike(
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
             pos_a, pos_b, forces_a, forces_b, box
         )
 
@@ -352,9 +351,9 @@ class TestPairwiseContributionsUnlike:
         expected = 1.5 * (-3) / 27
         np.testing.assert_almost_equal(dot_prod_flat[0], expected)
 
-    def test_multiple_atoms_per_species(self):
+    def test_unlike_multiple_atoms(self):
         """Multiple atoms in each species."""
-        from revelsMD.rdf_helpers import compute_pairwise_contributions_unlike
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
 
         pos_a = np.array([
             [0.0, 0.0, 0.0],
@@ -369,14 +368,56 @@ class TestPairwiseContributionsUnlike:
         forces_b = np.ones((3, 3))
         box = (10.0, 10.0, 10.0)
 
-        r_flat, dot_prod_flat = compute_pairwise_contributions_unlike(
+        r_flat, dot_prod_flat = compute_pairwise_contributions(
             pos_a, pos_b, forces_a, forces_b, box
         )
 
         # Should have 2 * 3 = 6 pairs
-        # Shape is (n2, n1) = (3, 2) flattened
         assert r_flat.shape == (6,)
         assert dot_prod_flat.shape == (6,)
+
+    def test_like_species_uses_upper_triangle(self):
+        """For like-species, function should only compute n(n-1)/2 pairs."""
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
+
+        n = 10
+        np.random.seed(42)
+        pos = np.random.uniform(0, 10, (n, 3))
+        forces = np.random.randn(n, 3)
+        box = (10.0, 10.0, 10.0)
+
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
+
+        # For like-species (same values), should have n*(n-1)/2 unique pairs
+        expected_pairs = n * (n - 1) // 2
+        assert r_flat.shape[0] == expected_pairs, (
+            f"Expected {expected_pairs} pairs for n={n}, got {r_flat.shape[0]}"
+        )
+
+    def test_unlike_species_uses_full_matrix(self):
+        """For unlike-species, function computes all n1*n2 pairs."""
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
+
+        n1, n2 = 10, 15
+        np.random.seed(43)
+        pos_a = np.random.uniform(0, 10, (n1, 3))
+        pos_b = np.random.uniform(0, 10, (n2, 3))
+        forces_a = np.random.randn(n1, 3)
+        forces_b = np.random.randn(n2, 3)
+        box = (10.0, 10.0, 10.0)
+
+        r_flat, dot_flat = compute_pairwise_contributions(
+            pos_a, pos_b, forces_a, forces_b, box
+        )
+
+        # For unlike-species, should have n1 * n2 pairs
+        expected_pairs = n1 * n2
+        assert r_flat.shape[0] == expected_pairs, (
+            f"Expected {expected_pairs} pairs, got {r_flat.shape[0]}"
+        )
 
 
 class TestBinnedAccumulation:
@@ -484,7 +525,7 @@ class TestComparisonWithOriginal:
     def test_like_pairs_matches_original(self):
         """Vectorised like-pair calculation matches original loop output."""
         from revelsMD.rdf_helpers import (
-            compute_pairwise_contributions_like,
+            compute_pairwise_contributions,
             accumulate_binned_contributions,
         )
 
@@ -544,8 +585,11 @@ class TestComparisonWithOriginal:
         storage_orig = np.nan_to_num(storage_orig, nan=0.0, posinf=0.0, neginf=0.0)
 
         # --- Vectorised implementation ---
-        r_vec, dot_vec = compute_pairwise_contributions_like(
-            pos_ang, force_total, (box_x, box_y, box_z)
+        # The unified function returns upper-triangle pairs only,
+        # but accumulation should give same result because (i,j) and (j,i)
+        # pairs sum to (F_j - F_i) . r_ij which is what unified computes.
+        r_vec, dot_vec = compute_pairwise_contributions(
+            pos_ang, pos_ang, force_total, force_total, (box_x, box_y, box_z)
         )
         storage_vec = accumulate_binned_contributions(dot_vec, r_vec, bins)
 
@@ -559,7 +603,7 @@ class TestComparisonWithOriginal:
     def test_unlike_pairs_matches_original(self):
         """Vectorised unlike-pair calculation matches original loop output."""
         from revelsMD.rdf_helpers import (
-            compute_pairwise_contributions_unlike,
+            compute_pairwise_contributions,
             accumulate_binned_contributions,
         )
 
@@ -621,7 +665,7 @@ class TestComparisonWithOriginal:
         storage_orig = np.nan_to_num(storage_orig, nan=0.0, posinf=0.0, neginf=0.0)
 
         # --- Vectorised implementation ---
-        r_vec, dot_vec = compute_pairwise_contributions_unlike(
+        r_vec, dot_vec = compute_pairwise_contributions(
             pos_ang_1, pos_ang_2, force_total_1, force_total_2,
             (box_x, box_y, box_z)
         )
@@ -635,9 +679,9 @@ class TestComparisonWithOriginal:
         )
 
     def test_single_frame_rdf_like_full_comparison(self):
-        """Full single_frame_rdf_like output matches when using helpers."""
+        """Full single_frame_rdf output matches helpers for like-species."""
         from revelsMD.rdf_helpers import (
-            compute_pairwise_contributions_like,
+            compute_pairwise_contributions,
             accumulate_binned_contributions,
         )
 
@@ -650,30 +694,30 @@ class TestComparisonWithOriginal:
         indices = np.arange(n_atoms)
         bins = np.arange(0, 7, 0.05)
 
-        # Original implementation
-        original_result = RevelsRDF.single_frame_rdf_like(
-            pos_array, force_array, indices,
+        # Using RevelsRDF.single_frame_rdf
+        rdf_result = RevelsRDF.single_frame_rdf(
+            pos_array, force_array, [indices, indices],
             box_x, box_y, box_z, bins
         )
 
-        # Vectorised implementation
+        # Direct helper implementation
         pos_ang = pos_array[indices, :]
         force_total = force_array[indices, :]
-        r_vec, dot_vec = compute_pairwise_contributions_like(
-            pos_ang, force_total, (box_x, box_y, box_z)
+        r_vec, dot_vec = compute_pairwise_contributions(
+            pos_ang, pos_ang, force_total, force_total, (box_x, box_y, box_z)
         )
-        vectorised_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
+        helper_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
 
         np.testing.assert_array_almost_equal(
-            vectorised_result, original_result,
+            helper_result, rdf_result,
             decimal=10,
-            err_msg="Vectorised single_frame_rdf_like differs from original"
+            err_msg="Helper-based single_frame_rdf differs from direct helper call"
         )
 
     def test_single_frame_rdf_unlike_full_comparison(self):
-        """Full single_frame_rdf_unlike output matches when using helpers."""
+        """Full single_frame_rdf output matches helpers for unlike-species."""
         from revelsMD.rdf_helpers import (
-            compute_pairwise_contributions_unlike,
+            compute_pairwise_contributions,
             accumulate_binned_contributions,
         )
 
@@ -687,26 +731,139 @@ class TestComparisonWithOriginal:
         indices = [np.arange(n_type1), np.arange(n_type1, n_atoms)]
         bins = np.arange(0, 5, 0.05)
 
-        # Original implementation
-        original_result = RevelsRDF.single_frame_rdf_unlike(
+        # Using RevelsRDF.single_frame_rdf
+        rdf_result = RevelsRDF.single_frame_rdf(
             pos_array, force_array, indices,
             box_x, box_y, box_z, bins
         )
 
-        # Vectorised implementation
+        # Direct helper implementation
         pos_ang_1 = pos_array[indices[0], :]
         pos_ang_2 = pos_array[indices[1], :]
         force_total_1 = force_array[indices[0], :]
         force_total_2 = force_array[indices[1], :]
 
-        r_vec, dot_vec = compute_pairwise_contributions_unlike(
+        r_vec, dot_vec = compute_pairwise_contributions(
             pos_ang_1, pos_ang_2, force_total_1, force_total_2,
             (box_x, box_y, box_z)
         )
-        vectorised_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
+        helper_result = accumulate_binned_contributions(dot_vec, r_vec, bins)
 
         np.testing.assert_array_almost_equal(
-            vectorised_result, original_result,
+            helper_result, rdf_result,
             decimal=10,
-            err_msg="Vectorised single_frame_rdf_unlike differs from original"
+            err_msg="Helper-based single_frame_rdf differs from direct helper call"
+        )
+
+
+class TestPairwiseContributionsNumba:
+    """Test Numba implementation of pairwise contributions."""
+
+    @pytest.fixture(autouse=True)
+    def skip_if_no_numba(self):
+        """Skip tests if numba is not available."""
+        pytest.importorskip('numba')
+
+    def test_like_species_shape(self):
+        """For like-species, Numba function should compute n(n-1)/2 pairs."""
+        from revelsMD.rdf_helpers_numba import compute_pairwise_contributions_numba
+
+        n = 10
+        np.random.seed(44)
+        pos = np.random.uniform(0, 10, (n, 3))
+        forces = np.random.randn(n, 3)
+        box = (10.0, 10.0, 10.0)
+
+        # Use copies to ensure value comparison works (not identity)
+        r_flat, dot_flat = compute_pairwise_contributions_numba(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
+
+        expected_pairs = n * (n - 1) // 2
+        assert r_flat.shape[0] == expected_pairs, (
+            f"Expected {expected_pairs} pairs for n={n}, got {r_flat.shape[0]}"
+        )
+
+    def test_unlike_species_shape(self):
+        """For unlike-species, Numba function computes all n1*n2 pairs."""
+        from revelsMD.rdf_helpers_numba import compute_pairwise_contributions_numba
+
+        n1, n2 = 10, 15
+        np.random.seed(45)
+        pos_a = np.random.uniform(0, 10, (n1, 3))
+        pos_b = np.random.uniform(0, 10, (n2, 3))
+        forces_a = np.random.randn(n1, 3)
+        forces_b = np.random.randn(n2, 3)
+        box = (10.0, 10.0, 10.0)
+
+        r_flat, dot_flat = compute_pairwise_contributions_numba(
+            pos_a, pos_b, forces_a, forces_b, box
+        )
+
+        expected_pairs = n1 * n2
+        assert r_flat.shape[0] == expected_pairs, (
+            f"Expected {expected_pairs} pairs, got {r_flat.shape[0]}"
+        )
+
+    def test_matches_numpy_implementation(self):
+        """Numba function should match NumPy function."""
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
+        from revelsMD.rdf_helpers_numba import compute_pairwise_contributions_numba
+
+        np.random.seed(46)
+        pos_a = np.random.uniform(0, 10, (25, 3))
+        pos_b = np.random.uniform(0, 10, (30, 3))
+        forces_a = np.random.randn(25, 3)
+        forces_b = np.random.randn(30, 3)
+        box = (10.0, 10.0, 10.0)
+
+        # NumPy
+        r_numpy, dot_numpy = compute_pairwise_contributions(
+            pos_a, pos_b, forces_a, forces_b, box
+        )
+
+        # Numba
+        r_numba, dot_numba = compute_pairwise_contributions_numba(
+            pos_a, pos_b, forces_a, forces_b, box
+        )
+
+        np.testing.assert_allclose(
+            r_numpy, r_numba, rtol=1e-14,
+            err_msg="Numba distances don't match NumPy"
+        )
+        np.testing.assert_allclose(
+            dot_numpy, dot_numba, rtol=1e-14,
+            err_msg="Numba dot products don't match NumPy"
+        )
+
+    def test_like_species_matches_numpy(self):
+        """Numba like-species result should match NumPy."""
+        from revelsMD.rdf_helpers import compute_pairwise_contributions
+        from revelsMD.rdf_helpers_numba import (
+            compute_pairwise_contributions_numba,
+            accumulate_binned_contributions_numba,
+        )
+        from revelsMD.rdf_helpers import accumulate_binned_contributions
+
+        np.random.seed(42)
+        pos = np.random.uniform(0, 10, (50, 3))
+        forces = np.random.randn(50, 3)
+        box = (10.0, 10.0, 10.0)
+        bins = np.arange(0, 5, 0.1)
+
+        # NumPy - use copies to ensure value comparison works (not identity)
+        r_np, dot_np = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
+        acc_np = accumulate_binned_contributions(dot_np, r_np, bins)
+
+        # Numba - use copies to ensure value comparison works (not identity)
+        r_nb, dot_nb = compute_pairwise_contributions_numba(
+            pos, pos.copy(), forces, forces.copy(), box
+        )
+        acc_nb = accumulate_binned_contributions_numba(dot_nb, r_nb, bins)
+
+        np.testing.assert_allclose(
+            acc_np, acc_nb, rtol=1e-10,
+            err_msg="Numba like-species accumulated contributions don't match NumPy"
         )

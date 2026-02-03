@@ -49,76 +49,7 @@ def _apply_minimum_image_numba(
 
 
 @jit(nopython=True, parallel=True, cache=True)
-def _compute_pairwise_contributions_like_numba(
-    pos: np.ndarray,
-    forces: np.ndarray,
-    box_x: float,
-    box_y: float,
-    box_z: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Compute pairwise distances and force projections for like species.
-
-    Parameters
-    ----------
-    pos : np.ndarray, shape (n, 3)
-        Positions of atoms in the species.
-    forces : np.ndarray, shape (n, 3)
-        Forces on atoms in the species.
-    box_x, box_y, box_z : float
-        Orthorhombic box dimensions.
-
-    Returns
-    -------
-    r_flat : np.ndarray, shape (n*n,)
-        Flattened pairwise distances after MIC.
-    dot_prod_flat : np.ndarray, shape (n*n,)
-        Flattened force projections F[j] . r_ij / |r|^3.
-    """
-    ns = pos.shape[0]
-    r_flat = np.zeros(ns * ns, dtype=np.float64)
-    dot_prod_flat = np.zeros(ns * ns, dtype=np.float64)
-
-    half_box_x = box_x / 2
-    half_box_y = box_y / 2
-    half_box_z = box_z / 2
-
-    for i in prange(ns):
-        for j in range(ns):
-            # Displacement r_ij = pos[j] - pos[i]
-            rx = pos[j, 0] - pos[i, 0]
-            ry = pos[j, 1] - pos[i, 1]
-            rz = pos[j, 2] - pos[i, 2]
-
-            # Minimum image convention
-            if abs(rx) > half_box_x:
-                rx -= np.ceil((abs(rx) - half_box_x) / box_x) * box_x * np.sign(rx)
-            if abs(ry) > half_box_y:
-                ry -= np.ceil((abs(ry) - half_box_y) / box_y) * box_y * np.sign(ry)
-            if abs(rz) > half_box_z:
-                rz -= np.ceil((abs(rz) - half_box_z) / box_z) * box_z * np.sign(rz)
-
-            # Distance
-            r_mag = np.sqrt(rx * rx + ry * ry + rz * rz)
-
-            # Force projection: F[j] . r_ij / |r|^3
-            if r_mag > 0 and abs(rx) <= half_box_x and abs(ry) <= half_box_y and abs(rz) <= half_box_z:
-                fx = forces[j, 0]
-                fy = forces[j, 1]
-                fz = forces[j, 2]
-                dot_prod = (fx * rx + fy * ry + fz * rz) / (r_mag * r_mag * r_mag)
-            else:
-                dot_prod = 0.0
-
-            idx = i * ns + j
-            r_flat[idx] = r_mag
-            dot_prod_flat[idx] = dot_prod
-
-    return r_flat, dot_prod_flat
-
-
-@jit(nopython=True, parallel=True, cache=True)
-def _compute_pairwise_contributions_unlike_numba(
+def _compute_pairwise_contributions_numba(
     pos_a: np.ndarray,
     pos_b: np.ndarray,
     forces_a: np.ndarray,
@@ -126,69 +57,95 @@ def _compute_pairwise_contributions_unlike_numba(
     box_x: float,
     box_y: float,
     box_z: float,
+    same_species: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Compute pairwise distances and force projections for unlike species.
+    Compute pairwise distances and force projections for any species combination.
 
-    Parameters
-    ----------
-    pos_a : np.ndarray, shape (n1, 3)
-        Positions of atoms in species A.
-    pos_b : np.ndarray, shape (n2, 3)
-        Positions of atoms in species B.
-    forces_a : np.ndarray, shape (n1, 3)
-        Forces on atoms in species A.
-    forces_b : np.ndarray, shape (n2, 3)
-        Forces on atoms in species B.
-    box_x, box_y, box_z : float
-        Orthorhombic box dimensions.
+    For like-species (same_species=True), computes upper triangle only (j > i).
+    For unlike-species, computes all n_a * n_b pairs.
 
-    Returns
-    -------
-    r_flat : np.ndarray, shape (n1*n2,)
-        Flattened pairwise distances after MIC.
-    dot_prod_flat : np.ndarray, shape (n1*n2,)
-        Flattened force difference projections (F_A - F_B) . r_AB / |r|^3.
+    Both use the formula: (F_a - F_b) . r_ab / |r|^3
     """
-    n1 = pos_a.shape[0]
-    n2 = pos_b.shape[0]
-    r_flat = np.zeros(n2 * n1, dtype=np.float64)
-    dot_prod_flat = np.zeros(n2 * n1, dtype=np.float64)
+    n_a = pos_a.shape[0]
+    n_b = pos_b.shape[0]
 
     half_box_x = box_x / 2
     half_box_y = box_y / 2
     half_box_z = box_z / 2
 
-    for i in prange(n2):
-        for j in range(n1):
-            # Displacement r = pos_a[j] - pos_b[i]
-            rx = pos_a[j, 0] - pos_b[i, 0]
-            ry = pos_a[j, 1] - pos_b[i, 1]
-            rz = pos_a[j, 2] - pos_b[i, 2]
+    if same_species:
+        # Upper triangle: n*(n-1)/2 pairs
+        n_pairs = n_a * (n_a - 1) // 2
+        r_flat = np.zeros(n_pairs, dtype=np.float64)
+        dot_prod_flat = np.zeros(n_pairs, dtype=np.float64)
 
-            # Minimum image convention
-            if abs(rx) > half_box_x:
-                rx -= np.ceil((abs(rx) - half_box_x) / box_x) * box_x * np.sign(rx)
-            if abs(ry) > half_box_y:
-                ry -= np.ceil((abs(ry) - half_box_y) / box_y) * box_y * np.sign(ry)
-            if abs(rz) > half_box_z:
-                rz -= np.ceil((abs(rz) - half_box_z) / box_z) * box_z * np.sign(rz)
+        for i in prange(n_a):
+            for j in range(i + 1, n_a):
+                # Displacement r_ij = pos[j] - pos[i]
+                rx = pos_a[j, 0] - pos_a[i, 0]
+                ry = pos_a[j, 1] - pos_a[i, 1]
+                rz = pos_a[j, 2] - pos_a[i, 2]
 
-            # Distance
-            r_mag = np.sqrt(rx * rx + ry * ry + rz * rz)
+                # Minimum image convention
+                if abs(rx) > half_box_x:
+                    rx -= np.ceil((abs(rx) - half_box_x) / box_x) * box_x * np.sign(rx)
+                if abs(ry) > half_box_y:
+                    ry -= np.ceil((abs(ry) - half_box_y) / box_y) * box_y * np.sign(ry)
+                if abs(rz) > half_box_z:
+                    rz -= np.ceil((abs(rz) - half_box_z) / box_z) * box_z * np.sign(rz)
 
-            # Force difference projection: (F_A - F_B) . r / |r|^3
-            if r_mag > 0 and abs(rx) <= half_box_x and abs(ry) <= half_box_y and abs(rz) <= half_box_z:
-                fx = forces_a[j, 0] - forces_b[i, 0]
-                fy = forces_a[j, 1] - forces_b[i, 1]
-                fz = forces_a[j, 2] - forces_b[i, 2]
-                dot_prod = (fx * rx + fy * ry + fz * rz) / (r_mag * r_mag * r_mag)
-            else:
-                dot_prod = 0.0
+                r_mag = np.sqrt(rx * rx + ry * ry + rz * rz)
 
-            idx = i * n1 + j
-            r_flat[idx] = r_mag
-            dot_prod_flat[idx] = dot_prod
+                # Force difference: F[j] - F[i]
+                if r_mag > 0:
+                    fx = forces_a[j, 0] - forces_a[i, 0]
+                    fy = forces_a[j, 1] - forces_a[i, 1]
+                    fz = forces_a[j, 2] - forces_a[i, 2]
+                    dot_prod = (fx * rx + fy * ry + fz * rz) / (r_mag * r_mag * r_mag)
+                else:
+                    dot_prod = 0.0
+
+                # Upper triangle linear index: sum of (n-1) + (n-2) + ... + (n-i) + (j-i-1)
+                # = i*n - i*(i+1)/2 + (j-i-1)
+                idx = i * n_a - (i * (i + 1)) // 2 + (j - i - 1)
+                r_flat[idx] = r_mag
+                dot_prod_flat[idx] = dot_prod
+    else:
+        # Unlike species: all n_b * n_a pairs
+        n_pairs = n_b * n_a
+        r_flat = np.zeros(n_pairs, dtype=np.float64)
+        dot_prod_flat = np.zeros(n_pairs, dtype=np.float64)
+
+        for i in prange(n_b):
+            for j in range(n_a):
+                # Displacement r = pos_a[j] - pos_b[i]
+                rx = pos_a[j, 0] - pos_b[i, 0]
+                ry = pos_a[j, 1] - pos_b[i, 1]
+                rz = pos_a[j, 2] - pos_b[i, 2]
+
+                # Minimum image convention
+                if abs(rx) > half_box_x:
+                    rx -= np.ceil((abs(rx) - half_box_x) / box_x) * box_x * np.sign(rx)
+                if abs(ry) > half_box_y:
+                    ry -= np.ceil((abs(ry) - half_box_y) / box_y) * box_y * np.sign(ry)
+                if abs(rz) > half_box_z:
+                    rz -= np.ceil((abs(rz) - half_box_z) / box_z) * box_z * np.sign(rz)
+
+                r_mag = np.sqrt(rx * rx + ry * ry + rz * rz)
+
+                # Force difference: F_a[j] - F_b[i]
+                if r_mag > 0:
+                    fx = forces_a[j, 0] - forces_b[i, 0]
+                    fy = forces_a[j, 1] - forces_b[i, 1]
+                    fz = forces_a[j, 2] - forces_b[i, 2]
+                    dot_prod = (fx * rx + fy * ry + fz * rz) / (r_mag * r_mag * r_mag)
+                else:
+                    dot_prod = 0.0
+
+                idx = i * n_a + j
+                r_flat[idx] = r_mag
+                dot_prod_flat[idx] = dot_prod
 
     return r_flat, dot_prod_flat
 
@@ -258,38 +215,7 @@ def _accumulate_binned_contributions_numba(
 # Public wrapper functions with same signature as NumPy backend
 # ---------------------------------------------------------------------------
 
-def compute_pairwise_contributions_like_numba(
-    pos: np.ndarray,
-    forces: np.ndarray,
-    box: tuple[float, float, float],
-) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Compute pairwise distances and force projections for like species.
-
-    Parameters
-    ----------
-    pos : np.ndarray, shape (n, 3)
-        Positions of atoms in the species.
-    forces : np.ndarray, shape (n, 3)
-        Forces on atoms in the species.
-    box : tuple of (box_x, box_y, box_z)
-        Orthorhombic box dimensions.
-
-    Returns
-    -------
-    r_flat : np.ndarray, shape (n*n,)
-        Flattened pairwise distances after MIC.
-    dot_prod_flat : np.ndarray, shape (n*n,)
-        Flattened force projections F[j] . r_ij / |r|^3.
-    """
-    pos = np.ascontiguousarray(pos, dtype=np.float64)
-    forces = np.ascontiguousarray(forces, dtype=np.float64)
-    return _compute_pairwise_contributions_like_numba(
-        pos, forces, box[0], box[1], box[2]
-    )
-
-
-def compute_pairwise_contributions_unlike_numba(
+def compute_pairwise_contributions_numba(
     pos_a: np.ndarray,
     pos_b: np.ndarray,
     forces_a: np.ndarray,
@@ -297,34 +223,46 @@ def compute_pairwise_contributions_unlike_numba(
     box: tuple[float, float, float],
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Compute pairwise distances and force projections for unlike species.
+    Compute pairwise distances and force projections for any species combination.
+
+    This unified function handles both like-species (A-A) and unlike-species (A-B)
+    cases using the same formula: (F_a - F_b) . r_ab / |r|^3.
+
+    For like-species (detected via np.array_equal), only the upper triangle
+    (j > i) is computed to avoid double-counting.
+
+    For unlike-species, all n_a * n_b pairs are computed.
 
     Parameters
     ----------
-    pos_a : np.ndarray, shape (n1, 3)
+    pos_a : np.ndarray, shape (n_a, 3)
         Positions of atoms in species A.
-    pos_b : np.ndarray, shape (n2, 3)
+    pos_b : np.ndarray, shape (n_b, 3)
         Positions of atoms in species B.
-    forces_a : np.ndarray, shape (n1, 3)
+    forces_a : np.ndarray, shape (n_a, 3)
         Forces on atoms in species A.
-    forces_b : np.ndarray, shape (n2, 3)
+    forces_b : np.ndarray, shape (n_b, 3)
         Forces on atoms in species B.
     box : tuple of (box_x, box_y, box_z)
         Orthorhombic box dimensions.
 
     Returns
     -------
-    r_flat : np.ndarray, shape (n1*n2,)
+    r_flat : np.ndarray, dtype=np.float64
         Flattened pairwise distances after MIC.
-    dot_prod_flat : np.ndarray, shape (n1*n2,)
-        Flattened force difference projections (F_A - F_B) . r_AB / |r|^3.
+        Shape is (n_a * (n_a - 1) // 2,) for like-species,
+        or (n_a * n_b,) for unlike-species.
+    dot_prod_flat : np.ndarray, dtype=np.float64
+        Flattened force projections (F_a - F_b) . r_ab / |r|^3.
+        Same shape as r_flat.
     """
+    same_species = np.array_equal(pos_a, pos_b)
     pos_a = np.ascontiguousarray(pos_a, dtype=np.float64)
     pos_b = np.ascontiguousarray(pos_b, dtype=np.float64)
     forces_a = np.ascontiguousarray(forces_a, dtype=np.float64)
     forces_b = np.ascontiguousarray(forces_b, dtype=np.float64)
-    return _compute_pairwise_contributions_unlike_numba(
-        pos_a, pos_b, forces_a, forces_b, box[0], box[1], box[2]
+    return _compute_pairwise_contributions_numba(
+        pos_a, pos_b, forces_a, forces_b, box[0], box[1], box[2], same_species
     )
 
 
