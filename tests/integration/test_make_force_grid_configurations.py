@@ -163,10 +163,22 @@ class TestMakeForceGridConfigurations:
         with pytest.raises(ValueError, match="single atom"):
             gs.make_force_grid(ts_single_species, atom_names="H", rigid=True, centre_location=True)
 
-    def test_invalid_density_type_raises(self, ts_single_species):
-        """Invalid density type raises ValueError."""
+    def test_invalid_density_type_raises_at_grid_state(self, ts_single_species):
+        """Invalid density type raises ValueError at GridState construction."""
         with pytest.raises(ValueError, match="density_type must be one of"):
             GridState(ts_single_species, "invalid", nbins=4)
+
+    def test_invalid_density_type_raises_at_selection_state(self, ts_single_species):
+        """Invalid density type raises ValueError at SelectionState construction."""
+        from revelsMD.density import SelectionState
+
+        with pytest.raises(ValueError, match="density_type must be one of"):
+            SelectionState(
+                ts_single_species,
+                atom_names="H",
+                centre_location=True,
+                density_type="invalid",
+            )
 
     def test_rigid_invalid_centre_location_raises(self, ts_multi_species):
         """Rigid with invalid centre_location raises ValueError."""
