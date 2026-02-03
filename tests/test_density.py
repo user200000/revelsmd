@@ -282,23 +282,23 @@ class TestSelectionStateValidation:
     def trajectory(self):
         return MockTrajectory()
 
-    def test_density_type_validation_called(self, trajectory, mocker):
+    def test_density_type_validation_called(self, trajectory):
         """SelectionState should call validate_density_type with the provided value."""
+        from unittest.mock import patch
         from revelsMD.density import SelectionState
 
-        mock_validate = mocker.patch(
+        with patch(
             'revelsMD.density.selection_state.validate_density_type',
             return_value='number'
-        )
+        ) as mock_validate:
+            SelectionState(
+                trajectory,
+                atom_names='O',
+                centre_location=True,
+                density_type='NUMBER',
+            )
 
-        SelectionState(
-            trajectory,
-            atom_names='O',
-            centre_location=True,
-            density_type='NUMBER',
-        )
-
-        mock_validate.assert_called_once_with('NUMBER')
+            mock_validate.assert_called_once_with('NUMBER')
 
 
 class TestSelectionStateGetForces:
