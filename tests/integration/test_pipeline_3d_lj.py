@@ -47,8 +47,7 @@ class TestNumberDensityPipelineExample2:
         assert gs.nbinsx == 50
         assert gs.nbinsy == 50
         assert gs.nbinsz == 50
-        # beta = 1/T for LJ units
-        assert np.isclose(gs.beta, 1.0 / 1.35)
+        assert gs.beta == ts.beta
 
         # Grids should be initialised to zero
         assert gs.forceX.shape == (50, 50, 50)

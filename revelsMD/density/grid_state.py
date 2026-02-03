@@ -12,6 +12,7 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
+from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection_state import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
 
@@ -96,10 +97,7 @@ class DensityGrid:
         self.counter = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
 
         # Density selection
-        dty = density_type.lower().strip()
-        if dty not in {"number", "charge", "polarisation"}:
-            raise ValueError("density_type must be one of {'number','charge','polarisation'}.")
-        self.density_type = dty
+        self.density_type = validate_density_type(density_type)
 
         # Progress flag
         self.grid_progress = "Generated"
