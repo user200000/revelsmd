@@ -6,7 +6,6 @@ deposit particle contributions to grid voxels, including proper handling of
 overlapping particles (the main bug being fixed).
 """
 
-import os
 import pytest
 import numpy as np
 
@@ -16,14 +15,11 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 class TestBackendSelection:
-    """Test backend selection logic."""
+    """Test explicit backend selection in get_backend_functions().
 
-    def test_default_backend_is_numba(self):
-        """Default backend should be numba."""
-        from revelsMD.density.grid_helpers import get_backend_functions
-        tri_fn, box_fn = get_backend_functions()
-        # Check that we got the numba versions
-        assert 'numba' in tri_fn.__module__
+    Note: Environment variable and default backend tests are in test_backends.py.
+    These tests focus on the explicit backend parameter override.
+    """
 
     def test_explicit_numpy_backend(self):
         """Can explicitly request numpy backend."""
@@ -43,13 +39,6 @@ class TestBackendSelection:
         from revelsMD.density.grid_helpers import get_backend_functions
         with pytest.raises(ValueError, match="Unknown grid backend"):
             get_backend_functions('invalid')
-
-    def test_environment_variable_backend(self, monkeypatch):
-        """Environment variable should control backend selection."""
-        from revelsMD.density import grid_helpers
-        monkeypatch.setenv('REVELSMD_BACKEND', 'numpy')
-        tri_fn, box_fn = grid_helpers.get_backend_functions()
-        assert 'numba' not in tri_fn.__module__
 
 
 # ---------------------------------------------------------------------------
