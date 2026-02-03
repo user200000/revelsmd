@@ -22,8 +22,7 @@ import numpy as np
 from tqdm import tqdm
 
 from revelsMD.rdf_helpers import (
-    compute_pairwise_contributions_like,
-    compute_pairwise_contributions_unlike,
+    compute_pairwise_contributions,
     accumulate_binned_contributions,
 )
 
@@ -45,21 +44,24 @@ class RevelsRDF:
     """
 
     # -------------------------------------------------------------------------
-    # Single-frame RDF (like pairs)
+    # Single-frame RDF
     # -------------------------------------------------------------------------
     @staticmethod
-    def single_frame_rdf_like(
+    def single_frame_rdf(
         pos_array: np.ndarray,
         force_array: np.ndarray,
-        indices: np.ndarray,
+        indices: list[np.ndarray],
         box_x: float,
         box_y: float,
         box_z: float,
         bins: np.ndarray,
-        return_conventional: bool = False,
     ) -> np.ndarray:
         """
-        Compute a single-frame reduced-variance RDF for identical species.
+        Compute a single-frame reduced-variance RDF.
+
+        Handles both like-species (A-A) and unlike-species (A-B) RDFs.
+        Like-species is indicated by passing the same array twice:
+        ``[indices_A, indices_A]``. Unlike-species uses two different arrays.
 
         Parameters
         ----------
@@ -67,14 +69,13 @@ class RevelsRDF:
             Atomic positions in Cartesian coordinates.
         force_array : (N, 3) np.ndarray
             Atomic forces in Cartesian coordinates.
-        indices : np.ndarray
-            Indices of atoms belonging to the species of interest.
+        indices : list of two np.ndarray
+            ``[indices_species_A, indices_species_B]``.
+            For like-species, pass the same array twice.
         box_x, box_y, box_z : float
             Orthorhombic cell lengths.
         bins : np.ndarray
             Radial grid at which cumulative Heaviside contributions are accumulated.
-        return_conventional : bool, optional
-            Placeholder for a conventional histogram variant (not used).
 
         Returns
         -------
@@ -85,66 +86,22 @@ class RevelsRDF:
         if n_bins == 0:
             return np.zeros(1, dtype=np.float64)
 
-        pos_ang = pos_array[indices, :]
-        force_total = force_array[indices, :]
+        pos_a = pos_array[indices[0], :]
+        force_a = force_array[indices[0], :]
+
+        # Detect like-species (A-A) usage by comparing the index arrays by value.
+        # The downstream helpers also use value comparison (np.array_equal) to detect
+        # like-species and apply upper-triangle optimisations.
+        if np.array_equal(indices[0], indices[1]):
+            pos_b = pos_a
+            force_b = force_a
+        else:
+            pos_b = pos_array[indices[1], :]
+            force_b = force_array[indices[1], :]
 
         # Vectorised pairwise calculation and binning
-        r_flat, dot_flat = compute_pairwise_contributions_like(
-            pos_ang, force_total, (box_x, box_y, box_z)
-        )
-        return accumulate_binned_contributions(dot_flat, r_flat, bins)
-
-
-    # -------------------------------------------------------------------------
-    # Single-frame RDF (unlike pairs)
-    # -------------------------------------------------------------------------
-    @staticmethod
-    def single_frame_rdf_unlike(
-        pos_array: np.ndarray,
-        force_array: np.ndarray,
-        indices: Sequence[np.ndarray],
-        box_x: float,
-        box_y: float,
-        box_z: float,
-        bins: np.ndarray,
-        return_conventional: bool = False,
-    ) -> np.ndarray:
-        """
-        Compute a single-frame reduced-variance RDF for unlike species.
-
-        Parameters
-        ----------
-        pos_array : (N, 3) np.ndarray
-            Atomic positions in Cartesian coordinates.
-        force_array : (N, 3) np.ndarray
-            Atomic forces in Cartesian coordinates.
-        indices : sequence of two np.ndarray
-            `[indices_species_A, indices_species_B]`.
-        box_x, box_y, box_z : float
-            Orthorhombic cell lengths.
-        bins : np.ndarray
-            Radial grid at which cumulative Heaviside contributions are accumulated.
-        return_conventional : bool, optional
-            Placeholder for a conventional histogram variant (not used).
-
-        Returns
-        -------
-        np.ndarray
-            Accumulated force-weighted contributions per bin for this frame.
-        """
-        n_bins = np.size(bins)
-        if n_bins == 0:
-            return np.zeros(1, dtype=np.float64)
-
-        pos_ang_1 = pos_array[indices[0], :]
-        force_total_1 = force_array[indices[0], :]
-        pos_ang_2 = pos_array[indices[1], :]
-        force_total_2 = force_array[indices[1], :]
-
-        # Vectorised pairwise calculation and binning
-        r_flat, dot_flat = compute_pairwise_contributions_unlike(
-            pos_ang_1, pos_ang_2, force_total_1, force_total_2,
-            (box_x, box_y, box_z)
+        r_flat, dot_flat = compute_pairwise_contributions(
+            pos_a, pos_b, force_a, force_b, (box_x, box_y, box_z)
         )
         return accumulate_binned_contributions(dot_flat, r_flat, bins)
 
@@ -199,13 +156,13 @@ class RevelsRDF:
             or the frame range is empty).
         """
         if atom_a == atom_b:
-            single_frame_function = RevelsRDF.single_frame_rdf_like
-            indices = trajectory.get_indices(atom_a)
-            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices)) * float(len(indices) - 1))
+            indices_a = trajectory.get_indices(atom_a)
+            indices = [indices_a, indices_a]
+            n_a = len(indices_a)
+            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
         else:
             indices = [np.array(trajectory.get_indices(atom_a)), np.array(trajectory.get_indices(atom_b))]
-            single_frame_function = RevelsRDF.single_frame_rdf_unlike  # type: ignore[assignment]
-            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
+            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices[1])) * float(len(indices[0]))) / 2
 
         # Validate frame bounds
         if start > trajectory.frames:
@@ -231,7 +188,7 @@ class RevelsRDF:
 
         # Unified frame iteration using iter_frames
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
-            accumulated_storage_array += single_frame_function(
+            accumulated_storage_array += RevelsRDF.single_frame_rdf(
                 positions, forces, indices, trajectory.box_x, trajectory.box_y, trajectory.box_z, bins
             )
 
@@ -296,13 +253,13 @@ class RevelsRDF:
         delta = g_inf - g_zero from the accumulated estimator.
         """
         if atom_a == atom_b:
-            single_frame_function = RevelsRDF.single_frame_rdf_like
-            indices = trajectory.get_indices(atom_a)
-            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices)) * float(len(indices) - 1))
+            indices_a = trajectory.get_indices(atom_a)
+            indices = [indices_a, indices_a]
+            n_a = len(indices_a)
+            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
         else:
             indices = [trajectory.get_indices(atom_a), trajectory.get_indices(atom_b)]
-            single_frame_function = RevelsRDF.single_frame_rdf_unlike  # type: ignore[assignment]
-            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices[1])) * float(len(indices[0])))/2
+            prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices[1])) * float(len(indices[0]))) / 2
 
         # Validate frame bounds
         if start > trajectory.frames:
@@ -329,7 +286,7 @@ class RevelsRDF:
 
         # Unified frame iteration using iter_frames
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
-            this_frame = single_frame_function(
+            this_frame = RevelsRDF.single_frame_rdf(
                 positions, forces, indices, trajectory.box_x, trajectory.box_y, trajectory.box_z, bins
             )
             accumulated_storage_array += this_frame
