@@ -738,8 +738,8 @@ class TestDensityGridGetLambdaEdgeCases:
             )
 
         gs.grid_progress = "Allocated"
-        result = gs.get_lambda(traj, sections=2)
+        gs.get_lambda(traj, sections=2)
 
         # The key assertion: no NaN or Inf values
-        assert np.all(np.isfinite(result.combination)), "combination contains NaN/Inf"
-        assert np.all(np.isfinite(result.optimal_density)), "optimal_density contains NaN/Inf"
+        assert np.all(np.isfinite(gs.lambda_weights)), "lambda_weights contains NaN/Inf"
+        assert np.all(np.isfinite(gs.rho_lambda)), "rho_lambda contains NaN/Inf"

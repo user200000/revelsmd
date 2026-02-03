@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import copy
+import warnings
+from collections.abc import Sequence
 
 import numpy as np
 from tqdm import tqdm
@@ -103,6 +104,40 @@ class DensityGrid:
         # Progress flag
         self.grid_progress = "Generated"
 
+        # Lambda results (populated by get_lambda)
+        self._rho_lambda: np.ndarray | None = None
+        self._lambda_weights: np.ndarray | None = None
+
+    @property
+    def rho_lambda(self) -> np.ndarray | None:
+        """Variance-minimised density (available after get_lambda)."""
+        return self._rho_lambda
+
+    @property
+    def lambda_weights(self) -> np.ndarray | None:
+        """Per-voxel lambda weights (available after get_lambda)."""
+        return self._lambda_weights
+
+    @property
+    def optimal_density(self) -> np.ndarray | None:
+        """Deprecated: use rho_lambda instead."""
+        warnings.warn(
+            "optimal_density is deprecated, use rho_lambda instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._rho_lambda
+
+    @property
+    def combination(self) -> np.ndarray | None:
+        """Deprecated: use lambda_weights instead."""
+        warnings.warn(
+            "combination is deprecated, use lambda_weights instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._lambda_weights
+
     def _process_frame(
         self,
         positions: np.ndarray,
@@ -162,7 +197,7 @@ class DensityGrid:
         self,
         positions: np.ndarray | list[np.ndarray],
         forces: np.ndarray | list[np.ndarray],
-        weights: float | np.ndarray | list[float | np.ndarray],
+        weights: float | np.ndarray | list[np.ndarray],
         kernel: str = "triangular",
     ) -> None:
         """
@@ -182,12 +217,21 @@ class DensityGrid:
             Deposition kernel (default: 'triangular').
         """
         if isinstance(positions, list):
-            if not isinstance(weights, list):
-                weights = [weights] * len(positions)
-            for pos, frc, wgt in zip(positions, forces, weights):
-                self._process_frame(pos, frc, weight=wgt, kernel=kernel)  # type: ignore[arg-type]
+            # Broadcast scalar/array weight to match positions list
+            weight_seq: Sequence[float | np.ndarray]
+            if isinstance(weights, list):
+                weight_seq = weights
+            else:
+                weight_seq = [weights] * len(positions)
+            for pos, frc, wgt in zip(positions, forces, weight_seq):
+                self._process_frame(pos, frc, weight=wgt, kernel=kernel)
         else:
-            self._process_frame(positions, forces, weight=weights, kernel=kernel)  # type: ignore[arg-type]
+            # Single array case - weights must be float or array, not list
+            if isinstance(weights, list):
+                raise TypeError("weights cannot be a list when positions is a single array")
+            if isinstance(forces, list):
+                raise TypeError("forces cannot be a list when positions is a single array")
+            self._process_frame(positions, forces, weight=weights, kernel=kernel)
 
     def make_force_grid(
         self,
@@ -296,7 +340,7 @@ class DensityGrid:
             deposit_positions = self.selection_state.get_positions(positions)
             deposit_forces = self.selection_state.get_forces(forces)
             weights = self.selection_state.get_weights(positions)
-            self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)  # type: ignore[arg-type]
+            self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
 
         self.frames_processed = self.to_run
         self.grid_progress = "Allocated"
@@ -438,7 +482,7 @@ class DensityGrid:
         with open(filename, "w") as f:
             write_cube(f, atoms, data=grid)
 
-    def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> "DensityGrid":
+    def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> None:
         """
         Compute optimal lambda(r) to combine counting and force densities.
 
@@ -455,11 +499,10 @@ class DensityGrid:
 
         Returns
         -------
-        DensityGrid
-            A deep-copied `DensityGrid` instance with
-            `expected_rho`, `expected_particle_density`, `delta`,
-            covariance/variance buffers, `combination` (=1-cov_F/var),
-            and `optimal_density` populated.
+        None
+            Results stored as attributes:
+            - rho_lambda: variance-minimised density
+            - lambda_weights: per-voxel combination weights
 
         Raises
         ------
@@ -467,71 +510,69 @@ class DensityGrid:
             If called before `make_force_grid`.
         ValueError
             If called on a grid already produced by `get_lambda`.
+
+        Notes
+        -----
+        After this method completes, the internal accumulators (forceX/Y/Z, counter)
+        will contain only the last section's data, not the full trajectory.
         """
         if self.grid_progress == "Generated":
             raise RuntimeError("Run make_force_grid before estimating lambda.")
         if self.grid_progress == "Lambda":
             raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
-        # TODO: Future refactor - integrate uncertainty/statistics accumulation into
-        # base DensityGrid, eliminating need for dynamic attributes here.
-        grid_state_lambda = copy.deepcopy(self)
         if sections is None:
             sections = trajectory.frames
 
         # Baseline expectation from full accumulation
-        grid_state_lambda.get_real_density()
-        grid_state_lambda.expected_rho = np.copy(grid_state_lambda.rho)  # type: ignore[attr-defined]
-        grid_state_lambda.expected_particle_density = np.copy(grid_state_lambda.particle_density)  # type: ignore[attr-defined]
-        grid_state_lambda.delta = grid_state_lambda.expected_rho - grid_state_lambda.expected_particle_density  # type: ignore[attr-defined]
+        self.get_real_density()
+        expected_rho = np.copy(self.rho)
+        expected_particle_density = np.copy(self.particle_density)
+        delta = expected_rho - expected_particle_density
 
-        # Covariance/variance accumulators
-        grid_state_lambda.cov_buffer_force = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))  # type: ignore[attr-defined]
-        grid_state_lambda.var_buffer = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))  # type: ignore[attr-defined]
+        # Covariance/variance accumulators (local, not stored)
+        cov_buffer_force = np.zeros((self.nbinsx, self.nbinsy, self.nbinsz))
+        var_buffer = np.zeros((self.nbinsx, self.nbinsy, self.nbinsz))
 
         # Interleaved accumulation across sections
         for k in tqdm(range(sections)):
             # Reset accumulators for this section
-            grid_state_lambda.forceX *= 0
-            grid_state_lambda.forceY *= 0
-            grid_state_lambda.forceZ *= 0
-            grid_state_lambda.particle_density *= 0
-            grid_state_lambda.counter *= 0
-            grid_state_lambda.del_rho_k *= 0
-            grid_state_lambda.del_rho_n *= 0
-            grid_state_lambda.rho *= 0
-            grid_state_lambda.count *= 0
+            self.forceX *= 0
+            self.forceY *= 0
+            self.forceZ *= 0
+            self.particle_density *= 0
+            self.counter *= 0
+            self.del_rho_k *= 0
+            self.del_rho_n *= 0
+            self.rho *= 0
+            self.count *= 0
 
             # Frame indices for this section (interleaved sampling)
-            frame_indices = np.array(grid_state_lambda.to_run)[
-                np.arange(k, sections * (len(grid_state_lambda.to_run) // sections), sections)
+            frame_indices = np.array(self.to_run)[
+                np.arange(k, sections * (len(self.to_run) // sections), sections)
             ]
             for frame_idx in frame_indices:
                 positions, forces = trajectory.get_frame(frame_idx)
-                deposit_positions = grid_state_lambda.selection_state.get_positions(positions)
-                deposit_forces = grid_state_lambda.selection_state.get_forces(forces)
-                weights = grid_state_lambda.selection_state.get_weights(positions)
-                grid_state_lambda.deposit(deposit_positions, deposit_forces, weights, kernel=grid_state_lambda.kernel)  # type: ignore[arg-type]
+                deposit_positions = self.selection_state.get_positions(positions)
+                deposit_forces = self.selection_state.get_forces(forces)
+                weights = self.selection_state.get_weights(positions)
+                self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
 
             # Compute densities for this section and accumulate statistics
-            grid_state_lambda.get_real_density()
-            delta_cur = grid_state_lambda.rho - grid_state_lambda.particle_density
-            grid_state_lambda.var_buffer += (delta_cur - grid_state_lambda.delta) ** 2  # type: ignore[attr-defined]
-            grid_state_lambda.cov_buffer_force += (delta_cur - grid_state_lambda.delta) * (grid_state_lambda.rho - grid_state_lambda.expected_rho)  # type: ignore[attr-defined]
+            self.get_real_density()
+            delta_cur = self.rho - self.particle_density
+            var_buffer += (delta_cur - delta) ** 2
+            cov_buffer_force += (delta_cur - delta) * (self.rho - expected_rho)
 
         # lambda = 1 - cov(force)/var(delta); optimal density = (1-lambda)*count + lambda*force
-        lambda_raw = compute_lambda_weights(
-            grid_state_lambda.var_buffer,  # type: ignore[attr-defined]
-            grid_state_lambda.cov_buffer_force,  # type: ignore[attr-defined]
+        lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
+        self._lambda_weights = 1.0 - lambda_raw
+        self._rho_lambda = combine_estimators(
+            expected_particle_density,
+            expected_rho,
+            self._lambda_weights,
         )
-        grid_state_lambda.combination = 1.0 - lambda_raw  # type: ignore[attr-defined]
-        grid_state_lambda.optimal_density = combine_estimators(  # type: ignore[attr-defined]
-            grid_state_lambda.expected_particle_density,  # type: ignore[attr-defined]
-            grid_state_lambda.expected_rho,  # type: ignore[attr-defined]
-            grid_state_lambda.combination,  # type: ignore[attr-defined]
-        )
-        grid_state_lambda.grid_progress = "Lambda"
-        return grid_state_lambda
+        self.grid_progress = "Lambda"
 
 
 def compute_density(
