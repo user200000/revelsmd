@@ -15,6 +15,7 @@ from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection_state import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
+from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
 # Module-level backend functions (loaded once at import)
 _triangular_allocation, _box_allocation = _get_grid_backend_functions()
@@ -485,7 +486,6 @@ class DensityGrid:
         grid_state_lambda.delta = grid_state_lambda.expected_rho - grid_state_lambda.expected_particle_density  # type: ignore[attr-defined]
 
         # Covariance/variance accumulators
-        grid_state_lambda.cov_buffer_particle = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))  # type: ignore[attr-defined]
         grid_state_lambda.cov_buffer_force = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))  # type: ignore[attr-defined]
         grid_state_lambda.var_buffer = np.zeros((grid_state_lambda.nbinsx, grid_state_lambda.nbinsy, grid_state_lambda.nbinsz))  # type: ignore[attr-defined]
 
@@ -518,15 +518,17 @@ class DensityGrid:
             delta_cur = grid_state_lambda.rho - grid_state_lambda.particle_density
             grid_state_lambda.var_buffer += (delta_cur - grid_state_lambda.delta) ** 2  # type: ignore[attr-defined]
             grid_state_lambda.cov_buffer_force += (delta_cur - grid_state_lambda.delta) * (grid_state_lambda.rho - grid_state_lambda.expected_rho)  # type: ignore[attr-defined]
-            grid_state_lambda.cov_buffer_particle += (delta_cur - grid_state_lambda.delta) * (  # type: ignore[attr-defined]
-                grid_state_lambda.particle_density - grid_state_lambda.expected_particle_density  # type: ignore[attr-defined]
-            )
 
         # lambda = 1 - cov(force)/var(delta); optimal density = (1-lambda)*count + lambda*force
-        grid_state_lambda.combination = 1.0 - (grid_state_lambda.cov_buffer_force / grid_state_lambda.var_buffer)  # type: ignore[attr-defined]
-        grid_state_lambda.optimal_density = (  # type: ignore[attr-defined]
-            (1.0 - grid_state_lambda.combination) * grid_state_lambda.expected_particle_density +  # type: ignore[attr-defined]
-            grid_state_lambda.combination * grid_state_lambda.expected_rho  # type: ignore[attr-defined]
+        lambda_raw = compute_lambda_weights(
+            grid_state_lambda.var_buffer,  # type: ignore[attr-defined]
+            grid_state_lambda.cov_buffer_force,  # type: ignore[attr-defined]
+        )
+        grid_state_lambda.combination = 1.0 - lambda_raw  # type: ignore[attr-defined]
+        grid_state_lambda.optimal_density = combine_estimators(  # type: ignore[attr-defined]
+            grid_state_lambda.expected_particle_density,  # type: ignore[attr-defined]
+            grid_state_lambda.expected_rho,  # type: ignore[attr-defined]
+            grid_state_lambda.combination,  # type: ignore[attr-defined]
         )
         grid_state_lambda.grid_progress = "Lambda"
         return grid_state_lambda

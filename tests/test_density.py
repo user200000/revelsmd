@@ -679,3 +679,67 @@ class TestComputeDensity:
         """compute_density should be importable from revelsMD.density."""
         from revelsMD.density import compute_density
         assert compute_density is not None
+
+
+# ---------------------------------------------------------------------------
+# DensityGrid.get_lambda() edge case tests
+# ---------------------------------------------------------------------------
+
+class TestDensityGridGetLambdaEdgeCases:
+    """Tests for edge case handling in DensityGrid.get_lambda()."""
+
+    def test_get_lambda_produces_finite_output(self):
+        """get_lambda produces finite combination and optimal_density values.
+
+        This test verifies the fix for the zero-variance edge case bug where
+        division by zero could produce NaN/Inf in the output.
+        """
+        from revelsMD.density import DensityGrid, Selection
+
+        # Create a minimal trajectory with very few frames
+        # This increases the chance of zero-variance voxels
+        class MinimalTrajectory:
+            def __init__(self):
+                self.box_x = self.box_y = self.box_z = 10.0
+                self.units = 'real'
+                self.frames = 2
+                self.beta = 1.0 / (300.0 * 0.0019872041)
+
+            def get_indices(self, atom_name):
+                return np.array([0, 1])
+
+            def get_masses(self, atom_name):
+                return np.array([1.0, 1.0])
+
+            def get_frame(self, idx):
+                # Return identical positions for all frames to create zero variance
+                positions = np.array([[2.0, 5.0, 5.0], [8.0, 5.0, 5.0]])
+                forces = np.array([[0.1, 0.0, 0.0], [-0.1, 0.0, 0.0]])
+                return positions, forces
+
+            def iter_frames(self, start, stop, period):
+                for i in range(start, stop or self.frames, period):
+                    yield self.get_frame(i)
+
+        traj = MinimalTrajectory()
+        gs = DensityGrid(traj, "number", nbins=3)
+        ss = Selection(traj, 'H', centre_location=True, rigid=False, density_type='number')
+        gs.selection_state = ss
+        gs.kernel = "triangular"
+        gs.to_run = list(range(traj.frames))
+
+        # Manually deposit frames
+        for positions, forces in traj.iter_frames(0, traj.frames, 1):
+            gs.deposit(
+                ss.get_positions(positions),
+                ss.get_forces(forces),
+                ss.get_weights(),
+                kernel="triangular"
+            )
+
+        gs.grid_progress = "Allocated"
+        result = gs.get_lambda(traj, sections=2)
+
+        # The key assertion: no NaN or Inf values
+        assert np.all(np.isfinite(result.combination)), "combination contains NaN/Inf"
+        assert np.all(np.isfinite(result.optimal_density)), "optimal_density contains NaN/Inf"
