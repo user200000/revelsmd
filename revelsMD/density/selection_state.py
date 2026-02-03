@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from revelsMD.trajectories._base import Trajectory, DataUnavailableError
+from revelsMD.trajectories._base import Trajectory
+from revelsMD.density.constants import validate_density_type
 
 
 class Selection:
     """
     Atom selection, charges/masses, and center choice for grid deposition.
+
 
     Parameters
     ----------
@@ -62,7 +64,7 @@ class Selection:
         polarisation_axis: int = 0,
     ):
         self.rigid = rigid
-        self.density_type = density_type
+        self.density_type = validate_density_type(density_type)
         self.polarisation_axis = polarisation_axis
         self._box = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
 
@@ -251,6 +253,7 @@ class Selection:
             self.get_forces(forces),
             self.get_weights(positions),
         )
+
 
     def get_weights(self, positions: np.ndarray | None = None) -> float | np.ndarray | list[np.ndarray]:
         """
