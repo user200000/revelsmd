@@ -26,7 +26,7 @@ from revelsMD.backends import get_backend, AVAILABLE_BACKENDS
 def _get_numba_functions() -> tuple[Callable, Callable]:
     """Import and return Numba backend functions."""
     try:
-        from revelsMD.grid_helpers_numba import (
+        from revelsMD.density.grid_helpers_numba import (
             triangular_allocation_numba,
             box_allocation_numba,
         )

@@ -10,7 +10,7 @@ Performance: ~8-12x speedup over original Python loops, ~3-4x over NumPy.
 from __future__ import annotations
 
 import numpy as np
-from numba import jit, prange
+from numba import jit, prange  # type: ignore[import-untyped]
 
 
 # ---------------------------------------------------------------------------

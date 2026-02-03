@@ -12,7 +12,7 @@ have race conditions when multiple particles deposit to the same voxel.
 from __future__ import annotations
 
 import numpy as np
-from numba import jit
+from numba import jit  # type: ignore[import-untyped]
 
 
 @jit(nopython=True, cache=True)

@@ -8,7 +8,7 @@ along with helper functions for parsing the LAMMPS dump format.
 from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
-from MDAnalysis.exceptions import NoDataError
+from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
 import numpy as np
 
 from ._base import Trajectory, DataUnavailableError

@@ -13,7 +13,7 @@ import numpy as np
 from pathlib import Path
 
 from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.revels_3D import Revels3D
+from revelsMD.density import GridState
 from .conftest import assert_arrays_close
 
 REFERENCE_DIR = Path(__file__).parent.parent / "reference_data"
@@ -112,7 +112,7 @@ class TestLammpsRegression:
         """3D number density matches stored reference."""
         ref = load_reference("lammps_example1", "number_density.npz")
 
-        gs = Revels3D.GridState(
+        gs = GridState(
             example1_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
@@ -155,7 +155,7 @@ class TestMDARegression:
         """3D number density matches stored reference."""
         ref = load_reference("mda_example4", "number_density_ow.npz")
 
-        gs = Revels3D.GridState(
+        gs = GridState(
             example4_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
@@ -173,7 +173,7 @@ class TestMDARegression:
         """Rigid molecule number density matches stored reference."""
         ref = load_reference("mda_example4", "number_density_rigid.npz")
 
-        gs = Revels3D.GridState(
+        gs = GridState(
             example4_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
@@ -191,7 +191,7 @@ class TestMDARegression:
         """Polarisation density matches stored reference."""
         ref = load_reference("mda_example4", "polarisation_density.npz")
 
-        gs = Revels3D.GridState(
+        gs = GridState(
             example4_trajectory, 'polarisation', nbins=30
         )
         gs.make_force_grid(
@@ -234,7 +234,7 @@ class TestVASPRegression:
         """3D number density matches stored reference."""
         ref = load_reference("vasp_example3", "number_density_f.npz")
 
-        gs = Revels3D.GridState(
+        gs = GridState(
             vasp_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
@@ -282,7 +282,7 @@ class TestSyntheticRegression:
         """Uniform gas density matches stored reference."""
         ref = load_reference("synthetic", "uniform_gas_density.npz")
 
-        gs = Revels3D.GridState(
+        gs = GridState(
             uniform_gas_trajectory, 'number', nbins=30
         )
         gs.make_force_grid(
