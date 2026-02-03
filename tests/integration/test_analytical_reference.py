@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from revelsMD.revels_rdf import RevelsRDF
-from revelsMD.density import GridState
+from revelsMD.density import DensityGrid
 
 
 @pytest.mark.analytical
@@ -164,7 +164,7 @@ class TestDensityAnalyticalReference:
         """
         ts = single_atom_trajectory
 
-        gs = GridState(ts, 'number', nbins=20)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
 
         assert gs.grid_progress == "Allocated"
@@ -195,7 +195,7 @@ class TestDensityAnalyticalReference:
         """
         ts = uniform_gas_trajectory
 
-        gs = GridState(ts, 'number', nbins=20)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
@@ -221,7 +221,7 @@ class TestDensityAnalyticalReference:
         """
         ts = uniform_gas_trajectory
 
-        gs = GridState(ts, 'number', nbins=20)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
@@ -241,12 +241,12 @@ class TestDensityAnalyticalReference:
 
     def test_gridstate_initialisation(self, uniform_gas_trajectory):
         """
-        GridState should initialise correctly with various density types.
+        DensityGrid should initialise correctly with various density types.
         """
         ts = uniform_gas_trajectory
 
         # Test number density
-        gs_number = GridState(ts, 'number', nbins=20)
+        gs_number = DensityGrid(ts, 'number', nbins=20)
         assert gs_number.density_type == 'number'
         assert gs_number.nbinsx == 20
 
@@ -320,7 +320,7 @@ class TestRigidMoleculeAnalytical:
         """
         ts = water_molecule_trajectory
 
-        gs = GridState(ts, 'number', nbins=15)
+        gs = DensityGrid(ts, 'number', nbins=15)
 
         # This may fail if rigid molecule validation is too strict
         # (known issue #10 with unequal atom counts)

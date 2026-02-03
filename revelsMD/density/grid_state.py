@@ -1,4 +1,4 @@
-"""GridState class for accumulating 3D force fields and converting to densities."""
+"""DensityGrid class for accumulating 3D force fields and converting to densities."""
 
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
-from revelsMD.density.selection_state import SelectionState
+from revelsMD.density.selection_state import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
 
 # Module-level backend functions (loaded once at import)
 _triangular_allocation, _box_allocation = _get_grid_backend_functions()
 
 
-class GridState:
+class DensityGrid:
     """
     State for accumulating 3D force fields and converting to densities.
 
@@ -30,10 +30,9 @@ class GridState:
         Trajectory-state object providing `box_x`, `box_y`, `box_z`, and `units`.
     density_type : {'number', 'charge', 'polarisation'}
         Type of density to be constructed (controls the estimator weighting).
-    nbins : int, optional
-        Default number of voxels per box dimension (overridden by `nbinsx/y/z`).
-    nbinsx, nbinsy, nbinsz : int or bool, optional
-        Explicit voxel counts per dimension. If `False`, fall back to `nbins`.
+    nbins : int or tuple of int
+        Number of voxels per dimension. Either a single int for uniform binning
+        or a tuple (nbinsx, nbinsy, nbinsz) for per-axis bin counts.
 
     Attributes
     ----------
@@ -57,17 +56,15 @@ class GridState:
         self,
         trajectory: Trajectory,
         density_type: str,
-        nbins: int = 100,
-        nbinsx: int | bool = False,
-        nbinsy: int | bool = False,
-        nbinsz: int | bool = False,
+        nbins: int | tuple[int, int, int] = 100,
     ):
         # Resolve per-dimension bin counts
-        nbinsx = nbins if nbinsx is False else int(nbinsx)
-        nbinsy = nbins if nbinsy is False else int(nbinsy)
-        nbinsz = nbins if nbinsz is False else int(nbinsz)
+        if isinstance(nbins, tuple):
+            nbinsx, nbinsy, nbinsz = nbins
+        else:
+            nbinsx = nbinsy = nbinsz = nbins
         if min(nbinsx, nbinsy, nbinsz) <= 0:
-            raise ValueError("nbinsx, nbinsy, nbinsz must be positive integers.")
+            raise ValueError("nbins values must be positive integers.")
 
         # Voxel sizes
         lx = trajectory.box_x / nbinsx
@@ -160,7 +157,7 @@ class GridState:
         else:
             raise ValueError(f"Unsupported kernel: {kernel!r}")
 
-    def deposit_to_grid(
+    def deposit(
         self,
         positions: np.ndarray | list[np.ndarray],
         forces: np.ndarray | list[np.ndarray],
@@ -284,7 +281,7 @@ class GridState:
                 raise ValueError("Polarisation densities are only implemented for rigid molecules.")
 
         # Build selection wrapper with density configuration
-        self.selection_state = SelectionState(
+        self.selection_state = Selection(
             trajectory,
             atom_names=atom_names,
             centre_location=centre_location,
@@ -298,7 +295,7 @@ class GridState:
             deposit_positions = self.selection_state.get_positions(positions)
             deposit_forces = self.selection_state.get_forces(forces)
             weights = self.selection_state.get_weights(positions)
-            self.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=self.kernel)  # type: ignore[arg-type]
+            self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)  # type: ignore[arg-type]
 
         self.frames_processed = self.to_run
         self.grid_progress = "Allocated"
@@ -440,7 +437,7 @@ class GridState:
         with open(filename, "w") as f:
             write_cube(f, atoms, data=grid)
 
-    def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> "GridState":
+    def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> "DensityGrid":
         """
         Compute optimal lambda(r) to combine counting and force densities.
 
@@ -457,8 +454,8 @@ class GridState:
 
         Returns
         -------
-        GridState
-            A deep-copied `GridState` instance with
+        DensityGrid
+            A deep-copied `DensityGrid` instance with
             `expected_rho`, `expected_particle_density`, `delta`,
             covariance/variance buffers, `combination` (=1-cov_F/var),
             and `optimal_density` populated.
@@ -476,7 +473,7 @@ class GridState:
             raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
         # TODO: Future refactor - integrate uncertainty/statistics accumulation into
-        # base GridState, eliminating need for dynamic attributes here.
+        # base DensityGrid, eliminating need for dynamic attributes here.
         grid_state_lambda = copy.deepcopy(self)
         if sections is None:
             sections = trajectory.frames
@@ -514,7 +511,7 @@ class GridState:
                 deposit_positions = grid_state_lambda.selection_state.get_positions(positions)
                 deposit_forces = grid_state_lambda.selection_state.get_forces(forces)
                 weights = grid_state_lambda.selection_state.get_weights(positions)
-                grid_state_lambda.deposit_to_grid(deposit_positions, deposit_forces, weights, kernel=grid_state_lambda.kernel)  # type: ignore[arg-type]
+                grid_state_lambda.deposit(deposit_positions, deposit_forces, weights, kernel=grid_state_lambda.kernel)  # type: ignore[arg-type]
 
             # Compute densities for this section and accumulate statistics
             grid_state_lambda.get_real_density()
@@ -533,3 +530,76 @@ class GridState:
         )
         grid_state_lambda.grid_progress = "Lambda"
         return grid_state_lambda
+
+
+def compute_density(
+    trajectory: Trajectory,
+    atom_names: str | list[str],
+    rigid: bool = False,
+    centre_location: bool | int = True,
+    density_type: str = "number",
+    nbins: int | tuple[int, int, int] = 100,
+    kernel: str = "triangular",
+    polarisation_axis: int = 0,
+    start: int = 0,
+    stop: int | None = None,
+    period: int = 1,
+) -> DensityGrid:
+    """
+    Compute density from trajectory with a single function call.
+
+    This is a convenience wrapper that creates a DensityGrid, accumulates
+    force data from the trajectory, and computes the real-space density.
+
+    Parameters
+    ----------
+    trajectory : Trajectory
+        Trajectory-state object providing positions, forces, and box dimensions.
+    atom_names : str or list of str
+        Atom type(s) to include in the density calculation.
+    rigid : bool, optional
+        Whether to treat multi-atom selections as rigid molecules (default: False).
+    centre_location : bool or int, optional
+        For rigid molecules, where to locate the density:
+        True = centre of mass, int = index of atom in atom_names list.
+    density_type : {'number', 'charge', 'polarisation'}, optional
+        Type of density to compute (default: 'number').
+    nbins : int or tuple of int, optional
+        Number of grid voxels. Either a single int for uniform binning
+        or a tuple (nbinsx, nbinsy, nbinsz) for per-axis control (default: 100).
+    kernel : {'triangular', 'box'}, optional
+        Deposition kernel for force allocation (default: 'triangular').
+    polarisation_axis : int, optional
+        Axis for polarisation density projection, 0=x, 1=y, 2=z (default: 0).
+    start : int, optional
+        First frame to process (default: 0).
+    stop : int or None, optional
+        Last frame to process, None for all frames (default: None).
+    period : int, optional
+        Frame stride (default: 1).
+
+    Returns
+    -------
+    DensityGrid
+        Grid with computed density available as the `rho` attribute.
+
+    Examples
+    --------
+    >>> from revelsMD.density import compute_density
+    >>> grid = compute_density(trajectory, 'O', nbins=50)
+    >>> density = grid.rho
+    """
+    grid = DensityGrid(trajectory, density_type, nbins=nbins)
+    grid.make_force_grid(
+        trajectory,
+        atom_names=atom_names,
+        rigid=rigid,
+        centre_location=centre_location,
+        kernel=kernel,
+        polarisation_axis=polarisation_axis,
+        start=start,
+        stop=stop,
+        period=period,
+    )
+    grid.get_real_density()
+    return grid

@@ -1,4 +1,4 @@
-"""SelectionState class for atom selection and center choice."""
+"""Selection class for atom selection and center choice."""
 
 from __future__ import annotations
 
@@ -8,13 +8,10 @@ from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
 
 
-class SelectionState:
+class Selection:
     """
     Atom selection, charges/masses, and center choice for grid deposition.
 
-    Note: indices/charges/masses are currently np.ndarray for single species
-    and list[np.ndarray] for multi-species. A future refactor will normalise
-    to list[np.ndarray] always (see refactor/normalise-selection-state-types).
 
     Parameters
     ----------
@@ -226,6 +223,37 @@ class SelectionState:
         for species_idx in range(1, len(self.indices)):
             result = result + forces[self.indices[species_idx], :]
         return result
+
+    def extract(
+        self,
+        positions: np.ndarray,
+        forces: np.ndarray,
+    ) -> tuple[
+        np.ndarray | list[np.ndarray],
+        np.ndarray | list[np.ndarray],
+        float | np.ndarray | list[np.ndarray],
+    ]:
+        """
+        Extract deposit positions, forces, and weights in a single call.
+
+        Parameters
+        ----------
+        positions : (N, 3) np.ndarray
+            Full frame positions for all atoms.
+        forces : (N, 3) np.ndarray
+            Full frame forces for all atoms.
+
+        Returns
+        -------
+        tuple of (positions, forces, weights)
+            Ready for passing to grid.deposit().
+        """
+        return (
+            self.get_positions(positions),
+            self.get_forces(forces),
+            self.get_weights(positions),
+        )
+
 
     def get_weights(self, positions: np.ndarray | None = None) -> float | np.ndarray | list[np.ndarray]:
         """

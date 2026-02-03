@@ -11,7 +11,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.density import GridState
+from revelsMD.density import DensityGrid
 from revelsMD.revels_rdf import RevelsRDF
 from .conftest import load_reference_data, assert_arrays_close
 
@@ -61,11 +61,11 @@ class TestVASPPipelineExample3:
             pass  # These might have different names
 
     def test_gridstate_initialisation(self, vasp_trajectory):
-        """GridState initialises correctly for VASP trajectory."""
+        """DensityGrid initialises correctly for VASP trajectory."""
         ts = vasp_trajectory
 
         # Use temperature appropriate for AIMD (typically 600-1000K)
-        gs = GridState(ts, 'number', nbins=50)
+        gs = DensityGrid(ts, 'number', nbins=50)
 
         assert gs.density_type == 'number'
         assert gs.nbinsx == 50
@@ -75,7 +75,7 @@ class TestVASPPipelineExample3:
         """Number density calculation for fluoride ions."""
         ts = vasp_trajectory
 
-        gs = GridState(ts, 'number', nbins=50)
+        gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use all available frames (may be short trajectory)
         try:
@@ -126,7 +126,7 @@ class TestVASPPipelineExample3:
         """Lambda-combined density for fluoride."""
         ts = vasp_trajectory
 
-        gs = GridState(ts, 'number', nbins=30)
+        gs = DensityGrid(ts, 'number', nbins=30)
         gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
@@ -168,7 +168,7 @@ class TestVASPPhysicalProperties:
         """Fluoride density should show crystalline structure."""
         ts = vasp_trajectory
 
-        gs = GridState(ts, 'number', nbins=30)
+        gs = DensityGrid(ts, 'number', nbins=30)
 
         try:
             gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
@@ -248,7 +248,7 @@ class TestVASPSyntheticFallback:
         """Density calculation works with VASP-like synthetic data."""
         ts = synthetic_vasp_like_trajectory
 
-        gs = GridState(ts, 'number', nbins=20)
+        gs = DensityGrid(ts, 'number', nbins=20)
         gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
         gs.get_real_density()
 

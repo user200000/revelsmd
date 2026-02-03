@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 
-from revelsMD.density import GridState, SelectionState
+from revelsMD.density import DensityGrid, Selection
 
 
 class TSMock:
-    """Minimal trajectory mock for GridState tests."""
+    """Minimal trajectory mock for DensityGrid tests."""
 
     def __init__(self):
         self.box_x = self.box_y = self.box_z = 10.0
@@ -77,28 +77,28 @@ class TestMakeForceGridConfigurations:
 
     def test_number_single_species(self, ts_single_species):
         """Single species number density populates grid correctly."""
-        gs = GridState(ts_single_species, "number", nbins=4)
+        gs = DensityGrid(ts_single_species, "number", nbins=4)
         gs.make_force_grid(ts_single_species, atom_names="H", rigid=False)
         assert gs.grid_progress == "Allocated"
         assert gs.counter.sum() > 0
 
     def test_number_multi_species_not_rigid(self, ts_multi_species):
         """Multi-species, non-rigid number density populates grid correctly."""
-        gs = GridState(ts_multi_species, "number", nbins=4)
+        gs = DensityGrid(ts_multi_species, "number", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=False)
         assert gs.grid_progress == "Allocated"
         assert gs.counter.sum() > 0
 
     def test_number_rigid_com(self, ts_multi_species):
         """Rigid number density at COM populates grid correctly."""
-        gs = GridState(ts_multi_species, "number", nbins=4)
+        gs = DensityGrid(ts_multi_species, "number", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True)
         assert gs.grid_progress == "Allocated"
         assert gs.counter.sum() > 0
 
     def test_number_rigid_atom(self, ts_multi_species):
         """Rigid number density at specific atom populates grid correctly."""
-        gs = GridState(ts_multi_species, "number", nbins=4)
+        gs = DensityGrid(ts_multi_species, "number", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0)
         assert gs.grid_progress == "Allocated"
         assert gs.counter.sum() > 0
@@ -107,28 +107,28 @@ class TestMakeForceGridConfigurations:
 
     def test_charge_single_species(self, ts_single_species):
         """Single species charge density populates grid correctly."""
-        gs = GridState(ts_single_species, "charge", nbins=4)
+        gs = DensityGrid(ts_single_species, "charge", nbins=4)
         gs.make_force_grid(ts_single_species, atom_names="H", rigid=False)
         assert gs.grid_progress == "Allocated"
         assert gs.counter.sum() > 0
 
     def test_charge_multi_species_not_rigid(self, ts_multi_species):
         """Multi-species, non-rigid charge density populates grid correctly."""
-        gs = GridState(ts_multi_species, "charge", nbins=4)
+        gs = DensityGrid(ts_multi_species, "charge", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=False)
         assert gs.grid_progress == "Allocated"
         assert np.any(gs.counter != 0)
 
     def test_charge_rigid_com(self, ts_multi_species):
         """Rigid charge density at COM populates grid correctly."""
-        gs = GridState(ts_multi_species, "charge", nbins=4)
+        gs = DensityGrid(ts_multi_species, "charge", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True)
         assert gs.grid_progress == "Allocated"
         assert np.any(gs.counter != 0)
 
     def test_charge_rigid_atom(self, ts_multi_species):
         """Rigid charge density at specific atom populates grid correctly."""
-        gs = GridState(ts_multi_species, "charge", nbins=4)
+        gs = DensityGrid(ts_multi_species, "charge", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0)
         assert gs.grid_progress == "Allocated"
         assert np.any(gs.counter != 0)
@@ -137,14 +137,14 @@ class TestMakeForceGridConfigurations:
 
     def test_polarisation_rigid_com(self, ts_multi_species):
         """Rigid polarisation density at COM populates grid correctly."""
-        gs = GridState(ts_multi_species, "polarisation", nbins=4)
+        gs = DensityGrid(ts_multi_species, "polarisation", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True, polarisation_axis=0)
         assert gs.grid_progress == "Allocated"
         assert gs.selection_state.polarisation_axis == 0
 
     def test_polarisation_rigid_atom(self, ts_multi_species):
         """Rigid polarisation density at specific atom populates grid correctly."""
-        gs = GridState(ts_multi_species, "polarisation", nbins=4)
+        gs = DensityGrid(ts_multi_species, "polarisation", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0, polarisation_axis=1)
         assert gs.grid_progress == "Allocated"
         assert gs.selection_state.polarisation_axis == 1
@@ -153,35 +153,35 @@ class TestMakeForceGridConfigurations:
 
     def test_polarisation_not_rigid_raises(self, ts_multi_species):
         """Polarisation without rigid=True raises ValueError."""
-        gs = GridState(ts_multi_species, "polarisation", nbins=4)
+        gs = DensityGrid(ts_multi_species, "polarisation", nbins=4)
         with pytest.raises(ValueError, match="rigid molecules"):
             gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=False)
 
     def test_polarisation_single_species_raises(self, ts_single_species):
         """Polarisation with single species raises ValueError."""
-        gs = GridState(ts_single_species, "polarisation", nbins=4)
+        gs = DensityGrid(ts_single_species, "polarisation", nbins=4)
         with pytest.raises(ValueError, match="single atom"):
             gs.make_force_grid(ts_single_species, atom_names="H", rigid=True, centre_location=True)
 
     def test_density_type_validation_called_at_grid_state(self, ts_single_species, mocker):
-        """GridState should call validate_density_type with the provided value."""
+        """DensityGrid should call validate_density_type with the provided value."""
         mock_validate = mocker.patch(
             'revelsMD.density.grid_state.validate_density_type',
             return_value='number'
         )
 
-        GridState(ts_single_species, "NUMBER", nbins=4)
+        DensityGrid(ts_single_species, "NUMBER", nbins=4)
 
         mock_validate.assert_called_once_with("NUMBER")
 
     def test_density_type_validation_called_at_selection_state(self, ts_single_species, mocker):
-        """SelectionState should call validate_density_type with the provided value."""
+        """Selection should call validate_density_type with the provided value."""
         mock_validate = mocker.patch(
             'revelsMD.density.selection_state.validate_density_type',
             return_value='number'
         )
 
-        SelectionState(
+        Selection(
             ts_single_species,
             atom_names="H",
             centre_location=True,
@@ -192,6 +192,6 @@ class TestMakeForceGridConfigurations:
 
     def test_rigid_invalid_centre_location_raises(self, ts_multi_species):
         """Rigid with invalid centre_location raises ValueError."""
-        gs = GridState(ts_multi_species, "number", nbins=4)
+        gs = DensityGrid(ts_multi_species, "number", nbins=4)
         with pytest.raises(ValueError, match="centre_location"):
             gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location="invalid")
