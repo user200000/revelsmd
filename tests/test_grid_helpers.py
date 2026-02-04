@@ -51,9 +51,9 @@ def grid_arrays():
     def _make_arrays(nbins=10):
         shape = (nbins, nbins, nbins)
         return {
-            'forceX': np.zeros(shape, dtype=np.float64),
-            'forceY': np.zeros(shape, dtype=np.float64),
-            'forceZ': np.zeros(shape, dtype=np.float64),
+            'force_x': np.zeros(shape, dtype=np.float64),
+            'force_y': np.zeros(shape, dtype=np.float64),
+            'force_z': np.zeros(shape, dtype=np.float64),
             'counter': np.zeros(shape, dtype=np.float64),
             'nbinsx': nbins,
             'nbinsy': nbins,
@@ -104,7 +104,7 @@ class TestTriangularAllocation:
         z = np.digitize(homeZ, binsz)
 
         tri_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z, homeX, homeY, homeZ,
             fox=np.array([0.0]), foy=np.array([0.0]), foz=np.array([0.0]),
             a=1.0,
@@ -137,7 +137,7 @@ class TestTriangularAllocation:
         z = np.digitize(homeZ, binsz)
 
         tri_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z, homeX, homeY, homeZ,
             fox=np.array([0.0]), foy=np.array([0.0]), foz=np.array([0.0]),
             a=1.0,
@@ -172,7 +172,7 @@ class TestTriangularAllocation:
 
         # Force in +X direction only
         tri_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z, homeX, homeY, homeZ,
             fox=np.array([10.0]), foy=np.array([0.0]), foz=np.array([0.0]),
             a=1.0,
@@ -181,12 +181,12 @@ class TestTriangularAllocation:
         )
 
         # Total force should be preserved
-        assert np.isclose(arrays['forceX'].sum(), 10.0), \
-            f"Total forceX should be 10.0, got {arrays['forceX'].sum()}"
-        assert np.isclose(arrays['forceY'].sum(), 0.0), \
-            f"Total forceY should be 0.0, got {arrays['forceY'].sum()}"
-        assert np.isclose(arrays['forceZ'].sum(), 0.0), \
-            f"Total forceZ should be 0.0, got {arrays['forceZ'].sum()}"
+        assert np.isclose(arrays['force_x'].sum(), 10.0), \
+            f"Total force_x should be 10.0, got {arrays['force_x'].sum()}"
+        assert np.isclose(arrays['force_y'].sum(), 0.0), \
+            f"Total force_y should be 0.0, got {arrays['force_y'].sum()}"
+        assert np.isclose(arrays['force_z'].sum(), 0.0), \
+            f"Total force_z should be 0.0, got {arrays['force_z'].sum()}"
 
     def test_multiple_distinct_particles(self, grid_arrays, box_params):
         """Multiple particles at different positions should accumulate correctly."""
@@ -209,7 +209,7 @@ class TestTriangularAllocation:
         z = np.digitize(homeZ, binsz)
 
         tri_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z, homeX, homeY, homeZ,
             fox=np.array([1.0, 2.0]), foy=np.array([0.0, 0.0]), foz=np.array([0.0, 0.0]),
             a=1.0,
@@ -221,8 +221,8 @@ class TestTriangularAllocation:
         assert np.isclose(arrays['counter'].sum(), 2.0), \
             f"Total count should be 2.0, got {arrays['counter'].sum()}"
         # Total force should be 1 + 2 = 3
-        assert np.isclose(arrays['forceX'].sum(), 3.0), \
-            f"Total forceX should be 3.0, got {arrays['forceX'].sum()}"
+        assert np.isclose(arrays['force_x'].sum(), 3.0), \
+            f"Total force_x should be 3.0, got {arrays['force_x'].sum()}"
 
     def test_overlapping_particles_accumulate(self, grid_arrays, box_params):
         """Two particles at identical positions should accumulate, not overwrite.
@@ -250,7 +250,7 @@ class TestTriangularAllocation:
 
         # Different forces: particle 1 has [1,0,0], particle 2 has [2,0,0]
         tri_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z, homeX, homeY, homeZ,
             fox=np.array([1.0, 2.0]), foy=np.array([0.0, 0.0]), foz=np.array([0.0, 0.0]),
             a=1.0,
@@ -260,12 +260,12 @@ class TestTriangularAllocation:
             nbinsx=arrays['nbinsx'], nbinsy=arrays['nbinsy'], nbinsz=arrays['nbinsz'],
         )
 
-        # Expected: total forceX = 1 + 2 = 3, counter = 2
-        # Bug: only the last particle's contribution is kept (forceX = 2, counter = 1)
+        # Expected: total force_x = 1 + 2 = 3, counter = 2
+        # Bug: only the last particle's contribution is kept (force_x = 2, counter = 1)
         assert np.isclose(arrays['counter'].sum(), 2.0), \
             f"Total count should be 2, got {arrays['counter'].sum()}"
-        assert np.isclose(arrays['forceX'].sum(), 3.0), \
-            f"Total forceX should be 3 (1+2), got {arrays['forceX'].sum()}"
+        assert np.isclose(arrays['force_x'].sum(), 3.0), \
+            f"Total force_x should be 3 (1+2), got {arrays['force_x'].sum()}"
 
     def test_periodic_boundary(self, grid_arrays, box_params):
         """Particles near box edge should wrap correctly via periodic boundaries."""
@@ -290,7 +290,7 @@ class TestTriangularAllocation:
         z = np.digitize(homeZ, binsz)
 
         tri_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z, homeX, homeY, homeZ,
             fox=np.array([1.0]), foy=np.array([0.0]), foz=np.array([0.0]),
             a=1.0,
@@ -326,7 +326,7 @@ class TestBoxAllocation:
         z = np.array([5])
 
         box_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z,
             fox=np.array([3.0]), foy=np.array([2.0]), foz=np.array([1.0]),
             a=1.0,
@@ -335,9 +335,9 @@ class TestBoxAllocation:
         # Only one voxel should have non-zero values
         assert np.count_nonzero(arrays['counter']) == 1
         assert arrays['counter'][5, 5, 5] == 1.0
-        assert arrays['forceX'][5, 5, 5] == 3.0
-        assert arrays['forceY'][5, 5, 5] == 2.0
-        assert arrays['forceZ'][5, 5, 5] == 1.0
+        assert arrays['force_x'][5, 5, 5] == 3.0
+        assert arrays['force_y'][5, 5, 5] == 2.0
+        assert arrays['force_z'][5, 5, 5] == 1.0
 
     def test_multiple_distinct_particles(self, grid_arrays, box_params):
         """Multiple particles at different voxels should accumulate."""
@@ -352,14 +352,14 @@ class TestBoxAllocation:
         z = np.array([3, 7])
 
         box_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z,
             fox=np.array([1.0, 2.0]), foy=np.array([0.0, 0.0]), foz=np.array([0.0, 0.0]),
             a=1.0,
         )
 
         assert np.isclose(arrays['counter'].sum(), 2.0)
-        assert np.isclose(arrays['forceX'].sum(), 3.0)
+        assert np.isclose(arrays['force_x'].sum(), 3.0)
 
     def test_overlapping_particles_accumulate(self, grid_arrays, box_params):
         """Two particles in same voxel should accumulate, not overwrite.
@@ -377,17 +377,17 @@ class TestBoxAllocation:
         z = np.array([5, 5])
 
         box_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z,
             fox=np.array([1.0, 2.0]), foy=np.array([0.0, 0.0]), foz=np.array([0.0, 0.0]),
             a=1.0,
         )
 
-        # Expected: counter = 2, forceX = 3 (not just the last value)
+        # Expected: counter = 2, force_x = 3 (not just the last value)
         assert np.isclose(arrays['counter'].sum(), 2.0), \
             f"Total count should be 2, got {arrays['counter'].sum()}"
-        assert np.isclose(arrays['forceX'].sum(), 3.0), \
-            f"Total forceX should be 3 (1+2), got {arrays['forceX'].sum()}"
+        assert np.isclose(arrays['force_x'].sum(), 3.0), \
+            f"Total force_x should be 3 (1+2), got {arrays['force_x'].sum()}"
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +432,7 @@ class TestBackendEquivalence:
         arrays_np = grid_arrays(nbins=nbins)
         tri_np, _ = get_backend_functions('numpy')
         tri_np(
-            arrays_np['forceX'], arrays_np['forceY'], arrays_np['forceZ'], arrays_np['counter'],
+            arrays_np['force_x'], arrays_np['force_y'], arrays_np['force_z'], arrays_np['counter'],
             x.copy(), y.copy(), z.copy(), homeX.copy(), homeY.copy(), homeZ.copy(),
             fox.copy(), foy.copy(), foz.copy(),
             a=1.0,
@@ -444,7 +444,7 @@ class TestBackendEquivalence:
         arrays_nb = grid_arrays(nbins=nbins)
         tri_nb, _ = get_backend_functions('numba')
         tri_nb(
-            arrays_nb['forceX'], arrays_nb['forceY'], arrays_nb['forceZ'], arrays_nb['counter'],
+            arrays_nb['force_x'], arrays_nb['force_y'], arrays_nb['force_z'], arrays_nb['counter'],
             x.copy(), y.copy(), z.copy(), homeX.copy(), homeY.copy(), homeZ.copy(),
             fox.copy(), foy.copy(), foz.copy(),
             a=1.0,
@@ -453,9 +453,9 @@ class TestBackendEquivalence:
         )
 
         # Compare results
-        np.testing.assert_allclose(arrays_np['forceX'], arrays_nb['forceX'], rtol=1e-10)
-        np.testing.assert_allclose(arrays_np['forceY'], arrays_nb['forceY'], rtol=1e-10)
-        np.testing.assert_allclose(arrays_np['forceZ'], arrays_nb['forceZ'], rtol=1e-10)
+        np.testing.assert_allclose(arrays_np['force_x'], arrays_nb['force_x'], rtol=1e-10)
+        np.testing.assert_allclose(arrays_np['force_y'], arrays_nb['force_y'], rtol=1e-10)
+        np.testing.assert_allclose(arrays_np['force_z'], arrays_nb['force_z'], rtol=1e-10)
         np.testing.assert_allclose(arrays_np['counter'], arrays_nb['counter'], rtol=1e-10)
 
     def test_box_backends_identical(self, grid_arrays, box_params):
@@ -480,7 +480,7 @@ class TestBackendEquivalence:
         arrays_np = grid_arrays(nbins=nbins)
         _, box_np = get_backend_functions('numpy')
         box_np(
-            arrays_np['forceX'], arrays_np['forceY'], arrays_np['forceZ'], arrays_np['counter'],
+            arrays_np['force_x'], arrays_np['force_y'], arrays_np['force_z'], arrays_np['counter'],
             x.copy(), y.copy(), z.copy(),
             fox.copy(), foy.copy(), foz.copy(),
             a=1.0,
@@ -490,16 +490,16 @@ class TestBackendEquivalence:
         arrays_nb = grid_arrays(nbins=nbins)
         _, box_nb = get_backend_functions('numba')
         box_nb(
-            arrays_nb['forceX'], arrays_nb['forceY'], arrays_nb['forceZ'], arrays_nb['counter'],
+            arrays_nb['force_x'], arrays_nb['force_y'], arrays_nb['force_z'], arrays_nb['counter'],
             x.copy(), y.copy(), z.copy(),
             fox.copy(), foy.copy(), foz.copy(),
             a=1.0,
         )
 
         # Compare results
-        np.testing.assert_allclose(arrays_np['forceX'], arrays_nb['forceX'], rtol=1e-10)
-        np.testing.assert_allclose(arrays_np['forceY'], arrays_nb['forceY'], rtol=1e-10)
-        np.testing.assert_allclose(arrays_np['forceZ'], arrays_nb['forceZ'], rtol=1e-10)
+        np.testing.assert_allclose(arrays_np['force_x'], arrays_nb['force_x'], rtol=1e-10)
+        np.testing.assert_allclose(arrays_np['force_y'], arrays_nb['force_y'], rtol=1e-10)
+        np.testing.assert_allclose(arrays_np['force_z'], arrays_nb['force_z'], rtol=1e-10)
         np.testing.assert_allclose(arrays_np['counter'], arrays_nb['counter'], rtol=1e-10)
 
     def test_overlapping_particles_both_backends(self, grid_arrays, box_params):
@@ -533,7 +533,7 @@ class TestBackendEquivalence:
             arrays = grid_arrays(nbins=nbins)
             tri_fn, _ = get_backend_functions(backend)
             tri_fn(
-                arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+                arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
                 x.copy(), y.copy(), z.copy(), homeX.copy(), homeY.copy(), homeZ.copy(),
                 fox.copy(), foy.copy(), foz.copy(),
                 a=1.0,
@@ -543,8 +543,8 @@ class TestBackendEquivalence:
 
             assert np.isclose(arrays['counter'].sum(), 2.0), \
                 f"{backend} backend: count should be 2, got {arrays['counter'].sum()}"
-            assert np.isclose(arrays['forceX'].sum(), 3.0), \
-                f"{backend} backend: forceX should be 3, got {arrays['forceX'].sum()}"
+            assert np.isclose(arrays['force_x'].sum(), 3.0), \
+                f"{backend} backend: force_x should be 3, got {arrays['force_x'].sum()}"
 
 
 # ---------------------------------------------------------------------------
@@ -571,7 +571,7 @@ class TestWeightParameter:
         z = np.digitize(homeX, binsx)
 
         tri_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z, homeX, homeY, homeZ,
             fox=np.array([1.0]), foy=np.array([0.0]), foz=np.array([0.0]),
             a=2.0,  # Scalar weight
@@ -581,7 +581,7 @@ class TestWeightParameter:
 
         # Counter should sum to 2.0 (1.0 weight * 2.0 scaling)
         assert np.isclose(arrays['counter'].sum(), 2.0)
-        assert np.isclose(arrays['forceX'].sum(), 2.0)
+        assert np.isclose(arrays['force_x'].sum(), 2.0)
 
     def test_array_a_parameter(self, grid_arrays, box_params):
         """Array 'a' should apply per-particle weights."""
@@ -604,7 +604,7 @@ class TestWeightParameter:
         z = np.digitize(homeZ, binsz)
 
         tri_fn(
-            arrays['forceX'], arrays['forceY'], arrays['forceZ'], arrays['counter'],
+            arrays['force_x'], arrays['force_y'], arrays['force_z'], arrays['counter'],
             x, y, z, homeX, homeY, homeZ,
             fox=np.array([1.0, 1.0]), foy=np.array([0.0, 0.0]), foz=np.array([0.0, 0.0]),
             a=np.array([1.0, 3.0]),  # Per-particle weights
@@ -615,4 +615,4 @@ class TestWeightParameter:
         # Counter should sum to 4.0 (1.0 + 3.0)
         assert np.isclose(arrays['counter'].sum(), 4.0)
         # ForceX should sum to 4.0 (1.0*1.0 + 1.0*3.0)
-        assert np.isclose(arrays['forceX'].sum(), 4.0)
+        assert np.isclose(arrays['force_x'].sum(), 4.0)

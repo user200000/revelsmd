@@ -92,7 +92,7 @@ class TestDeposit:
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
-        assert np.any(gs.forceX != 0)
+        assert np.any(gs.force_x != 0)
         assert np.any(gs.counter != 0)
         assert gs.count == 1
 
@@ -117,7 +117,7 @@ class TestDeposit:
         # Rigid deposits once per molecule group
         assert gs.count == 1
         assert np.any(gs.counter != 0)
-        assert np.any(gs.forceX != 0)
+        assert np.any(gs.force_x != 0)
 
     def test_deposit_charge_density_single_species(self, trajectory, positions, forces):
         """deposit with charge density uses charge weights."""
@@ -129,6 +129,15 @@ class TestDeposit:
         # O has negative charge, so counter contributions are negative
         assert np.any(gs.counter != 0)
         assert gs.count == 1
+
+    def test_deposit_list_positions_array_forces_raises(self, trajectory, positions, forces):
+        """deposit raises TypeError when positions is list but forces is array."""
+        gs = DensityGrid(trajectory, "number", nbins=5)
+
+        # positions as list of arrays, forces as single array
+        positions_list = [positions[:3], positions[3:6], positions[6:]]
+        with pytest.raises(TypeError, match="positions and forces must both be lists or both be arrays"):
+            gs.deposit(positions_list, forces, weights=1.0)
 
 
 class TestMakeForceGridUnified:

@@ -249,8 +249,8 @@ class TestDensityAnalyticalReference:
         assert gs_number.nbinsx == 20
 
         # Test that grids are initialised to zero
-        assert gs_number.forceX.shape == (20, 20, 20)
-        assert np.all(gs_number.forceX == 0)
+        assert gs_number.force_x.shape == (20, 20, 20)
+        assert np.all(gs_number.force_x == 0)
 
 
 @pytest.mark.analytical

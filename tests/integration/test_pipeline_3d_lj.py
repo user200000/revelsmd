@@ -50,10 +50,10 @@ class TestNumberDensityPipelineExample2:
         assert gs.beta == ts.beta
 
         # Grids should be initialised to zero
-        assert gs.forceX.shape == (50, 50, 50)
-        assert np.all(gs.forceX == 0)
-        assert np.all(gs.forceY == 0)
-        assert np.all(gs.forceZ == 0)
+        assert gs.force_x.shape == (50, 50, 50)
+        assert np.all(gs.force_x == 0)
+        assert np.all(gs.force_y == 0)
+        assert np.all(gs.force_z == 0)
 
     def test_accumulate_subset(self, example2_trajectory):
         """Force grid accumulation works on frame subset."""
@@ -71,7 +71,7 @@ class TestNumberDensityPipelineExample2:
         assert gs.count == 5
 
         # Force grids should now have non-zero values
-        assert not np.all(gs.forceX == 0) or not np.all(gs.forceY == 0) or not np.all(gs.forceZ == 0)
+        assert not np.all(gs.force_x == 0) or not np.all(gs.force_y == 0) or not np.all(gs.force_z == 0)
 
     def test_get_real_density(self, example2_trajectory):
         """Density integration produces valid output."""

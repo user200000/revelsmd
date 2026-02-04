@@ -38,7 +38,7 @@ class DensityGrid:
 
     Attributes
     ----------
-    forceX, forceY, forceZ : np.ndarray
+    force_x, force_y, force_z : np.ndarray
         Accumulators for voxelized force components (shape: nbinsx x nbinsy x nbinsz).
     counter : np.ndarray
         Accumulator for counting-based density (same shape as force accumulators).
@@ -93,9 +93,9 @@ class DensityGrid:
         self.nbinsx, self.nbinsy, self.nbinsz = nbinsx, nbinsy, nbinsz
 
         # Accumulators
-        self.forceX = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
-        self.forceY = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
-        self.forceZ = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        self.force_x = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        self.force_y = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        self.force_z = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
         self.counter = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
 
         # Density selection
@@ -190,7 +190,7 @@ class DensityGrid:
 
         if kernel.lower() == "triangular":
             _triangular_allocation(
-                self.forceX, self.forceY, self.forceZ, self.counter,
+                self.force_x, self.force_y, self.force_z, self.counter,
                 x, y, z, homeX, homeY, homeZ,
                 fox, foy, foz, weight,
                 self.lx, self.ly, self.lz,
@@ -198,7 +198,7 @@ class DensityGrid:
             )
         elif kernel.lower() == "box":
             _box_allocation(
-                self.forceX, self.forceY, self.forceZ, self.counter,
+                self.force_x, self.force_y, self.force_z, self.counter,
                 x - 1, y - 1, z - 1,
                 fox, foy, foz, weight,
             )
@@ -229,7 +229,8 @@ class DensityGrid:
             Deposition kernel (default: 'triangular').
         """
         if isinstance(positions, list):
-            # Broadcast scalar/array weight to match positions list
+            if not isinstance(forces, list):
+                raise TypeError("positions and forces must both be lists or both be arrays")
             weight_seq: Sequence[float | np.ndarray]
             if isinstance(weights, list):
                 weight_seq = weights
@@ -238,11 +239,10 @@ class DensityGrid:
             for pos, frc, wgt in zip(positions, forces, weight_seq):
                 self._process_frame(pos, frc, weight=wgt, kernel=kernel)
         else:
-            # Single array case - weights must be float or array, not list
+            if isinstance(forces, list):
+                raise TypeError("positions and forces must both be lists or both be arrays")
             if isinstance(weights, list):
                 raise TypeError("weights cannot be a list when positions is a single array")
-            if isinstance(forces, list):
-                raise TypeError("forces cannot be a list when positions is a single array")
             self._process_frame(positions, forces, weight=weights, kernel=kernel)
 
     def accumulate(
@@ -376,27 +376,27 @@ class DensityGrid:
 
         # Normalize by number of frames and voxel volume before FFT
         with np.errstate(divide="ignore", invalid="ignore"):
-            forceX = np.fft.fftn(self.forceX / self.count / self.voxel_volume)
-            forceY = np.fft.fftn(self.forceY / self.count / self.voxel_volume)
-            forceZ = np.fft.fftn(self.forceZ / self.count / self.voxel_volume)
+            force_x = np.fft.fftn(self.force_x / self.count / self.voxel_volume)
+            force_y = np.fft.fftn(self.force_y / self.count / self.voxel_volume)
+            force_z = np.fft.fftn(self.force_z / self.count / self.voxel_volume)
 
         # k-vectors per dimension
         xrep, yrep, zrep = self.get_kvectors()
 
         # Multiply by k components (component-wise dot in spectral space)
         for n in range(len(xrep)):
-            forceX[n, :, :] = xrep[n] * forceX[n, :, :]
+            force_x[n, :, :] = xrep[n] * force_x[n, :, :]
         for m in range(len(yrep)):
-            forceY[:, m, :] = yrep[m] * forceY[:, m, :]
+            force_y[:, m, :] = yrep[m] * force_y[:, m, :]
         for l in range(len(zrep)):
-            forceZ[:, :, l] = zrep[l] * forceZ[:, :, l]
+            force_z[:, :, l] = zrep[l] * force_z[:, :, l]
 
         # delta_rho(k): i * beta / k^2 * (F.k); handle k^2=0 via errstate; enforce delta_rho(0)=0
         with np.errstate(divide="ignore", invalid="ignore"):
             self.del_rho_k = (
                 complex(0, 1)
                 * self.beta / self.get_ksquared()
-                * (forceX + forceY + forceZ)
+                * (force_x + force_y + force_z)
             )
         self.del_rho_k[0, 0, 0] = 0.0
 
@@ -525,7 +525,7 @@ class DensityGrid:
 
         Notes
         -----
-        After this method completes, the internal accumulators (forceX/Y/Z, counter)
+        After this method completes, the internal accumulators (force_x/y/z, counter)
         will contain only the last section's data, not the full trajectory. This means
         rho_force and rho_count will no longer reflect the full accumulation — only
         rho_lambda should be used after calling this method.
@@ -551,9 +551,9 @@ class DensityGrid:
         # Interleaved accumulation across sections
         for k in tqdm(range(sections)):
             # Reset accumulators for this section
-            self.forceX.fill(0)
-            self.forceY.fill(0)
-            self.forceZ.fill(0)
+            self.force_x.fill(0)
+            self.force_y.fill(0)
+            self.force_z.fill(0)
             self._rho_count.fill(0)
             self.counter.fill(0)
             self.del_rho_k.fill(0)

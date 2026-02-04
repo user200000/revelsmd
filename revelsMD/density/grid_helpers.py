@@ -77,9 +77,9 @@ def get_backend_functions(
 
 
 def triangular_allocation(
-    forceX: np.ndarray,
-    forceY: np.ndarray,
-    forceZ: np.ndarray,
+    force_x: np.ndarray,
+    force_y: np.ndarray,
+    force_z: np.ndarray,
     counter: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
@@ -106,7 +106,7 @@ def triangular_allocation(
 
     Parameters
     ----------
-    forceX, forceY, forceZ : np.ndarray
+    force_x, force_y, force_z : np.ndarray
         3D arrays for force components. Modified in place.
     counter : np.ndarray
         3D array for counting/weighting. Modified in place.
@@ -159,9 +159,9 @@ def triangular_allocation(
     def deposit(gx: np.ndarray, gy: np.ndarray, gz: np.ndarray, weight: np.ndarray) -> None:
         flat_idx = np.ravel_multi_index((gx, gy, gz), shape)
         weighted = weight * a
-        np.add.at(forceX.ravel(), flat_idx, fox * weighted)
-        np.add.at(forceY.ravel(), flat_idx, foy * weighted)
-        np.add.at(forceZ.ravel(), flat_idx, foz * weighted)
+        np.add.at(force_x.ravel(), flat_idx, fox * weighted)
+        np.add.at(force_y.ravel(), flat_idx, foy * weighted)
+        np.add.at(force_z.ravel(), flat_idx, foz * weighted)
         np.add.at(counter.ravel(), flat_idx, weighted)
 
     # Deposit to all 8 vertices
@@ -176,9 +176,9 @@ def triangular_allocation(
 
 
 def box_allocation(
-    forceX: np.ndarray,
-    forceY: np.ndarray,
-    forceZ: np.ndarray,
+    force_x: np.ndarray,
+    force_y: np.ndarray,
+    force_z: np.ndarray,
     counter: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
@@ -195,7 +195,7 @@ def box_allocation(
 
     Parameters
     ----------
-    forceX, forceY, forceZ : np.ndarray
+    force_x, force_y, force_z : np.ndarray
         3D arrays for force components. Modified in place.
     counter : np.ndarray
         3D array for counting/weighting. Modified in place.
@@ -212,10 +212,10 @@ def box_allocation(
     when multiple particles are in the same voxel. Standard NumPy fancy indexing
     with += would only keep the last value for duplicate indices.
     """
-    shape = forceX.shape
+    shape = force_x.shape
     flat_idx = np.ravel_multi_index((x, y, z), shape)
 
-    np.add.at(forceX.ravel(), flat_idx, fox * a)
-    np.add.at(forceY.ravel(), flat_idx, foy * a)
-    np.add.at(forceZ.ravel(), flat_idx, foz * a)
+    np.add.at(force_x.ravel(), flat_idx, fox * a)
+    np.add.at(force_y.ravel(), flat_idx, foy * a)
+    np.add.at(force_z.ravel(), flat_idx, foz * a)
     np.add.at(counter.ravel(), flat_idx, a if np.isscalar(a) else a)

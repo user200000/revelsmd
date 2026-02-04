@@ -69,7 +69,7 @@ def test_gridstate_initialization(ts):
     assert gs.nbinsx == 4
     assert gs.lx == pytest.approx(ts.box_x / 4)
     assert gs.voxel_volume > 0
-    assert np.all(gs.forceX == 0)
+    assert np.all(gs.force_x == 0)
     assert gs.progress == "Generated"
 
 
@@ -114,7 +114,7 @@ def test_process_frame_kernels(ts, kernel):
     pos = np.array([[1.0, 2.0, 3.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
     gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
-    assert np.any(gs.forceX != 0)
+    assert np.any(gs.force_x != 0)
     assert np.any(gs.counter != 0)
 
 
@@ -148,7 +148,7 @@ def test_deposit_single_array(ts):
 
     assert gs.count == 1
     assert np.any(gs.counter != 0)
-    assert np.any(gs.forceX != 0)
+    assert np.any(gs.force_x != 0)
 
 
 def test_deposit_list_of_arrays(ts):
@@ -191,7 +191,7 @@ def test_deposit_rejects_list_forces_with_single_positions(ts):
     pos = np.array([[1.0, 2.0, 3.0]])
     frc_list = [np.array([[0.5, 0.0, 0.0]])]
 
-    with pytest.raises(TypeError, match="forces cannot be a list"):
+    with pytest.raises(TypeError, match="positions and forces must both be lists or both be arrays"):
         gs.deposit(pos, frc_list, weights=1.0)
 
 
