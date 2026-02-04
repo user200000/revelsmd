@@ -140,14 +140,14 @@ class TestMakeForceGridConfigurations:
         gs = DensityGrid(ts_multi_species, "polarisation", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True, polarisation_axis=0)
         assert gs.grid_progress == "Allocated"
-        assert gs.selection_state.polarisation_axis == 0
+        assert gs._selection.polarisation_axis == 0
 
     def test_polarisation_rigid_atom(self, ts_multi_species):
         """Rigid polarisation density at specific atom populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "polarisation", nbins=4)
         gs.make_force_grid(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0, polarisation_axis=1)
         assert gs.grid_progress == "Allocated"
-        assert gs.selection_state.polarisation_axis == 1
+        assert gs._selection.polarisation_axis == 1
 
     # --- Error cases ---
 

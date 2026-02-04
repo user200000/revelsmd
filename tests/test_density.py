@@ -657,9 +657,9 @@ class TestComputeDensity:
         result = compute_density(trajectory, atom_names='O', nbins=5)
 
         assert isinstance(result, DensityGrid)
-        assert hasattr(result, 'rho')
-        assert result.rho.shape == (5, 5, 5)
-        assert np.all(np.isfinite(result.rho))
+        assert hasattr(result, 'rho_force')
+        assert result.rho_force.shape == (5, 5, 5)
+        assert np.all(np.isfinite(result.rho_force))
 
     def test_compute_density_with_rigid_molecules(self, trajectory):
         """compute_density should work with rigid molecules."""
@@ -672,8 +672,8 @@ class TestComputeDensity:
             nbins=5
         )
 
-        assert hasattr(result, 'rho')
-        assert result.rho.shape == (5, 5, 5)
+        assert hasattr(result, 'rho_force')
+        assert result.rho_force.shape == (5, 5, 5)
 
     def test_compute_density_importable_from_density(self):
         """compute_density should be importable from revelsMD.density."""
@@ -724,7 +724,7 @@ class TestDensityGridGetLambdaEdgeCases:
         traj = MinimalTrajectory()
         gs = DensityGrid(traj, "number", nbins=3)
         ss = Selection(traj, 'H', centre_location=True, rigid=False, density_type='number')
-        gs.selection_state = ss
+        gs._selection = ss
         gs.kernel = "triangular"
         gs.to_run = list(range(traj.frames))
 

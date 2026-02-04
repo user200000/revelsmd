@@ -81,9 +81,9 @@ class TestNumberDensityPipelineExample2:
         gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert gs.rho.shape == (50, 50, 50)
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert gs.rho_force.shape == (50, 50, 50)
+        assert np.all(np.isfinite(gs.rho_force))
 
     def test_box_kernel_alternative(self, example2_trajectory):
         """Box kernel produces valid (though higher variance) output."""
@@ -93,8 +93,8 @@ class TestNumberDensityPipelineExample2:
         gs.make_force_grid(ts, '2', kernel='box', rigid=False, start=0, stop=5)
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert np.all(np.isfinite(gs.rho_force))
 
     def test_larger_frame_subset_density(self, example2_trajectory):
         """Density with larger frame subset for better statistics."""
@@ -105,12 +105,12 @@ class TestNumberDensityPipelineExample2:
         gs.get_real_density()
 
         assert gs.count == 10
-        assert np.all(np.isfinite(gs.rho))
+        assert np.all(np.isfinite(gs.rho_force))
 
         # For solvation around frozen particle, should see excluded volume
         # (lower density at centre)
-        centre_region = gs.rho[20:30, 20:30, 20:30]
-        bulk_region = gs.rho[0:10, 0:10, 0:10]
+        centre_region = gs.rho_force[20:30, 20:30, 20:30]
+        bulk_region = gs.rho_force[0:10, 0:10, 0:10]
 
         # This is a qualitative check - frozen particle creates void
         mean_centre = np.mean(centre_region)
@@ -159,8 +159,8 @@ class TestDensityPhysicalProperties:
 
         # Number density should not be strongly negative
         # (small negative values possible due to FFT artifacts)
-        min_rho = np.min(gs.rho)
-        assert min_rho > -0.5 * np.mean(np.abs(gs.rho)), \
+        min_rho = np.min(gs.rho_force)
+        assert min_rho > -0.5 * np.mean(np.abs(gs.rho_force)), \
             f"Density has large negative values: min = {min_rho}"
 
     def test_density_reasonable_magnitude(self, example2_trajectory):
@@ -176,7 +176,7 @@ class TestDensityPhysicalProperties:
         volume = ts.box_x * ts.box_y * ts.box_z
         expected_mean_rho = n_atoms / volume
 
-        mean_rho = np.mean(gs.rho)
+        mean_rho = np.mean(gs.rho_force)
 
         # Should be within order of magnitude
         ratio = mean_rho / expected_mean_rho if expected_mean_rho > 0 else float('inf')
@@ -197,8 +197,8 @@ class TestDensityPhysicalProperties:
         gs_box.make_force_grid(ts, '2', kernel='box', rigid=False, start=0, stop=10)
         gs_box.get_real_density()
 
-        mean_tri = np.mean(gs_tri.rho)
-        mean_box = np.mean(gs_box.rho)
+        mean_tri = np.mean(gs_tri.rho_force)
+        mean_box = np.mean(gs_box.rho_force)
 
         # Mean densities should be similar
         relative_diff = abs(mean_tri - mean_box) / max(abs(mean_tri), abs(mean_box), 1e-10)
@@ -220,8 +220,8 @@ class TestDensityGridResolution:
             gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
             gs.get_real_density()
 
-            assert gs.rho.shape == (nbins, nbins, nbins)
-            assert np.all(np.isfinite(gs.rho))
+            assert gs.rho_force.shape == (nbins, nbins, nbins)
+            assert np.all(np.isfinite(gs.rho_force))
 
     def test_resolution_preserves_total(self, example2_trajectory):
         """Different resolutions should give similar integrated density."""
@@ -236,7 +236,7 @@ class TestDensityGridResolution:
 
             # Calculate voxel volume and integrate
             voxel_vol = (ts.box_x / nbins) * (ts.box_y / nbins) * (ts.box_z / nbins)
-            total = np.sum(gs.rho) * voxel_vol
+            total = np.sum(gs.rho_force) * voxel_vol
             totals.append(total)
 
         # Totals should be similar (within 50% - generous tolerance)

@@ -87,9 +87,9 @@ class TestVASPPipelineExample3:
 
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert gs.rho.shape == (50, 50, 50)
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert gs.rho_force.shape == (50, 50, 50)
+        assert np.all(np.isfinite(gs.rho_force))
 
     def test_fluoride_rdf(self, vasp_trajectory):
         """F-F RDF calculation for solid electrolyte."""
@@ -180,8 +180,8 @@ class TestVASPPhysicalProperties:
             pytest.skip("Could not compute density")
 
         # Crystalline structure should have significant spatial variation
-        mean_rho = np.mean(gs.rho)
-        std_rho = np.std(gs.rho)
+        mean_rho = np.mean(gs.rho_force)
+        std_rho = np.std(gs.rho_force)
 
         if mean_rho > 0:
             cv = std_rho / mean_rho
@@ -256,8 +256,8 @@ class TestVASPSyntheticFallback:
         gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert np.all(np.isfinite(gs.rho_force))
 
     def test_synthetic_unlike_rdf(self, synthetic_vasp_like_trajectory):
         """Unlike-pair RDF works with VASP-like synthetic data."""

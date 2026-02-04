@@ -288,12 +288,12 @@ def test_full_number_density_pipeline(tmp_path, ts):
     assert gs.grid_progress == "Allocated"
 
     gs.get_real_density()
-    assert hasattr(gs, "rho")
-    assert gs.rho.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
+    assert hasattr(gs, "rho_force")
+    assert gs.rho_force.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
 
     cube_file = tmp_path / "density.cube"
     atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-    gs.write_to_cube(atoms, gs.rho, cube_file)
+    gs.write_to_cube(atoms, gs.rho_force, cube_file)
     assert cube_file.exists()
 
 
@@ -305,4 +305,4 @@ def test_get_lambda_basic(ts):
     gs.get_lambda(ts, sections=1)
     assert gs.grid_progress == "Lambda"
     assert gs.rho_lambda is not None
-    assert gs.rho_lambda.shape == gs.rho.shape
+    assert gs.rho_lambda.shape == gs.rho_force.shape

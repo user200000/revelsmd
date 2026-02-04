@@ -125,7 +125,7 @@ class TestLammpsRegression:
         gs.get_real_density()
 
         assert_arrays_close(
-            gs.rho, ref['rho'],
+            gs.rho_force, ref['rho'],
             rtol=1e-10, context="number density"
         )
 
@@ -172,7 +172,7 @@ class TestMDARegression:
         gs.get_real_density()
 
         assert_arrays_close(
-            gs.rho, ref['rho'],
+            gs.rho_force, ref['rho'],
             rtol=1e-10, context="number density Ow"
         )
 
@@ -190,7 +190,7 @@ class TestMDARegression:
         gs.get_real_density()
 
         assert_arrays_close(
-            gs.rho, ref['rho'],
+            gs.rho_force, ref['rho'],
             rtol=1e-10, context="rigid number density"
         )
 
@@ -208,7 +208,7 @@ class TestMDARegression:
         gs.get_real_density()
 
         assert_arrays_close(
-            gs.rho, ref['rho'],
+            gs.rho_force, ref['rho'],
             rtol=1e-10, context="polarisation density"
         )
 
@@ -254,7 +254,7 @@ class TestVASPRegression:
         gs.get_real_density()
 
         assert_arrays_close(
-            gs.rho, ref['rho'],
+            gs.rho_force, ref['rho'],
             rtol=1e-10, context="number density F"
         )
 
@@ -304,7 +304,7 @@ class TestSyntheticRegression:
         gs.get_real_density()
 
         assert_arrays_close(
-            gs.rho, ref['rho'],
+            gs.rho_force, ref['rho'],
             rtol=1e-10, context="uniform gas density"
         )
 
