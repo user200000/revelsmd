@@ -74,7 +74,7 @@ class TestRigidWaterPipelineExample4:
             start=0, stop=5, period=1
         )
 
-        assert gs.grid_progress == "Allocated"
+        assert gs.progress == "Allocated"
         assert gs.count == 5
 
         gs.get_real_density()

@@ -70,7 +70,7 @@ def test_gridstate_initialization(ts):
     assert gs.lx == pytest.approx(ts.box_x / 4)
     assert gs.voxel_volume > 0
     assert np.all(gs.forceX == 0)
-    assert gs.grid_progress == "Generated"
+    assert gs.progress == "Generated"
 
 
 def test_gridstate_uses_trajectory_beta(ts):
@@ -285,7 +285,7 @@ def test_selectionstate_rigid_water():
 def test_full_number_density_pipeline(tmp_path, ts):
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
-    assert gs.grid_progress == "Allocated"
+    assert gs.progress == "Allocated"
 
     gs.get_real_density()
     assert hasattr(gs, "rho_force")
@@ -303,6 +303,6 @@ def test_get_lambda_basic(ts):
     gs.accumulate(ts, atom_names="H", rigid=False)
     gs.get_real_density()
     gs.get_lambda(ts, sections=1)
-    assert gs.grid_progress == "Lambda"
+    assert gs.progress == "Lambda"
     assert gs.rho_lambda is not None
     assert gs.rho_lambda.shape == gs.rho_force.shape

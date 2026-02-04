@@ -165,7 +165,7 @@ class TestDensityAnalyticalReference:
         gs = DensityGrid(ts, 'number', nbins=20)
         gs.accumulate(ts, '1', kernel='triangular', rigid=False)
 
-        assert gs.grid_progress == "Allocated"
+        assert gs.progress == "Allocated"
         # Note: count may be frames-1 due to stop=-1 handling in API
         assert gs.count > 0
 

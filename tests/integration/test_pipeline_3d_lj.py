@@ -67,7 +67,7 @@ class TestNumberDensityPipelineExample2:
             start=0, stop=5, period=1
         )
 
-        assert gs.grid_progress == "Allocated"
+        assert gs.progress == "Allocated"
         assert gs.count == 5
 
         # Force grids should now have non-zero values
@@ -132,7 +132,7 @@ class TestNumberDensityPipelineExample2:
         # Use 5 sections for variance estimation
         gs.get_lambda(ts, sections=5)
 
-        assert gs.grid_progress == "Lambda"
+        assert gs.progress == "Lambda"
         assert gs.rho_lambda is not None
         assert np.all(np.isfinite(gs.rho_lambda))
 

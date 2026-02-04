@@ -181,7 +181,7 @@ class TestMakeForceGridUnified:
         # Verify grid was populated
         assert gs.count == 2
         assert gs.counter.sum() > 0
-        assert gs.grid_progress == "Allocated"
+        assert gs.progress == "Allocated"
 
 
 class TestSelectionGetWeights:
@@ -755,7 +755,7 @@ class TestComputeDensity:
         )
 
         assert grid.rho_lambda is not None
-        assert grid.grid_progress == "Lambda"
+        assert grid.progress == "Lambda"
         assert grid.rho_lambda.shape == (5, 5, 5)
 
     def test_compute_density_standard_default(self, trajectory):
@@ -766,7 +766,7 @@ class TestComputeDensity:
 
         assert grid.rho_force is not None
         assert grid.rho_lambda is None
-        assert grid.grid_progress == "Allocated"
+        assert grid.progress == "Allocated"
 
     def test_compute_density_invalid_integration(self, trajectory):
         """Invalid integration raises ValueError."""
@@ -832,7 +832,7 @@ class TestDensityGridGetLambdaEdgeCases:
                 kernel="triangular"
             )
 
-        gs.grid_progress = "Allocated"
+        gs.progress = "Allocated"
         gs.get_lambda(traj, sections=2)
 
         # The key assertion: no NaN or Inf values

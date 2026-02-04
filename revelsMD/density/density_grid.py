@@ -50,7 +50,7 @@ class DensityGrid:
         Volume of a single voxel.
     count : int
         Number of processed frames (for normalization).
-    grid_progress : {'Generated', 'Allocated', 'Lambda'}
+    progress : {'Generated', 'Allocated', 'Lambda'}
         Simple state flag used by getters and lambda estimator.
     """
 
@@ -102,7 +102,7 @@ class DensityGrid:
         self.density_type = validate_density_type(density_type)
 
         # Progress flag
-        self.grid_progress = "Generated"
+        self.progress = "Generated"
 
         # Density results (populated by get_real_density or get_lambda)
         self._rho_count: np.ndarray | None = None
@@ -355,7 +355,7 @@ class DensityGrid:
             self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
 
         self.frames_processed = self.to_run
-        self.grid_progress = "Allocated"
+        self.progress = "Allocated"
 
     def get_real_density(self) -> None:
         """
@@ -371,7 +371,7 @@ class DensityGrid:
         ------------
         Sets `self.del_rho_k`, `self.del_rho_n`, `self.rho_count`, `self.rho_force`.
         """
-        if self.grid_progress == "Generated":
+        if self.progress == "Generated":
             raise RuntimeError("Run accumulate() before computing densities.")
 
         # Normalize by number of frames and voxel volume before FFT
@@ -416,7 +416,7 @@ class DensityGrid:
         ------------
         Sets `self._rho_count`.
         """
-        if self.grid_progress == "Generated":
+        if self.progress == "Generated":
             raise RuntimeError("Run accumulate() before computing densities.")
         with np.errstate(divide="ignore", invalid="ignore"):
             self._rho_count = self.counter / self.voxel_volume / self.count
@@ -530,9 +530,9 @@ class DensityGrid:
         rho_force and rho_count will no longer reflect the full accumulation — only
         rho_lambda should be used after calling this method.
         """
-        if self.grid_progress == "Generated":
+        if self.progress == "Generated":
             raise RuntimeError("Run accumulate() before estimating lambda.")
-        if self.grid_progress == "Lambda":
+        if self.progress == "Lambda":
             raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
         if sections is None:
@@ -586,7 +586,7 @@ class DensityGrid:
             expected_rho_force,
             self._lambda_weights,
         )
-        self.grid_progress = "Lambda"
+        self.progress = "Lambda"
 
 
 def compute_density(
