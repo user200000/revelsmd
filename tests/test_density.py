@@ -1141,3 +1141,53 @@ class TestDensityGridGetLambdaEdgeCases:
         # The key assertion: no NaN or Inf values
         assert np.all(np.isfinite(gs.lambda_weights)), "lambda_weights contains NaN/Inf"
         assert np.all(np.isfinite(gs.rho_lambda)), "rho_lambda contains NaN/Inf"
+
+
+# ---------------------------------------------------------------------------
+# DensityGrid.write_to_cube() tests
+# ---------------------------------------------------------------------------
+
+class TestWriteToCube:
+    """Tests for DensityGrid.write_to_cube() method."""
+
+    def test_write_to_cube_creates_file(self, tmp_path, ts):
+        """write_to_cube creates a cube file."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+        gs.get_real_density()
+
+        cube_file = tmp_path / "test.cube"
+        atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
+        gs.write_to_cube(atoms, gs.rho_force, cube_file)
+
+        assert cube_file.exists()
+
+    def test_write_to_cube_with_pymatgen_structure(self, tmp_path, ts):
+        """write_to_cube handles pymatgen Structure input."""
+        from pymatgen.core import Structure, Lattice
+
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+        gs.get_real_density()
+
+        structure = Structure(
+            Lattice.cubic(10.0),
+            ["H", "H"],
+            [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]
+        )
+
+        cube_file = tmp_path / "test_pymatgen.cube"
+        gs.write_to_cube(structure, gs.rho_force, cube_file)
+
+        assert cube_file.exists()
+
+    def test_write_to_cube_invalid_path_raises(self, ts):
+        """write_to_cube with invalid path raises appropriate error."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+        gs.get_real_density()
+
+        atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
+
+        with pytest.raises((OSError, FileNotFoundError)):
+            gs.write_to_cube(atoms, gs.rho_force, "/nonexistent/path/test.cube")
