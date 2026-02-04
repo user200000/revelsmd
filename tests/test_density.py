@@ -277,7 +277,7 @@ class TestSelectionValidation:
     def test_density_type_validation_called(self, trajectory, mocker):
         """Selection should call validate_density_type with the provided value."""
         mock_validate = mocker.patch(
-            'revelsMD.density.selection_state.validate_density_type',
+            'revelsMD.density.selection.validate_density_type',
             return_value='number'
         )
 
@@ -575,8 +575,8 @@ def test_selectionstate_importable_from_density():
 
 
 def test_selectionstate_importable_from_submodule():
-    """Selection should be importable from revelsMD.density.selection_state."""
-    from revelsMD.density.selection_state import Selection
+    """Selection should be importable from revelsMD.density.selection."""
+    from revelsMD.density.selection import Selection
     assert Selection is not None
 
 
@@ -593,8 +593,8 @@ def test_gridstate_importable_from_density():
 
 
 def test_gridstate_importable_from_submodule():
-    """DensityGrid should be importable from revelsMD.density.grid_state."""
-    from revelsMD.density.grid_state import DensityGrid
+    """DensityGrid should be importable from revelsMD.density.density_grid."""
+    from revelsMD.density.density_grid import DensityGrid
     assert DensityGrid is not None
 
 

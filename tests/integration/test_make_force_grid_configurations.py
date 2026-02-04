@@ -166,7 +166,7 @@ class TestMakeForceGridConfigurations:
     def test_density_type_validation_called_at_grid_state(self, ts_single_species, mocker):
         """DensityGrid should call validate_density_type with the provided value."""
         mock_validate = mocker.patch(
-            'revelsMD.density.grid_state.validate_density_type',
+            'revelsMD.density.density_grid.validate_density_type',
             return_value='number'
         )
 
@@ -177,7 +177,7 @@ class TestMakeForceGridConfigurations:
     def test_density_type_validation_called_at_selection_state(self, ts_single_species, mocker):
         """Selection should call validate_density_type with the provided value."""
         mock_validate = mocker.patch(
-            'revelsMD.density.selection_state.validate_density_type',
+            'revelsMD.density.selection.validate_density_type',
             return_value='number'
         )
 

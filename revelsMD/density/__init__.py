@@ -7,7 +7,7 @@ This package provides classes for 3D force-density estimation:
 - compute_density: Convenience function for computing density in one call
 """
 
-from revelsMD.density.selection_state import Selection
-from revelsMD.density.grid_state import DensityGrid, compute_density
+from revelsMD.density.selection import Selection
+from revelsMD.density.density_grid import DensityGrid, compute_density
 
 __all__ = ["Selection", "DensityGrid", "compute_density"]

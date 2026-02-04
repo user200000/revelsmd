@@ -14,7 +14,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
-from revelsMD.density.selection_state import Selection
+from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
 from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
