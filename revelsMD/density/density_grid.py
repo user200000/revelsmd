@@ -601,6 +601,8 @@ def compute_density(
     start: int = 0,
     stop: int | None = None,
     period: int = 1,
+    integration: str = "standard",
+    sections: int | None = None,
 ) -> DensityGrid:
     """
     Compute density from trajectory with a single function call.
@@ -634,17 +636,30 @@ def compute_density(
         Last frame to process, None for all frames (default: None).
     period : int, optional
         Frame stride (default: 1).
+    integration : {'standard', 'lambda'}, optional
+        Integration method (default: 'standard'). Use 'lambda' for
+        variance-minimised combination of counting and force densities.
+    sections : int or None, optional
+        Number of interleaved frame-subsets for lambda estimation.
+        Only used when integration='lambda'. If None, defaults to the
+        number of frames in the trajectory.
 
     Returns
     -------
     DensityGrid
-        Grid with computed density available as the `rho_force` attribute.
+        Grid with computed density. For integration='standard', the result
+        is available as `rho_force`. For integration='lambda', the
+        variance-minimised result is available as `rho_lambda`.
 
     Examples
     --------
     >>> from revelsMD.density import compute_density
     >>> grid = compute_density(trajectory, 'O', nbins=50)
     >>> density = grid.rho_force
+
+    >>> # With variance-minimised lambda integration
+    >>> grid = compute_density(trajectory, 'O', integration='lambda', sections=10)
+    >>> density = grid.rho_lambda
     """
     grid = DensityGrid(trajectory, density_type, nbins=nbins)
     grid.make_force_grid(
@@ -659,4 +674,10 @@ def compute_density(
         period=period,
     )
     grid.get_real_density()
+
+    if integration == "lambda":
+        grid.get_lambda(trajectory, sections=sections)
+    elif integration != "standard":
+        raise ValueError(f"integration must be 'standard' or 'lambda', got '{integration}'")
+
     return grid

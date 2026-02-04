@@ -680,6 +680,101 @@ class TestComputeDensity:
         from revelsMD.density import compute_density
         assert compute_density is not None
 
+    @pytest.fixture
+    def trajectory_with_get_frame(self):
+        """Create mock trajectory that supports both iteration and get_frame."""
+        class IterableMockTrajectoryWithGetFrame(MockTrajectory):
+            def __init__(self):
+                super().__init__()
+                self.frames = 4
+                # 9 atoms: 3 water molecules (O, H1, H2 each)
+                self._positions = [
+                    np.array([
+                        [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
+                        [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
+                        [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
+                        [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
+                        [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.2, 5.2, 5.0], [1.7, 5.2, 5.0], [0.7, 5.2, 5.0],
+                        [4.2, 5.2, 5.0], [4.7, 5.2, 5.0], [3.7, 5.2, 5.0],
+                        [7.2, 5.2, 5.0], [7.7, 5.2, 5.0], [6.7, 5.2, 5.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.3, 5.3, 5.0], [1.8, 5.3, 5.0], [0.8, 5.3, 5.0],
+                        [4.3, 5.3, 5.0], [4.8, 5.3, 5.0], [3.8, 5.3, 5.0],
+                        [7.3, 5.3, 5.0], [7.8, 5.3, 5.0], [6.8, 5.3, 5.0],
+                    ], dtype=float),
+                ]
+                self._forces = [
+                    np.array([
+                        [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
+                        [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
+                        [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
+                        [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
+                        [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.2, 0.12, 0.0], [0.6, 0.06, 0.0], [0.6, 0.06, 0.0],
+                        [2.4, 0.24, 0.0], [1.2, 0.12, 0.0], [1.2, 0.12, 0.0],
+                        [3.6, 0.36, 0.0], [1.8, 0.18, 0.0], [1.8, 0.18, 0.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.3, 0.13, 0.0], [0.65, 0.065, 0.0], [0.65, 0.065, 0.0],
+                        [2.6, 0.26, 0.0], [1.3, 0.13, 0.0], [1.3, 0.13, 0.0],
+                        [3.9, 0.39, 0.0], [1.95, 0.195, 0.0], [1.95, 0.195, 0.0],
+                    ], dtype=float),
+                ]
+
+            def iter_frames(self, start, stop, period):
+                for i in range(start, stop or self.frames, period):
+                    yield self._positions[i], self._forces[i]
+
+            def get_frame(self, idx):
+                return self._positions[idx], self._forces[idx]
+
+        return IterableMockTrajectoryWithGetFrame()
+
+    def test_compute_density_lambda(self, trajectory_with_get_frame):
+        """compute_density with integration='lambda' populates rho_lambda."""
+        from revelsMD.density import compute_density
+
+        grid = compute_density(
+            trajectory_with_get_frame,
+            atom_names='O',
+            nbins=5,
+            integration='lambda',
+            sections=2,
+        )
+
+        assert grid.rho_lambda is not None
+        assert grid.grid_progress == "Lambda"
+        assert grid.rho_lambda.shape == (5, 5, 5)
+
+    def test_compute_density_standard_default(self, trajectory):
+        """Default integration='standard' behaves as before."""
+        from revelsMD.density import compute_density
+
+        grid = compute_density(trajectory, atom_names='O', nbins=5)
+
+        assert grid.rho_force is not None
+        assert grid.rho_lambda is None
+        assert grid.grid_progress == "Allocated"
+
+    def test_compute_density_invalid_integration(self, trajectory):
+        """Invalid integration raises ValueError."""
+        from revelsMD.density import compute_density
+
+        with pytest.raises(ValueError, match="integration"):
+            compute_density(trajectory, atom_names='O', nbins=5, integration='invalid')
+
 
 # ---------------------------------------------------------------------------
 # DensityGrid.get_lambda() edge case tests
