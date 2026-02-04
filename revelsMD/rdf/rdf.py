@@ -158,7 +158,7 @@ class RDF:
         """
         Accumulate RDF contributions from trajectory frames.
 
-        Convenience wrapper that handles frame iteration. Mirrors DensityGrid.make_force_grid().
+        Convenience wrapper that handles frame iteration. Mirrors DensityGrid.accumulate().
 
         Parameters
         ----------

@@ -245,7 +245,7 @@ class DensityGrid:
                 raise TypeError("forces cannot be a list when positions is a single array")
             self._process_frame(positions, forces, weight=weights, kernel=kernel)
 
-    def make_force_grid(
+    def accumulate(
         self,
         trajectory: Trajectory,
         atom_names: str | list[str],
@@ -372,7 +372,7 @@ class DensityGrid:
         Sets `self.del_rho_k`, `self.del_rho_n`, `self.rho_count`, `self.rho_force`.
         """
         if self.grid_progress == "Generated":
-            raise RuntimeError("Run make_force_grid before computing densities.")
+            raise RuntimeError("Run accumulate() before computing densities.")
 
         # Normalize by number of frames and voxel volume before FFT
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -417,7 +417,7 @@ class DensityGrid:
         Sets `self._rho_count`.
         """
         if self.grid_progress == "Generated":
-            raise RuntimeError("Run make_force_grid before computing densities.")
+            raise RuntimeError("Run accumulate() before computing densities.")
         with np.errstate(divide="ignore", invalid="ignore"):
             self._rho_count = self.counter / self.voxel_volume / self.count
 
@@ -519,7 +519,7 @@ class DensityGrid:
         Raises
         ------
         RuntimeError
-            If called before `make_force_grid`.
+            If called before `accumulate`.
         ValueError
             If called on a grid already produced by `get_lambda`.
 
@@ -531,7 +531,7 @@ class DensityGrid:
         rho_lambda should be used after calling this method.
         """
         if self.grid_progress == "Generated":
-            raise RuntimeError("Run make_force_grid before estimating lambda.")
+            raise RuntimeError("Run accumulate() before estimating lambda.")
         if self.grid_progress == "Lambda":
             raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
@@ -662,7 +662,7 @@ def compute_density(
     >>> density = grid.rho_lambda
     """
     grid = DensityGrid(trajectory, density_type, nbins=nbins)
-    grid.make_force_grid(
+    grid.accumulate(
         trajectory,
         atom_names=atom_names,
         rigid=rigid,

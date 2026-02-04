@@ -118,7 +118,7 @@ class TestLammpsRegression:
         gs = DensityGrid(
             example1_trajectory, 'number', nbins=30
         )
-        gs.make_force_grid(
+        gs.accumulate(
             example1_trajectory, '1', kernel='triangular',
             rigid=False, start=0, stop=5
         )
@@ -165,7 +165,7 @@ class TestMDARegression:
         gs = DensityGrid(
             example4_trajectory, 'number', nbins=30
         )
-        gs.make_force_grid(
+        gs.accumulate(
             example4_trajectory, 'Ow', kernel='triangular',
             rigid=False, start=0, stop=5
         )
@@ -183,7 +183,7 @@ class TestMDARegression:
         gs = DensityGrid(
             example4_trajectory, 'number', nbins=30
         )
-        gs.make_force_grid(
+        gs.accumulate(
             example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
             rigid=True, start=0, stop=5
         )
@@ -201,7 +201,7 @@ class TestMDARegression:
         gs = DensityGrid(
             example4_trajectory, 'polarisation', nbins=30
         )
-        gs.make_force_grid(
+        gs.accumulate(
             example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
             rigid=True, start=0, stop=5
         )
@@ -247,7 +247,7 @@ class TestVASPRegression:
         gs = DensityGrid(
             vasp_trajectory, 'number', nbins=30
         )
-        gs.make_force_grid(
+        gs.accumulate(
             vasp_trajectory, 'F', kernel='triangular',
             rigid=False, start=0, stop=10
         )
@@ -298,7 +298,7 @@ class TestSyntheticRegression:
         gs = DensityGrid(
             uniform_gas_trajectory, 'number', nbins=30
         )
-        gs.make_force_grid(
+        gs.accumulate(
             uniform_gas_trajectory, '1', kernel='triangular', rigid=False
         )
         gs.get_real_density()

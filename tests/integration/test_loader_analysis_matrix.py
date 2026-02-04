@@ -74,7 +74,7 @@ class TestNumpyAnalysisMatrix:
         gs = DensityGrid(
             uniform_gas_trajectory, 'number', nbins=nbins
         )
-        gs.make_force_grid(
+        gs.accumulate(
             uniform_gas_trajectory, '1', kernel='triangular', rigid=False
         )
         gs.get_real_density()

@@ -132,7 +132,7 @@ class TestDeposit:
 
 
 class TestMakeForceGridUnified:
-    """Test that make_force_grid using unified approach gives same results."""
+    """Test that accumulate using unified approach gives same results."""
 
     @pytest.fixture
     def trajectory(self):
@@ -172,11 +172,11 @@ class TestMakeForceGridUnified:
 
         return IterableMockTrajectory()
 
-    def test_make_force_grid_single_species_number(self, trajectory):
-        """make_force_grid with single species number density produces correct grid."""
+    def test_accumulate_single_species_number(self, trajectory):
+        """accumulate with single species number density produces correct grid."""
 
         gs = DensityGrid(trajectory, "number", nbins=5)
-        gs.make_force_grid(trajectory, atom_names="O", rigid=False, start=0, stop=2)
+        gs.accumulate(trajectory, atom_names="O", rigid=False, start=0, stop=2)
 
         # Verify grid was populated
         assert gs.count == 2

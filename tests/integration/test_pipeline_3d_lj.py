@@ -4,7 +4,7 @@ Pipeline integration tests for 3D number density (Example 2).
 These tests exercise the full 3D density workflow using the Example 2 LJ data:
 - LammpsTrajectoryState loading
 - DensityGrid creation and configuration
-- make_force_grid() with triangular kernel
+- accumulate() with triangular kernel
 - get_real_density() integration
 - get_lambda() for optimal linear combination
 - Regression against stored reference data
@@ -55,14 +55,14 @@ class TestNumberDensityPipelineExample2:
         assert np.all(gs.forceY == 0)
         assert np.all(gs.forceZ == 0)
 
-    def test_make_force_grid_subset(self, example2_trajectory):
+    def test_accumulate_subset(self, example2_trajectory):
         """Force grid accumulation works on frame subset."""
         ts = example2_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use only first 5 frames for fast test
-        gs.make_force_grid(
+        gs.accumulate(
             ts, '2', kernel='triangular', rigid=False,
             start=0, stop=5, period=1
         )
@@ -78,7 +78,7 @@ class TestNumberDensityPipelineExample2:
         ts = example2_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=50)
-        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
+        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
         gs.get_real_density()
 
         assert hasattr(gs, 'rho_force')
@@ -90,7 +90,7 @@ class TestNumberDensityPipelineExample2:
         ts = example2_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=50)
-        gs.make_force_grid(ts, '2', kernel='box', rigid=False, start=0, stop=5)
+        gs.accumulate(ts, '2', kernel='box', rigid=False, start=0, stop=5)
         gs.get_real_density()
 
         assert hasattr(gs, 'rho_force')
@@ -101,7 +101,7 @@ class TestNumberDensityPipelineExample2:
         ts = example2_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=50)
-        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
+        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
         assert gs.count == 10
@@ -126,7 +126,7 @@ class TestNumberDensityPipelineExample2:
         ts = example2_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=30)
-        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
+        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
         # Use 5 sections for variance estimation
@@ -154,7 +154,7 @@ class TestDensityPhysicalProperties:
         ts = example2_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=50)
-        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
+        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
         # Number density should not be strongly negative
@@ -168,7 +168,7 @@ class TestDensityPhysicalProperties:
         ts = example2_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=50)
-        gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
+        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
         # Mean density should be order of magnitude of N/V
@@ -189,12 +189,12 @@ class TestDensityPhysicalProperties:
 
         # Triangular kernel
         gs_tri = DensityGrid(ts, 'number', nbins=30)
-        gs_tri.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
+        gs_tri.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
         gs_tri.get_real_density()
 
         # Box kernel
         gs_box = DensityGrid(ts, 'number', nbins=30)
-        gs_box.make_force_grid(ts, '2', kernel='box', rigid=False, start=0, stop=10)
+        gs_box.accumulate(ts, '2', kernel='box', rigid=False, start=0, stop=10)
         gs_box.get_real_density()
 
         mean_tri = np.mean(gs_tri.rho_force)
@@ -217,7 +217,7 @@ class TestDensityGridResolution:
 
         for nbins in [20, 50, 100]:
             gs = DensityGrid(ts, 'number', nbins=nbins)
-            gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
+            gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
             gs.get_real_density()
 
             assert gs.rho_force.shape == (nbins, nbins, nbins)
@@ -231,7 +231,7 @@ class TestDensityGridResolution:
 
         for nbins in [20, 40]:
             gs = DensityGrid(ts, 'number', nbins=nbins)
-            gs.make_force_grid(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
+            gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
             gs.get_real_density()
 
             # Calculate voxel volume and integrate

@@ -74,14 +74,14 @@ class TestLammpsVsNumpyConsistency:
         # Compute density via both using same explicit frame range
         n_frames_to_use = 4
         gs_lammps = DensityGrid(lammps_ts, 'number', nbins=30)
-        gs_lammps.make_force_grid(
+        gs_lammps.accumulate(
             lammps_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
         )
         gs_lammps.get_real_density()
 
         gs_numpy = DensityGrid(numpy_ts, 'number', nbins=30)
-        gs_numpy.make_force_grid(
+        gs_numpy.accumulate(
             numpy_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
         )
@@ -169,7 +169,7 @@ class TestGridResolutionConsistency:
         densities = []
         for nbins in [20, 40, 60]:
             gs = DensityGrid(ts, 'number', nbins=nbins)
-            gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+            gs.accumulate(ts, '1', kernel='triangular', rigid=False)
             gs.get_real_density()
 
             densities.append(np.mean(gs.rho_force))
@@ -196,12 +196,12 @@ class TestKernelConsistency:
 
         # Triangular kernel
         gs_tri = DensityGrid(ts, 'number', nbins=30)
-        gs_tri.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+        gs_tri.accumulate(ts, '1', kernel='triangular', rigid=False)
         gs_tri.get_real_density()
 
         # Box kernel
         gs_box = DensityGrid(ts, 'number', nbins=30)
-        gs_box.make_force_grid(ts, '1', kernel='box', rigid=False)
+        gs_box.accumulate(ts, '1', kernel='box', rigid=False)
         gs_box.get_real_density()
 
         mean_tri = np.mean(gs_tri.rho_force)

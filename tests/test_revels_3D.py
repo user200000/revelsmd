@@ -284,7 +284,7 @@ def test_selectionstate_rigid_water():
 
 def test_full_number_density_pipeline(tmp_path, ts):
     gs = DensityGrid(ts, "number", nbins=4)
-    gs.make_force_grid(ts, atom_names="H", rigid=False)
+    gs.accumulate(ts, atom_names="H", rigid=False)
     assert gs.grid_progress == "Allocated"
 
     gs.get_real_density()
@@ -300,7 +300,7 @@ def test_full_number_density_pipeline(tmp_path, ts):
 def test_get_lambda_basic(ts):
     """Test basic get_lambda functionality."""
     gs = DensityGrid(ts, "number", nbins=4)
-    gs.make_force_grid(ts, atom_names="H", rigid=False)
+    gs.accumulate(ts, atom_names="H", rigid=False)
     gs.get_real_density()
     gs.get_lambda(ts, sections=1)
     assert gs.grid_progress == "Lambda"

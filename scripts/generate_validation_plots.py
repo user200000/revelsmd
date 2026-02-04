@@ -221,7 +221,7 @@ def plot_single_atom_density():
 
     nbins = 20
     gs = Revels3D.GridState(ts, 'number', nbins=nbins, temperature=1.0)
-    gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+    gs.accumulate(ts, '1', kernel='triangular', rigid=False)
     gs.get_real_density()
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
@@ -291,7 +291,7 @@ def plot_uniform_density():
 
     nbins = 20
     gs = Revels3D.GridState(ts, 'number', nbins=nbins, temperature=1.0)
-    gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+    gs.accumulate(ts, '1', kernel='triangular', rigid=False)
     gs.get_real_density()
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))

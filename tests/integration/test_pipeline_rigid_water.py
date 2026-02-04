@@ -68,7 +68,7 @@ class TestRigidWaterPipelineExample4:
         gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use very small subset for fast test
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
             start=0, stop=5, period=1
@@ -89,7 +89,7 @@ class TestRigidWaterPipelineExample4:
 
         gs = DensityGrid(ts, 'polarisation', nbins=50)
 
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
             start=0, stop=5, period=1
@@ -111,7 +111,7 @@ class TestRigidWaterPipelineExample4:
         gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use 10 frames - enough for reasonable statistics, fast enough for tests
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
             start=0, stop=10, period=1
@@ -127,7 +127,7 @@ class TestRigidWaterPipelineExample4:
         ts = example4_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             rigid=True, start=0, stop=3, period=1
         )
@@ -240,7 +240,7 @@ class TestRigidWaterPhysicalProperties:
         ts = example4_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=50)
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
             start=0, stop=5, period=1

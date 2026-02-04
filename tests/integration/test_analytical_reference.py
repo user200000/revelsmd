@@ -163,7 +163,7 @@ class TestDensityAnalyticalReference:
         ts = single_atom_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+        gs.accumulate(ts, '1', kernel='triangular', rigid=False)
 
         assert gs.grid_progress == "Allocated"
         # Note: count may be frames-1 due to stop=-1 handling in API
@@ -194,7 +194,7 @@ class TestDensityAnalyticalReference:
         ts = uniform_gas_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+        gs.accumulate(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
         assert hasattr(gs, 'rho_force')
@@ -220,7 +220,7 @@ class TestDensityAnalyticalReference:
         ts = uniform_gas_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+        gs.accumulate(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
         # Calculate voxel volume
@@ -323,7 +323,7 @@ class TestRigidMoleculeAnalytical:
         # This may fail if rigid molecule validation is too strict
         # (known issue #10 with unequal atom counts)
         try:
-            gs.make_force_grid(ts, ['O', 'H', 'H'], kernel='triangular', rigid=True)
+            gs.accumulate(ts, ['O', 'H', 'H'], kernel='triangular', rigid=True)
             gs.get_real_density()
 
             assert hasattr(gs, 'rho_force')

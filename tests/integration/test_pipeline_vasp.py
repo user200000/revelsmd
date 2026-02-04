@@ -79,7 +79,7 @@ class TestVASPPipelineExample3:
 
         # Use all available frames (may be short trajectory)
         try:
-            gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
+            gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
         except Exception as e:
             pytest.skip(f"Could not compute force grid: {e}")
 
@@ -130,7 +130,7 @@ class TestVASPPipelineExample3:
         ts = vasp_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=30)
-        gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
+        gs.accumulate(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
         # Use 5 sections for variance estimation with 10 frames
@@ -174,7 +174,7 @@ class TestVASPPhysicalProperties:
         gs = DensityGrid(ts, 'number', nbins=30)
 
         try:
-            gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
+            gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
             gs.get_real_density()
         except Exception:
             pytest.skip("Could not compute density")
@@ -253,7 +253,7 @@ class TestVASPSyntheticFallback:
         ts = synthetic_vasp_like_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
+        gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
         gs.get_real_density()
 
         assert hasattr(gs, 'rho_force')
