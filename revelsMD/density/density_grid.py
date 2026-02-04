@@ -105,19 +105,19 @@ class DensityGrid:
         self.progress = "Generated"
 
         # Density results (populated by get_real_density or get_lambda)
-        self._rho_count: np.ndarray | None = None
-        self._rho_force: np.ndarray | None = None
+        self._rho_count = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        self._rho_force = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
         self._rho_lambda: np.ndarray | None = None
         self._lambda_weights: np.ndarray | None = None
 
     @property
-    def rho_count(self) -> np.ndarray | None:
-        """Counting-based density (available after get_real_density or get_lambda)."""
+    def rho_count(self) -> np.ndarray:
+        """Counting-based density (zeros until get_real_density or get_lambda is called)."""
         return self._rho_count
 
     @property
-    def rho_force(self) -> np.ndarray | None:
-        """Force-based density via FFT (available after get_real_density or get_lambda)."""
+    def rho_force(self) -> np.ndarray:
+        """Force-based density via FFT (zeros until get_real_density or get_lambda is called)."""
         return self._rho_force
 
     @property
@@ -551,15 +551,15 @@ class DensityGrid:
         # Interleaved accumulation across sections
         for k in tqdm(range(sections)):
             # Reset accumulators for this section
-            self.forceX *= 0
-            self.forceY *= 0
-            self.forceZ *= 0
-            self._rho_count *= 0
-            self.counter *= 0
-            self.del_rho_k *= 0
-            self.del_rho_n *= 0
-            self._rho_force *= 0
-            self.count *= 0
+            self.forceX.fill(0)
+            self.forceY.fill(0)
+            self.forceZ.fill(0)
+            self._rho_count.fill(0)
+            self.counter.fill(0)
+            self.del_rho_k.fill(0)
+            self.del_rho_n.fill(0)
+            self._rho_force.fill(0)
+            self.count = 0
 
             # Frame indices for this section (interleaved sampling)
             frame_indices = np.array(self.to_run)[
