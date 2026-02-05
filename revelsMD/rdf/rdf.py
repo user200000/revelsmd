@@ -78,8 +78,9 @@ class RDF:
         else:
             self.rmax = rmax
 
-        # Set up bins
-        self._bins = np.arange(0, self.rmax, delr)
+        # Set up bins - use rmax + delr to ensure proper boundary handling
+        # The returned r values will exclude the first (r=0) and last bin
+        self._bins = np.arange(0, self.rmax + delr, delr)
 
         # Get indices and compute prefactor
         self._like_species = (species_a == species_b)
@@ -317,12 +318,14 @@ class RDF:
 
         g_count = np.nan_to_num(g_count, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Trim to match self._r if lambda integration was used
-        if self._r is not None and len(self._r) < n_bins:
-            # Lambda integration drops first bin
-            g_count = g_count[1:]
-
-        self._g_count = g_count
+        # Trim to match self._r (excludes last bin due to boundary effect)
+        # For lambda integration, r starts at bins[1], so trim accordingly
+        if self._r is not None and len(self._r) == len(self._bins) - 2:
+            # Lambda case: r = bins[1:-1], so g_count = g_count[1:-1]
+            self._g_count = g_count[1:-1]
+        else:
+            # Standard case: r = bins[:-1], so g_count = g_count[:-1]
+            self._g_count = g_count[:-1]
 
     def _compute_standard(self, integration: str) -> None:
         """Compute forward or backward integrated g(r)."""
@@ -330,12 +333,13 @@ class RDF:
         scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
 
         if integration == 'forward':
-            self._r = self._bins
-            self._g = np.cumsum(scaled)
+            g_full = np.cumsum(scaled)
         else:  # backward
-            self._r = self._bins
-            self._g = 1 - np.cumsum(scaled[::-1])[::-1]
+            g_full = 1 - np.cumsum(scaled[::-1])[::-1]
 
+        # Exclude only the last bin (boundary effect from triangular deposition)
+        self._r = self._bins[:-1]
+        self._g = g_full[:-1]
         self._lam = None
         self._compute_g_count()
 
@@ -365,9 +369,12 @@ class RDF:
         per_frame_combined = combine_estimators(base_inf_rdf, base_zero_rdf, combination)
         g_lambda = np.mean(per_frame_combined, axis=0)
 
-        self._r = self._bins[1:]
-        self._g = g_lambda
-        self._lam = combination
+        # Lambda already excludes first bin; also exclude last (boundary effect)
+        # Note: g_lambda has length n_bins-1 (due to [:-1] in cumsum operations)
+        # After excluding the last bin, we have n_bins-2 values
+        self._r = self._bins[1:-1]
+        self._g = g_lambda[:-1]
+        self._lam = combination[:-1]
         self._compute_g_count()
 
 

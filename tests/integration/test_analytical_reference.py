@@ -326,8 +326,9 @@ class TestHistogramRDFAnalytical:
         This is the key validation: for an ideal gas, g_count should be ~1.0
         everywhere, unlike force-based g(r) which requires integration.
 
-        Uses bulk region 2.0 < r < 4.5 to avoid edge effects near r=0 and rmax.
-        With 500 atoms and 50 frames, expect mean within 0.02 of 1.0.
+        Excludes r < 0.5 where statistical fluctuations are larger due to the
+        small shell volume (not a boundary effect, just finite statistics).
+        With 500 atoms and 50 frames, expect mean within 0.01 of 1.0.
         """
         ts = uniform_gas_trajectory
 
@@ -336,12 +337,13 @@ class TestHistogramRDFAnalytical:
         assert rdf.g_count is not None
         assert np.all(np.isfinite(rdf.g_count))
 
-        # Use bulk region away from both short-range and cutoff edges
-        bulk_mask = (rdf.r > 2.0) & (rdf.r < 4.5)
-        assert np.any(bulk_mask), "No bins in bulk region"
+        # Exclude small r where shell volume is tiny and statistics are poor
+        # This is a finite-size effect, not a boundary effect
+        valid_mask = rdf.r > 0.5
+        assert np.any(valid_mask), "No valid bins"
 
-        mean_g_count = np.mean(rdf.g_count[bulk_mask])
-        assert abs(mean_g_count - 1.0) < 0.02, f"Mean g_count = {mean_g_count}, expected ~1.0"
+        mean_g_count = np.mean(rdf.g_count[valid_mask])
+        assert abs(mean_g_count - 1.0) < 0.01, f"Mean g_count = {mean_g_count}, expected ~1.0"
 
     def test_two_atoms_histogram_shows_peak(self, two_atom_trajectory):
         """
@@ -371,7 +373,7 @@ class TestHistogramRDFAnalytical:
         For equilibrium systems, histogram and force-based g(r) should agree in bulk.
 
         Both g_count and g_force should be approximately 1.0 for a uniform gas.
-        Uses bulk region 2.0 < r < 4.0 to avoid edge effects.
+        Excludes r < 0.5 due to poor statistics at small r (tiny shell volume).
         """
         ts = uniform_gas_trajectory
 
@@ -380,17 +382,17 @@ class TestHistogramRDFAnalytical:
         assert rdf.g_count is not None
         assert rdf.g_force is not None
 
-        # Use bulk region away from both short-range and cutoff edges
-        bulk_mask = (rdf.r > 2.0) & (rdf.r < 4.0)
-        assert np.any(bulk_mask), "No bins in bulk region"
+        # Exclude small r where shell volume is tiny and statistics are poor
+        valid_mask = rdf.r > 0.5
+        assert np.any(valid_mask), "No valid bins"
 
-        g_count_bulk = np.mean(rdf.g_count[bulk_mask])
-        g_force_bulk = np.mean(rdf.g_force[bulk_mask])
+        g_count_mean = np.mean(rdf.g_count[valid_mask])
+        g_force_mean = np.mean(rdf.g_force[valid_mask])
 
         # Histogram g(r) should be very close to 1 (tight tolerance)
-        assert abs(g_count_bulk - 1.0) < 0.05, f"g_count bulk = {g_count_bulk}"
+        assert abs(g_count_mean - 1.0) < 0.02, f"g_count mean = {g_count_mean}"
         # Force-based g(r) has more variance due to integration
-        assert abs(g_force_bulk - 1.0) < 0.3, f"g_force bulk = {g_force_bulk}"
+        assert abs(g_force_mean - 1.0) < 0.3, f"g_force mean = {g_force_mean}"
 
     def test_g_count_lambda_integration(self, uniform_gas_trajectory):
         """
