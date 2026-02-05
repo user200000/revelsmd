@@ -1,8 +1,13 @@
 """Tests for revelsMD.statistics module."""
 
 import numpy as np
+import pytest
 
-from revelsMD.statistics import combine_estimators, compute_lambda_weights
+from revelsMD.statistics import (
+    WelfordAccumulator3D,
+    combine_estimators,
+    compute_lambda_weights,
+)
 
 
 class TestComputeLambdaWeights:
@@ -277,3 +282,212 @@ class TestIntegration:
         # Verify zero-variance voxels were handled
         assert lambda_raw[0, 0, 0] == 0.0
         assert lambda_raw[2, 2, 2] == 0.0
+
+
+class TestWelfordAccumulator3D:
+    """Tests for WelfordAccumulator3D online variance/covariance accumulator."""
+
+    def test_init_creates_zero_arrays(self):
+        """Accumulator initialises with zero arrays of correct shape."""
+        acc = WelfordAccumulator3D((3, 4, 5))
+        assert acc.shape == (3, 4, 5)
+        assert acc.count == 0
+        assert acc.mean_delta.shape == (3, 4, 5)
+        assert acc.mean_rho_force.shape == (3, 4, 5)
+        assert acc.M2_delta.shape == (3, 4, 5)
+        assert acc.C_delta_force.shape == (3, 4, 5)
+        np.testing.assert_array_equal(acc.mean_delta, 0)
+        np.testing.assert_array_equal(acc.M2_delta, 0)
+
+    def test_has_data_false_initially(self):
+        """has_data is False before any updates."""
+        acc = WelfordAccumulator3D((2, 2, 2))
+        assert acc.has_data is False
+
+    def test_has_data_true_after_update(self):
+        """has_data is True after first update."""
+        acc = WelfordAccumulator3D((2, 2, 2))
+        acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)))
+        assert acc.has_data is True
+
+    def test_count_increments(self):
+        """Count increments with each update call."""
+        acc = WelfordAccumulator3D((2, 2, 2))
+        for i in range(5):
+            acc.update(np.ones((2, 2, 2)) * i, np.ones((2, 2, 2)) * i)
+        assert acc.count == 5
+
+    def test_finalise_raises_with_less_than_two_sections(self):
+        """finalise() requires at least 2 sections."""
+        acc = WelfordAccumulator3D((2, 2, 2))
+        with pytest.raises(ValueError, match="at least 2 sections"):
+            acc.finalise()
+
+        acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)))
+        with pytest.raises(ValueError, match="at least 2 sections"):
+            acc.finalise()
+
+    def test_variance_matches_numpy_simple(self):
+        """Welford variance matches numpy.var for simple 1D data at each voxel."""
+        np.random.seed(42)
+        n_sections = 20
+        shape = (3, 3, 3)
+
+        # Generate random data
+        deltas = np.random.randn(n_sections, *shape)
+        forces = np.random.randn(n_sections, *shape)
+
+        # Compute with Welford
+        acc = WelfordAccumulator3D(shape)
+        for i in range(n_sections):
+            acc.update(deltas[i], forces[i])
+
+        variance, covariance = acc.finalise()
+
+        # Compare to numpy (population variance, ddof=0)
+        expected_variance = np.var(deltas, axis=0, ddof=0)
+        np.testing.assert_allclose(variance, expected_variance, rtol=1e-10)
+
+    def test_covariance_matches_numpy(self):
+        """Welford covariance matches manually computed covariance."""
+        np.random.seed(42)
+        n_sections = 20
+        shape = (3, 3, 3)
+
+        # Generate correlated data
+        deltas = np.random.randn(n_sections, *shape)
+        forces = deltas * 0.5 + np.random.randn(n_sections, *shape) * 0.1
+
+        # Compute with Welford
+        acc = WelfordAccumulator3D(shape)
+        for i in range(n_sections):
+            acc.update(deltas[i], forces[i])
+
+        variance, covariance = acc.finalise()
+
+        # Compute expected covariance manually (population covariance)
+        mean_delta = np.mean(deltas, axis=0)
+        mean_force = np.mean(forces, axis=0)
+        expected_covariance = np.mean(
+            (deltas - mean_delta) * (forces - mean_force), axis=0
+        )
+        np.testing.assert_allclose(covariance, expected_covariance, rtol=1e-10)
+
+    def test_zero_variance_when_constant(self):
+        """Variance is zero when all samples are identical."""
+        shape = (2, 2, 2)
+        acc = WelfordAccumulator3D(shape)
+
+        constant_delta = np.ones(shape) * 3.0
+        constant_force = np.ones(shape) * 5.0
+
+        for _ in range(10):
+            acc.update(constant_delta, constant_force)
+
+        variance, covariance = acc.finalise()
+        np.testing.assert_allclose(variance, 0.0, atol=1e-15)
+        np.testing.assert_allclose(covariance, 0.0, atol=1e-15)
+
+    def test_mean_delta_correct(self):
+        """Mean delta is correctly computed."""
+        shape = (2, 2, 2)
+        acc = WelfordAccumulator3D(shape)
+
+        deltas = [
+            np.ones(shape) * 1.0,
+            np.ones(shape) * 2.0,
+            np.ones(shape) * 3.0,
+        ]
+        forces = [np.zeros(shape)] * 3
+
+        for d, f in zip(deltas, forces):
+            acc.update(d, f)
+
+        expected_mean = np.ones(shape) * 2.0  # (1+2+3)/3
+        np.testing.assert_allclose(acc.mean_delta, expected_mean)
+
+    def test_numerical_stability_large_values(self):
+        """Welford remains stable with large values."""
+        shape = (2, 2, 2)
+        acc = WelfordAccumulator3D(shape)
+
+        # Large values that would cause issues with naive variance
+        base = 1e10
+        deltas = np.array([
+            np.ones(shape) * (base + 1),
+            np.ones(shape) * (base + 2),
+            np.ones(shape) * (base + 3),
+        ])
+        forces = np.zeros((3, *shape))
+
+        for i in range(3):
+            acc.update(deltas[i], forces[i])
+
+        variance, _ = acc.finalise()
+        # Variance of [1, 2, 3] is 2/3 (population variance)
+        expected = 2.0 / 3.0
+        np.testing.assert_allclose(variance, expected, rtol=1e-10)
+
+    def test_multiple_trajectories_equivalent_to_single_run(self):
+        """Accumulating in batches gives same result as single run."""
+        np.random.seed(42)
+        shape = (3, 3, 3)
+        n_total = 20
+
+        # Generate data
+        deltas = np.random.randn(n_total, *shape)
+        forces = np.random.randn(n_total, *shape)
+
+        # Single accumulator with all data
+        acc_single = WelfordAccumulator3D(shape)
+        for i in range(n_total):
+            acc_single.update(deltas[i], forces[i])
+
+        var_single, cov_single = acc_single.finalise()
+
+        # Two accumulators (simulating two trajectories contributing)
+        # Note: Welford naturally handles this - just keep updating
+        acc_multi = WelfordAccumulator3D(shape)
+        for i in range(10):  # "First trajectory"
+            acc_multi.update(deltas[i], forces[i])
+        for i in range(10, 20):  # "Second trajectory"
+            acc_multi.update(deltas[i], forces[i])
+
+        var_multi, cov_multi = acc_multi.finalise()
+
+        np.testing.assert_allclose(var_single, var_multi)
+        np.testing.assert_allclose(cov_single, cov_multi)
+
+    def test_reset_clears_state(self):
+        """reset() clears all accumulated state."""
+        shape = (2, 2, 2)
+        acc = WelfordAccumulator3D(shape)
+
+        # Add some data
+        acc.update(np.ones(shape) * 5, np.ones(shape) * 3)
+        acc.update(np.ones(shape) * 10, np.ones(shape) * 6)
+        assert acc.count == 2
+        assert acc.has_data is True
+
+        # Reset
+        acc.reset()
+
+        # Check all state is cleared
+        assert acc.count == 0
+        assert acc.has_data is False
+        np.testing.assert_array_equal(acc.mean_delta, 0)
+        np.testing.assert_array_equal(acc.mean_rho_force, 0)
+        np.testing.assert_array_equal(acc.M2_delta, 0)
+        np.testing.assert_array_equal(acc.C_delta_force, 0)
+
+    def test_finalise_returns_correct_shapes(self):
+        """finalise() returns arrays matching input shape."""
+        shape = (5, 6, 7)
+        acc = WelfordAccumulator3D(shape)
+
+        acc.update(np.random.randn(*shape), np.random.randn(*shape))
+        acc.update(np.random.randn(*shape), np.random.randn(*shape))
+
+        variance, covariance = acc.finalise()
+        assert variance.shape == shape
+        assert covariance.shape == shape
