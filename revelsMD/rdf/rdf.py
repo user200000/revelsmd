@@ -373,9 +373,12 @@ class RDF:
         per_frame_combined = combine_estimators(base_inf_rdf, base_zero_rdf, combination)
         g_lambda = np.mean(per_frame_combined, axis=0)
 
-        # Lambda already excludes first bin; also exclude last (boundary effect)
-        # Note: g_lambda has length n_bins-1 (due to [:-1] in cumsum operations)
-        # After excluding the last bin, we have n_bins-2 values
+        # Array length tracking:
+        # - Forward/backward alignment ([:-1] and [1:]) gives n_bins - 1 elements
+        # - g_lambda therefore has length n_bins - 1
+        # - Excluding the last bin (g_lambda[:-1]) gives n_bins - 2 elements
+        # - self._r = bins[1:-1] also has length n_bins - 2 (excludes first and last)
+        # See issue #26 for discussion of the grid point loss from alignment.
         self._r = self._bins[1:-1]
         self._g = g_lambda[:-1]
         self._lam = combination[:-1]
