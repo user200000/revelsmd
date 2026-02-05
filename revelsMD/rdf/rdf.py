@@ -5,11 +5,7 @@ from __future__ import annotations
 import numpy as np
 from tqdm import tqdm
 
-from revelsMD.rdf.rdf_helpers import (
-    compute_pairwise_contributions,
-    accumulate_binned_contributions,
-    accumulate_triangular_counts,
-)
+from revelsMD.rdf.rdf_helpers import get_backend_functions
 from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
 
@@ -98,6 +94,11 @@ class RDF:
             indices_b = self._get_species_indices(trajectory, species_b)
             self._indices = [indices_a, indices_b]
             self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
+
+        # Get backend-selected functions
+        (self._compute_pairwise,
+         self._accumulate_binned,
+         self._accumulate_triangular) = get_backend_functions()
 
         # State
         self.progress = 'initialized'
@@ -223,13 +224,13 @@ class RDF:
             pos_b = positions[self._indices[1], :]
             force_b = forces[self._indices[1], :]
 
-        r_flat, dot_flat = compute_pairwise_contributions(
+        r_flat, dot_flat = self._compute_pairwise(
             pos_a, pos_b, force_a, force_b,
             (self._box_x, self._box_y, self._box_z)
         )
 
-        force_result = accumulate_binned_contributions(dot_flat, r_flat, self._bins)
-        count_result = accumulate_triangular_counts(r_flat, self._bins)
+        force_result = self._accumulate_binned(dot_flat, r_flat, self._bins)
+        count_result = self._accumulate_triangular(r_flat, self._bins)
 
         return force_result, count_result
 

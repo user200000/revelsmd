@@ -24,8 +24,7 @@ import sys
 project_root = Path(__file__).parents[1]
 sys.path.insert(0, str(project_root))
 
-from revelsMD.rdf import run_rdf, run_rdf_lambda
-from revelsMD.revels_3D import Revels3D
+from revelsMD.revels_rdf import run_rdf, run_rdf_lambda
 
 EXAMPLES_DIR = project_root / "examples"
 TEST_DATA_DIR = project_root / "tests" / "test_data"
@@ -109,12 +108,13 @@ def generate_lammps_references():
 
     # 3D number density
     print("  Computing 3D number density...")
-    gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.35)
-    gs.accumulate(ts, '1', kernel='triangular', rigid=False, start=0, stop=5)
+    from revelsMD.density import DensityGrid
+    gs = DensityGrid(ts, 'number', nbins=30)
+    gs.accumulate(ts, '1', kernel='triangular', start=0, stop=5)
     gs.get_real_density()
     np.savez(
         output_dir / "number_density.npz",
-        rho=gs.rho,
+        rho=gs.rho_force,
         nbins=30,
         frames_used=5,
         temp=1.35,
@@ -166,12 +166,13 @@ def generate_mda_references():
 
     # 3D number density
     print("  Computing 3D number density...")
-    gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=300)
+    from revelsMD.density import DensityGrid
+    gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, 'Ow', kernel='triangular', rigid=False, start=0, stop=5)
     gs.get_real_density()
     np.savez(
         output_dir / "number_density_ow.npz",
-        rho=gs.rho,
+        rho=gs.rho_force,
         nbins=30,
         frames_used=5,
         temp=300,
@@ -181,14 +182,14 @@ def generate_mda_references():
 
     # Rigid molecule number density
     print("  Computing rigid molecule number density...")
-    gs_rigid = Revels3D.GridState(ts, 'number', nbins=30, temperature=300)
+    gs_rigid = DensityGrid(ts, 'number', nbins=30)
     gs_rigid.accumulate(
         ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
     )
     gs_rigid.get_real_density()
     np.savez(
         output_dir / "number_density_rigid.npz",
-        rho=gs_rigid.rho,
+        rho=gs_rigid.rho_force,
         nbins=30,
         frames_used=5,
         temp=300,
@@ -199,14 +200,14 @@ def generate_mda_references():
 
     # Polarisation density
     print("  Computing polarisation density...")
-    gs_pol = Revels3D.GridState(ts, 'polarisation', nbins=30, temperature=300)
+    gs_pol = DensityGrid(ts, 'polarisation', nbins=30)
     gs_pol.accumulate(
         ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
     )
     gs_pol.get_real_density()
     np.savez(
         output_dir / "polarisation_density.npz",
-        rho=gs_pol.rho,
+        rho=gs_pol.rho_force,
         nbins=30,
         frames_used=5,
         temp=300,
@@ -251,12 +252,13 @@ def generate_vasp_references():
 
     # 3D number density for F
     print("  Computing F number density...")
-    gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=600)
+    from revelsMD.density import DensityGrid
+    gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
     gs.get_real_density()
     np.savez(
         output_dir / "number_density_f.npz",
-        rho=gs.rho,
+        rho=gs.rho_force,
         nbins=30,
         frames_used=10,
         temp=600,
@@ -274,11 +276,11 @@ def generate_synthetic_references():
     output_dir = REFERENCE_DIR / "synthetic"
     ensure_dir(output_dir)
 
-    # Uniform gas trajectory
+    # Uniform gas trajectory - must match conftest.py fixture parameters!
     print("Generating synthetic trajectory references...")
     np.random.seed(42)
     n_atoms = 500
-    n_frames = 10
+    n_frames = 50  # Must match uniform_gas_trajectory fixture
     box = 10.0
 
     positions = np.random.uniform(0, box, (n_frames, n_atoms, 3))
@@ -306,12 +308,13 @@ def generate_synthetic_references():
 
     # Number density for uniform gas
     print("  Computing uniform gas density...")
-    gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.0)
+    from revelsMD.density import DensityGrid
+    gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, '1', kernel='triangular', rigid=False)
     gs.get_real_density()
     np.savez(
         output_dir / "uniform_gas_density.npz",
-        rho=gs.rho,
+        rho=gs.rho_force,
         nbins=30,
         n_atoms=n_atoms,
         n_frames=n_frames,

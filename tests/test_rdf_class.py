@@ -440,3 +440,30 @@ class TestRDFCountAccumulation:
 
         assert rdf.g_count is not None
         assert len(rdf.g_count) == len(rdf.r)
+
+
+class TestRDFBackendSelection:
+    """Test that RDF class uses backend-selected functions."""
+
+    def test_rdf_uses_numba_backend_when_available(self, water_trajectory):
+        """RDF should use Numba functions when numba is available."""
+        pytest.importorskip('numba')
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+
+        # Check that the instance methods are from the numba module
+        assert 'numba' in rdf._compute_pairwise.__module__
+        assert 'numba' in rdf._accumulate_binned.__module__
+        assert 'numba' in rdf._accumulate_triangular.__module__
+
+    def test_rdf_stores_backend_functions_as_instance_methods(self, water_trajectory):
+        """RDF should store backend functions as instance methods."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+
+        # These should be callable
+        assert callable(rdf._compute_pairwise)
+        assert callable(rdf._accumulate_binned)
+        assert callable(rdf._accumulate_triangular)
