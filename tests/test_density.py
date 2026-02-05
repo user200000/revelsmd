@@ -314,6 +314,162 @@ def test_get_lambda_basic(ts):
 
 
 # ---------------------------------------------------------------------------
+# compute_lambda parameter tests
+# ---------------------------------------------------------------------------
+
+
+class TestAccumulateComputeLambda:
+    """Tests for accumulate() with compute_lambda parameter."""
+
+    @pytest.fixture
+    def multi_frame_trajectory(self):
+        """Create a trajectory with enough frames for sectioned lambda estimation."""
+        class MultiFrameTrajectory:
+            def __init__(self):
+                self.box_x = self.box_y = self.box_z = 10.0
+                self.units = 'real'
+                self.temperature = 300.0
+                from revelsMD.trajectories._base import compute_beta
+                self.beta = compute_beta(self.units, self.temperature)
+                self.frames = 10
+
+                # 3 atoms per frame, 10 frames
+                np.random.seed(42)
+                self._positions = [
+                    np.random.rand(3, 3) * 10 for _ in range(self.frames)
+                ]
+                self._forces = [
+                    np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
+                ]
+
+                self._ids = {"H": np.array([0, 1, 2])}
+                self._charges = {"H": np.array([0.1, 0.1, 0.1])}
+                self._masses = {"H": np.array([1.0, 1.0, 1.0])}
+
+            def get_indices(self, atype):
+                return self._ids[atype]
+
+            def get_charges(self, atype):
+                return self._charges[atype]
+
+            def get_masses(self, atype):
+                return self._masses[atype]
+
+            def iter_frames(self, start=0, stop=None, stride=1):
+                if stop is None:
+                    stop = self.frames
+                for i in range(start, stop, stride):
+                    yield self._positions[i], self._forces[i]
+
+            def get_frame(self, index):
+                return self._positions[index], self._forces[index]
+
+        return MultiFrameTrajectory()
+
+    def test_accumulate_without_compute_lambda_no_welford(self, multi_frame_trajectory):
+        """accumulate() without compute_lambda does not create Welford accumulator."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H")
+
+        assert gs._welford is None
+        assert gs.rho_lambda is None
+
+    def test_accumulate_with_compute_lambda_creates_welford(self, multi_frame_trajectory):
+        """accumulate() with compute_lambda=True creates Welford accumulator."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        assert gs._welford is not None
+        assert gs._welford.has_data
+
+    def test_accumulate_compute_lambda_default_sections(self, multi_frame_trajectory):
+        """accumulate() with compute_lambda=True uses default 10 sections."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        # Default is 10 sections, but we only have 10 frames so may be fewer
+        assert gs._welford.count >= 2
+
+    def test_accumulate_compute_lambda_custom_sections(self, multi_frame_trajectory):
+        """accumulate() with compute_lambda=True accepts custom sections."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5
+        )
+
+        assert gs._welford.count == 5
+
+    def test_rho_lambda_available_after_compute_lambda(self, multi_frame_trajectory):
+        """rho_lambda is available after accumulate with compute_lambda=True."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        # Access triggers lazy finalisation
+        assert gs.rho_lambda is not None
+        assert gs.rho_lambda.shape == (4, 4, 4)
+
+    def test_lambda_weights_available_after_compute_lambda(self, multi_frame_trajectory):
+        """lambda_weights is available after accumulate with compute_lambda=True."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        assert gs.lambda_weights is not None
+        assert gs.lambda_weights.shape == (4, 4, 4)
+
+    def test_rho_force_still_available(self, multi_frame_trajectory):
+        """rho_force is still available after compute_lambda accumulation."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        # Access rho_lambda to trigger finalisation (which also computes rho_force)
+        _ = gs.rho_lambda
+
+        assert gs.rho_force is not None
+        # Should have non-trivial values (after finalisation)
+        assert np.any(gs.rho_force != 0)
+
+    def test_multiple_accumulate_calls_update_welford(self, multi_frame_trajectory):
+        """Multiple accumulate() calls with compute_lambda continue building stats."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First accumulation
+        gs.accumulate(multi_frame_trajectory, atom_names="H",
+                     compute_lambda=True, sections=3, start=0, stop=5)
+        first_count = gs._welford.count
+
+        # Second accumulation
+        gs.accumulate(multi_frame_trajectory, atom_names="H",
+                     compute_lambda=True, sections=3, start=5, stop=10)
+        second_count = gs._welford.count
+
+        # Welford count should increase
+        assert second_count > first_count
+
+    def test_rho_lambda_returns_none_without_compute_lambda(self, multi_frame_trajectory):
+        """rho_lambda returns None when compute_lambda was not used."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H")
+
+        # Without compute_lambda, rho_lambda should be None
+        assert gs.rho_lambda is None
+        assert gs.lambda_weights is None
+
+    def test_rho_force_zero_before_finalisation(self, multi_frame_trajectory):
+        """rho_force is zero before accessing rho_lambda (no auto-finalisation)."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        # Before accessing rho_lambda, rho_force should be zeros
+        # (get_real_density hasn't been called yet)
+        assert np.all(gs._rho_force == 0)
+
+        # After accessing rho_lambda, rho_force should be computed
+        _ = gs.rho_lambda
+        assert np.any(gs._rho_force != 0)
+
+
+# ---------------------------------------------------------------------------
 # Mock trajectory for Selection tests (water molecules)
 # ---------------------------------------------------------------------------
 
