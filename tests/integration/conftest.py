@@ -198,12 +198,14 @@ def uniform_gas_trajectory():
 
     The force-sampling method requires non-zero forces to work correctly.
     With random forces, this should produce g(r) ~ 1 for all r (within statistical noise).
+
+    Uses 500 atoms and 50 frames for good convergence of histogram g(r) to unity.
     """
     from revelsMD.trajectories import NumpyTrajectory
 
     np.random.seed(42)
     n_atoms = 500
-    n_frames = 10
+    n_frames = 50
     box = 10.0
 
     positions = np.random.uniform(0, box, (n_frames, n_atoms, 3))

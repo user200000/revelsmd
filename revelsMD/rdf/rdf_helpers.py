@@ -28,16 +28,18 @@ from revelsMD.backends import get_backend, AVAILABLE_BACKENDS
 # ---------------------------------------------------------------------------
 
 
-def _get_numba_functions() -> tuple[Callable, Callable]:
+def _get_numba_functions() -> tuple[Callable, Callable, Callable]:
     """Import and return Numba backend functions."""
     try:
         from revelsMD.rdf.rdf_helpers_numba import (
             compute_pairwise_contributions_numba,
             accumulate_binned_contributions_numba,
+            accumulate_triangular_counts_numba,
         )
         return (
             compute_pairwise_contributions_numba,
             accumulate_binned_contributions_numba,
+            accumulate_triangular_counts_numba,
         )
     except ImportError as e:
         raise ImportError(
@@ -48,7 +50,7 @@ def _get_numba_functions() -> tuple[Callable, Callable]:
 
 def get_backend_functions(
     backend: str | None = None,
-) -> tuple[Callable, Callable]:
+) -> tuple[Callable, Callable, Callable]:
     """
     Get the RDF helper functions for the specified backend.
 
@@ -60,8 +62,8 @@ def get_backend_functions(
 
     Returns
     -------
-    tuple of (compute_pairwise, accumulate)
-        The two helper functions for the selected backend.
+    tuple of (compute_pairwise, accumulate_binned, accumulate_triangular)
+        The three helper functions for the selected backend.
 
     Raises
     ------
@@ -86,6 +88,7 @@ def get_backend_functions(
     return (
         compute_pairwise_contributions,
         accumulate_binned_contributions,
+        accumulate_triangular_counts,
     )
 
 
@@ -181,6 +184,70 @@ def accumulate_binned_contributions(
     ).astype(np.float64)
 
     return np.nan_to_num(storage, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def accumulate_triangular_counts(
+    distances: np.ndarray,
+    bins: np.ndarray,
+) -> np.ndarray:
+    """
+    Accumulate pair counts using triangular (CIC) deposition.
+
+    Each pair's contribution is distributed between the two nearest bin edges
+    using linear interpolation weights, analogous to Cloud-in-Cell deposition
+    used in DensityGrid.
+
+    Parameters
+    ----------
+    distances : np.ndarray, shape (m,)
+        Pairwise distances.
+    bins : np.ndarray, shape (n_bins,)
+        Bin edges (radial positions where g(r) is evaluated).
+
+    Returns
+    -------
+    np.ndarray, shape (n_bins,), dtype=np.float64
+        Accumulated counts per bin edge.
+
+    Notes
+    -----
+    For a pair at distance r between bins[i] and bins[i+1]:
+    - Weight to bins[i]: (bins[i+1] - r) / delr
+    - Weight to bins[i+1]: (r - bins[i]) / delr
+
+    Pairs exactly at a bin edge contribute 1.0 to that bin.
+    Pairs beyond the last bin edge are excluded (matching force accumulation).
+    """
+    n_bins = len(bins)
+    if n_bins == 0:
+        return np.zeros(1, dtype=np.float64)
+
+    counts = np.zeros(n_bins, dtype=np.float64)
+    delr = bins[1] - bins[0] if n_bins > 1 else 1.0
+
+    for r in distances:
+        # Find bin index (left edge)
+        bin_idx = np.searchsorted(bins, r, side='right') - 1
+
+        # Skip if beyond last bin edge (matching force accumulation behaviour)
+        if bin_idx >= n_bins - 1:
+            continue
+
+        # Handle before first bin
+        if bin_idx < 0:
+            # Contribute to first bin only
+            counts[0] += 1.0
+            continue
+
+        # Triangular (CIC) weights
+        r_lower = bins[bin_idx]
+        weight_upper = (r - r_lower) / delr
+        weight_lower = 1.0 - weight_upper
+
+        counts[bin_idx] += weight_lower
+        counts[bin_idx + 1] += weight_upper
+
+    return counts
 
 
 def compute_pairwise_contributions(

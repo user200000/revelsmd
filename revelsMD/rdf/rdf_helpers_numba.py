@@ -292,3 +292,84 @@ def accumulate_binned_contributions_numba(
     distances = np.ascontiguousarray(distances, dtype=np.float64)
     bins = np.ascontiguousarray(bins, dtype=np.float64)
     return _accumulate_binned_contributions_numba(values, distances, bins)
+
+
+@jit(nopython=True, cache=True)
+def _accumulate_triangular_counts_numba(
+    distances: np.ndarray,
+    bins: np.ndarray,
+) -> np.ndarray:
+    """
+    Numba implementation of triangular count accumulation.
+
+    Each pair's contribution is distributed between the two nearest bin edges
+    using linear interpolation weights (Cloud-in-Cell deposition).
+
+    Parameters
+    ----------
+    distances : np.ndarray, shape (m,)
+        Pairwise distances.
+    bins : np.ndarray, shape (n_bins,)
+        Bin edges (radial positions where g(r) is evaluated).
+
+    Returns
+    -------
+    np.ndarray, shape (n_bins,), dtype=np.float64
+        Accumulated counts per bin edge.
+    """
+    n_bins = len(bins)
+    if n_bins == 0:
+        return np.zeros(1, dtype=np.float64)
+
+    counts = np.zeros(n_bins, dtype=np.float64)
+    delr = bins[1] - bins[0] if n_bins > 1 else 1.0
+    m = len(distances)
+
+    for k in range(m):
+        r = distances[k]
+
+        # Find bin index (left edge) using searchsorted
+        bin_idx = np.searchsorted(bins, r, side='right') - 1
+
+        # Skip if beyond last bin edge (matching force accumulation behaviour)
+        if bin_idx >= n_bins - 1:
+            continue
+
+        # Handle before first bin
+        if bin_idx < 0:
+            counts[0] += 1.0
+            continue
+
+        # Triangular (CIC) weights
+        r_lower = bins[bin_idx]
+        weight_upper = (r - r_lower) / delr
+        weight_lower = 1.0 - weight_upper
+
+        counts[bin_idx] += weight_lower
+        counts[bin_idx + 1] += weight_upper
+
+    return counts
+
+
+def accumulate_triangular_counts_numba(
+    distances: np.ndarray,
+    bins: np.ndarray,
+) -> np.ndarray:
+    """
+    Public wrapper for Numba triangular count accumulation.
+
+    Parameters
+    ----------
+    distances : np.ndarray, shape (m,)
+        Pairwise distances.
+    bins : np.ndarray, shape (n_bins,)
+        Bin edges (radial positions where g(r) is evaluated).
+
+    Returns
+    -------
+    np.ndarray, shape (n_bins,), dtype=np.float64
+        Accumulated counts per bin edge.
+    """
+    distances = np.ascontiguousarray(distances, dtype=np.float64)
+    bins = np.ascontiguousarray(bins, dtype=np.float64)
+    return _accumulate_triangular_counts_numba(distances, bins)

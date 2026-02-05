@@ -8,6 +8,7 @@ from tqdm import tqdm
 from revelsMD.rdf.rdf_helpers import (
     compute_pairwise_contributions,
     accumulate_binned_contributions,
+    accumulate_triangular_counts,
 )
 from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
@@ -42,6 +43,10 @@ class RDF:
         Bin centres (available after get_rdf).
     g : np.ndarray or None
         g(r) values (available after get_rdf).
+    g_count : np.ndarray or None
+        Histogram-based g(r) using triangular deposition (available after get_rdf).
+    g_force : np.ndarray or None
+        Force-based g(r), alias for g (available after get_rdf).
     lam : np.ndarray or None
         Lambda(r) values (only for integration='lambda').
     progress : str
@@ -96,12 +101,14 @@ class RDF:
         # State
         self.progress = 'initialized'
         self._accumulated = np.zeros(len(self._bins), dtype=np.float64)
+        self._counts = np.zeros(len(self._bins), dtype=np.float64)
         self._frame_data: list[np.ndarray] = []
         self._frame_count = 0
 
         # Results (set by get_rdf())
         self._r: np.ndarray | None = None
         self._g: np.ndarray | None = None
+        self._g_count: np.ndarray | None = None
         self._lam: np.ndarray | None = None
 
     @staticmethod
@@ -127,6 +134,16 @@ class RDF:
         """Lambda(r) values (only available after get_rdf(integration='lambda'))."""
         return self._lam
 
+    @property
+    def g_count(self) -> np.ndarray | None:
+        """Histogram-based g(r) using triangular deposition (available after get_rdf)."""
+        return self._g_count
+
+    @property
+    def g_force(self) -> np.ndarray | None:
+        """Force-based g(r), alias for g (available after get_rdf)."""
+        return self._g
+
     def deposit(self, positions: np.ndarray, forces: np.ndarray) -> None:
         """
         Deposit a single frame's contribution to the RDF accumulator.
@@ -141,9 +158,10 @@ class RDF:
             Atomic forces for this frame.
         """
         # Compute and accumulate
-        frame_result = self._single_frame(positions, forces)
-        self._accumulated += frame_result
-        self._frame_data.append(frame_result)
+        force_result, count_result = self._single_frame(positions, forces)
+        self._accumulated += force_result
+        self._counts += count_result
+        self._frame_data.append(force_result)
         self._frame_count += 1
 
         self.progress = 'accumulated'
@@ -190,8 +208,10 @@ class RDF:
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
             self.deposit(positions, forces)
 
-    def _single_frame(self, positions: np.ndarray, forces: np.ndarray) -> np.ndarray:
-        """Compute single-frame RDF contribution."""
+    def _single_frame(
+        self, positions: np.ndarray, forces: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Compute single-frame RDF contribution (forces and counts)."""
         pos_a = positions[self._indices[0], :]
         force_a = forces[self._indices[0], :]
 
@@ -206,7 +226,11 @@ class RDF:
             pos_a, pos_b, force_a, force_b,
             (self._box_x, self._box_y, self._box_z)
         )
-        return accumulate_binned_contributions(dot_flat, r_flat, self._bins)
+
+        force_result = accumulate_binned_contributions(dot_flat, r_flat, self._bins)
+        count_result = accumulate_triangular_counts(r_flat, self._bins)
+
+        return force_result, count_result
 
     def get_rdf(self, integration: str = 'forward') -> None:
         """
@@ -235,6 +259,71 @@ class RDF:
 
         self.progress = 'computed'
 
+    def _compute_g_count(self) -> None:
+        """Compute histogram-based g(r) from accumulated counts.
+
+        Uses triangular-deposited counts, normalised by ideal gas expectation.
+        The result is evaluated at the same r points as the force-based g(r).
+        """
+        # For triangular deposition, we need the ideal count at each bin edge.
+        # The ideal count at bin edge r is the integral of 4*pi*r'^2*rho over
+        # the triangular kernel centred at r.
+        #
+        # Approximation: use shell volume centred on each edge.
+        # Shell extends from r - delr/2 to r + delr/2 (clamped at r=0).
+
+        delr = self.delr
+        n_bins = len(self._bins)
+
+        # Shell volumes for each bin edge
+        shell_vol = np.zeros(n_bins, dtype=np.float64)
+        for i, r in enumerate(self._bins):
+            r_inner = max(0.0, r - delr / 2)
+            r_outer = r + delr / 2
+            shell_vol[i] = (4.0 / 3.0) * np.pi * (r_outer**3 - r_inner**3)
+
+        # Box volume and particle counts
+        volume = self._box_x * self._box_y * self._box_z
+        n_a = len(self._indices[0])
+
+        if self._like_species:
+            n_b = n_a
+            n_pairs_per_frame = n_a * (n_a - 1) / 2
+        else:
+            n_b = len(self._indices[1])
+            n_pairs_per_frame = n_a * n_b
+
+        # Number density of species B
+        rho_b = n_b / volume
+
+        # Ideal gas normalisation for histogram g(r):
+        # g(r) = N_observed / N_ideal
+        #
+        # Standard formula: g(r) = n(r) / (n_a * rho_b * V_shell * n_frames)
+        # where n(r) is the total count of pairs in the shell.
+        #
+        # For like-species, we divide by 2 to account for the fact that
+        # we only count each pair once (upper triangle).
+        if self._like_species:
+            # For like-species: n_a * rho_b / 2 = n_a * n_b / V / 2 = n^2 / (2V)
+            ideal_count = (n_a * rho_b / 2) * shell_vol * self._frame_count
+        else:
+            # For unlike-species: n_a * rho_b = n_a * n_b / V
+            ideal_count = n_a * rho_b * shell_vol * self._frame_count
+
+        # Compute g(r) = actual_count / ideal_count
+        with np.errstate(divide='ignore', invalid='ignore'):
+            g_count = self._counts / ideal_count
+
+        g_count = np.nan_to_num(g_count, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Trim to match self._r if lambda integration was used
+        if self._r is not None and len(self._r) < n_bins:
+            # Lambda integration drops first bin
+            g_count = g_count[1:]
+
+        self._g_count = g_count
+
     def _compute_standard(self, integration: str) -> None:
         """Compute forward or backward integrated g(r)."""
         scaled = np.nan_to_num(self._accumulated.copy())
@@ -248,6 +337,7 @@ class RDF:
             self._g = 1 - np.cumsum(scaled[::-1])[::-1]
 
         self._lam = None
+        self._compute_g_count()
 
     def _compute_lambda(self) -> None:
         """Compute lambda-corrected g(r)."""
@@ -278,6 +368,7 @@ class RDF:
         self._r = self._bins[1:]
         self._g = g_lambda
         self._lam = combination
+        self._compute_g_count()
 
 
 def compute_rdf(

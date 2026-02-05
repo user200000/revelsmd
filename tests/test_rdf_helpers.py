@@ -14,6 +14,7 @@ import pytest
 from revelsMD.rdf.rdf_helpers import (
     compute_pairwise_contributions,
     accumulate_binned_contributions,
+    accumulate_triangular_counts,
 )
 
 
@@ -24,7 +25,7 @@ class TestBackendSelection:
         """Default backend should be numba."""
         from revelsMD.rdf.rdf_helpers import get_backend_functions
 
-        pairwise_fn, accum_fn = get_backend_functions()
+        pairwise_fn, accum_fn, tri_fn = get_backend_functions()
 
         assert 'numba' in pairwise_fn.__module__
 
@@ -32,7 +33,7 @@ class TestBackendSelection:
         """Explicit numpy backend selection."""
         from revelsMD.rdf.rdf_helpers import get_backend_functions
 
-        pairwise_fn, _ = get_backend_functions('numpy')
+        pairwise_fn, _, _ = get_backend_functions('numpy')
 
         assert 'numba' not in pairwise_fn.__module__
 
@@ -41,7 +42,7 @@ class TestBackendSelection:
         pytest.importorskip('numba')
         from revelsMD.rdf.rdf_helpers import get_backend_functions
 
-        pairwise_fn, _ = get_backend_functions('numba')
+        pairwise_fn, _, _ = get_backend_functions('numba')
 
         assert 'numba' in pairwise_fn.__module__
 
@@ -60,7 +61,7 @@ class TestBackendSelection:
         old_val = os.environ.get('REVELSMD_BACKEND')
         try:
             os.environ['REVELSMD_BACKEND'] = 'numba'
-            pairwise_fn, _ = get_backend_functions()
+            pairwise_fn, _, _ = get_backend_functions()
             assert 'numba' in pairwise_fn.__module__
         finally:
             if old_val is None:
@@ -79,8 +80,8 @@ class TestBackendSelection:
         box = (10.0, 10.0, 10.0)
         bins = np.arange(0, 5, 0.1)
 
-        np_pairwise, np_accum = get_backend_functions('numpy')
-        nb_pairwise, nb_accum = get_backend_functions('numba')
+        np_pairwise, np_accum, np_tri = get_backend_functions('numpy')
+        nb_pairwise, nb_accum, nb_tri = get_backend_functions('numba')
 
         # Use copies to ensure value comparison works (not identity)
         r_np, dot_np = np_pairwise(pos, pos.copy(), forces, forces.copy(), box)
@@ -91,6 +92,11 @@ class TestBackendSelection:
 
         np.testing.assert_allclose(r_np, r_nb, rtol=1e-14)
         np.testing.assert_allclose(storage_np, storage_nb, rtol=1e-10)
+
+        # Also test triangular count accumulation
+        tri_np = np_tri(r_np, bins)
+        tri_nb = nb_tri(r_nb, bins)
+        np.testing.assert_allclose(tri_np, tri_nb, rtol=1e-10)
 
 
 class TestMinimumImage:
@@ -680,6 +686,144 @@ class TestComparisonWithOriginal:
             decimal=10,
             err_msg="Vectorised unlike-pair calculation differs from original"
         )
+
+
+class TestTriangularCountAccumulation:
+    """Test the triangular (CIC) count accumulation helper function."""
+
+    def test_pair_at_bin_edge_all_weight_to_one_bin(self):
+        """Pair exactly at bin edge should contribute 1.0 to that bin."""
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        distances = np.array([2.0])  # Exactly at bins[2]
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        assert result.shape == (5,)
+        np.testing.assert_almost_equal(result[2], 1.0)
+        np.testing.assert_almost_equal(result[1], 0.0)
+        np.testing.assert_almost_equal(result[3], 0.0)
+
+    def test_pair_at_midpoint_splits_equally(self):
+        """Pair at midpoint between edges should contribute 0.5 to each."""
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        distances = np.array([1.5])  # Midpoint between bins[1] and bins[2]
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        np.testing.assert_almost_equal(result[1], 0.5)
+        np.testing.assert_almost_equal(result[2], 0.5)
+
+    def test_pair_closer_to_lower_edge(self):
+        """Pair closer to lower edge gets more weight there."""
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        # 25% of way from bins[1]=1.0 to bins[2]=2.0 -> r = 1.25
+        distances = np.array([1.25])
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        # weight_lower = (2.0 - 1.25) / 1.0 = 0.75
+        # weight_upper = (1.25 - 1.0) / 1.0 = 0.25
+        np.testing.assert_almost_equal(result[1], 0.75)
+        np.testing.assert_almost_equal(result[2], 0.25)
+
+    def test_multiple_pairs_accumulate(self):
+        """Multiple pairs should have their contributions summed."""
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        # Two pairs at same distance
+        distances = np.array([1.5, 1.5])
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        # Each contributes 0.5 to bin 1 and 0.5 to bin 2
+        np.testing.assert_almost_equal(result[1], 1.0)
+        np.testing.assert_almost_equal(result[2], 1.0)
+
+    def test_total_weight_is_pair_count(self):
+        """Total accumulated weight should equal number of pairs (excluding out-of-range)."""
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        # 5 pairs, all within range (not beyond last bin)
+        distances = np.array([0.5, 1.2, 1.8, 2.3, 2.9])
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        # Total weight should equal 5 (number of pairs)
+        np.testing.assert_almost_equal(np.sum(result), 5.0)
+
+    def test_out_of_range_low_handled(self):
+        """Distances below first bin contribute to first bin."""
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        distances = np.array([-0.5])  # Before first bin
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        # Should contribute 1.0 to first bin
+        np.testing.assert_almost_equal(result[0], 1.0)
+        np.testing.assert_almost_equal(np.sum(result), 1.0)
+
+    def test_out_of_range_high_excluded(self):
+        """Distances at or beyond last bin edge are excluded (matching force accumulation)."""
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        # 3.5 is between bins[3]=3.0 and bins[4]=4.0, so bin_idx=3 (contributes)
+        # 4.0 is exactly at bins[4], so bin_idx=4=n_bins-1 (excluded)
+        # 4.5 is beyond bins[4]=4.0, so bin_idx=4 (excluded)
+        distances = np.array([4.0, 4.5])
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        # Both distances have bin_idx >= n_bins - 1, so both excluded
+        np.testing.assert_almost_equal(np.sum(result), 0.0)
+
+    def test_distance_in_first_interval(self):
+        """Distance in first interval [0, 1) distributes correctly."""
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        distances = np.array([0.3])  # Between bins[0]=0.0 and bins[1]=1.0
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        # weight_lower = (1.0 - 0.3) / 1.0 = 0.7
+        # weight_upper = (0.3 - 0.0) / 1.0 = 0.3
+        np.testing.assert_almost_equal(result[0], 0.7)
+        np.testing.assert_almost_equal(result[1], 0.3)
+
+    def test_matches_force_accumulation_exclusion_behaviour(self):
+        """Last bin exclusion should match force accumulation behaviour."""
+        bins = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
+        # Distances: one in valid range, one in last bin interval
+        distances = np.array([0.75, 1.75])
+
+        result = accumulate_triangular_counts(distances, bins)
+
+        # 0.75 is between bins[1]=0.5 and bins[2]=1.0 -> contributes
+        # 1.75 is between bins[3]=1.5 and bins[4]=2.0 -> excluded (bin_idx = 3 = n_bins - 2, but upper bin is n_bins - 1)
+        # Wait, let me recalculate:
+        # bin_idx for 1.75: searchsorted([0,0.5,1,1.5,2], 1.75, 'right') - 1 = 4 - 1 = 3
+        # 3 >= n_bins - 1 = 4? No, 3 < 4. So it should contribute.
+        # Actually n_bins = 5, n_bins - 1 = 4. bin_idx = 3, so 3 >= 4 is False.
+        # So 1.75 should contribute to bins[3] and bins[4].
+        # But we exclude when bin_idx >= n_bins - 1, meaning bin_idx >= 4.
+        # Hmm, let me re-read the force accumulation logic.
+
+        # In force accumulation: values[bin_indices == n_bins - 1] = 0
+        # This zeros values where bin_idx == 4 (the last bin index).
+        # For triangular, we skip when bin_idx >= n_bins - 1.
+        # So for bin_idx = 3, we contribute to bins[3] and bins[4].
+        # But bins[4] is the last bin. Should we zero that contribution?
+
+        # The plan says: "Pairs beyond the last bin edge are excluded"
+        # A pair at r=1.75 with bins=[0, 0.5, 1, 1.5, 2] is between the last two edges.
+        # In standard histogram, this would be counted in the bin [1.5, 2.0).
+        # For triangular, it distributes to bins[3] and bins[4].
+
+        # The key question is whether "last bin exclusion" means:
+        # (a) Exclude pairs where bin_idx == n_bins - 1 (i.e., r >= bins[-1]), or
+        # (b) Exclude pairs that would contribute to the last bin (bin_idx >= n_bins - 2)
+
+        # Force accumulation uses (a): only excludes r >= bins[-1].
+        # So for r=1.75, bin_idx = 3, which is not n_bins - 1 = 4, so it contributes.
+
+        # Let me update the test to reflect the correct behaviour.
+        # Total should be 2 pairs.
+        np.testing.assert_almost_equal(np.sum(result), 2.0)
 
 
 class TestPairwiseContributionsNumba:
