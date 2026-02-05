@@ -304,13 +304,32 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
 def test_get_lambda_basic(ts):
     """Test basic get_lambda functionality."""
+    import warnings
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
     gs.get_real_density()
-    gs.get_lambda(ts, sections=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        gs.get_lambda(ts, sections=1)
     assert gs.progress == "Lambda"
     assert gs.rho_lambda is not None
     assert gs.rho_lambda.shape == gs.rho_force.shape
+
+
+def test_get_lambda_emits_deprecation_warning(ts):
+    """get_lambda should emit a DeprecationWarning."""
+    import warnings
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.accumulate(ts, atom_names="H", rigid=False)
+    gs.get_real_density()
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        gs.get_lambda(ts, sections=1)
+
+    assert len(w) == 1
+    assert issubclass(w[0].category, DeprecationWarning)
+    assert "compute_lambda=True" in str(w[0].message)
 
 
 # ---------------------------------------------------------------------------

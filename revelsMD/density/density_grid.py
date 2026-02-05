@@ -779,6 +779,11 @@ class DensityGrid:
         """
         Compute optimal lambda(r) to combine counting and force densities.
 
+        .. deprecated::
+            Use ``accumulate(..., compute_lambda=True)`` instead. This method
+            re-reads the trajectory, whereas the new approach collects statistics
+            during accumulation (significantly faster, supports multiple trajectories).
+
         Implements the linear-combination approach of:
         J. Chem. Phys. 154, 191101 (2021).
 
@@ -811,6 +816,12 @@ class DensityGrid:
         rho_force and rho_count will no longer reflect the full accumulation — only
         rho_lambda should be used after calling this method.
         """
+        warnings.warn(
+            "get_lambda() is deprecated. Use accumulate(..., compute_lambda=True) instead: "
+            "grid.accumulate(traj, atom_names, compute_lambda=True)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self.progress == "Generated":
             raise RuntimeError("Run accumulate() before estimating lambda.")
         if self.progress == "Lambda":
