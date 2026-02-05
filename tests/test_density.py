@@ -1219,24 +1219,23 @@ class TestComputeDensity:
 
         return IterableMockTrajectoryWithGetFrame()
 
-    def test_compute_density_lambda(self, trajectory_with_get_frame):
-        """compute_density with integration='lambda' populates rho_lambda."""
+    def test_compute_density_compute_lambda(self, trajectory_with_get_frame):
+        """compute_density with compute_lambda=True populates rho_lambda."""
         from revelsMD.density import compute_density
 
         grid = compute_density(
             trajectory_with_get_frame,
             atom_names='O',
             nbins=5,
-            integration='lambda',
+            compute_lambda=True,
             sections=2,
         )
 
         assert grid.rho_lambda is not None
-        assert grid.progress == "Lambda"
         assert grid.rho_lambda.shape == (5, 5, 5)
 
     def test_compute_density_standard_default(self, trajectory):
-        """Default integration='standard' behaves as before."""
+        """Default compute_lambda=False behaves as before."""
         from revelsMD.density import compute_density
 
         grid = compute_density(trajectory, atom_names='O', nbins=5)
@@ -1245,12 +1244,35 @@ class TestComputeDensity:
         assert grid.rho_lambda is None
         assert grid.progress == "Allocated"
 
-    def test_compute_density_invalid_integration(self, trajectory):
-        """Invalid integration raises ValueError."""
+    def test_compute_density_integration_deprecated(self, trajectory_with_get_frame):
+        """integration='lambda' still works but emits DeprecationWarning."""
+        import warnings
         from revelsMD.density import compute_density
 
-        with pytest.raises(ValueError, match="integration"):
-            compute_density(trajectory, atom_names='O', nbins=5, integration='invalid')
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            grid = compute_density(
+                trajectory_with_get_frame,
+                atom_names='O',
+                nbins=5,
+                integration='lambda',
+                sections=2,
+            )
+
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+        assert "compute_lambda=True" in str(w[0].message)
+        assert grid.rho_lambda is not None
+
+    def test_compute_density_invalid_integration(self, trajectory):
+        """Invalid integration raises ValueError."""
+        import warnings
+        from revelsMD.density import compute_density
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            with pytest.raises(ValueError, match="integration"):
+                compute_density(trajectory, atom_names='O', nbins=5, integration='invalid')
 
 
 # ---------------------------------------------------------------------------

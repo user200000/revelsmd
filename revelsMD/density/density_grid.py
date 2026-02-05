@@ -893,8 +893,10 @@ def compute_density(
     start: int = 0,
     stop: int | None = None,
     period: int = 1,
-    integration: str = "standard",
+    compute_lambda: bool = False,
     sections: int | None = None,
+    *,
+    integration: str | None = None,  # Deprecated
 ) -> DensityGrid:
     """
     Compute density from trajectory with a single function call.
@@ -928,20 +930,23 @@ def compute_density(
         Last frame to process, None for all frames (default: None).
     period : int, optional
         Frame stride (default: 1).
-    integration : {'standard', 'lambda'}, optional
-        Integration method (default: 'standard'). Use 'lambda' for
-        variance-minimised combination of counting and force densities.
+    compute_lambda : bool, optional
+        If True, collect variance statistics for lambda estimation during
+        accumulation. The variance-minimised density will be available via
+        grid.rho_lambda. Default is False (faster, no lambda overhead).
     sections : int or None, optional
-        Number of interleaved frame-subsets for lambda estimation.
-        Only used when integration='lambda'. If None, defaults to the
-        number of frames in the trajectory.
+        Number of sections for lambda estimation. Only used when
+        compute_lambda=True. If None, uses default of 10.
+    integration : str, optional
+        .. deprecated::
+            Use ``compute_lambda=True`` instead of ``integration='lambda'``.
 
     Returns
     -------
     DensityGrid
-        Grid with computed density. For integration='standard', the result
-        is available as `rho_force`. For integration='lambda', the
-        variance-minimised result is available as `rho_lambda`.
+        Grid with computed density. Access rho_force for force-based density,
+        rho_count for counting density, or rho_lambda for variance-minimised
+        density (if compute_lambda=True).
 
     Examples
     --------
@@ -949,10 +954,23 @@ def compute_density(
     >>> grid = compute_density(trajectory, 'O', nbins=50)
     >>> density = grid.rho_force
 
-    >>> # With variance-minimised lambda integration
-    >>> grid = compute_density(trajectory, 'O', integration='lambda', sections=10)
+    >>> # With variance-minimised lambda estimation
+    >>> grid = compute_density(trajectory, 'O', compute_lambda=True, sections=10)
     >>> density = grid.rho_lambda
     """
+    # Handle deprecated integration parameter
+    if integration is not None:
+        warnings.warn(
+            "integration parameter is deprecated. Use compute_lambda=True instead: "
+            "compute_density(..., compute_lambda=True)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if integration == "lambda":
+            compute_lambda = True
+        elif integration != "standard":
+            raise ValueError(f"integration must be 'standard' or 'lambda', got '{integration}'")
+
     grid = DensityGrid(trajectory, density_type, nbins=nbins)
     grid.accumulate(
         trajectory,
@@ -964,12 +982,9 @@ def compute_density(
         start=start,
         stop=stop,
         period=period,
+        compute_lambda=compute_lambda,
+        sections=sections,
     )
     grid.get_real_density()
-
-    if integration == "lambda":
-        grid.get_lambda(trajectory, sections=sections)
-    elif integration != "standard":
-        raise ValueError(f"integration must be 'standard' or 'lambda', got '{integration}'")
 
     return grid
