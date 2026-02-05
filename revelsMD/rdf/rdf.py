@@ -265,52 +265,56 @@ class RDF:
 
         Uses triangular-deposited counts, normalised by ideal gas expectation.
         The result is evaluated at the same r points as the force-based g(r).
+
+        Notes
+        -----
+        For triangular (CIC) deposition, pairs at distance d between bin edges
+        r_i and r_{i+1} distribute weight linearly between them. The effective
+        volume for normalisation is derived by integrating the triangular weight
+        function over both adjacent shells:
+
+            V_eff(r) = (2*pi/3) * delr * (delr^2 + 6*r^2)
+
+        At r=0, only the upper shell [0, delr] contributes, giving:
+
+            V_eff(0) = pi * delr^3 / 3
+
+        The last bin edge (at r_max + delr) also has only one contributing shell,
+        but we discard this bin from returned results, so no correction is needed.
+
+        See docs/triangular_deposition_normalisation.md for the full derivation.
         """
-        # For triangular deposition, we need the ideal count at each bin edge.
-        # The ideal count at bin edge r is the integral of 4*pi*r'^2*rho over
-        # the triangular kernel centred at r.
-        #
-        # Approximation: use shell volume centred on each edge.
-        # Shell extends from r - delr/2 to r + delr/2 (clamped at r=0).
-
         delr = self.delr
-        n_bins = len(self._bins)
+        r_vals = self._bins
 
-        # Shell volumes for each bin edge
-        shell_vol = np.zeros(n_bins, dtype=np.float64)
-        for i, r in enumerate(self._bins):
-            r_inner = max(0.0, r - delr / 2)
-            r_outer = r + delr / 2
-            shell_vol[i] = (4.0 / 3.0) * np.pi * (r_outer**3 - r_inner**3)
+        # Exact effective volume for triangular deposition (interior edges)
+        # V_eff(r) = (2*pi/3) * delr * (delr^2 + 6*r^2)
+        eff_vol = (2.0 * np.pi / 3.0) * delr * (delr**2 + 6.0 * r_vals**2)
+
+        # Boundary correction: at r=0, only the upper shell contributes
+        # V_eff(0) = pi*delr^3/3 (half the general formula)
+        eff_vol[0] = np.pi * delr**3 / 3.0
 
         # Box volume and particle counts
         volume = self._box_x * self._box_y * self._box_z
-        n_a = len(self._indices[0])
+        n_ref = len(self._indices[0])
 
-        if self._like_species:
-            n_b = n_a
-            n_pairs_per_frame = n_a * (n_a - 1) / 2
-        else:
-            n_b = len(self._indices[1])
-            n_pairs_per_frame = n_a * n_b
-
-        # Number density of species B
-        rho_b = n_b / volume
-
-        # Ideal gas normalisation for histogram g(r):
-        # g(r) = N_observed / N_ideal
+        # Ideal count at each bin edge:
+        # N_ideal = N_ref × (N_target / V_box) × V_eff × n_frames
         #
-        # Standard formula: g(r) = n(r) / (n_a * rho_b * V_shell * n_frames)
-        # where n(r) is the total count of pairs in the shell.
-        #
-        # For like-species, we divide by 2 to account for the fact that
-        # we only count each pair once (upper triangle).
+        # For unlike species (A-B): N_ref = N_A, N_target = N_B
+        # For like species (A-A):   Use N_ref × (N_ref - 1) / 2 to count
+        #                           each pair once (upper triangle)
         if self._like_species:
-            # For like-species: n_a * rho_b / 2 = n_a * n_b / V / 2 = n^2 / (2V)
-            ideal_count = (n_a * rho_b / 2) * shell_vol * self._frame_count
+            # Like-species: N × (N-1) / 2 pairs, density = N / V
+            ideal_count = (
+                (n_ref * (n_ref - 1) / 2) * (1.0 / volume) * eff_vol * self._frame_count
+            )
         else:
-            # For unlike-species: n_a * rho_b = n_a * n_b / V
-            ideal_count = n_a * rho_b * shell_vol * self._frame_count
+            # Unlike-species: N_ref × N_target pairs, density = N_target / V
+            n_target = len(self._indices[1])
+            rho_target = n_target / volume
+            ideal_count = n_ref * rho_target * eff_vol * self._frame_count
 
         # Compute g(r) = actual_count / ideal_count
         with np.errstate(divide='ignore', invalid='ignore'):
