@@ -79,8 +79,8 @@ class TestDeprecationWarnings:
         """Revels3D.GridState should emit DeprecationWarning."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            # Access the deprecated attribute
-            cls = Revels3D.GridState
+            # Access the deprecated attribute (assignment triggers the warning)
+            _ = Revels3D.GridState
             # Check warning was emitted
             assert len(w) == 1
             assert issubclass(w[0].category, DeprecationWarning)
@@ -90,8 +90,8 @@ class TestDeprecationWarnings:
         """Revels3D.SelectionState should emit DeprecationWarning."""
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            # Access the deprecated attribute
-            cls = Revels3D.SelectionState
+            # Access the deprecated attribute (assignment triggers the warning)
+            _ = Revels3D.SelectionState
             # Check warning was emitted
             assert len(w) == 1
             assert issubclass(w[0].category, DeprecationWarning)
