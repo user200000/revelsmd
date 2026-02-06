@@ -475,17 +475,17 @@ class TestAccumulateComputeLambda:
         assert gs.rho_lambda is None
         assert gs.lambda_weights is None
 
-    def test_rho_force_zero_before_finalisation(self, multi_frame_trajectory):
-        """rho_force is zero before accessing rho_lambda (no auto-finalisation)."""
+    def test_rho_force_none_before_access(self, multi_frame_trajectory):
+        """rho_force is None (not computed) until accessed."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
         gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
 
-        # Before accessing rho_lambda, rho_force should be zeros
-        # (get_real_density hasn't been called yet)
-        assert np.all(gs._rho_force == 0)
+        # Before accessing rho_force or rho_lambda, internal state is None
+        assert gs._rho_force is None
 
         # After accessing rho_lambda, rho_force should be computed
         _ = gs.rho_lambda
+        assert gs._rho_force is not None
         assert np.any(gs._rho_force != 0)
 
     def test_deprecated_get_lambda_uses_internal_method(
@@ -1485,3 +1485,137 @@ class TestWriteToCube:
 
         with pytest.raises((OSError, FileNotFoundError)):
             gs.write_to_cube(atoms, gs.rho_force, "/nonexistent/path/test.cube")
+
+
+# ---------------------------------------------------------------------------
+# Compute-on-demand tests for rho_force / rho_count
+# ---------------------------------------------------------------------------
+
+class TestComputeOnDemand:
+    """Tests for compute-on-demand behaviour of rho_force and rho_count."""
+
+    @pytest.fixture
+    def ts(self):
+        """Fixture providing a basic test trajectory."""
+        return TSMock()
+
+    def test_rho_force_computes_on_demand(self, ts):
+        """rho_force should compute automatically without calling get_real_density()."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Access rho_force WITHOUT calling get_real_density()
+        result = gs.rho_force
+
+        assert result is not None
+        assert result.shape == (4, 4, 4)
+        assert np.any(result != 0)
+
+    def test_rho_count_computes_on_demand(self, ts):
+        """rho_count should compute automatically without calling get_real_density()."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Access rho_count WITHOUT calling get_real_density()
+        result = gs.rho_count
+
+        assert result is not None
+        assert result.shape == (4, 4, 4)
+        assert np.any(result != 0)
+
+    def test_rho_force_is_cached(self, ts):
+        """rho_force should return the same cached object on repeated access."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        first_access = gs.rho_force
+        second_access = gs.rho_force
+
+        # Should be the exact same object (cached)
+        assert first_access is second_access
+
+    def test_rho_count_is_cached(self, ts):
+        """rho_count should return the same cached object on repeated access."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        first_access = gs.rho_count
+        second_access = gs.rho_count
+
+        # Should be the exact same object (cached)
+        assert first_access is second_access
+
+    def test_accumulate_clears_cached_densities(self, ts):
+        """accumulate() should clear cached rho_force/rho_count."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Access to cache the result
+        first_rho_force = gs.rho_force
+        assert first_rho_force is not None
+
+        # Accumulate again
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Should have cleared the cache and recomputed
+        second_rho_force = gs.rho_force
+        assert second_rho_force is not first_rho_force
+
+    def test_rho_force_returns_none_before_accumulate(self, ts):
+        """rho_force should return None before any accumulation."""
+        gs = DensityGrid(ts, "number", nbins=4)
+
+        # No accumulation yet
+        assert gs.rho_force is None
+
+    def test_rho_count_returns_none_before_accumulate(self, ts):
+        """rho_count should return None before any accumulation."""
+        gs = DensityGrid(ts, "number", nbins=4)
+
+        # No accumulation yet
+        assert gs.rho_count is None
+
+    def test_get_real_density_emits_deprecation_warning(self, ts):
+        """get_real_density() should emit a DeprecationWarning."""
+        import warnings
+
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            gs.get_real_density()
+
+        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
+        assert dep_warnings, "Expected at least one DeprecationWarning"
+        assert any("get_real_density" in str(warn.message) for warn in dep_warnings)
+
+    def test_get_real_density_still_works(self, ts):
+        """get_real_density() should still work for backward compatibility."""
+        import warnings
+
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            gs.get_real_density()
+
+        # Should have populated the densities
+        assert gs.rho_force is not None
+        assert gs.rho_count is not None
+        assert np.any(gs.rho_force != 0)
+
+    def test_rho_lambda_uses_cached_densities(self, ts):
+        """rho_lambda finalisation should use cached rho_force if available."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        # Access rho_force first (caches it)
+        rho_force_cached = gs.rho_force
+
+        # Now access rho_lambda (should use cached rho_force)
+        _ = gs.rho_lambda
+
+        # The cached rho_force should still be the same object
+        assert gs.rho_force is rho_force_cached

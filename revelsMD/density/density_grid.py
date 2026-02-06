@@ -108,9 +108,9 @@ class DensityGrid:
         # Progress flag
         self.progress = "Generated"
 
-        # Density results (populated by get_real_density or get_lambda)
-        self._rho_count = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
-        self._rho_force = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        # Density results (computed on demand when properties are accessed)
+        self._rho_count: np.ndarray | None = None
+        self._rho_force: np.ndarray | None = None
         self._rho_lambda: np.ndarray | None = None
         self._lambda_weights: np.ndarray | None = None
 
@@ -119,13 +119,21 @@ class DensityGrid:
         self._lambda_finalised = False
 
     @property
-    def rho_count(self) -> np.ndarray:
-        """Counting-based density (zeros until get_real_density or get_lambda is called)."""
+    def rho_count(self) -> np.ndarray | None:
+        """Counting-based density. Computed on first access after accumulate()."""
+        if self.progress == "Generated":
+            return None  # No data accumulated yet
+        if self._rho_count is None:
+            self._compute_real_densities()
         return self._rho_count
 
     @property
-    def rho_force(self) -> np.ndarray:
-        """Force-based density via FFT (zeros until get_real_density or get_lambda is called)."""
+    def rho_force(self) -> np.ndarray | None:
+        """Force-based density via FFT. Computed on first access after accumulate()."""
+        if self.progress == "Generated":
+            return None  # No data accumulated yet
+        if self._rho_force is None:
+            self._compute_real_densities()
         return self._rho_force
 
     @property
@@ -384,8 +392,10 @@ class DensityGrid:
             polarisation_axis=polarisation_axis,
         )
 
-        # Invalidate any previous lambda state — accumulator data is changing,
-        # so cached lambda results would be stale.
+        # Invalidate any previous derived state — accumulator data is changing,
+        # so cached results would be stale.
+        self._rho_force = None
+        self._rho_count = None
         if not compute_lambda:
             self._welford = None
         self._lambda_finalised = False
@@ -646,10 +656,9 @@ class DensityGrid:
         if self._lambda_finalised:
             return
 
-        # Compute the expected densities from full accumulation
-        self.get_real_density()
-        expected_rho_force = self._rho_force
-        expected_rho_count = self._rho_count
+        # Compute the expected densities from full accumulation (uses caching)
+        expected_rho_force = self.rho_force
+        expected_rho_count = self.rho_count
 
         if self._welford.count < 2:
             raise ValueError(
@@ -678,6 +687,10 @@ class DensityGrid:
         """
         Convert accumulated force field to real-space density via FFT.
 
+        .. deprecated::
+            Densities are now computed on demand. Access ``rho_force`` or
+            ``rho_count`` directly instead of calling this method.
+
         Notes
         -----
         Implements (Borgis et al., *Mol. Phys.* **111**, 3486-3492 (2013)):
@@ -688,6 +701,17 @@ class DensityGrid:
         ------------
         Sets `self.del_rho_k`, `self.del_rho_n`, `self.rho_count`, `self.rho_force`.
         """
+        warnings.warn(
+            "get_real_density() is deprecated and will be removed in a future version. "
+            "Access grid.rho_force or grid.rho_count directly; "
+            "densities are now computed on demand.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._compute_real_densities()
+
+    def _compute_real_densities(self) -> None:
+        """Internal: compute rho_force and rho_count from accumulators via FFT."""
         if self.progress == "Generated":
             raise RuntimeError("Run accumulate() before computing densities.")
 
@@ -999,10 +1023,7 @@ def compute_density(
         compute_lambda=compute_lambda,
         sections=sections,
     )
-    # When compute_lambda is True, densities will be finalised lazily via
-    # _finalise_lambda() (triggered on first access to rho_lambda), so we
-    # avoid an extra call to the expensive get_real_density().
-    if not compute_lambda:
-        grid.get_real_density()
+    # Densities are computed on demand when rho_force/rho_count/rho_lambda
+    # properties are accessed, so no explicit computation call is needed here.
 
     return grid
