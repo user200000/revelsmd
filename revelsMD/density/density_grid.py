@@ -423,6 +423,14 @@ class DensityGrid:
         # Get all frame indices for this trajectory segment
         frame_indices = list(self.to_run)
 
+        # Preallocate section buffers once, reused each iteration via .fill(0).
+        # This avoids O(sections) allocations which can cause significant memory
+        # churn for large grids (e.g., 100^3 grid = 32MB per allocation cycle).
+        section_force_x = np.zeros_like(self.force_x)
+        section_force_y = np.zeros_like(self.force_y)
+        section_force_z = np.zeros_like(self.force_z)
+        section_counter = np.zeros_like(self.counter)
+
         # Process each section with interleaved sampling
         for k in tqdm(range(sections), desc="Accumulating sections"):
             # Compute interleaved frame indices for this section
@@ -432,11 +440,11 @@ class DensityGrid:
             if len(section_frame_indices) == 0:
                 continue
 
-            # Temporary accumulators for this section
-            section_force_x = np.zeros_like(self.force_x)
-            section_force_y = np.zeros_like(self.force_y)
-            section_force_z = np.zeros_like(self.force_z)
-            section_counter = np.zeros_like(self.counter)
+            # Reset section accumulators
+            section_force_x.fill(0)
+            section_force_y.fill(0)
+            section_force_z.fill(0)
+            section_counter.fill(0)
             section_count = 0
 
             # Process frames in this section
@@ -451,7 +459,13 @@ class DensityGrid:
                     section_force_x, section_force_y, section_force_z, section_counter,
                     deposit_positions, deposit_forces, weights, self.kernel
                 )
-                section_count += 1
+
+                # Keep section_count semantics consistent with _process_frame/deposit:
+                # increment once per deposited array, not once per frame.
+                if isinstance(deposit_positions, list):
+                    section_count += len(deposit_positions)
+                else:
+                    section_count += 1
 
             # Add section data to main accumulators (for rho_force/rho_count)
             self.force_x += section_force_x
@@ -868,9 +882,9 @@ def compute_density(
     start: int = 0,
     stop: int | None = None,
     period: int = 1,
+    *,
     compute_lambda: bool = False,
     sections: int | None = None,
-    *,
     integration: str | None = None,  # Deprecated
 ) -> DensityGrid:
     """
@@ -922,6 +936,16 @@ def compute_density(
         Grid with computed density. Access rho_force for force-based density,
         rho_count for counting density, or rho_lambda for variance-minimised
         density (if compute_lambda=True).
+
+    Notes
+    -----
+    When ``compute_lambda=False`` (the default), this function eagerly computes
+    real-space densities via FFT before returning.
+
+    When ``compute_lambda=True``, densities are computed lazily on first access
+    to ``rho_lambda``. This avoids redundant FFT computation since lambda
+    finalisation also requires computing densities. In this case, ``rho_force``
+    and ``rho_count`` will be zero until ``rho_lambda`` is accessed.
 
     Examples
     --------

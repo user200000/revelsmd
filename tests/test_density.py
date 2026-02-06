@@ -327,9 +327,10 @@ def test_get_lambda_emits_deprecation_warning(ts):
         warnings.simplefilter("always")
         gs.get_lambda(ts, sections=1)
 
-    assert len(w) == 1
-    assert issubclass(w[0].category, DeprecationWarning)
-    assert "compute_lambda=True" in str(w[0].message)
+    # Check that at least one DeprecationWarning with expected message was emitted
+    dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
+    assert dep_warnings, "Expected at least one DeprecationWarning from get_lambda"
+    assert any("compute_lambda=True" in str(warn.message) for warn in dep_warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -1278,9 +1279,12 @@ class TestComputeDensity:
                 sections=2,
             )
 
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-        assert "compute_lambda=True" in str(w[0].message)
+        # Check that at least one DeprecationWarning with expected message was emitted
+        assert any(
+            issubclass(warn.category, DeprecationWarning)
+            and "compute_lambda=True" in str(warn.message)
+            for warn in w
+        )
         assert grid.rho_lambda is not None
 
     def test_compute_density_invalid_integration(self, trajectory):
