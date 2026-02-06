@@ -1,17 +1,19 @@
 """
-Tests for the backward-compatible revels_rdf API.
+Tests for the deprecated revels_rdf API.
 
 These tests verify that:
-1. run_rdf and run_rdf_lambda correctly delegate to the RDF class
+1. run_rdf and run_rdf_lambda still work (smoke tests)
 2. Deprecated APIs emit appropriate warnings
-3. Edge cases and validation are handled correctly
+
+The underlying RDF class functionality is tested in test_rdf_class.py.
+Species validation, edge conditions, and other detailed tests are
+covered there and not duplicated here.
 """
 
 import pytest
 import warnings
 import numpy as np
 from revelsMD.revels_rdf import run_rdf, run_rdf_lambda, RevelsRDF
-from revelsMD.trajectories import NumpyTrajectory
 
 
 class TSMock:
@@ -75,10 +77,11 @@ def ts():
 
 
 # -------------------------------
-# run_rdf (like pairs)
+# Smoke tests for deprecated functions
 # -------------------------------
 
-def test_run_rdf_like_pairs(ts):
+def test_run_rdf_returns_correct_shape(ts):
+    """run_rdf should return a (2, n) array with r and g(r)."""
     result = run_rdf(
         ts,
         atom_a="H",
@@ -90,60 +93,13 @@ def test_run_rdf_like_pairs(ts):
         rmax=True,
         from_zero=True,
     )
-    # Result should be shape (2, n)
     assert isinstance(result, np.ndarray)
     assert result.shape[0] == 2
     assert np.all(np.isfinite(result))
 
 
-# -------------------------------
-# run_rdf (unlike pairs)
-# -------------------------------
-
-def test_run_rdf_unlike_pairs(ts):
-    result = run_rdf(
-        ts,
-        atom_a="H",
-        atom_b="O",
-        delr=1.0,
-        start=0,
-        stop=2,
-        period=1,
-        rmax=False,
-        from_zero=False,
-    )
-    assert isinstance(result, np.ndarray)
-    assert result.shape[0] == 2
-    assert np.all(np.isfinite(result))
-
-
-# -------------------------------
-# run_rdf edge conditions
-# -------------------------------
-
-def test_run_rdf_start_exceeds_frames(ts):
-    """run_rdf should raise ValueError when start exceeds trajectory frames."""
-    with pytest.raises(ValueError, match="First frame index exceeds"):
-        run_rdf(ts, "H", "O", start=10)
-
-
-def test_run_rdf_stop_exceeds_frames(ts):
-    """run_rdf should raise ValueError when stop exceeds trajectory frames."""
-    with pytest.raises(ValueError, match="Final frame index exceeds"):
-        run_rdf(ts, "H", "O", stop=10)
-
-
-def test_run_rdf_empty_frame_range(ts):
-    """run_rdf should raise ValueError when frame range is empty."""
-    with pytest.raises(ValueError, match="Final frame occurs before"):
-        run_rdf(ts, "H", "O", start=2, stop=1)
-
-
-# -------------------------------
-# run_rdf_lambda
-# -------------------------------
-
-def test_run_rdf_lambda_like(ts):
+def test_run_rdf_lambda_returns_correct_shape(ts):
+    """run_rdf_lambda should return an (n, 3) array with r, g(r), and lambda."""
     result = run_rdf_lambda(
         ts,
         atom_a="H",
@@ -155,195 +111,9 @@ def test_run_rdf_lambda_like(ts):
         rmax=True,
     )
     assert isinstance(result, np.ndarray)
-    # Three columns: [r, combined RDF, lambda]
     assert result.shape[1] == 3
     assert np.all(np.isfinite(result))
     assert np.all((result[:, 2] >= -1) & (result[:, 2] <= 2))  # lambda values roughly bounded
-
-
-# -------------------------------
-# run_rdf_lambda edge conditions
-# -------------------------------
-
-def test_run_rdf_lambda_start_exceeds_frames(ts):
-    """run_rdf_lambda should raise ValueError when start exceeds trajectory frames."""
-    with pytest.raises(ValueError, match="First frame index exceeds"):
-        run_rdf_lambda(ts, "H", "O", start=10)
-
-
-def test_run_rdf_lambda_stop_exceeds_frames(ts):
-    """run_rdf_lambda should raise ValueError when stop exceeds trajectory frames."""
-    with pytest.raises(ValueError, match="Final frame index exceeds"):
-        run_rdf_lambda(ts, "H", "O", stop=10)
-
-
-def test_run_rdf_lambda_empty_frame_range(ts):
-    """run_rdf_lambda should raise ValueError when frame range is empty."""
-    with pytest.raises(ValueError, match="Final frame occurs before"):
-        run_rdf_lambda(ts, "H", "O", start=2, stop=1)
-
-
-# -------------------------------
-# Species validation tests
-# -------------------------------
-
-class TestSpeciesValidation:
-    """Test validation of species atom counts in RDF functions."""
-
-    def test_run_rdf_like_species_one_atom_raises(self):
-        """run_rdf with like-species and only 1 atom should raise ValueError."""
-        positions = np.array([[[1, 2, 3]]], dtype=float)
-        forces = np.array([[[0.1, 0.0, 0.0]]], dtype=float)
-        species = ["O"]
-
-        ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
-        )
-
-        with pytest.raises(ValueError, match="at least 2 atoms"):
-            run_rdf(ts, 'O', 'O')
-
-    def test_run_rdf_unlike_species_empty_raises(self):
-        """run_rdf with unlike-species and empty selection should raise ValueError."""
-        positions = np.array([[[1, 2, 3], [4, 5, 6]]], dtype=float)
-        forces = np.array([[[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]]], dtype=float)
-        species = ["H", "H"]
-
-        ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
-        )
-
-        with pytest.raises(ValueError, match="No atoms found for species 'O'"):
-            run_rdf(ts, 'O', 'H')
-
-    def test_run_rdf_lambda_like_species_one_atom_raises(self):
-        """run_rdf_lambda with like-species and only 1 atom should raise ValueError."""
-        positions = np.array([[[1, 2, 3]]], dtype=float)
-        forces = np.array([[[0.1, 0.0, 0.0]]], dtype=float)
-        species = ["O"]
-
-        ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
-        )
-
-        with pytest.raises(ValueError, match="at least 2 atoms"):
-            run_rdf_lambda(ts, 'O', 'O')
-
-    def test_run_rdf_lambda_unlike_species_empty_raises(self):
-        """run_rdf_lambda with unlike-species and empty selection should raise ValueError."""
-        positions = np.array([[[1, 2, 3], [4, 5, 6]]], dtype=float)
-        forces = np.array([[[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]]], dtype=float)
-        species = ["O", "O"]
-
-        ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
-        )
-
-        with pytest.raises(ValueError, match="No atoms found for species 'H'"):
-            run_rdf_lambda(ts, 'O', 'H')
-
-
-# -------------------------------
-# Tests using real NumpyTrajectory
-# -------------------------------
-
-class TestRDFWithNumpyTrajectory:
-    """Test RDF functions work with real NumpyTrajectory objects."""
-
-    def test_run_rdf_with_numpy_trajectory_state(self):
-        """run_rdf should work with a real NumpyTrajectory."""
-        positions = np.array([
-            [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
-            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
-            [[0.9, 1.9, 2.9], [3.9, 4.9, 5.9], [6.9, 7.9, 8.9]]
-        ], dtype=float)
-        forces = np.array([
-            [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
-            [[0.2, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.2]],
-            [[0.3, 0.0, 0.0], [0.0, 0.3, 0.0], [0.0, 0.0, 0.3]],
-        ], dtype=float)
-        species = ["H", "O", "H"]
-
-        ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
-        )
-
-        result = run_rdf(
-            ts,
-            atom_a="H",
-            atom_b="H",
-            delr=1.0,
-            start=0,
-            stop=2,
-            period=1,
-            rmax=True,
-            from_zero=True,
-        )
-
-        assert isinstance(result, np.ndarray)
-        assert result.shape[0] == 2
-        assert np.all(np.isfinite(result))
-
-    def test_run_rdf_lambda_with_numpy_trajectory_state(self):
-        """run_rdf_lambda should work with a real NumpyTrajectory."""
-        positions = np.array([
-            [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
-            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 8.1, 9.1]],
-            [[0.9, 1.9, 2.9], [3.9, 4.9, 5.9], [6.9, 7.9, 8.9]]
-        ], dtype=float)
-        forces = np.array([
-            [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
-            [[0.2, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.2]],
-            [[0.3, 0.0, 0.0], [0.0, 0.3, 0.0], [0.0, 0.0, 0.3]],
-        ], dtype=float)
-        species = ["H", "O", "H"]
-
-        ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
-        )
-
-        result = run_rdf_lambda(
-            ts,
-            atom_a="H",
-            atom_b="H",
-            delr=1.0,
-            start=0,
-            stop=2,
-            period=1,
-            rmax=True,
-        )
-
-        assert isinstance(result, np.ndarray)
-        assert result.shape[1] == 3
-        assert np.all(np.isfinite(result))
-
-    def test_run_rdf_stop_none_uses_all_frames(self):
-        """stop=None should use all frames (the new default behaviour)."""
-        positions = np.array([
-            [[1, 2, 3], [4, 5, 6]],
-            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1]],
-            [[0.9, 1.9, 2.9], [3.9, 4.9, 5.9]],
-            [[1.2, 2.2, 3.2], [4.2, 5.2, 6.2]],
-        ], dtype=float)
-        forces = np.ones_like(positions) * 0.1
-        species = ["H", "H"]
-
-        ts = NumpyTrajectory(
-            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
-        )
-
-        # With stop=None, should process all 4 frames
-        result = run_rdf(
-            ts,
-            atom_a="H",
-            atom_b="H",
-            delr=1.0,
-            stop=None,
-            rmax=True,
-        )
-
-        assert isinstance(result, np.ndarray)
-        assert result.shape[0] == 2
 
 
 # -------------------------------

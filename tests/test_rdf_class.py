@@ -263,3 +263,55 @@ class TestRDFSpeciesValidation:
 
         with pytest.raises(ValueError, match="No atoms found for species 'H'"):
             RDF(ts, 'O', 'H')
+
+
+class TestRDFValidation:
+    """Test input validation for RDF methods."""
+
+    def test_get_rdf_invalid_integration_raises(self, water_trajectory):
+        """get_rdf with invalid integration should raise ValueError."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+
+        with pytest.raises(ValueError, match="integration must be"):
+            rdf.get_rdf(integration='invalid')
+
+    def test_compute_rdf_invalid_integration_raises(self, water_trajectory):
+        """compute_rdf with invalid integration should raise ValueError."""
+        from revelsMD.rdf import compute_rdf
+
+        with pytest.raises(ValueError, match="integration must be"):
+            compute_rdf(water_trajectory, 'O', 'H', integration='invalid')
+
+
+class TestRDFAccumulatePeriod:
+    """Test that accumulate period parameter affects frame sampling."""
+
+    def test_accumulate_period_affects_frame_count(self, water_trajectory):
+        """accumulate with period=2 should process half as many frames."""
+        from revelsMD.rdf import RDF
+
+        # Full trajectory (3 frames)
+        rdf1 = RDF(water_trajectory, 'O', 'H')
+        rdf1.accumulate(water_trajectory, period=1)
+
+        # Every other frame (period=2, so frames 0, 2 = 2 frames)
+        rdf2 = RDF(water_trajectory, 'O', 'H')
+        rdf2.accumulate(water_trajectory, period=2)
+
+        # Period=2 should have accumulated fewer frames
+        assert rdf2._frame_count < rdf1._frame_count
+
+    def test_accumulate_period_parameter_is_used(self, water_trajectory):
+        """accumulate period parameter is passed to frame iteration."""
+        from revelsMD.rdf import RDF
+
+        # This test verifies that period is actually used by checking that
+        # the _frame_count reflects the expected number of frames processed
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory, start=0, stop=3, period=2)
+
+        # With period=2, frames 0 and 2 are processed (2 frames total)
+        assert rdf._frame_count == 2

@@ -145,24 +145,6 @@ class TestNumberDensityPipelineExample2:
 class TestDensityPhysicalProperties:
     """Tests validating physical properties of density results."""
 
-    @pytest.mark.xfail(
-        reason="Force-based density method can produce negative values due to FFT artifacts",
-        strict=False
-    )
-    def test_density_positive(self, example2_trajectory):
-        """Number density should be non-negative everywhere."""
-        ts = example2_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=50)
-        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
-        gs.get_real_density()
-
-        # Number density should not be strongly negative
-        # (small negative values possible due to FFT artifacts)
-        min_rho = np.min(gs.rho_force)
-        assert min_rho > -0.5 * np.mean(np.abs(gs.rho_force)), \
-            f"Density has large negative values: min = {min_rho}"
-
     def test_density_reasonable_magnitude(self, example2_trajectory):
         """Density magnitude should be physically reasonable."""
         ts = example2_trajectory

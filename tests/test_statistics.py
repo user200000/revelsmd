@@ -43,10 +43,13 @@ class TestComputeLambdaWeights:
 
     def test_inf_result_produces_replacement(self):
         """Inf from division produces replacement value."""
+        import warnings
         # Very small variance can produce inf
         variance = np.array([1e-320])  # subnormal
         covariance = np.array([1.0])
-        result = compute_lambda_weights(variance, covariance)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            result = compute_lambda_weights(variance, covariance)
         assert np.isfinite(result[0])
 
     def test_negative_covariance(self):

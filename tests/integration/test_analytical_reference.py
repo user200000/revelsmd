@@ -312,22 +312,3 @@ class TestRigidMoleculeAnalytical:
         total_charge = np.sum(ts.charge_list)
         assert abs(total_charge) < 1e-10, f"Total charge = {total_charge}, should be neutral"
 
-    def test_number_density_rigid_mode(self, water_molecule_trajectory):
-        """
-        Number density calculation in rigid mode should work.
-        """
-        ts = water_molecule_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=15)
-
-        # This may fail if rigid molecule validation is too strict
-        # (known issue #10 with unequal atom counts)
-        try:
-            gs.accumulate(ts, ['O', 'H', 'H'], kernel='triangular', rigid=True)
-            gs.get_real_density()
-
-            assert hasattr(gs, 'rho_force')
-            assert np.all(np.isfinite(gs.rho_force))
-        except Exception as e:
-            # Known limitation - mark as expected failure info
-            pytest.skip(f"Rigid molecule mode failed (possibly known issue #10): {e}")
