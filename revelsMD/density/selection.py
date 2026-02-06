@@ -112,25 +112,6 @@ class Selection:
             if needs_masses:
                 self.masses = trajectory.get_masses(atom_names)
 
-    def position_centre(self, species_number: int) -> None:
-        """
-        Set the active species index within a rigid group as the position center.
-
-        Parameters
-        ----------
-        species_number : int
-            Index into the multi-species selection list.
-
-        Raises
-        ------
-        ValueError
-            If `species_number` is out of range for the current selection.
-        """
-        if isinstance(self.indices, list) and species_number < len(self.indices):
-            self.species_number = species_number
-        else:
-            raise ValueError("species_number out of range for current selection.")
-
     def get_positions(self, positions: np.ndarray) -> np.ndarray | list[np.ndarray]:
         """
         Extract deposit positions from a frame based on selection configuration.
