@@ -310,7 +310,7 @@ def test_get_lambda_basic(ts):
     gs.get_real_density()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
-        gs.get_lambda(ts, sections=1)
+        gs.get_lambda(ts, sections=2)
     assert gs.progress == "Lambda"
     assert gs.rho_lambda is not None
     assert gs.rho_lambda.shape == gs.rho_force.shape
@@ -325,7 +325,7 @@ def test_get_lambda_emits_deprecation_warning(ts):
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        gs.get_lambda(ts, sections=1)
+        gs.get_lambda(ts, sections=2)
 
     # Check that at least one DeprecationWarning with expected message was emitted
     dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
@@ -546,6 +546,17 @@ class TestAccumulateComputeLambda:
         )
         assert gs._welford is None
         assert gs._rho_lambda is None
+
+    def test_rho_lambda_raises_with_insufficient_sections(self, multi_frame_trajectory):
+        """Accessing rho_lambda with < 2 sections raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=1, start=0, stop=1
+        )
+
+        with pytest.raises(ValueError, match="fewer than 2 sections"):
+            _ = gs.rho_lambda
 
 
 # ---------------------------------------------------------------------------

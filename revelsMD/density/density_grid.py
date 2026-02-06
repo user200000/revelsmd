@@ -647,16 +647,10 @@ class DensityGrid:
         expected_rho_count = self._rho_count
 
         if self._welford.count < 2:
-            # Cannot compute variance with < 2 sections; fall back to uniform weights
-            self._lambda_weights = np.full_like(expected_rho_count, 0.5)
-            self._rho_lambda = combine_estimators(
-                expected_rho_count,
-                expected_rho_force,
-                self._lambda_weights,
+            raise ValueError(
+                f"Cannot compute lambda with fewer than 2 sections (have {self._welford.count}). "
+                "Use sections >= 2 or accumulate from additional trajectories."
             )
-            self._lambda_finalised = True
-            self.progress = "Lambda"
-            return
 
         # Finalise Welford statistics
         var_buffer, cov_buffer_force = self._welford.finalise()
