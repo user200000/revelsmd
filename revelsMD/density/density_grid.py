@@ -660,6 +660,11 @@ class DensityGrid:
         expected_rho_force = self.rho_force
         expected_rho_count = self.rho_count
 
+        # These can't be None here - we've accumulated data (progress != "Generated")
+        # and the properties trigger computation if needed
+        assert expected_rho_force is not None
+        assert expected_rho_count is not None
+
         if self._welford.count < 2:
             raise ValueError(
                 f"Cannot compute lambda with fewer than 2 sections (have {self._welford.count}). "
@@ -746,21 +751,9 @@ class DensityGrid:
         self.del_rho_n = -1.0 * np.real(del_rho_n)
 
         # Conventional counting density (averaged)
-        self._compute_rho_count()
-        self._rho_force = self.del_rho_n + np.mean(self._rho_count)
-
-    def _compute_rho_count(self) -> None:
-        """
-        Compute conventional counting-based density from `self.counter`.
-
-        Side Effects
-        ------------
-        Sets `self._rho_count`.
-        """
-        if self.progress == "Generated":
-            raise RuntimeError("Run accumulate() before computing densities.")
         with np.errstate(divide="ignore", invalid="ignore"):
             self._rho_count = self.counter / self.voxel_volume / self.count
+        self._rho_force = self.del_rho_n + np.mean(self._rho_count)
 
     def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
