@@ -402,12 +402,12 @@ class TestAccumulateComputeLambda:
         assert gs._welford.has_data
 
     def test_accumulate_compute_lambda_default_sections(self, multi_frame_trajectory):
-        """accumulate() with compute_lambda=True uses default 10 sections."""
+        """accumulate() with compute_lambda=True defaults to one section per frame."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
         gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
 
-        # Default is 10 sections, but we only have 10 frames so may be fewer
-        assert gs._welford.count >= 2
+        # Default is one section per frame (10 frames = 10 sections)
+        assert gs._welford.count == 10
 
     def test_accumulate_compute_lambda_custom_sections(self, multi_frame_trajectory):
         """accumulate() with compute_lambda=True accepts custom sections."""

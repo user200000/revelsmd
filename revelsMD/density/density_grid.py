@@ -257,9 +257,6 @@ class DensityGrid:
                 raise TypeError("weights cannot be a list when positions is a single array")
             self._process_frame(positions, forces, weight=weights, kernel=kernel)
 
-    # Default number of sections for lambda estimation
-    DEFAULT_LAMBDA_SECTIONS = 10
-
     def accumulate(
         self,
         trajectory: Trajectory,
@@ -308,7 +305,8 @@ class DensityGrid:
             lambda overhead).
         sections : int or None, optional
             Number of sections for lambda estimation. Only used when
-            compute_lambda=True. If None, uses default of 10.
+            compute_lambda=True. If None, defaults to one section per frame
+            (matching the original get_lambda behaviour).
 
         Raises
         ------
@@ -377,7 +375,8 @@ class DensityGrid:
             self._accumulate_simple(trajectory, start, stop, period)
         else:
             # Sectioned accumulation with lambda statistics
-            effective_sections = sections if sections is not None else self.DEFAULT_LAMBDA_SECTIONS
+            # Default to one section per frame (matches original get_lambda behaviour)
+            effective_sections = sections if sections is not None else len(self.to_run)
             self._accumulate_with_sections(trajectory, start, stop, period, effective_sections)
 
         self.frames_processed = self.to_run
@@ -610,10 +609,6 @@ class DensityGrid:
         if self._welford is None or not self._welford.has_data:
             return
 
-        if self._welford.count < 2:
-            # Cannot compute variance with < 2 sections
-            return
-
         if self._lambda_finalised:
             return
 
@@ -621,6 +616,17 @@ class DensityGrid:
         self.get_real_density()
         expected_rho_force = self._rho_force
         expected_rho_count = self._rho_count
+
+        if self._welford.count < 2:
+            # Cannot compute variance with < 2 sections; fall back to uniform weights
+            self._lambda_weights = np.full_like(expected_rho_count, 0.5)
+            self._rho_lambda = combine_estimators(
+                expected_rho_count,
+                expected_rho_force,
+                self._lambda_weights,
+            )
+            self._lambda_finalised = True
+            return
 
         # Finalise Welford statistics
         var_buffer, cov_buffer_force = self._welford.finalise()
@@ -812,9 +818,8 @@ class DensityGrid:
         Notes
         -----
         After this method completes, the internal accumulators (force_x/y/z, counter)
-        will contain only the last section's data, not the full trajectory. This means
-        rho_force and rho_count will no longer reflect the full accumulation — only
-        rho_lambda should be used after calling this method.
+        will contain the full trajectory data (not just the last section as in
+        previous versions).
         """
         warnings.warn(
             "get_lambda() is deprecated. Use accumulate(..., compute_lambda=True) instead: "
@@ -830,54 +835,26 @@ class DensityGrid:
         if sections is None:
             sections = trajectory.frames
 
-        # Baseline expectation from full accumulation
-        self.get_real_density()
-        expected_rho_force = np.copy(self._rho_force)
-        expected_rho_count = np.copy(self._rho_count)
-        delta = expected_rho_force - expected_rho_count
+        # Reset accumulators for fresh re-accumulation with sections
+        self.force_x.fill(0)
+        self.force_y.fill(0)
+        self.force_z.fill(0)
+        self.counter.fill(0)
+        self.count = 0
+        self._welford = None
+        self._lambda_finalised = False
 
-        # Covariance/variance accumulators (local, not stored)
-        cov_buffer_force = np.zeros((self.nbinsx, self.nbinsy, self.nbinsz))
-        var_buffer = np.zeros((self.nbinsx, self.nbinsy, self.nbinsz))
-
-        # Interleaved accumulation across sections
-        for k in tqdm(range(sections)):
-            # Reset accumulators for this section
-            self.force_x.fill(0)
-            self.force_y.fill(0)
-            self.force_z.fill(0)
-            self._rho_count.fill(0)
-            self.counter.fill(0)
-            self.del_rho_k.fill(0)
-            self.del_rho_n.fill(0)
-            self._rho_force.fill(0)
-            self.count = 0
-
-            # Frame indices for this section (interleaved sampling)
-            frame_indices = np.array(self.to_run)[
-                np.arange(k, sections * (len(self.to_run) // sections), sections)
-            ]
-            for frame_idx in frame_indices:
-                positions, forces = trajectory.get_frame(frame_idx)
-                deposit_positions = self._selection.get_positions(positions)
-                deposit_forces = self._selection.get_forces(forces)
-                weights = self._selection.get_weights(positions)
-                self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
-
-            # Compute densities for this section and accumulate statistics
-            self.get_real_density()
-            delta_cur = self._rho_force - self._rho_count
-            var_buffer += (delta_cur - delta) ** 2
-            cov_buffer_force += (delta_cur - delta) * (self._rho_force - expected_rho_force)
-
-        # lambda = 1 - cov(force)/var(delta); optimal density = (1-lambda)*count + lambda*force
-        lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
-        self._lambda_weights = 1.0 - lambda_raw
-        self._rho_lambda = combine_estimators(
-            expected_rho_count,
-            expected_rho_force,
-            self._lambda_weights,
+        # Use the new internal method to accumulate with variance statistics
+        self._accumulate_with_sections(
+            trajectory,
+            start=self.to_run[0] if self.to_run else 0,
+            stop=self.to_run[-1] + 1 if self.to_run else None,
+            period=1,
+            sections=sections,
         )
+
+        # Finalise lambda computation
+        self._finalise_lambda()
         self.progress = "Lambda"
 
 
@@ -936,7 +913,7 @@ def compute_density(
         grid.rho_lambda. Default is False (faster, no lambda overhead).
     sections : int or None, optional
         Number of sections for lambda estimation. Only used when
-        compute_lambda=True. If None, uses default of 10.
+        compute_lambda=True. If None, defaults to one section per frame.
     integration : str, optional
         .. deprecated::
             Use ``compute_lambda=True`` instead of ``integration='lambda'``.
@@ -955,7 +932,7 @@ def compute_density(
     >>> density = grid.rho_force
 
     >>> # With variance-minimised lambda estimation
-    >>> grid = compute_density(trajectory, 'O', compute_lambda=True, sections=10)
+    >>> grid = compute_density(trajectory, 'O', compute_lambda=True)
     >>> density = grid.rho_lambda
     """
     # Handle deprecated integration parameter
