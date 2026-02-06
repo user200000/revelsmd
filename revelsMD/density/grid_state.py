@@ -514,7 +514,9 @@ class DensityGrid:
         Notes
         -----
         After this method completes, the internal accumulators (forceX/Y/Z, counter)
-        will contain only the last section's data, not the full trajectory.
+        will contain only the last section's data, not the full trajectory. This means
+        rho_force and rho_count will no longer reflect the full accumulation — only
+        rho_lambda should be used after calling this method.
         """
         if self.grid_progress == "Generated":
             raise RuntimeError("Run make_force_grid before estimating lambda.")
