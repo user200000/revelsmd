@@ -306,7 +306,9 @@ class DensityGrid:
         sections : int or None, optional
             Number of sections for lambda estimation. Only used when
             compute_lambda=True. If None, defaults to one section per frame
-            (matching the original get_lambda behaviour).
+            (matching the original get_lambda behaviour). At least 2 sections
+            are required across all ``accumulate()`` calls for variance
+            estimation; accessing ``rho_lambda`` with fewer raises ValueError.
 
         Notes
         -----
@@ -322,7 +324,9 @@ class DensityGrid:
         ------
         ValueError
             On invalid frame selection, unsupported density/kernel combinations,
-            or malformed inputs for rigid/centre options.
+            malformed inputs for rigid/centre options, or if ``rho_lambda`` is
+            accessed with fewer than 2 accumulated sections (variance estimation
+            requires at least 2 data points).
         """
         # --- Validate atom_names ---
         if isinstance(atom_names, str):
@@ -433,8 +437,9 @@ class DensityGrid:
                 shape=(self.nbinsx, self.nbinsy, self.nbinsz)
             )
 
-        # Get all frame indices for this trajectory segment
-        frame_indices = list(self.to_run)
+        # self.to_run is a range, which supports slicing without materialising
+        # all indices into a list. This avoids memory overhead for large trajectories.
+        frame_indices = self.to_run
 
         # Preallocate section buffers once, reused each iteration via .fill(0).
         # This avoids O(sections) allocations which can cause significant memory
@@ -824,7 +829,8 @@ class DensityGrid:
             Trajectory-state providing per-frame positions and forces.
         sections : int, optional
             Number of interleaved frame-subsets used to accumulate covariance
-            buffers. If None, defaults to `trajectory.frames`.
+            buffers. If None, defaults to `trajectory.frames`. Must be >= 2
+            for variance estimation (a ValueError is raised otherwise).
 
         Returns
         -------
@@ -838,7 +844,9 @@ class DensityGrid:
         RuntimeError
             If called before `accumulate`.
         ValueError
-            If called on a grid already produced by `get_lambda`.
+            If called on a grid already produced by `get_lambda`, or if
+            fewer than 2 sections are accumulated (variance estimation
+            requires at least 2 data points).
 
         Notes
         -----
