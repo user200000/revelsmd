@@ -507,6 +507,46 @@ class TestAccumulateComputeLambda:
         assert gs._lambda_finalised is True
         assert gs.progress == "Lambda"
 
+    def test_multi_trajectory_lambda_accumulation(self, multi_frame_trajectory):
+        """Lambda statistics accumulate across multiple accumulate() calls."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First accumulation with 5 sections
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5, start=0, stop=5
+        )
+        assert gs._welford.count == 5
+
+        # Second accumulation adds more sections
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5, start=5, stop=10
+        )
+        assert gs._welford.count == 10  # Combined from both calls
+
+        # Lambda uses combined statistics
+        rho = gs.rho_lambda
+        assert rho is not None
+        assert gs._lambda_finalised is True
+
+    def test_compute_lambda_false_clears_welford(self, multi_frame_trajectory):
+        """accumulate(compute_lambda=False) clears any existing Welford state."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # Accumulate with lambda
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H", compute_lambda=True
+        )
+        assert gs._welford is not None
+
+        # Accumulate without lambda clears the Welford
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H", compute_lambda=False
+        )
+        assert gs._welford is None
+        assert gs._rho_lambda is None
+
 
 # ---------------------------------------------------------------------------
 # Mock trajectory for Selection tests (water molecules)

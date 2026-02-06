@@ -370,6 +370,14 @@ class DensityGrid:
             polarisation_axis=polarisation_axis,
         )
 
+        # Invalidate any previous lambda state — accumulator data is changing,
+        # so cached lambda results would be stale.
+        if not compute_lambda:
+            self._welford = None
+        self._lambda_finalised = False
+        self._rho_lambda = None
+        self._lambda_weights = None
+
         if not compute_lambda:
             # Simple accumulation (existing behaviour, fast path)
             self._accumulate_simple(trajectory, start, stop, period)
@@ -414,11 +422,6 @@ class DensityGrid:
             self._welford = WelfordAccumulator3D(
                 shape=(self.nbinsx, self.nbinsy, self.nbinsz)
             )
-
-        # Invalidate any previous lambda finalisation
-        self._lambda_finalised = False
-        self._rho_lambda = None
-        self._lambda_weights = None
 
         # Get all frame indices for this trajectory segment
         frame_indices = list(self.to_run)
