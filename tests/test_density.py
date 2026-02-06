@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-from pathlib import Path
 from ase import Atoms
 
 from revelsMD.density import DensityGrid, Selection

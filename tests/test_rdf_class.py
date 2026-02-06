@@ -315,3 +315,155 @@ class TestRDFAccumulatePeriod:
 
         # With period=2, frames 0 and 2 are processed (2 frames total)
         assert rdf._frame_count == 2
+
+
+class TestRDFCountAccumulation:
+    """Test histogram-based g(r) accumulation."""
+
+    def test_counts_accumulator_initialised(self, water_trajectory):
+        """RDF should have _counts array initialised to zeros."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+
+        assert hasattr(rdf, '_counts')
+        assert rdf._counts.shape == rdf._accumulated.shape
+        np.testing.assert_array_equal(rdf._counts, 0)
+
+    def test_counts_accumulated_after_deposit(self):
+        """Counts should be non-zero after depositing frames."""
+        from revelsMD.rdf import RDF
+
+        # Create trajectory with atoms close enough to be within rmax
+        # Two H atoms at positions (0,0,0) and (2,0,0) - distance 2.0
+        positions = np.array([
+            [[0, 0, 0], [2, 0, 0]],
+        ], dtype=float)
+        forces = np.array([
+            [[0.1, 0, 0], [0.1, 0, 0]],
+        ], dtype=float)
+        species = ['H', 'H']
+
+        ts = NumpyTrajectory(
+            positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
+        )
+
+        rdf = RDF(ts, 'H', 'H')
+        pos, frc = ts.get_frame(0)
+        rdf.deposit(pos, frc)
+
+        # Distance is 2.0, rmax is 5.0, delr is 0.01, so should be in bins
+        assert np.sum(rdf._counts) > 0
+
+    def test_g_count_property_available_after_get_rdf(self, water_trajectory):
+        """g_count property available after get_rdf."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='forward')
+
+        assert rdf.g_count is not None
+        assert len(rdf.g_count) > 0
+
+    def test_g_force_property_available_after_get_rdf(self, water_trajectory):
+        """g_force property available (alias for g)."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='forward')
+
+        assert rdf.g_force is not None
+        # g_force should be same as g
+        np.testing.assert_array_equal(rdf.g_force, rdf.g)
+
+    def test_g_count_same_length_as_g_force(self, water_trajectory):
+        """g_count and g_force have the same length (both at bin edges)."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='forward')
+
+        assert len(rdf.g_count) == len(rdf.g_force)
+
+    def test_g_count_uses_same_r_as_g_force(self, water_trajectory):
+        """g_count corresponds to the same r values as g_force."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='forward')
+
+        # Both should have length matching r
+        assert len(rdf.g_count) == len(rdf.r)
+        assert len(rdf.g_force) == len(rdf.r)
+
+    def test_g_count_is_none_before_get_rdf(self, water_trajectory):
+        """g_count is None before calling get_rdf."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+
+        assert rdf.g_count is None
+
+    def test_g_force_is_none_before_get_rdf(self, water_trajectory):
+        """g_force is None before calling get_rdf."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+
+        assert rdf.g_force is None
+
+    def test_g_count_lambda_integration(self, water_trajectory):
+        """g_count should work with lambda integration."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='lambda')
+
+        assert rdf.g_count is not None
+        # For lambda, r is trimmed to bins[1:], so g_count should match
+        assert len(rdf.g_count) == len(rdf.r)
+
+    def test_g_count_backward_integration(self, water_trajectory):
+        """g_count should work with backward integration."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='backward')
+
+        assert rdf.g_count is not None
+        assert len(rdf.g_count) == len(rdf.r)
+
+
+class TestRDFBackendSelection:
+    """Test that RDF class uses backend-selected functions."""
+
+    def test_rdf_uses_numba_backend_when_available(self, water_trajectory):
+        """RDF should use Numba functions when numba is available."""
+        pytest.importorskip('numba')
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+
+        # Check that the instance methods are from the numba module
+        assert 'numba' in rdf._compute_pairwise.__module__
+        assert 'numba' in rdf._accumulate_binned.__module__
+        assert 'numba' in rdf._accumulate_triangular.__module__
+
+    def test_rdf_stores_backend_functions_as_instance_methods(self, water_trajectory):
+        """RDF should store backend functions as instance methods."""
+        from revelsMD.rdf import RDF
+
+        rdf = RDF(water_trajectory, 'O', 'H')
+
+        # These should be callable
+        assert callable(rdf._compute_pairwise)
+        assert callable(rdf._accumulate_binned)
+        assert callable(rdf._accumulate_triangular)

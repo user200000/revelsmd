@@ -22,7 +22,7 @@ class TestRDFAnalyticalReference:
         Uniform random gas should have g(r) approaching 1 at large r.
 
         The backward integration should give g(r)~1 in bulk.
-        The forward integration starts from 0 and accumulates.
+        Uses bulk region 2.0 < r < 4.5 to avoid edge effects.
         """
         ts = uniform_gas_trajectory
 
@@ -33,12 +33,13 @@ class TestRDFAnalyticalReference:
         assert rdf.g is not None
         assert np.all(np.isfinite(rdf.g))
 
-        # Beyond short-range (r > 2), g(r) should be close to 1
-        # Allow generous tolerance due to finite-size effects and statistics
-        mask = rdf.r > 2.0
-        if np.any(mask):
-            mean_gr = np.mean(rdf.g[mask])
-            assert abs(mean_gr - 1.0) < 0.5, f"Mean g(r) in bulk region = {mean_gr}, expected ~1.0"
+        # Use bulk region away from both short-range and cutoff edges
+        mask = (rdf.r > 2.0) & (rdf.r < 4.5)
+        assert np.any(mask), "No bins in bulk region"
+
+        mean_gr = np.mean(rdf.g[mask])
+        # Force-based g(r) has more variance due to integration
+        assert abs(mean_gr - 1.0) < 0.3, f"Mean g(r) in bulk region = {mean_gr}, expected ~1.0"
 
     def test_two_atoms_rdf_peak_at_separation(self, two_atom_trajectory):
         """
@@ -311,4 +312,101 @@ class TestRigidMoleculeAnalytical:
         # Check charge neutrality
         total_charge = np.sum(ts.charge_list)
         assert abs(total_charge) < 1e-10, f"Total charge = {total_charge}, should be neutral"
+
+
+@pytest.mark.analytical
+@pytest.mark.integration
+class TestHistogramRDFAnalytical:
+    """Tests for histogram-based g(r) against known analytical results."""
+
+    def test_uniform_gas_histogram_rdf_approaches_unity(self, uniform_gas_trajectory):
+        """
+        Uniform random gas should have histogram g(r) ~ 1 at all r.
+
+        This is the key validation: for an ideal gas, g_count should be ~1.0
+        everywhere, unlike force-based g(r) which requires integration.
+
+        Excludes r < 0.5 where statistical fluctuations are larger due to the
+        small shell volume (not a boundary effect, just finite statistics).
+        With 500 atoms and 50 frames, expect mean within 0.01 of 1.0.
+        """
+        ts = uniform_gas_trajectory
+
+        rdf = compute_rdf(ts, '1', '1', delr=0.1, integration='backward')
+
+        assert rdf.g_count is not None
+        assert np.all(np.isfinite(rdf.g_count))
+
+        # Exclude small r where shell volume is tiny and statistics are poor
+        # This is a finite-size effect, not a boundary effect
+        valid_mask = rdf.r > 0.5
+        assert np.any(valid_mask), "No valid bins"
+
+        mean_g_count = np.mean(rdf.g_count[valid_mask])
+        assert abs(mean_g_count - 1.0) < 0.01, f"Mean g_count = {mean_g_count}, expected ~1.0"
+
+    def test_two_atoms_histogram_shows_peak(self, two_atom_trajectory):
+        """
+        Two atoms at fixed separation should show peak in histogram g(r).
+
+        The peak should be at the separation distance, smoothed by the
+        triangular kernel.
+        """
+        ts = two_atom_trajectory
+
+        rdf = compute_rdf(ts, '1', '1', delr=0.1, integration='forward')
+
+        assert rdf.g_count is not None
+        assert np.all(np.isfinite(rdf.g_count))
+
+        # Find peak in histogram g(r)
+        peak_idx = np.argmax(rdf.g_count)
+        peak_r = rdf.r[peak_idx]
+
+        # Peak should be near r = 3.0 (the separation distance)
+        expected_separation = 3.0
+        assert abs(peak_r - expected_separation) < 0.5, \
+            f"Peak at r = {peak_r}, expected near {expected_separation}"
+
+    def test_histogram_and_force_consistency(self, uniform_gas_trajectory):
+        """
+        For equilibrium systems, histogram and force-based g(r) should agree in bulk.
+
+        Both g_count and g_force should be approximately 1.0 for a uniform gas.
+        Excludes r < 0.5 due to poor statistics at small r (tiny shell volume).
+        """
+        ts = uniform_gas_trajectory
+
+        rdf = compute_rdf(ts, '1', '1', delr=0.2, integration='backward')
+
+        assert rdf.g_count is not None
+        assert rdf.g_force is not None
+
+        # Exclude small r where shell volume is tiny and statistics are poor
+        valid_mask = rdf.r > 0.5
+        assert np.any(valid_mask), "No valid bins"
+
+        g_count_mean = np.mean(rdf.g_count[valid_mask])
+        g_force_mean = np.mean(rdf.g_force[valid_mask])
+
+        # Histogram g(r) should be very close to 1 (tight tolerance)
+        assert abs(g_count_mean - 1.0) < 0.02, f"g_count mean = {g_count_mean}"
+        # Force-based g(r) has more variance due to integration
+        assert abs(g_force_mean - 1.0) < 0.3, f"g_force mean = {g_force_mean}"
+
+    def test_g_count_lambda_integration(self, uniform_gas_trajectory):
+        """
+        g_count should be available and consistent with lambda integration.
+        """
+        ts = uniform_gas_trajectory
+
+        rdf = compute_rdf(ts, '1', '1', delr=0.2, integration='lambda')
+
+        assert rdf.g_count is not None
+        assert rdf.g_force is not None
+        assert rdf.lam is not None
+
+        # Lengths should match
+        assert len(rdf.g_count) == len(rdf.r)
+        assert len(rdf.g_force) == len(rdf.r)
 
