@@ -4,7 +4,10 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "revelsMD"
-authors = [{name = "Samuel Coles", email = "swc57@bath.ac.uk"}]
+authors = [
+    {name = "Samuel Coles", email = "swc57@bath.ac.uk"},
+    {name = "Benjamin J. Morgan", email = "b.j.morgan@bath.ac.uk"}
+]
 dynamic = ["version", "description"]
 license = {file = "LICENSE"}
 requires-python = ">=3.11"
