@@ -487,6 +487,25 @@ class TestAccumulateComputeLambda:
         _ = gs.rho_lambda
         assert np.any(gs._rho_force != 0)
 
+    def test_deprecated_get_lambda_uses_internal_method(
+        self, multi_frame_trajectory
+    ):
+        """Deprecated get_lambda() delegates to _accumulate_with_sections()."""
+        import warnings
+
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            gs.get_lambda(multi_frame_trajectory, sections=5)
+
+        # Verify it used the Welford accumulator internally
+        assert gs._welford is not None
+        assert gs._welford.count == 5
+        assert gs._lambda_finalised is True
+        assert gs.progress == "Lambda"
+
 
 # ---------------------------------------------------------------------------
 # Mock trajectory for Selection tests (water molecules)

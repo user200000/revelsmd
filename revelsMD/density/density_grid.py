@@ -375,9 +375,11 @@ class DensityGrid:
             self._accumulate_simple(trajectory, start, stop, period)
         else:
             # Sectioned accumulation with lambda statistics
+            if sections is not None and sections <= 0:
+                raise ValueError("sections must be a positive integer")
             # Default to one section per frame (matches original get_lambda behaviour)
             effective_sections = sections if sections is not None else len(self.to_run)
-            self._accumulate_with_sections(trajectory, start, stop, period, effective_sections)
+            self._accumulate_with_sections(trajectory, effective_sections)
 
         self.frames_processed = self.to_run
         self.progress = "Allocated"
@@ -401,12 +403,12 @@ class DensityGrid:
     def _accumulate_with_sections(
         self,
         trajectory: Trajectory,
-        start: int,
-        stop: int | None,
-        period: int,
         sections: int,
     ) -> None:
-        """Accumulate while collecting lambda statistics via Welford's algorithm."""
+        """Accumulate while collecting lambda statistics via Welford's algorithm.
+
+        Uses self.to_run (set by accumulate()) for frame indices.
+        """
         # Initialise Welford accumulator if first call with compute_lambda
         if self._welford is None:
             self._welford = WelfordAccumulator3D(
@@ -626,6 +628,7 @@ class DensityGrid:
                 self._lambda_weights,
             )
             self._lambda_finalised = True
+            self.progress = "Lambda"
             return
 
         # Finalise Welford statistics
@@ -643,6 +646,7 @@ class DensityGrid:
         )
 
         self._lambda_finalised = True
+        self.progress = "Lambda"
 
     def get_real_density(self) -> None:
         """
@@ -845,13 +849,7 @@ class DensityGrid:
         self._lambda_finalised = False
 
         # Use the new internal method to accumulate with variance statistics
-        self._accumulate_with_sections(
-            trajectory,
-            start=self.to_run[0] if self.to_run else 0,
-            stop=self.to_run[-1] + 1 if self.to_run else None,
-            period=1,
-            sections=sections,
-        )
+        self._accumulate_with_sections(trajectory, sections)
 
         # Finalise lambda computation
         self._finalise_lambda()
@@ -962,6 +960,10 @@ def compute_density(
         compute_lambda=compute_lambda,
         sections=sections,
     )
-    grid.get_real_density()
+    # When compute_lambda is True, densities will be finalised lazily via
+    # _finalise_lambda() (triggered on first access to rho_lambda), so we
+    # avoid an extra call to the expensive get_real_density().
+    if not compute_lambda:
+        grid.get_real_density()
 
     return grid
