@@ -92,7 +92,7 @@ class TestDeposit:
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
-        assert np.any(gs.forceX != 0)
+        assert np.any(gs.force_x != 0)
         assert np.any(gs.counter != 0)
         assert gs.count == 1
 
@@ -117,7 +117,7 @@ class TestDeposit:
         # Rigid deposits once per molecule group
         assert gs.count == 1
         assert np.any(gs.counter != 0)
-        assert np.any(gs.forceX != 0)
+        assert np.any(gs.force_x != 0)
 
     def test_deposit_charge_density_single_species(self, trajectory, positions, forces):
         """deposit with charge density uses charge weights."""
@@ -130,9 +130,18 @@ class TestDeposit:
         assert np.any(gs.counter != 0)
         assert gs.count == 1
 
+    def test_deposit_list_positions_array_forces_raises(self, trajectory, positions, forces):
+        """deposit raises TypeError when positions is list but forces is array."""
+        gs = DensityGrid(trajectory, "number", nbins=5)
+
+        # positions as list of arrays, forces as single array
+        positions_list = [positions[:3], positions[3:6], positions[6:]]
+        with pytest.raises(TypeError, match="positions and forces must both be lists or both be arrays"):
+            gs.deposit(positions_list, forces, weights=1.0)
+
 
 class TestMakeForceGridUnified:
-    """Test that make_force_grid using unified approach gives same results."""
+    """Test that accumulate using unified approach gives same results."""
 
     @pytest.fixture
     def trajectory(self):
@@ -172,16 +181,16 @@ class TestMakeForceGridUnified:
 
         return IterableMockTrajectory()
 
-    def test_make_force_grid_single_species_number(self, trajectory):
-        """make_force_grid with single species number density produces correct grid."""
+    def test_accumulate_single_species_number(self, trajectory):
+        """accumulate with single species number density produces correct grid."""
 
         gs = DensityGrid(trajectory, "number", nbins=5)
-        gs.make_force_grid(trajectory, atom_names="O", rigid=False, start=0, stop=2)
+        gs.accumulate(trajectory, atom_names="O", rigid=False, start=0, stop=2)
 
         # Verify grid was populated
         assert gs.count == 2
         assert gs.counter.sum() > 0
-        assert gs.grid_progress == "Allocated"
+        assert gs.progress == "Allocated"
 
 
 class TestSelectionGetWeights:
@@ -277,7 +286,7 @@ class TestSelectionValidation:
     def test_density_type_validation_called(self, trajectory, mocker):
         """Selection should call validate_density_type with the provided value."""
         mock_validate = mocker.patch(
-            'revelsMD.density.selection_state.validate_density_type',
+            'revelsMD.density.selection.validate_density_type',
             return_value='number'
         )
 
@@ -575,8 +584,8 @@ def test_selectionstate_importable_from_density():
 
 
 def test_selectionstate_importable_from_submodule():
-    """Selection should be importable from revelsMD.density.selection_state."""
-    from revelsMD.density.selection_state import Selection
+    """Selection should be importable from revelsMD.density.selection."""
+    from revelsMD.density.selection import Selection
     assert Selection is not None
 
 
@@ -593,8 +602,8 @@ def test_gridstate_importable_from_density():
 
 
 def test_gridstate_importable_from_submodule():
-    """DensityGrid should be importable from revelsMD.density.grid_state."""
-    from revelsMD.density.grid_state import DensityGrid
+    """DensityGrid should be importable from revelsMD.density.density_grid."""
+    from revelsMD.density.density_grid import DensityGrid
     assert DensityGrid is not None
 
 
@@ -657,9 +666,9 @@ class TestComputeDensity:
         result = compute_density(trajectory, atom_names='O', nbins=5)
 
         assert isinstance(result, DensityGrid)
-        assert hasattr(result, 'rho')
-        assert result.rho.shape == (5, 5, 5)
-        assert np.all(np.isfinite(result.rho))
+        assert hasattr(result, 'rho_force')
+        assert result.rho_force.shape == (5, 5, 5)
+        assert np.all(np.isfinite(result.rho_force))
 
     def test_compute_density_with_rigid_molecules(self, trajectory):
         """compute_density should work with rigid molecules."""
@@ -672,13 +681,108 @@ class TestComputeDensity:
             nbins=5
         )
 
-        assert hasattr(result, 'rho')
-        assert result.rho.shape == (5, 5, 5)
+        assert hasattr(result, 'rho_force')
+        assert result.rho_force.shape == (5, 5, 5)
 
     def test_compute_density_importable_from_density(self):
         """compute_density should be importable from revelsMD.density."""
         from revelsMD.density import compute_density
         assert compute_density is not None
+
+    @pytest.fixture
+    def trajectory_with_get_frame(self):
+        """Create mock trajectory that supports both iteration and get_frame."""
+        class IterableMockTrajectoryWithGetFrame(MockTrajectory):
+            def __init__(self):
+                super().__init__()
+                self.frames = 4
+                # 9 atoms: 3 water molecules (O, H1, H2 each)
+                self._positions = [
+                    np.array([
+                        [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
+                        [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
+                        [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
+                        [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
+                        [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.2, 5.2, 5.0], [1.7, 5.2, 5.0], [0.7, 5.2, 5.0],
+                        [4.2, 5.2, 5.0], [4.7, 5.2, 5.0], [3.7, 5.2, 5.0],
+                        [7.2, 5.2, 5.0], [7.7, 5.2, 5.0], [6.7, 5.2, 5.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.3, 5.3, 5.0], [1.8, 5.3, 5.0], [0.8, 5.3, 5.0],
+                        [4.3, 5.3, 5.0], [4.8, 5.3, 5.0], [3.8, 5.3, 5.0],
+                        [7.3, 5.3, 5.0], [7.8, 5.3, 5.0], [6.8, 5.3, 5.0],
+                    ], dtype=float),
+                ]
+                self._forces = [
+                    np.array([
+                        [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
+                        [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
+                        [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
+                        [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
+                        [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.2, 0.12, 0.0], [0.6, 0.06, 0.0], [0.6, 0.06, 0.0],
+                        [2.4, 0.24, 0.0], [1.2, 0.12, 0.0], [1.2, 0.12, 0.0],
+                        [3.6, 0.36, 0.0], [1.8, 0.18, 0.0], [1.8, 0.18, 0.0],
+                    ], dtype=float),
+                    np.array([
+                        [1.3, 0.13, 0.0], [0.65, 0.065, 0.0], [0.65, 0.065, 0.0],
+                        [2.6, 0.26, 0.0], [1.3, 0.13, 0.0], [1.3, 0.13, 0.0],
+                        [3.9, 0.39, 0.0], [1.95, 0.195, 0.0], [1.95, 0.195, 0.0],
+                    ], dtype=float),
+                ]
+
+            def iter_frames(self, start, stop, period):
+                for i in range(start, stop or self.frames, period):
+                    yield self._positions[i], self._forces[i]
+
+            def get_frame(self, idx):
+                return self._positions[idx], self._forces[idx]
+
+        return IterableMockTrajectoryWithGetFrame()
+
+    def test_compute_density_lambda(self, trajectory_with_get_frame):
+        """compute_density with integration='lambda' populates rho_lambda."""
+        from revelsMD.density import compute_density
+
+        grid = compute_density(
+            trajectory_with_get_frame,
+            atom_names='O',
+            nbins=5,
+            integration='lambda',
+            sections=2,
+        )
+
+        assert grid.rho_lambda is not None
+        assert grid.progress == "Lambda"
+        assert grid.rho_lambda.shape == (5, 5, 5)
+
+    def test_compute_density_standard_default(self, trajectory):
+        """Default integration='standard' behaves as before."""
+        from revelsMD.density import compute_density
+
+        grid = compute_density(trajectory, atom_names='O', nbins=5)
+
+        assert grid.rho_force is not None
+        assert grid.rho_lambda is None
+        assert grid.progress == "Allocated"
+
+    def test_compute_density_invalid_integration(self, trajectory):
+        """Invalid integration raises ValueError."""
+        from revelsMD.density import compute_density
+
+        with pytest.raises(ValueError, match="integration"):
+            compute_density(trajectory, atom_names='O', nbins=5, integration='invalid')
 
 
 # ---------------------------------------------------------------------------
@@ -724,7 +828,7 @@ class TestDensityGridGetLambdaEdgeCases:
         traj = MinimalTrajectory()
         gs = DensityGrid(traj, "number", nbins=3)
         ss = Selection(traj, 'H', centre_location=True, rigid=False, density_type='number')
-        gs.selection_state = ss
+        gs._selection = ss
         gs.kernel = "triangular"
         gs.to_run = list(range(traj.frames))
 
@@ -737,7 +841,7 @@ class TestDensityGridGetLambdaEdgeCases:
                 kernel="triangular"
             )
 
-        gs.grid_progress = "Allocated"
+        gs.progress = "Allocated"
         gs.get_lambda(traj, sections=2)
 
         # The key assertion: no NaN or Inf values

@@ -163,21 +163,21 @@ class TestDensityAnalyticalReference:
         ts = single_atom_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+        gs.accumulate(ts, '1', kernel='triangular', rigid=False)
 
-        assert gs.grid_progress == "Allocated"
+        assert gs.progress == "Allocated"
         # Note: count may be frames-1 due to stop=-1 handling in API
         assert gs.count > 0
 
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert gs.rho.shape == (20, 20, 20)
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert gs.rho_force.shape == (20, 20, 20)
+        assert np.all(np.isfinite(gs.rho_force))
 
         # The density should have its maximum near the centre
         # (atom is at 5,5,5 in a 10x10x10 box -> should be near bin 10,10,10)
-        max_idx = np.unravel_index(np.argmax(gs.rho), gs.rho.shape)
+        max_idx = np.unravel_index(np.argmax(gs.rho_force), gs.rho_force.shape)
 
         # Check that max is in the central region (within 5 bins of centre)
         centre = 10
@@ -194,15 +194,15 @@ class TestDensityAnalyticalReference:
         ts = uniform_gas_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+        gs.accumulate(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert np.all(np.isfinite(gs.rho_force))
 
         # Compute coefficient of variation (std/mean)
-        mean_rho = np.mean(gs.rho)
-        std_rho = np.std(gs.rho)
+        mean_rho = np.mean(gs.rho_force)
+        std_rho = np.std(gs.rho_force)
 
         if mean_rho > 0:
             cv = std_rho / mean_rho
@@ -220,14 +220,14 @@ class TestDensityAnalyticalReference:
         ts = uniform_gas_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+        gs.accumulate(ts, '1', kernel='triangular', rigid=False)
         gs.get_real_density()
 
         # Calculate voxel volume
         voxel_vol = (ts.box_x / 20) * (ts.box_y / 20) * (ts.box_z / 20)
 
         # Integrate density
-        total_count = np.sum(gs.rho) * voxel_vol
+        total_count = np.sum(gs.rho_force) * voxel_vol
 
         # Should be approximately equal to number of atoms
         n_atoms = len(ts.get_indices('1'))
@@ -249,8 +249,8 @@ class TestDensityAnalyticalReference:
         assert gs_number.nbinsx == 20
 
         # Test that grids are initialised to zero
-        assert gs_number.forceX.shape == (20, 20, 20)
-        assert np.all(gs_number.forceX == 0)
+        assert gs_number.force_x.shape == (20, 20, 20)
+        assert np.all(gs_number.force_x == 0)
 
 
 @pytest.mark.analytical
@@ -323,11 +323,11 @@ class TestRigidMoleculeAnalytical:
         # This may fail if rigid molecule validation is too strict
         # (known issue #10 with unequal atom counts)
         try:
-            gs.make_force_grid(ts, ['O', 'H', 'H'], kernel='triangular', rigid=True)
+            gs.accumulate(ts, ['O', 'H', 'H'], kernel='triangular', rigid=True)
             gs.get_real_density()
 
-            assert hasattr(gs, 'rho')
-            assert np.all(np.isfinite(gs.rho))
+            assert hasattr(gs, 'rho_force')
+            assert np.all(np.isfinite(gs.rho_force))
         except Exception as e:
             # Known limitation - mark as expected failure info
             pytest.skip(f"Rigid molecule mode failed (possibly known issue #10): {e}")

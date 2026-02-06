@@ -68,20 +68,20 @@ class TestRigidWaterPipelineExample4:
         gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use very small subset for fast test
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
             start=0, stop=5, period=1
         )
 
-        assert gs.grid_progress == "Allocated"
+        assert gs.progress == "Allocated"
         assert gs.count == 5
 
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert gs.rho.shape == (50, 50, 50)
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert gs.rho_force.shape == (50, 50, 50)
+        assert np.all(np.isfinite(gs.rho_force))
 
     def test_polarisation_density_x(self, example4_trajectory):
         """Polarisation density calculation (x-component)."""
@@ -89,7 +89,7 @@ class TestRigidWaterPipelineExample4:
 
         gs = DensityGrid(ts, 'polarisation', nbins=50)
 
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
             start=0, stop=5, period=1
@@ -97,12 +97,12 @@ class TestRigidWaterPipelineExample4:
 
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert np.all(np.isfinite(gs.rho_force))
 
         # Polarisation can be positive or negative
         # Check it has some structure (non-zero variance)
-        assert np.std(gs.rho) > 0, "Polarisation density should have spatial variation"
+        assert np.std(gs.rho_force) > 0, "Polarisation density should have spatial variation"
 
     def test_number_density_larger_subset(self, example4_trajectory):
         """Number density with larger frame subset for better statistics."""
@@ -111,7 +111,7 @@ class TestRigidWaterPipelineExample4:
         gs = DensityGrid(ts, 'number', nbins=50)
 
         # Use 10 frames - enough for reasonable statistics, fast enough for tests
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
             start=0, stop=10, period=1
@@ -120,14 +120,14 @@ class TestRigidWaterPipelineExample4:
         gs.get_real_density()
 
         assert gs.count == 10
-        assert np.all(np.isfinite(gs.rho))
+        assert np.all(np.isfinite(gs.rho_force))
 
     def test_write_cube_output(self, example4_trajectory, tmp_path):
         """Cube file output produces valid file."""
         ts = example4_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             rigid=True, start=0, stop=3, period=1
         )
@@ -138,7 +138,7 @@ class TestRigidWaterPipelineExample4:
         atoms = Atoms('OH2', positions=[[0, 0, 0], [0, 0, 1], [0, 1, 0]])
 
         cube_file = tmp_path / "test_water_density.cube"
-        gs.write_to_cube(atoms, gs.rho, str(cube_file))
+        gs.write_to_cube(atoms, gs.rho_force, str(cube_file))
 
         assert cube_file.exists()
         assert cube_file.stat().st_size > 0
@@ -240,7 +240,7 @@ class TestRigidWaterPhysicalProperties:
         ts = example4_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=50)
-        gs.make_force_grid(
+        gs.accumulate(
             ts, ['Ow', 'Hw1', 'Hw2'],
             kernel='triangular', rigid=True,
             start=0, stop=5, period=1
@@ -249,8 +249,8 @@ class TestRigidWaterPhysicalProperties:
 
         # Check that density has spatial variation (not flat)
         # This indicates solvation structure
-        mean_rho = np.mean(gs.rho)
-        std_rho = np.std(gs.rho)
+        mean_rho = np.mean(gs.rho_force)
+        std_rho = np.std(gs.rho_force)
 
         if mean_rho > 0:
             cv = std_rho / mean_rho

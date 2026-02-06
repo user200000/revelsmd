@@ -17,9 +17,9 @@ from numba import jit  # type: ignore[import-untyped]
 
 @jit(nopython=True, cache=True)
 def _triangular_allocation_numba(
-    forceX: np.ndarray,
-    forceY: np.ndarray,
-    forceZ: np.ndarray,
+    force_x: np.ndarray,
+    force_y: np.ndarray,
+    force_z: np.ndarray,
     counter: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
@@ -81,65 +81,65 @@ def _triangular_allocation_numba(
         # Deposit to all 8 vertices
         # Vertex (0, 0, 0)
         w = f_000 * a_val
-        forceX[gx_0, gy_0, gz_0] += fx * w
-        forceY[gx_0, gy_0, gz_0] += fy * w
-        forceZ[gx_0, gy_0, gz_0] += fz * w
+        force_x[gx_0, gy_0, gz_0] += fx * w
+        force_y[gx_0, gy_0, gz_0] += fy * w
+        force_z[gx_0, gy_0, gz_0] += fz * w
         counter[gx_0, gy_0, gz_0] += w
 
         # Vertex (0, 0, 1)
         w = f_001 * a_val
-        forceX[gx_0, gy_0, gz_1] += fx * w
-        forceY[gx_0, gy_0, gz_1] += fy * w
-        forceZ[gx_0, gy_0, gz_1] += fz * w
+        force_x[gx_0, gy_0, gz_1] += fx * w
+        force_y[gx_0, gy_0, gz_1] += fy * w
+        force_z[gx_0, gy_0, gz_1] += fz * w
         counter[gx_0, gy_0, gz_1] += w
 
         # Vertex (0, 1, 0)
         w = f_010 * a_val
-        forceX[gx_0, gy_1, gz_0] += fx * w
-        forceY[gx_0, gy_1, gz_0] += fy * w
-        forceZ[gx_0, gy_1, gz_0] += fz * w
+        force_x[gx_0, gy_1, gz_0] += fx * w
+        force_y[gx_0, gy_1, gz_0] += fy * w
+        force_z[gx_0, gy_1, gz_0] += fz * w
         counter[gx_0, gy_1, gz_0] += w
 
         # Vertex (1, 0, 0)
         w = f_100 * a_val
-        forceX[gx_1, gy_0, gz_0] += fx * w
-        forceY[gx_1, gy_0, gz_0] += fy * w
-        forceZ[gx_1, gy_0, gz_0] += fz * w
+        force_x[gx_1, gy_0, gz_0] += fx * w
+        force_y[gx_1, gy_0, gz_0] += fy * w
+        force_z[gx_1, gy_0, gz_0] += fz * w
         counter[gx_1, gy_0, gz_0] += w
 
         # Vertex (1, 0, 1)
         w = f_101 * a_val
-        forceX[gx_1, gy_0, gz_1] += fx * w
-        forceY[gx_1, gy_0, gz_1] += fy * w
-        forceZ[gx_1, gy_0, gz_1] += fz * w
+        force_x[gx_1, gy_0, gz_1] += fx * w
+        force_y[gx_1, gy_0, gz_1] += fy * w
+        force_z[gx_1, gy_0, gz_1] += fz * w
         counter[gx_1, gy_0, gz_1] += w
 
         # Vertex (0, 1, 1)
         w = f_011 * a_val
-        forceX[gx_0, gy_1, gz_1] += fx * w
-        forceY[gx_0, gy_1, gz_1] += fy * w
-        forceZ[gx_0, gy_1, gz_1] += fz * w
+        force_x[gx_0, gy_1, gz_1] += fx * w
+        force_y[gx_0, gy_1, gz_1] += fy * w
+        force_z[gx_0, gy_1, gz_1] += fz * w
         counter[gx_0, gy_1, gz_1] += w
 
         # Vertex (1, 1, 0)
         w = f_110 * a_val
-        forceX[gx_1, gy_1, gz_0] += fx * w
-        forceY[gx_1, gy_1, gz_0] += fy * w
-        forceZ[gx_1, gy_1, gz_0] += fz * w
+        force_x[gx_1, gy_1, gz_0] += fx * w
+        force_y[gx_1, gy_1, gz_0] += fy * w
+        force_z[gx_1, gy_1, gz_0] += fz * w
         counter[gx_1, gy_1, gz_0] += w
 
         # Vertex (1, 1, 1)
         w = f_111 * a_val
-        forceX[gx_1, gy_1, gz_1] += fx * w
-        forceY[gx_1, gy_1, gz_1] += fy * w
-        forceZ[gx_1, gy_1, gz_1] += fz * w
+        force_x[gx_1, gy_1, gz_1] += fx * w
+        force_y[gx_1, gy_1, gz_1] += fy * w
+        force_z[gx_1, gy_1, gz_1] += fz * w
         counter[gx_1, gy_1, gz_1] += w
 
 
 def triangular_allocation_numba(
-    forceX: np.ndarray,
-    forceY: np.ndarray,
-    forceZ: np.ndarray,
+    force_x: np.ndarray,
+    force_y: np.ndarray,
+    force_z: np.ndarray,
     counter: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
@@ -166,7 +166,7 @@ def triangular_allocation_numba(
 
     Parameters
     ----------
-    forceX, forceY, forceZ : np.ndarray
+    force_x, force_y, force_z : np.ndarray
         3D arrays for force components. Modified in place.
     counter : np.ndarray
         3D array for counting/weighting. Modified in place.
@@ -202,7 +202,7 @@ def triangular_allocation_numba(
         a_arr = np.ascontiguousarray(a, dtype=np.float64)
 
     _triangular_allocation_numba(
-        forceX, forceY, forceZ, counter,
+        force_x, force_y, force_z, counter,
         x, y, z, homeX, homeY, homeZ,
         fox, foy, foz, a_arr,
         lx, ly, lz, nbinsx, nbinsy, nbinsz,
@@ -211,9 +211,9 @@ def triangular_allocation_numba(
 
 @jit(nopython=True, cache=True)
 def _box_allocation_numba(
-    forceX: np.ndarray,
-    forceY: np.ndarray,
-    forceZ: np.ndarray,
+    force_x: np.ndarray,
+    force_y: np.ndarray,
+    force_z: np.ndarray,
     counter: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
@@ -236,16 +236,16 @@ def _box_allocation_numba(
         yi = y[i]
         zi = z[i]
 
-        forceX[xi, yi, zi] += fox[i] * a_val
-        forceY[xi, yi, zi] += foy[i] * a_val
-        forceZ[xi, yi, zi] += foz[i] * a_val
+        force_x[xi, yi, zi] += fox[i] * a_val
+        force_y[xi, yi, zi] += foy[i] * a_val
+        force_z[xi, yi, zi] += foz[i] * a_val
         counter[xi, yi, zi] += a_val
 
 
 def box_allocation_numba(
-    forceX: np.ndarray,
-    forceY: np.ndarray,
-    forceZ: np.ndarray,
+    force_x: np.ndarray,
+    force_y: np.ndarray,
+    force_z: np.ndarray,
     counter: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
@@ -263,7 +263,7 @@ def box_allocation_numba(
 
     Parameters
     ----------
-    forceX, forceY, forceZ : np.ndarray
+    force_x, force_y, force_z : np.ndarray
         3D arrays for force components. Modified in place.
     counter : np.ndarray
         3D array for counting/weighting. Modified in place.
@@ -290,6 +290,6 @@ def box_allocation_numba(
         a_arr = np.ascontiguousarray(a, dtype=np.float64)
 
     _box_allocation_numba(
-        forceX, forceY, forceZ, counter,
+        force_x, force_y, force_z, counter,
         x, y, z, fox, foy, foz, a_arr,
     )

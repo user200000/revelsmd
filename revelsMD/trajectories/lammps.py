@@ -71,7 +71,8 @@ def first_read(dumpFile: str):
                 dimgrid[1, :] = np.array(f.readline().split(), dtype=float)
                 dimgrid[2, :] = np.array(f.readline().split(), dtype=float)
 
-    numLines = sum(1 for _ in open(dumpFile))
+    with open(dumpFile) as f:
+        numLines = sum(1 for _ in f)
     frames = numLines / float(num_ats + header_length)
     if frames % 1 != 0:
         print("WARNING: Non-integer frame count - incomplete file or inconsistent headers.")

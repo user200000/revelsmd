@@ -110,7 +110,7 @@ def generate_lammps_references():
     # 3D number density
     print("  Computing 3D number density...")
     gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.35)
-    gs.make_force_grid(ts, '1', kernel='triangular', rigid=False, start=0, stop=5)
+    gs.accumulate(ts, '1', kernel='triangular', rigid=False, start=0, stop=5)
     gs.get_real_density()
     np.savez(
         output_dir / "number_density.npz",
@@ -167,7 +167,7 @@ def generate_mda_references():
     # 3D number density
     print("  Computing 3D number density...")
     gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=300)
-    gs.make_force_grid(ts, 'Ow', kernel='triangular', rigid=False, start=0, stop=5)
+    gs.accumulate(ts, 'Ow', kernel='triangular', rigid=False, start=0, stop=5)
     gs.get_real_density()
     np.savez(
         output_dir / "number_density_ow.npz",
@@ -182,7 +182,7 @@ def generate_mda_references():
     # Rigid molecule number density
     print("  Computing rigid molecule number density...")
     gs_rigid = Revels3D.GridState(ts, 'number', nbins=30, temperature=300)
-    gs_rigid.make_force_grid(
+    gs_rigid.accumulate(
         ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
     )
     gs_rigid.get_real_density()
@@ -200,7 +200,7 @@ def generate_mda_references():
     # Polarisation density
     print("  Computing polarisation density...")
     gs_pol = Revels3D.GridState(ts, 'polarisation', nbins=30, temperature=300)
-    gs_pol.make_force_grid(
+    gs_pol.accumulate(
         ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
     )
     gs_pol.get_real_density()
@@ -252,7 +252,7 @@ def generate_vasp_references():
     # 3D number density for F
     print("  Computing F number density...")
     gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=600)
-    gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
+    gs.accumulate(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
     gs.get_real_density()
     np.savez(
         output_dir / "number_density_f.npz",
@@ -307,7 +307,7 @@ def generate_synthetic_references():
     # Number density for uniform gas
     print("  Computing uniform gas density...")
     gs = Revels3D.GridState(ts, 'number', nbins=30, temperature=1.0)
-    gs.make_force_grid(ts, '1', kernel='triangular', rigid=False)
+    gs.accumulate(ts, '1', kernel='triangular', rigid=False)
     gs.get_real_density()
     np.savez(
         output_dir / "uniform_gas_density.npz",

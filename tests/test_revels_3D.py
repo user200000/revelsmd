@@ -69,8 +69,8 @@ def test_gridstate_initialization(ts):
     assert gs.nbinsx == 4
     assert gs.lx == pytest.approx(ts.box_x / 4)
     assert gs.voxel_volume > 0
-    assert np.all(gs.forceX == 0)
-    assert gs.grid_progress == "Generated"
+    assert np.all(gs.force_x == 0)
+    assert gs.progress == "Generated"
 
 
 def test_gridstate_uses_trajectory_beta(ts):
@@ -114,7 +114,7 @@ def test_process_frame_kernels(ts, kernel):
     pos = np.array([[1.0, 2.0, 3.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
     gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
-    assert np.any(gs.forceX != 0)
+    assert np.any(gs.force_x != 0)
     assert np.any(gs.counter != 0)
 
 
@@ -148,7 +148,7 @@ def test_deposit_single_array(ts):
 
     assert gs.count == 1
     assert np.any(gs.counter != 0)
-    assert np.any(gs.forceX != 0)
+    assert np.any(gs.force_x != 0)
 
 
 def test_deposit_list_of_arrays(ts):
@@ -191,7 +191,7 @@ def test_deposit_rejects_list_forces_with_single_positions(ts):
     pos = np.array([[1.0, 2.0, 3.0]])
     frc_list = [np.array([[0.5, 0.0, 0.0]])]
 
-    with pytest.raises(TypeError, match="forces cannot be a list"):
+    with pytest.raises(TypeError, match="positions and forces must both be lists or both be arrays"):
         gs.deposit(pos, frc_list, weights=1.0)
 
 
@@ -284,25 +284,25 @@ def test_selectionstate_rigid_water():
 
 def test_full_number_density_pipeline(tmp_path, ts):
     gs = DensityGrid(ts, "number", nbins=4)
-    gs.make_force_grid(ts, atom_names="H", rigid=False)
-    assert gs.grid_progress == "Allocated"
+    gs.accumulate(ts, atom_names="H", rigid=False)
+    assert gs.progress == "Allocated"
 
     gs.get_real_density()
-    assert hasattr(gs, "rho")
-    assert gs.rho.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
+    assert hasattr(gs, "rho_force")
+    assert gs.rho_force.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
 
     cube_file = tmp_path / "density.cube"
     atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-    gs.write_to_cube(atoms, gs.rho, cube_file)
+    gs.write_to_cube(atoms, gs.rho_force, cube_file)
     assert cube_file.exists()
 
 
 def test_get_lambda_basic(ts):
     """Test basic get_lambda functionality."""
     gs = DensityGrid(ts, "number", nbins=4)
-    gs.make_force_grid(ts, atom_names="H", rigid=False)
+    gs.accumulate(ts, atom_names="H", rigid=False)
     gs.get_real_density()
     gs.get_lambda(ts, sections=1)
-    assert gs.grid_progress == "Lambda"
+    assert gs.progress == "Lambda"
     assert gs.rho_lambda is not None
-    assert gs.rho_lambda.shape == gs.rho.shape
+    assert gs.rho_lambda.shape == gs.rho_force.shape

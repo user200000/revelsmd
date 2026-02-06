@@ -54,7 +54,7 @@ markers = [
     "requires_example4: requires Example 4 data (~1.7GB)",
 ]
 filterwarnings = [
-    "ignore::DeprecationWarning:MDAnalysis.*:",
+    "ignore:Reader has no dt information:UserWarning:MDAnalysis.*:",
 ]
 
 [tool.coverage.run]

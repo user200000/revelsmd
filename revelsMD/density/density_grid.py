@@ -14,7 +14,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
-from revelsMD.density.selection_state import Selection
+from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
 from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
@@ -38,7 +38,7 @@ class DensityGrid:
 
     Attributes
     ----------
-    forceX, forceY, forceZ : np.ndarray
+    force_x, force_y, force_z : np.ndarray
         Accumulators for voxelized force components (shape: nbinsx x nbinsy x nbinsz).
     counter : np.ndarray
         Accumulator for counting-based density (same shape as force accumulators).
@@ -50,7 +50,7 @@ class DensityGrid:
         Volume of a single voxel.
     count : int
         Number of processed frames (for normalization).
-    grid_progress : {'Generated', 'Allocated', 'Lambda'}
+    progress : {'Generated', 'Allocated', 'Lambda'}
         Simple state flag used by getters and lambda estimator.
     """
 
@@ -93,20 +93,32 @@ class DensityGrid:
         self.nbinsx, self.nbinsy, self.nbinsz = nbinsx, nbinsy, nbinsz
 
         # Accumulators
-        self.forceX = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
-        self.forceY = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
-        self.forceZ = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        self.force_x = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        self.force_y = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        self.force_z = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
         self.counter = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
 
         # Density selection
         self.density_type = validate_density_type(density_type)
 
         # Progress flag
-        self.grid_progress = "Generated"
+        self.progress = "Generated"
 
-        # Lambda results (populated by get_lambda)
+        # Density results (populated by get_real_density or get_lambda)
+        self._rho_count = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        self._rho_force = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
         self._rho_lambda: np.ndarray | None = None
         self._lambda_weights: np.ndarray | None = None
+
+    @property
+    def rho_count(self) -> np.ndarray:
+        """Counting-based density (zeros until get_real_density or get_lambda is called)."""
+        return self._rho_count
+
+    @property
+    def rho_force(self) -> np.ndarray:
+        """Force-based density via FFT (zeros until get_real_density or get_lambda is called)."""
+        return self._rho_force
 
     @property
     def rho_lambda(self) -> np.ndarray | None:
@@ -178,7 +190,7 @@ class DensityGrid:
 
         if kernel.lower() == "triangular":
             _triangular_allocation(
-                self.forceX, self.forceY, self.forceZ, self.counter,
+                self.force_x, self.force_y, self.force_z, self.counter,
                 x, y, z, homeX, homeY, homeZ,
                 fox, foy, foz, weight,
                 self.lx, self.ly, self.lz,
@@ -186,7 +198,7 @@ class DensityGrid:
             )
         elif kernel.lower() == "box":
             _box_allocation(
-                self.forceX, self.forceY, self.forceZ, self.counter,
+                self.force_x, self.force_y, self.force_z, self.counter,
                 x - 1, y - 1, z - 1,
                 fox, foy, foz, weight,
             )
@@ -217,7 +229,8 @@ class DensityGrid:
             Deposition kernel (default: 'triangular').
         """
         if isinstance(positions, list):
-            # Broadcast scalar/array weight to match positions list
+            if not isinstance(forces, list):
+                raise TypeError("positions and forces must both be lists or both be arrays")
             weight_seq: Sequence[float | np.ndarray]
             if isinstance(weights, list):
                 weight_seq = weights
@@ -226,14 +239,13 @@ class DensityGrid:
             for pos, frc, wgt in zip(positions, forces, weight_seq):
                 self._process_frame(pos, frc, weight=wgt, kernel=kernel)
         else:
-            # Single array case - weights must be float or array, not list
+            if isinstance(forces, list):
+                raise TypeError("positions and forces must both be lists or both be arrays")
             if isinstance(weights, list):
                 raise TypeError("weights cannot be a list when positions is a single array")
-            if isinstance(forces, list):
-                raise TypeError("forces cannot be a list when positions is a single array")
             self._process_frame(positions, forces, weight=weights, kernel=kernel)
 
-    def make_force_grid(
+    def accumulate(
         self,
         trajectory: Trajectory,
         atom_names: str | list[str],
@@ -326,7 +338,7 @@ class DensityGrid:
                 raise ValueError("Polarisation densities are only implemented for rigid molecules.")
 
         # Build selection wrapper with density configuration
-        self.selection_state = Selection(
+        self._selection = Selection(
             trajectory,
             atom_names=atom_names,
             centre_location=centre_location,
@@ -337,13 +349,13 @@ class DensityGrid:
 
         # Process frames using unified approach
         for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(self.to_run)):
-            deposit_positions = self.selection_state.get_positions(positions)
-            deposit_forces = self.selection_state.get_forces(forces)
-            weights = self.selection_state.get_weights(positions)
+            deposit_positions = self._selection.get_positions(positions)
+            deposit_forces = self._selection.get_forces(forces)
+            weights = self._selection.get_weights(positions)
             self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
 
         self.frames_processed = self.to_run
-        self.grid_progress = "Allocated"
+        self.progress = "Allocated"
 
     def get_real_density(self) -> None:
         """
@@ -357,34 +369,34 @@ class DensityGrid:
 
         Side Effects
         ------------
-        Sets `self.del_rho_k`, `self.del_rho_n`, `self.particle_density`, `self.rho`.
+        Sets `self.del_rho_k`, `self.del_rho_n`, `self.rho_count`, `self.rho_force`.
         """
-        if self.grid_progress == "Generated":
-            raise RuntimeError("Run make_force_grid before computing densities.")
+        if self.progress == "Generated":
+            raise RuntimeError("Run accumulate() before computing densities.")
 
         # Normalize by number of frames and voxel volume before FFT
         with np.errstate(divide="ignore", invalid="ignore"):
-            forceX = np.fft.fftn(self.forceX / self.count / self.voxel_volume)
-            forceY = np.fft.fftn(self.forceY / self.count / self.voxel_volume)
-            forceZ = np.fft.fftn(self.forceZ / self.count / self.voxel_volume)
+            force_x = np.fft.fftn(self.force_x / self.count / self.voxel_volume)
+            force_y = np.fft.fftn(self.force_y / self.count / self.voxel_volume)
+            force_z = np.fft.fftn(self.force_z / self.count / self.voxel_volume)
 
         # k-vectors per dimension
         xrep, yrep, zrep = self.get_kvectors()
 
         # Multiply by k components (component-wise dot in spectral space)
         for n in range(len(xrep)):
-            forceX[n, :, :] = xrep[n] * forceX[n, :, :]
+            force_x[n, :, :] = xrep[n] * force_x[n, :, :]
         for m in range(len(yrep)):
-            forceY[:, m, :] = yrep[m] * forceY[:, m, :]
+            force_y[:, m, :] = yrep[m] * force_y[:, m, :]
         for l in range(len(zrep)):
-            forceZ[:, :, l] = zrep[l] * forceZ[:, :, l]
+            force_z[:, :, l] = zrep[l] * force_z[:, :, l]
 
         # delta_rho(k): i * beta / k^2 * (F.k); handle k^2=0 via errstate; enforce delta_rho(0)=0
         with np.errstate(divide="ignore", invalid="ignore"):
             self.del_rho_k = (
                 complex(0, 1)
                 * self.beta / self.get_ksquared()
-                * (forceX + forceY + forceZ)
+                * (force_x + force_y + force_z)
             )
         self.del_rho_k[0, 0, 0] = 0.0
 
@@ -393,21 +405,21 @@ class DensityGrid:
         self.del_rho_n = -1.0 * np.real(del_rho_n)
 
         # Conventional counting density (averaged)
-        self.get_particle_density()
-        self.rho = self.del_rho_n + np.mean(self.particle_density)
+        self._compute_rho_count()
+        self._rho_force = self.del_rho_n + np.mean(self._rho_count)
 
-    def get_particle_density(self) -> None:
+    def _compute_rho_count(self) -> None:
         """
         Compute conventional counting-based density from `self.counter`.
 
         Side Effects
         ------------
-        Sets `self.particle_density`.
+        Sets `self._rho_count`.
         """
-        if self.grid_progress == "Generated":
-            raise RuntimeError("Run make_force_grid before computing densities.")
+        if self.progress == "Generated":
+            raise RuntimeError("Run accumulate() before computing densities.")
         with np.errstate(divide="ignore", invalid="ignore"):
-            self.particle_density = self.counter / self.voxel_volume / self.count
+            self._rho_count = self.counter / self.voxel_volume / self.count
 
     def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -472,9 +484,9 @@ class DensityGrid:
             atoms = structure
 
         # Optional removal (e.g., to drop solute atoms from density writeout)
-        if hasattr(self, "selection_state") and hasattr(self.selection_state, "indices") and self.selection_state.indices is not None:
+        if hasattr(self, "_selection") and hasattr(self._selection, "indices") and self._selection.indices is not None:
             try:
-                del atoms[np.array(self.selection_state.indices)]
+                del atoms[np.array(self._selection.indices)]
             except Exception:
                 # If selection is a list of arrays (multi-species), do nothing silently
                 pass
@@ -507,20 +519,20 @@ class DensityGrid:
         Raises
         ------
         RuntimeError
-            If called before `make_force_grid`.
+            If called before `accumulate`.
         ValueError
             If called on a grid already produced by `get_lambda`.
 
         Notes
         -----
-        After this method completes, the internal accumulators (forceX/Y/Z, counter)
+        After this method completes, the internal accumulators (force_x/y/z, counter)
         will contain only the last section's data, not the full trajectory. This means
         rho_force and rho_count will no longer reflect the full accumulation — only
         rho_lambda should be used after calling this method.
         """
-        if self.grid_progress == "Generated":
-            raise RuntimeError("Run make_force_grid before estimating lambda.")
-        if self.grid_progress == "Lambda":
+        if self.progress == "Generated":
+            raise RuntimeError("Run accumulate() before estimating lambda.")
+        if self.progress == "Lambda":
             raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
         if sections is None:
@@ -528,9 +540,9 @@ class DensityGrid:
 
         # Baseline expectation from full accumulation
         self.get_real_density()
-        expected_rho = np.copy(self.rho)
-        expected_particle_density = np.copy(self.particle_density)
-        delta = expected_rho - expected_particle_density
+        expected_rho_force = np.copy(self._rho_force)
+        expected_rho_count = np.copy(self._rho_count)
+        delta = expected_rho_force - expected_rho_count
 
         # Covariance/variance accumulators (local, not stored)
         cov_buffer_force = np.zeros((self.nbinsx, self.nbinsy, self.nbinsz))
@@ -539,15 +551,15 @@ class DensityGrid:
         # Interleaved accumulation across sections
         for k in tqdm(range(sections)):
             # Reset accumulators for this section
-            self.forceX *= 0
-            self.forceY *= 0
-            self.forceZ *= 0
-            self.particle_density *= 0
-            self.counter *= 0
-            self.del_rho_k *= 0
-            self.del_rho_n *= 0
-            self.rho *= 0
-            self.count *= 0
+            self.force_x.fill(0)
+            self.force_y.fill(0)
+            self.force_z.fill(0)
+            self._rho_count.fill(0)
+            self.counter.fill(0)
+            self.del_rho_k.fill(0)
+            self.del_rho_n.fill(0)
+            self._rho_force.fill(0)
+            self.count = 0
 
             # Frame indices for this section (interleaved sampling)
             frame_indices = np.array(self.to_run)[
@@ -555,26 +567,26 @@ class DensityGrid:
             ]
             for frame_idx in frame_indices:
                 positions, forces = trajectory.get_frame(frame_idx)
-                deposit_positions = self.selection_state.get_positions(positions)
-                deposit_forces = self.selection_state.get_forces(forces)
-                weights = self.selection_state.get_weights(positions)
+                deposit_positions = self._selection.get_positions(positions)
+                deposit_forces = self._selection.get_forces(forces)
+                weights = self._selection.get_weights(positions)
                 self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
 
             # Compute densities for this section and accumulate statistics
             self.get_real_density()
-            delta_cur = self.rho - self.particle_density
+            delta_cur = self._rho_force - self._rho_count
             var_buffer += (delta_cur - delta) ** 2
-            cov_buffer_force += (delta_cur - delta) * (self.rho - expected_rho)
+            cov_buffer_force += (delta_cur - delta) * (self._rho_force - expected_rho_force)
 
         # lambda = 1 - cov(force)/var(delta); optimal density = (1-lambda)*count + lambda*force
         lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
         self._lambda_weights = 1.0 - lambda_raw
         self._rho_lambda = combine_estimators(
-            expected_particle_density,
-            expected_rho,
+            expected_rho_count,
+            expected_rho_force,
             self._lambda_weights,
         )
-        self.grid_progress = "Lambda"
+        self.progress = "Lambda"
 
 
 def compute_density(
@@ -589,6 +601,8 @@ def compute_density(
     start: int = 0,
     stop: int | None = None,
     period: int = 1,
+    integration: str = "standard",
+    sections: int | None = None,
 ) -> DensityGrid:
     """
     Compute density from trajectory with a single function call.
@@ -622,20 +636,33 @@ def compute_density(
         Last frame to process, None for all frames (default: None).
     period : int, optional
         Frame stride (default: 1).
+    integration : {'standard', 'lambda'}, optional
+        Integration method (default: 'standard'). Use 'lambda' for
+        variance-minimised combination of counting and force densities.
+    sections : int or None, optional
+        Number of interleaved frame-subsets for lambda estimation.
+        Only used when integration='lambda'. If None, defaults to the
+        number of frames in the trajectory.
 
     Returns
     -------
     DensityGrid
-        Grid with computed density available as the `rho` attribute.
+        Grid with computed density. For integration='standard', the result
+        is available as `rho_force`. For integration='lambda', the
+        variance-minimised result is available as `rho_lambda`.
 
     Examples
     --------
     >>> from revelsMD.density import compute_density
     >>> grid = compute_density(trajectory, 'O', nbins=50)
-    >>> density = grid.rho
+    >>> density = grid.rho_force
+
+    >>> # With variance-minimised lambda integration
+    >>> grid = compute_density(trajectory, 'O', integration='lambda', sections=10)
+    >>> density = grid.rho_lambda
     """
     grid = DensityGrid(trajectory, density_type, nbins=nbins)
-    grid.make_force_grid(
+    grid.accumulate(
         trajectory,
         atom_names=atom_names,
         rigid=rigid,
@@ -647,4 +674,10 @@ def compute_density(
         period=period,
     )
     grid.get_real_density()
+
+    if integration == "lambda":
+        grid.get_lambda(trajectory, sections=sections)
+    elif integration != "standard":
+        raise ValueError(f"integration must be 'standard' or 'lambda', got '{integration}'")
+
     return grid

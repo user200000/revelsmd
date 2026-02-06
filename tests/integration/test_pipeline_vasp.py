@@ -79,17 +79,17 @@ class TestVASPPipelineExample3:
 
         # Use all available frames (may be short trajectory)
         try:
-            gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
+            gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
         except Exception as e:
             pytest.skip(f"Could not compute force grid: {e}")
 
-        assert gs.grid_progress == "Allocated"
+        assert gs.progress == "Allocated"
 
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert gs.rho.shape == (50, 50, 50)
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert gs.rho_force.shape == (50, 50, 50)
+        assert np.all(np.isfinite(gs.rho_force))
 
     def test_fluoride_rdf(self, vasp_trajectory):
         """F-F RDF calculation for solid electrolyte."""
@@ -130,13 +130,13 @@ class TestVASPPipelineExample3:
         ts = vasp_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=30)
-        gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
+        gs.accumulate(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
         gs.get_real_density()
 
         # Use 5 sections for variance estimation with 10 frames
         gs.get_lambda(ts, sections=5)
 
-        assert gs.grid_progress == "Lambda"
+        assert gs.progress == "Lambda"
         assert gs.rho_lambda is not None
         assert np.all(np.isfinite(gs.rho_lambda))
 
@@ -174,14 +174,14 @@ class TestVASPPhysicalProperties:
         gs = DensityGrid(ts, 'number', nbins=30)
 
         try:
-            gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
+            gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
             gs.get_real_density()
         except Exception:
             pytest.skip("Could not compute density")
 
         # Crystalline structure should have significant spatial variation
-        mean_rho = np.mean(gs.rho)
-        std_rho = np.std(gs.rho)
+        mean_rho = np.mean(gs.rho_force)
+        std_rho = np.std(gs.rho_force)
 
         if mean_rho > 0:
             cv = std_rho / mean_rho
@@ -253,11 +253,11 @@ class TestVASPSyntheticFallback:
         ts = synthetic_vasp_like_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
-        gs.make_force_grid(ts, 'F', kernel='triangular', rigid=False)
+        gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
         gs.get_real_density()
 
-        assert hasattr(gs, 'rho')
-        assert np.all(np.isfinite(gs.rho))
+        assert hasattr(gs, 'rho_force')
+        assert np.all(np.isfinite(gs.rho_force))
 
     def test_synthetic_unlike_rdf(self, synthetic_vasp_like_trajectory):
         """Unlike-pair RDF works with VASP-like synthetic data."""
