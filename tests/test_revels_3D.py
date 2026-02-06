@@ -174,6 +174,27 @@ def test_deposit_broadcasts_scalar_weight(ts):
     assert np.any(gs.counter != 0)
 
 
+def test_deposit_rejects_list_weights_with_single_positions(ts):
+    """deposit raises TypeError if weights is a list but positions is a single array."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    pos = np.array([[1.0, 2.0, 3.0]])
+    frc = np.array([[0.5, 0.0, 0.0]])
+    weights_list = [np.array([1.0])]
+
+    with pytest.raises(TypeError, match="weights cannot be a list"):
+        gs.deposit(pos, frc, weights=weights_list)
+
+
+def test_deposit_rejects_list_forces_with_single_positions(ts):
+    """deposit raises TypeError if forces is a list but positions is a single array."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    pos = np.array([[1.0, 2.0, 3.0]])
+    frc_list = [np.array([[0.5, 0.0, 0.0]])]
+
+    with pytest.raises(TypeError, match="forces cannot be a list"):
+        gs.deposit(pos, frc_list, weights=1.0)
+
+
 # ---------------------------
 # Selection
 # ---------------------------
@@ -281,7 +302,7 @@ def test_get_lambda_basic(ts):
     gs = DensityGrid(ts, "number", nbins=4)
     gs.make_force_grid(ts, atom_names="H", rigid=False)
     gs.get_real_density()
-    gs2 = gs.get_lambda(ts, sections=1)
-    assert gs2.grid_progress == "Lambda"
-    assert hasattr(gs2, "optimal_density")
-    assert gs2.optimal_density.shape == gs2.expected_rho.shape
+    gs.get_lambda(ts, sections=1)
+    assert gs.grid_progress == "Lambda"
+    assert gs.rho_lambda is not None
+    assert gs.rho_lambda.shape == gs.rho.shape

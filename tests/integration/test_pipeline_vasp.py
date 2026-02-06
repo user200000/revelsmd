@@ -134,11 +134,11 @@ class TestVASPPipelineExample3:
         gs.get_real_density()
 
         # Use 5 sections for variance estimation with 10 frames
-        gs_lambda = gs.get_lambda(ts, sections=5)
+        gs.get_lambda(ts, sections=5)
 
-        assert gs_lambda.grid_progress == "Lambda"
-        assert hasattr(gs_lambda, 'optimal_density')
-        assert np.all(np.isfinite(gs_lambda.optimal_density))
+        assert gs.grid_progress == "Lambda"
+        assert gs.rho_lambda is not None
+        assert np.all(np.isfinite(gs.rho_lambda))
 
 
 @pytest.mark.integration

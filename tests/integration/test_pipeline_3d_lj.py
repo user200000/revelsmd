@@ -130,11 +130,11 @@ class TestNumberDensityPipelineExample2:
         gs.get_real_density()
 
         # Use 5 sections for variance estimation
-        gs_lambda = gs.get_lambda(ts, sections=5)
+        gs.get_lambda(ts, sections=5)
 
-        assert gs_lambda.grid_progress == "Lambda"
-        assert hasattr(gs_lambda, 'optimal_density')
-        assert np.all(np.isfinite(gs_lambda.optimal_density))
+        assert gs.grid_progress == "Lambda"
+        assert gs.rho_lambda is not None
+        assert np.all(np.isfinite(gs.rho_lambda))
 
     # Note: Regression tests are in test_regression.py which uses the correct
     # reference data paths (lammps_example1, not density_example2).
