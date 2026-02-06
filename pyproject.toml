@@ -4,9 +4,25 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "revelsMD"
-authors = [{name = "Samuel Coles", email = "swc57@bath.ac.uk"}]
+authors = [
+    {name = "Samuel Coles", email = "swc57@bath.ac.uk"},
+    {name = "Benjamin J. Morgan", email = "b.j.morgan@bath.ac.uk"}
+]
 dynamic = ["version", "description"]
+license = {file = "LICENSE"}
 requires-python = ">=3.11"
+keywords = ["molecular-dynamics", "radial-distribution-function", "density", "force-sampling", "reduced-variance"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
     "ase",
     "lxml",
@@ -17,6 +33,10 @@ dependencies = [
     "scipy >=1.9.3",
     "tqdm",
 ]
+
+[project.urls]
+Homepage = "https://github.com/user200000/revelsmd"
+Repository = "https://github.com/user200000/revelsmd"
 
 [project.optional-dependencies]
 docs = ["recommonmark"]
