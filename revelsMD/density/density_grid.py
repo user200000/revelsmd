@@ -308,6 +308,16 @@ class DensityGrid:
             compute_lambda=True. If None, defaults to one section per frame
             (matching the original get_lambda behaviour).
 
+        Notes
+        -----
+        When ``compute_lambda=True``, variance statistics accumulate across
+        multiple ``accumulate()`` calls, enabling lambda estimation from
+        multiple trajectories.
+
+        Calling ``accumulate(..., compute_lambda=False)`` clears any existing
+        lambda statistics. After this, ``rho_lambda`` will return ``None``
+        until ``compute_lambda=True`` is used again.
+
         Raises
         ------
         ValueError
