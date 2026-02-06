@@ -558,6 +558,30 @@ class TestAccumulateComputeLambda:
         with pytest.raises(ValueError, match="fewer than 2 sections"):
             _ = gs.rho_lambda
 
+    def test_rho_lambda_works_with_one_section_per_trajectory(
+        self, multi_frame_trajectory
+    ):
+        """sections=1 works if accumulated across multiple trajectories."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First trajectory with sections=1
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=1, start=0, stop=5
+        )
+        assert gs._welford.count == 1
+
+        # Second trajectory with sections=1
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=1, start=5, stop=10
+        )
+        assert gs._welford.count == 2  # Now have 2 total sections
+
+        # Lambda now works
+        rho = gs.rho_lambda
+        assert rho is not None
+
 
 # ---------------------------------------------------------------------------
 # Mock trajectory for Selection tests (water molecules)
