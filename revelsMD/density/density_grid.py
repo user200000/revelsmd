@@ -905,6 +905,7 @@ class DensityGrid:
 def compute_density(
     trajectory: Trajectory,
     atom_names: str | list[str],
+    *,
     rigid: bool = False,
     centre_location: bool | int = True,
     density_type: str = "number",
@@ -914,7 +915,6 @@ def compute_density(
     start: int = 0,
     stop: int | None = None,
     period: int = 1,
-    *,
     compute_lambda: bool = False,
     sections: int | None = None,
     integration: str | None = None,  # Deprecated
