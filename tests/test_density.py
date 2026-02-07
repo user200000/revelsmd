@@ -306,7 +306,6 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
 def test_get_lambda_basic(ts):
     """Test basic get_lambda functionality."""
-    import warnings
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
     gs.get_real_density()
@@ -320,7 +319,6 @@ def test_get_lambda_basic(ts):
 
 def test_get_lambda_emits_deprecation_warning(ts):
     """get_lambda should emit a DeprecationWarning."""
-    import warnings
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
     gs.get_real_density()
@@ -494,8 +492,6 @@ class TestAccumulateComputeLambda:
         self, multi_frame_trajectory
     ):
         """Deprecated get_lambda() delegates to _accumulate_with_sections()."""
-        import warnings
-
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
         gs.accumulate(multi_frame_trajectory, atom_names="H")
 
@@ -1367,7 +1363,6 @@ class TestComputeDensity:
 
     def test_compute_density_integration_deprecated(self, trajectory_with_get_frame):
         """integration='lambda' still works but emits DeprecationWarning."""
-        import warnings
         from revelsMD.density import compute_density
 
         with warnings.catch_warnings(record=True) as w:
@@ -1390,7 +1385,6 @@ class TestComputeDensity:
 
     def test_compute_density_invalid_integration(self, trajectory):
         """Invalid integration raises ValueError."""
-        import warnings
         from revelsMD.density import compute_density
 
         with warnings.catch_warnings():
@@ -1603,8 +1597,6 @@ class TestComputeOnDemand:
 
     def test_get_real_density_emits_deprecation_warning(self, ts):
         """get_real_density() should emit a DeprecationWarning."""
-        import warnings
-
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
@@ -1618,8 +1610,6 @@ class TestComputeOnDemand:
 
     def test_get_real_density_still_works(self, ts):
         """get_real_density() should still work for backward compatibility."""
-        import warnings
-
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
