@@ -79,28 +79,28 @@ class TestMakeForceGridConfigurations:
         """Single species number density populates grid correctly."""
         gs = DensityGrid(ts_single_species, "number", nbins=4)
         gs.accumulate(ts_single_species, atom_names="H", rigid=False)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert gs.counter.sum() > 0
 
     def test_number_multi_species_not_rigid(self, ts_multi_species):
         """Multi-species, non-rigid number density populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "number", nbins=4)
         gs.accumulate(ts_multi_species, atom_names=["H", "O"], rigid=False)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert gs.counter.sum() > 0
 
     def test_number_rigid_com(self, ts_multi_species):
         """Rigid number density at COM populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "number", nbins=4)
         gs.accumulate(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert gs.counter.sum() > 0
 
     def test_number_rigid_atom(self, ts_multi_species):
         """Rigid number density at specific atom populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "number", nbins=4)
         gs.accumulate(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert gs.counter.sum() > 0
 
     # --- Charge density tests ---
@@ -109,28 +109,28 @@ class TestMakeForceGridConfigurations:
         """Single species charge density populates grid correctly."""
         gs = DensityGrid(ts_single_species, "charge", nbins=4)
         gs.accumulate(ts_single_species, atom_names="H", rigid=False)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert gs.counter.sum() > 0
 
     def test_charge_multi_species_not_rigid(self, ts_multi_species):
         """Multi-species, non-rigid charge density populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "charge", nbins=4)
         gs.accumulate(ts_multi_species, atom_names=["H", "O"], rigid=False)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert np.any(gs.counter != 0)
 
     def test_charge_rigid_com(self, ts_multi_species):
         """Rigid charge density at COM populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "charge", nbins=4)
         gs.accumulate(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert np.any(gs.counter != 0)
 
     def test_charge_rigid_atom(self, ts_multi_species):
         """Rigid charge density at specific atom populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "charge", nbins=4)
         gs.accumulate(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert np.any(gs.counter != 0)
 
     # --- Polarisation density tests ---
@@ -139,14 +139,14 @@ class TestMakeForceGridConfigurations:
         """Rigid polarisation density at COM populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "polarisation", nbins=4)
         gs.accumulate(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=True, polarisation_axis=0)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert gs._selection.polarisation_axis == 0
 
     def test_polarisation_rigid_atom(self, ts_multi_species):
         """Rigid polarisation density at specific atom populates grid correctly."""
         gs = DensityGrid(ts_multi_species, "polarisation", nbins=4)
         gs.accumulate(ts_multi_species, atom_names=["H", "O"], rigid=True, centre_location=0, polarisation_axis=1)
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
         assert gs._selection.polarisation_axis == 1
 
     # --- Error cases ---

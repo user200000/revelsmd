@@ -77,7 +77,7 @@ def test_densitygrid_initialisation(ts):
     assert gs.lx == pytest.approx(ts.box_x / 4)
     assert gs.voxel_volume > 0
     assert np.all(gs.force_x == 0)
-    assert gs.progress == "Generated"
+    assert gs.count == 0  # No data accumulated yet
 
 
 def test_densitygrid_uses_trajectory_beta(ts):
@@ -292,7 +292,7 @@ def test_selection_rigid_water():
 def test_full_number_density_pipeline(tmp_path, ts):
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
-    assert gs.progress == "Allocated"
+    assert gs.count > 0  # Data has been accumulated
 
     gs.get_real_density()
     assert hasattr(gs, "rho_force")
@@ -312,7 +312,6 @@ def test_get_lambda_basic(ts):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         gs.get_lambda(ts, sections=2)
-    assert gs.progress == "Lambda"
     assert gs.rho_lambda is not None
     assert gs.rho_lambda.shape == gs.rho_force.shape
 
@@ -502,8 +501,7 @@ class TestAccumulateComputeLambda:
         # Verify it used the Welford accumulator internally
         assert gs._welford is not None
         assert gs._welford.count == 5
-        assert gs._lambda_finalised is True
-        assert gs.progress == "Lambda"
+        assert gs._rho_lambda is not None  # Lambda was computed
 
     def test_multi_trajectory_lambda_accumulation(self, multi_frame_trajectory):
         """Lambda statistics accumulate across multiple accumulate() calls."""
@@ -526,7 +524,6 @@ class TestAccumulateComputeLambda:
         # Lambda uses combined statistics
         rho = gs.rho_lambda
         assert rho is not None
-        assert gs._lambda_finalised is True
 
     def test_frames_processed_accumulates_across_calls(self, multi_frame_trajectory):
         """frames_processed should accumulate total frames across multiple accumulate() calls."""
@@ -805,7 +802,7 @@ class TestMakeForceGridUnified:
         # Verify grid was populated
         assert gs.count == 2
         assert gs.counter.sum() > 0
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
 
 
 class TestSelectionGetWeights:
@@ -1349,7 +1346,7 @@ class TestComputeDensity:
 
         assert grid.rho_force is not None
         assert grid.rho_lambda is None
-        assert grid.progress == "Allocated"
+        assert grid.count > 0  # Data has been accumulated
 
     def test_compute_density_integration_deprecated(self, trajectory_with_get_frame):
         """integration='lambda' still works but emits DeprecationWarning."""
@@ -1439,7 +1436,6 @@ class TestDensityGridGetLambdaEdgeCases:
                 kernel="triangular"
             )
 
-        gs.progress = "Allocated"
         gs.get_lambda(traj, sections=2)
 
         # The key assertion: no NaN or Inf values

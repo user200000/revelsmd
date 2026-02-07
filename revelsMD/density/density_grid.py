@@ -105,8 +105,7 @@ class DensityGrid:
         # Density selection
         self.density_type = validate_density_type(density_type)
 
-        # Progress flag
-        self.progress = "Generated"
+        # Bookkeeping for multi-trajectory accumulation
         self.frames_processed = 0
 
         # Density results (computed on demand when properties are accessed)
@@ -117,12 +116,11 @@ class DensityGrid:
 
         # Lambda statistics accumulator (populated if compute_lambda=True in accumulate)
         self._welford: WelfordAccumulator3D | None = None
-        self._lambda_finalised = False
 
     @property
     def rho_count(self) -> np.ndarray | None:
         """Counting-based density. Computed on first access after accumulate()."""
-        if self.progress == "Generated":
+        if self.count == 0:
             return None  # No data accumulated yet
         if self._rho_count is None:
             self._compute_real_densities()
@@ -131,7 +129,7 @@ class DensityGrid:
     @property
     def rho_force(self) -> np.ndarray | None:
         """Force-based density via FFT. Computed on first access after accumulate()."""
-        if self.progress == "Generated":
+        if self.count == 0:
             return None  # No data accumulated yet
         if self._rho_force is None:
             self._compute_real_densities()
@@ -422,7 +420,6 @@ class DensityGrid:
             self._accumulate_with_sections(trajectory, effective_sections)
 
         self.frames_processed += len(self.to_run)
-        self.progress = "Allocated"
 
     def _invalidate_derived_state(self) -> None:
         """Clear cached densities and lambda weights.
@@ -434,7 +431,6 @@ class DensityGrid:
         self._rho_count = None
         self._rho_lambda = None
         self._lambda_weights = None
-        self._lambda_finalised = False
 
     def _accumulate_simple(
         self,
@@ -715,14 +711,14 @@ class DensityGrid:
         if self._welford is None or not self._welford.has_data:
             return
 
-        if self._lambda_finalised:
-            return
+        if self._rho_lambda is not None:
+            return  # Already finalised
 
         # Compute the expected densities from full accumulation (uses caching)
         expected_rho_force = self.rho_force
         expected_rho_count = self.rho_count
 
-        # These can't be None here - we've accumulated data (progress != "Generated")
+        # These can't be None here - we've accumulated data (count > 0)
         # and the properties trigger computation if needed
         assert expected_rho_force is not None
         assert expected_rho_count is not None
@@ -746,9 +742,6 @@ class DensityGrid:
             expected_rho_force,
             self._lambda_weights,
         )
-
-        self._lambda_finalised = True
-        self.progress = "Lambda"
 
     def get_real_density(self) -> None:
         """
@@ -779,7 +772,7 @@ class DensityGrid:
 
     def _compute_real_densities(self) -> None:
         """Internal: compute rho_force and rho_count from accumulators via FFT."""
-        if self.progress == "Generated":
+        if self.count == 0:
             raise RuntimeError("Run accumulate() before computing densities.")
 
         self._rho_force, self._rho_count, self.del_rho_k, self.del_rho_n = (
@@ -910,10 +903,8 @@ class DensityGrid:
             DeprecationWarning,
             stacklevel=2,
         )
-        if self.progress == "Generated":
+        if self.count == 0:
             raise RuntimeError("Run accumulate() before estimating lambda.")
-        if self.progress == "Lambda":
-            raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
         if sections is None:
             sections = trajectory.frames
@@ -944,7 +935,6 @@ class DensityGrid:
 
         # Finalise lambda computation
         self._finalise_lambda()
-        self.progress = "Lambda"
 
 
 def compute_density(
