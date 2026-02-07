@@ -806,12 +806,7 @@ class DensityGrid:
         """
         xrep, yrep, zrep = self.get_kvectors()
 
-        # Broadcast 1D k-vectors to a 3D grid
-        xrep_3d = np.repeat(np.repeat(xrep[:, None, None], self.nbinsy, axis=1), self.nbinsz, axis=2)
-        yrep_3d = np.repeat(np.repeat(yrep[None, :, None], self.nbinsx, axis=0), self.nbinsz, axis=2)
-        zrep_3d = np.repeat(np.repeat(zrep[None, None, :], self.nbinsx, axis=0), self.nbinsy, axis=1)
-
-        return xrep_3d * xrep_3d + yrep_3d * yrep_3d + zrep_3d * zrep_3d
+        return xrep[:, None, None]**2 + yrep[None, :, None]**2 + zrep[None, None, :]**2
 
     def write_to_cube(
         self,

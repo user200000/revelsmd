@@ -110,6 +110,25 @@ def test_kvectors_ksquared_shapes(ts):
     assert np.all(ks >= 0)
 
 
+def test_ksquared_values(ts):
+    """get_ksquared should return kx^2 + ky^2 + kz^2 on a 3D grid."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.get_kvectors = lambda: (
+        np.array([0.0, 1.0, 2.0, 3.0]),
+        np.array([0.0, 4.0, 5.0]),
+        np.array([0.0, 6.0]),
+    )
+    ks = gs.get_ksquared()
+
+    assert ks.shape == (4, 3, 2)
+    assert ks[0, 0, 0] == pytest.approx(0.0)
+    assert ks[1, 0, 0] == pytest.approx(1.0)
+    assert ks[0, 1, 0] == pytest.approx(16.0)
+    assert ks[0, 0, 1] == pytest.approx(36.0)
+    assert ks[2, 1, 1] == pytest.approx(4.0 + 16.0 + 36.0)
+    assert ks[3, 2, 1] == pytest.approx(9.0 + 25.0 + 36.0)
+
+
 # ---------------------------------------------------------------------------
 # DensityGrid._process_frame: Box & Triangular kernels
 # ---------------------------------------------------------------------------
