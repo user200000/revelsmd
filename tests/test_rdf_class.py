@@ -29,16 +29,27 @@ def water_trajectory():
 class TestRDFClassAPI:
     """Test the RDF class interface."""
 
-    def test_rdf_class_importable(self):
-        from revelsMD.rdf import RDF
-        assert RDF is not None
-
     def test_rdf_constructor_stores_parameters(self, water_trajectory):
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, species_a='O', species_b='H', delr=0.02)
         assert rdf.species_a == 'O'
         assert rdf.species_b == 'H'
         assert rdf.delr == 0.02
+
+    def test_rdf_default_rmax_is_half_box(self, water_trajectory):
+        """Default rmax should be half the shortest box dimension."""
+        from revelsMD.rdf import RDF
+        rdf = RDF(water_trajectory, 'O', 'H')
+        assert rdf.rmax == 5.0  # box is 10x10x10
+
+    def test_rdf_custom_rmax(self, water_trajectory):
+        """Custom rmax should override the default."""
+        from revelsMD.rdf import RDF
+        rdf = RDF(water_trajectory, 'O', 'H', rmax=3.0)
+        assert rdf.rmax == 3.0
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='forward')
+        assert rdf.r[-1] <= 3.0 + 1e-8
 
     def test_rdf_accumulate_sets_progress(self, water_trajectory):
         from revelsMD.rdf import RDF
@@ -168,10 +179,6 @@ class TestRDFResultsMatchLegacy:
 
 class TestComputeRDFConvenience:
     """Test the compute_rdf convenience function."""
-
-    def test_compute_rdf_importable(self):
-        from revelsMD.rdf import compute_rdf
-        assert callable(compute_rdf)
 
     def test_compute_rdf_returns_rdf_object(self, water_trajectory):
         from revelsMD.rdf import compute_rdf, RDF
@@ -400,23 +407,15 @@ class TestRDFCountAccumulation:
         assert len(rdf.g_count) == len(rdf.r)
         assert len(rdf.g_force) == len(rdf.r)
 
-    def test_g_count_is_none_before_get_rdf(self, water_trajectory):
-        """g_count is None before calling get_rdf."""
+    @pytest.mark.parametrize("attr", ["g_count", "g_force"])
+    def test_g_property_is_none_before_get_rdf(self, water_trajectory, attr):
+        """g_count/g_force is None before calling get_rdf."""
         from revelsMD.rdf import RDF
 
         rdf = RDF(water_trajectory, 'O', 'H')
         rdf.accumulate(water_trajectory)
 
-        assert rdf.g_count is None
-
-    def test_g_force_is_none_before_get_rdf(self, water_trajectory):
-        """g_force is None before calling get_rdf."""
-        from revelsMD.rdf import RDF
-
-        rdf = RDF(water_trajectory, 'O', 'H')
-        rdf.accumulate(water_trajectory)
-
-        assert rdf.g_force is None
+        assert getattr(rdf, attr) is None
 
     def test_g_count_lambda_integration(self, water_trajectory):
         """g_count should work with lambda integration."""

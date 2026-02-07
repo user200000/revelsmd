@@ -10,6 +10,130 @@ import numpy as np
 from numpy.typing import NDArray
 
 
+class WelfordAccumulator3D:
+    """
+    Online variance/covariance accumulator for 3D grids.
+
+    Uses Welford's algorithm to compute running mean, variance, and covariance
+    in a single pass, without storing all samples. This enables variance
+    estimation across multiple trajectories without memory explosion.
+
+    For lambda estimation, we track:
+    - delta = rho_force - rho_count (per section)
+    - rho_force (per section)
+
+    And compute:
+    - Var(delta) across sections
+    - Cov(delta, rho_force) across sections
+
+    Parameters
+    ----------
+    shape : tuple of int
+        Shape of the 3D grid (nx, ny, nz).
+
+    Attributes
+    ----------
+    count : int
+        Number of samples (sections) accumulated.
+    mean_delta : ndarray
+        Running mean of delta across sections.
+    mean_rho_force : ndarray
+        Running mean of rho_force across sections.
+    M2_delta : ndarray
+        Sum of squared deviations for variance calculation.
+    C_delta_force : ndarray
+        Sum of cross-deviations for covariance calculation.
+
+    Examples
+    --------
+    >>> acc = WelfordAccumulator3D((10, 10, 10))
+    >>> for delta, rho_force in section_data:
+    ...     acc.update(delta, rho_force)
+    >>> variance, covariance = acc.finalise()
+    """
+
+    def __init__(self, shape: tuple[int, int, int]) -> None:
+        self.shape = shape
+        self.count = 0
+        self.mean_delta: NDArray[np.floating] = np.zeros(shape)
+        self.mean_rho_force: NDArray[np.floating] = np.zeros(shape)
+        self.M2_delta: NDArray[np.floating] = np.zeros(shape)
+        self.C_delta_force: NDArray[np.floating] = np.zeros(shape)
+
+    def update(
+        self,
+        delta: NDArray[np.floating],
+        rho_force: NDArray[np.floating],
+    ) -> None:
+        """
+        Add one section's densities to the running statistics.
+
+        Parameters
+        ----------
+        delta : ndarray
+            The difference rho_force - rho_count for this section.
+        rho_force : ndarray
+            The force-based density for this section.
+        """
+        self.count += 1
+
+        # Welford update for delta mean and variance
+        d_delta = delta - self.mean_delta
+        self.mean_delta += d_delta / self.count
+        d_delta2 = delta - self.mean_delta  # uses updated mean
+        self.M2_delta += d_delta * d_delta2
+
+        # Update mean_rho_force
+        d_force = rho_force - self.mean_rho_force
+        self.mean_rho_force += d_force / self.count
+
+        # Covariance update: dx * (y - mean_y_new)
+        self.C_delta_force += d_delta * (rho_force - self.mean_rho_force)
+
+    def finalise(
+        self,
+    ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+        """
+        Return variance and covariance arrays.
+
+        Returns
+        -------
+        variance : ndarray
+            Var(delta) across all sections (population variance).
+        covariance : ndarray
+            Cov(delta, rho_force) across all sections.
+
+        Raises
+        ------
+        ValueError
+            If fewer than 2 sections have been accumulated.
+        """
+        if self.count < 2:
+            msg = (
+                f"Need at least 2 sections for variance estimation, "
+                f"got {self.count}"
+            )
+            raise ValueError(msg)
+
+        # Population variance (divide by count, not count-1)
+        variance = self.M2_delta / self.count
+        covariance = self.C_delta_force / self.count
+        return variance, covariance
+
+    @property
+    def has_data(self) -> bool:
+        """Return True if any sections have been accumulated."""
+        return self.count > 0
+
+    def reset(self) -> None:
+        """Clear all accumulated state."""
+        self.count = 0
+        self.mean_delta.fill(0)
+        self.mean_rho_force.fill(0)
+        self.M2_delta.fill(0)
+        self.C_delta_force.fill(0)
+
+
 def compute_lambda_weights(
     variance: NDArray[np.floating],
     covariance: NDArray[np.floating],
