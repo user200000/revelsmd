@@ -1666,7 +1666,7 @@ class TestFFTForceToDensity:
         np.testing.assert_array_equal(rho_force, 0.0)
         np.testing.assert_array_equal(rho_count, 0.0)
         np.testing.assert_array_equal(del_rho_n, 0.0)
-        assert del_rho_k.dtype == complex
+        assert np.issubdtype(del_rho_k.dtype, np.complexfloating)
 
     def test_zero_forces_gives_mean_rho_count(self, grid):
         """With zero forces, rho_force should equal mean(rho_count) everywhere."""
@@ -1730,11 +1730,6 @@ class TestFFTForceToDensity:
 
         # Place the 1D mode into the right axis of a 3D force array
         force_arrays = [np.zeros(shape) for _ in range(3)]
-        slices = [None, None, None]
-        slices[axis] = slice(None)
-        for i in range(3):
-            slices[i] = slices[i] if slices[i] is not None else np.newaxis
-        # Broadcast mode into the correct axis
         broadcast_shape = [1, 1, 1]
         broadcast_shape[axis] = n
         force_arrays[axis] = mode.reshape(broadcast_shape) * np.ones(shape)
@@ -1753,10 +1748,7 @@ class TestFFTForceToDensity:
         # Compute expected: the normalised force FFT at mode 1 along this axis
         normed_force_1d = mode / count / grid.voxel_volume
         fft_1d = np.fft.fft(normed_force_1d)
-        # F_hat at mode 1, multiplied by k1, divided by k1^2 = divided by k1
-        expected_coeff = 1j * grid.beta * fft_1d[1]  # k1 * F_hat / k1^2 = F_hat / k1
-        # The k1 factor from the k-vector multiplication and division by k^2 cancel to 1/k1
-        # but more precisely: i * beta * k1 * F_hat(k1) / k1^2 = i * beta * F_hat(k1) / k1
+        # From Borgis: del_rho(k1) = i * beta * k1 * F_hat(k1) / k1^2 = i * beta * F_hat(k1) / k1
         expected_coeff = 1j * grid.beta * fft_1d[1] / k1
 
         # Check the corresponding element of del_rho_k
