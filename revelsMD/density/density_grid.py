@@ -912,6 +912,12 @@ class DensityGrid:
         self._welford = None
         self._lambda_finalised = False
 
+        # Invalidate any cached densities / lambda weights that depended on the old accumulators
+        self._rho_force = None
+        self._rho_count = None
+        self._rho_lambda = None
+        self._lambda_weights = None
+
         # Use the new internal method to accumulate with variance statistics
         self._accumulate_with_sections(trajectory, sections)
 
@@ -989,13 +995,19 @@ def compute_density(
 
     Notes
     -----
-    When ``compute_lambda=False`` (the default), this function eagerly computes
-    real-space densities via FFT before returning.
+    Densities are computed lazily on first access to the corresponding
+    properties (``rho_force``, ``rho_count``, and ``rho_lambda``).
 
-    When ``compute_lambda=True``, densities are computed lazily on first access
-    to ``rho_lambda``. This avoids redundant FFT computation since lambda
-    finalisation also requires computing densities. In this case, ``rho_force``
-    and ``rho_count`` will be zero until ``rho_lambda`` is accessed.
+    When ``compute_lambda=False`` (the default), lambda statistics are not
+    accumulated and only ``rho_force`` and ``rho_count`` are available; their
+    FFT-based real-space densities are computed on demand when those
+    properties are first accessed.
+
+    When ``compute_lambda=True``, lambda statistics are accumulated during
+    :meth:`DensityGrid.accumulate`, and the variance-minimised density
+    ``rho_lambda`` is computed on demand when that property is first accessed.
+    Accessing ``rho_force`` or ``rho_count`` similarly triggers computation of
+    their respective densities if they have not yet been evaluated.
 
     Examples
     --------
