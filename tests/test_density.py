@@ -1,5 +1,7 @@
 """Tests for revelsMD.density package and its module structure."""
 
+import warnings
+
 import numpy as np
 import pytest
 from ase import Atoms
@@ -75,7 +77,7 @@ def test_densitygrid_initialisation(ts):
     assert gs.lx == pytest.approx(ts.box_x / 4)
     assert gs.voxel_volume > 0
     assert np.all(gs.force_x == 0)
-    assert gs.progress == "Generated"
+    assert gs.count == 0  # No data accumulated yet
 
 
 def test_densitygrid_uses_trajectory_beta(ts):
@@ -290,7 +292,7 @@ def test_selection_rigid_water():
 def test_full_number_density_pipeline(tmp_path, ts):
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
-    assert gs.progress == "Allocated"
+    assert gs.count > 0  # Data has been accumulated
 
     gs.get_real_density()
     assert hasattr(gs, "rho_force")
@@ -306,11 +308,314 @@ def test_get_lambda_basic(ts):
     """Test basic get_lambda functionality."""
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
-    gs.get_real_density()
-    gs.get_lambda(ts, sections=1)
-    assert gs.progress == "Lambda"
+    # get_lambda() re-accumulates internally, so no need to call get_real_density()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        gs.get_lambda(ts, sections=2)
     assert gs.rho_lambda is not None
     assert gs.rho_lambda.shape == gs.rho_force.shape
+
+
+def test_get_lambda_emits_deprecation_warning(ts):
+    """get_lambda should emit a DeprecationWarning."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.accumulate(ts, atom_names="H", rigid=False)
+    # get_lambda() re-accumulates internally, so no need to call get_real_density()
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        gs.get_lambda(ts, sections=2)
+
+    # Check that at least one DeprecationWarning with expected message was emitted
+    dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
+    assert dep_warnings, "Expected at least one DeprecationWarning from get_lambda"
+    assert any("compute_lambda=True" in str(warn.message) for warn in dep_warnings)
+
+
+# ---------------------------------------------------------------------------
+# compute_lambda parameter tests
+# ---------------------------------------------------------------------------
+
+
+class TestAccumulateComputeLambda:
+    """Tests for accumulate() with compute_lambda parameter."""
+
+    @pytest.fixture
+    def multi_frame_trajectory(self):
+        """Create a trajectory with enough frames for sectioned lambda estimation."""
+        class MultiFrameTrajectory:
+            def __init__(self):
+                self.box_x = self.box_y = self.box_z = 10.0
+                self.units = 'real'
+                self.temperature = 300.0
+                from revelsMD.trajectories._base import compute_beta
+                self.beta = compute_beta(self.units, self.temperature)
+                self.frames = 10
+
+                # 3 atoms per frame, 10 frames
+                np.random.seed(42)
+                self._positions = [
+                    np.random.rand(3, 3) * 10 for _ in range(self.frames)
+                ]
+                self._forces = [
+                    np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
+                ]
+
+                self._ids = {"H": np.array([0, 1, 2])}
+                self._charges = {"H": np.array([0.1, 0.1, 0.1])}
+                self._masses = {"H": np.array([1.0, 1.0, 1.0])}
+
+            def get_indices(self, atype):
+                return self._ids[atype]
+
+            def get_charges(self, atype):
+                return self._charges[atype]
+
+            def get_masses(self, atype):
+                return self._masses[atype]
+
+            def iter_frames(self, start=0, stop=None, stride=1):
+                if stop is None:
+                    stop = self.frames
+                for i in range(start, stop, stride):
+                    yield self._positions[i], self._forces[i]
+
+            def get_frame(self, index):
+                return self._positions[index], self._forces[index]
+
+        return MultiFrameTrajectory()
+
+    def test_accumulate_without_compute_lambda_no_welford(self, multi_frame_trajectory):
+        """accumulate() without compute_lambda does not create Welford accumulator."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H")
+
+        assert gs._welford is None
+        assert gs.rho_lambda is None
+
+    def test_accumulate_with_compute_lambda_creates_welford(self, multi_frame_trajectory):
+        """accumulate() with compute_lambda=True creates Welford accumulator."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        assert gs._welford is not None
+        assert gs._welford.has_data
+
+    def test_accumulate_compute_lambda_default_sections(self, multi_frame_trajectory):
+        """accumulate() with compute_lambda=True defaults to one section per frame."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        # Default is one section per frame (10 frames = 10 sections)
+        assert gs._welford.count == 10
+
+    def test_accumulate_compute_lambda_custom_sections(self, multi_frame_trajectory):
+        """accumulate() with compute_lambda=True accepts custom sections."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5
+        )
+
+        assert gs._welford.count == 5
+
+    def test_rho_lambda_available_after_compute_lambda(self, multi_frame_trajectory):
+        """rho_lambda is available after accumulate with compute_lambda=True."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        # Access triggers lazy finalisation
+        assert gs.rho_lambda is not None
+        assert gs.rho_lambda.shape == (4, 4, 4)
+
+    def test_lambda_weights_available_after_compute_lambda(self, multi_frame_trajectory):
+        """lambda_weights is available after accumulate with compute_lambda=True."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        assert gs.lambda_weights is not None
+        assert gs.lambda_weights.shape == (4, 4, 4)
+
+    def test_rho_force_still_available(self, multi_frame_trajectory):
+        """rho_force is still available after compute_lambda accumulation."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        # Access rho_lambda to trigger finalisation (which also computes rho_force)
+        _ = gs.rho_lambda
+
+        assert gs.rho_force is not None
+        # Should have non-trivial values (after finalisation)
+        assert np.any(gs.rho_force != 0)
+
+    def test_multiple_accumulate_calls_update_welford(self, multi_frame_trajectory):
+        """Multiple accumulate() calls with compute_lambda continue building stats."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First accumulation
+        gs.accumulate(multi_frame_trajectory, atom_names="H",
+                     compute_lambda=True, sections=3, start=0, stop=5)
+        first_count = gs._welford.count
+
+        # Second accumulation
+        gs.accumulate(multi_frame_trajectory, atom_names="H",
+                     compute_lambda=True, sections=3, start=5, stop=10)
+        second_count = gs._welford.count
+
+        # Welford count should increase
+        assert second_count > first_count
+
+    def test_rho_lambda_returns_none_without_compute_lambda(self, multi_frame_trajectory):
+        """rho_lambda returns None when compute_lambda was not used."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H")
+
+        # Without compute_lambda, rho_lambda should be None
+        assert gs.rho_lambda is None
+        assert gs.lambda_weights is None
+
+    def test_rho_force_none_before_access(self, multi_frame_trajectory):
+        """rho_force is None (not computed) until accessed."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+
+        # Before accessing rho_force or rho_lambda, internal state is None
+        assert gs._rho_force is None
+
+        # After accessing rho_lambda, rho_force should be computed
+        _ = gs.rho_lambda
+        assert gs._rho_force is not None
+        assert np.any(gs._rho_force != 0)
+
+    def test_deprecated_get_lambda_uses_internal_method(
+        self, multi_frame_trajectory
+    ):
+        """Deprecated get_lambda() delegates to _accumulate_with_sections()."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            gs.get_lambda(multi_frame_trajectory, sections=5)
+
+        # Verify it used the Welford accumulator internally
+        assert gs._welford is not None
+        assert gs._welford.count == 5
+        assert gs._rho_lambda is not None  # Lambda was computed
+
+    def test_multi_trajectory_lambda_accumulation(self, multi_frame_trajectory):
+        """Lambda statistics accumulate across multiple accumulate() calls."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First accumulation with 5 sections
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5, start=0, stop=5
+        )
+        assert gs._welford.count == 5
+
+        # Second accumulation adds more sections
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5, start=5, stop=10
+        )
+        assert gs._welford.count == 10  # Combined from both calls
+
+        # Lambda uses combined statistics
+        rho = gs.rho_lambda
+        assert rho is not None
+
+    def test_frames_processed_accumulates_across_calls(self, multi_frame_trajectory):
+        """frames_processed should accumulate total frames across multiple accumulate() calls."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First accumulation: frames 0-4 (5 frames)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H", start=0, stop=5
+        )
+        assert gs.frames_processed == 5
+
+        # Second accumulation: frames 5-9 (5 frames)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H", start=5, stop=10
+        )
+        assert gs.frames_processed == 10  # Total from both calls
+
+    def test_compute_lambda_false_clears_welford_with_warning(self, multi_frame_trajectory):
+        """accumulate(compute_lambda=False) clears existing Welford state with warning."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # Accumulate with lambda
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H", compute_lambda=True
+        )
+        assert gs._welford is not None
+
+        # Accumulate without lambda clears the Welford and warns
+        with pytest.warns(UserWarning, match="discards existing lambda statistics"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H", compute_lambda=False
+            )
+        assert gs._welford is None
+        assert gs._rho_lambda is None
+
+    def test_compute_lambda_false_no_warning_when_no_welford(self, multi_frame_trajectory):
+        """accumulate(compute_lambda=False) does not warn if no Welford exists."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First accumulate without lambda - no warning expected
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # Turn warnings into errors
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H", compute_lambda=False
+            )
+        assert gs._welford is None
+
+    def test_rho_lambda_raises_with_insufficient_sections(self, multi_frame_trajectory):
+        """Accessing rho_lambda with < 2 sections raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=1, start=0, stop=1
+        )
+
+        with pytest.raises(ValueError, match="fewer than 2 sections"):
+            _ = gs.rho_lambda
+
+    def test_rho_lambda_works_with_one_section_per_trajectory(
+        self, multi_frame_trajectory
+    ):
+        """sections=1 works if accumulated across multiple trajectories."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First trajectory with sections=1
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=1, start=0, stop=5
+        )
+        assert gs._welford.count == 1
+
+        # Second trajectory with sections=1
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=1, start=5, stop=10
+        )
+        assert gs._welford.count == 2  # Now have 2 total sections
+
+        # Lambda now works
+        rho = gs.rho_lambda
+        assert rho is not None
+
+    def test_sections_exceeds_frames_raises_error(self, multi_frame_trajectory):
+        """Requesting more sections than frames should raise ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # multi_frame_trajectory has 10 frames, request 20 sections
+        with pytest.raises(ValueError, match="sections.*exceeds.*frames"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, sections=20
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -497,7 +802,7 @@ class TestMakeForceGridUnified:
         # Verify grid was populated
         assert gs.count == 2
         assert gs.counter.sum() > 0
-        assert gs.progress == "Allocated"
+        assert gs.count > 0  # Data has been accumulated
 
 
 class TestSelectionGetWeights:
@@ -882,32 +1187,6 @@ class TestSelectionGetPositions:
 
 
 # ---------------------------------------------------------------------------
-# Import tests
-# ---------------------------------------------------------------------------
-
-def test_selectionstate_importable_from_density():
-    """Selection should be importable from revelsMD.density."""
-    assert Selection is not None
-
-
-def test_selectionstate_importable_from_submodule():
-    """Selection should be importable from revelsMD.density.selection."""
-    from revelsMD.density.selection import Selection
-    assert Selection is not None
-
-
-def test_gridstate_importable_from_density():
-    """DensityGrid should be importable from revelsMD.density."""
-    assert DensityGrid is not None
-
-
-def test_gridstate_importable_from_submodule():
-    """DensityGrid should be importable from revelsMD.density.density_grid."""
-    from revelsMD.density.density_grid import DensityGrid
-    assert DensityGrid is not None
-
-
-# ---------------------------------------------------------------------------
 # compute_density() convenience function
 # ---------------------------------------------------------------------------
 
@@ -1044,38 +1323,61 @@ class TestComputeDensity:
 
         return IterableMockTrajectoryWithGetFrame()
 
-    def test_compute_density_lambda(self, trajectory_with_get_frame):
-        """compute_density with integration='lambda' populates rho_lambda."""
+    def test_compute_density_compute_lambda(self, trajectory_with_get_frame):
+        """compute_density with compute_lambda=True populates rho_lambda."""
         from revelsMD.density import compute_density
 
         grid = compute_density(
             trajectory_with_get_frame,
             atom_names='O',
             nbins=5,
-            integration='lambda',
+            compute_lambda=True,
             sections=2,
         )
 
         assert grid.rho_lambda is not None
-        assert grid.progress == "Lambda"
         assert grid.rho_lambda.shape == (5, 5, 5)
 
     def test_compute_density_standard_default(self, trajectory):
-        """Default integration='standard' behaves as before."""
+        """Default compute_lambda=False behaves as before."""
         from revelsMD.density import compute_density
 
         grid = compute_density(trajectory, atom_names='O', nbins=5)
 
         assert grid.rho_force is not None
         assert grid.rho_lambda is None
-        assert grid.progress == "Allocated"
+        assert grid.count > 0  # Data has been accumulated
+
+    def test_compute_density_integration_deprecated(self, trajectory_with_get_frame):
+        """integration='lambda' still works but emits DeprecationWarning."""
+        from revelsMD.density import compute_density
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            grid = compute_density(
+                trajectory_with_get_frame,
+                atom_names='O',
+                nbins=5,
+                integration='lambda',
+                sections=2,
+            )
+
+        # Check that at least one DeprecationWarning with expected message was emitted
+        assert any(
+            issubclass(warn.category, DeprecationWarning)
+            and "compute_lambda=True" in str(warn.message)
+            for warn in w
+        )
+        assert grid.rho_lambda is not None
 
     def test_compute_density_invalid_integration(self, trajectory):
         """Invalid integration raises ValueError."""
         from revelsMD.density import compute_density
 
-        with pytest.raises(ValueError, match="integration"):
-            compute_density(trajectory, atom_names='O', nbins=5, integration='invalid')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            with pytest.raises(ValueError, match="integration"):
+                compute_density(trajectory, atom_names='O', nbins=5, integration='invalid')
 
 
 # ---------------------------------------------------------------------------
@@ -1134,7 +1436,6 @@ class TestDensityGridGetLambdaEdgeCases:
                 kernel="triangular"
             )
 
-        gs.progress = "Allocated"
         gs.get_lambda(traj, sections=2)
 
         # The key assertion: no NaN or Inf values
@@ -1190,3 +1491,151 @@ class TestWriteToCube:
 
         with pytest.raises((OSError, FileNotFoundError)):
             gs.write_to_cube(atoms, gs.rho_force, "/nonexistent/path/test.cube")
+
+
+# ---------------------------------------------------------------------------
+# Compute-on-demand tests for rho_force / rho_count
+# ---------------------------------------------------------------------------
+
+class TestComputeOnDemand:
+    """Tests for compute-on-demand behaviour of rho_force and rho_count."""
+
+    @pytest.fixture
+    def ts(self):
+        """Fixture providing a basic test trajectory."""
+        return TSMock()
+
+    def test_rho_force_computes_on_demand(self, ts):
+        """rho_force should compute automatically without calling get_real_density()."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Access rho_force WITHOUT calling get_real_density()
+        result = gs.rho_force
+
+        assert result is not None
+        assert result.shape == (4, 4, 4)
+        assert np.any(result != 0)
+
+    def test_rho_count_computes_on_demand(self, ts):
+        """rho_count should compute automatically without calling get_real_density()."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Access rho_count WITHOUT calling get_real_density()
+        result = gs.rho_count
+
+        assert result is not None
+        assert result.shape == (4, 4, 4)
+        assert np.any(result != 0)
+
+    def test_rho_force_is_cached(self, ts):
+        """rho_force should return the same cached object on repeated access."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        first_access = gs.rho_force
+        second_access = gs.rho_force
+
+        # Should be the exact same object (cached)
+        assert first_access is second_access
+
+    def test_rho_count_is_cached(self, ts):
+        """rho_count should return the same cached object on repeated access."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        first_access = gs.rho_count
+        second_access = gs.rho_count
+
+        # Should be the exact same object (cached)
+        assert first_access is second_access
+
+    def test_accumulate_clears_cached_densities(self, ts):
+        """accumulate() should clear cached rho_force/rho_count."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Access to cache the result
+        first_rho_force = gs.rho_force
+        assert first_rho_force is not None
+
+        # Accumulate again
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Should have cleared the cache and recomputed
+        second_rho_force = gs.rho_force
+        assert second_rho_force is not first_rho_force
+
+    def test_rho_force_returns_none_before_accumulate(self, ts):
+        """rho_force should return None before any accumulation."""
+        gs = DensityGrid(ts, "number", nbins=4)
+
+        # No accumulation yet
+        assert gs.rho_force is None
+
+    def test_rho_count_returns_none_before_accumulate(self, ts):
+        """rho_count should return None before any accumulation."""
+        gs = DensityGrid(ts, "number", nbins=4)
+
+        # No accumulation yet
+        assert gs.rho_count is None
+
+    def test_get_real_density_emits_deprecation_warning(self, ts):
+        """get_real_density() should emit a DeprecationWarning."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            gs.get_real_density()
+
+        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
+        assert dep_warnings, "Expected at least one DeprecationWarning"
+        assert any("get_real_density" in str(warn.message) for warn in dep_warnings)
+
+    def test_get_real_density_still_works(self, ts):
+        """get_real_density() should still work for backward compatibility."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            gs.get_real_density()
+
+        # Should have populated the densities
+        assert gs.rho_force is not None
+        assert gs.rho_count is not None
+        assert np.any(gs.rho_force != 0)
+
+    def test_rho_lambda_uses_cached_densities(self, ts):
+        """rho_lambda finalisation should use cached rho_force if available."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        # Access rho_force first (caches it)
+        rho_force_cached = gs.rho_force
+
+        # Now access rho_lambda (should use cached rho_force)
+        _ = gs.rho_lambda
+
+        # The cached rho_force should still be the same object
+        assert gs.rho_force is rho_force_cached
+
+    def test_fft_density_calculation_consistent(self, ts):
+        """FFT density calculation should be consistent between main and array methods."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Compute via the main method (uses self.force_x, etc.)
+        rho_force_main = gs.rho_force
+        rho_count_main = gs.rho_count
+
+        # Compute via the array method with the same data
+        rho_force_array, rho_count_array = gs._compute_densities_from_arrays(
+            gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
+        )
+
+        # Results should be identical
+        np.testing.assert_array_equal(rho_force_main, rho_force_array)
+        np.testing.assert_array_equal(rho_count_main, rho_count_array)

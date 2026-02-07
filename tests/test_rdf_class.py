@@ -29,10 +29,6 @@ def water_trajectory():
 class TestRDFClassAPI:
     """Test the RDF class interface."""
 
-    def test_rdf_class_importable(self):
-        from revelsMD.rdf import RDF
-        assert RDF is not None
-
     def test_rdf_constructor_stores_parameters(self, water_trajectory):
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, species_a='O', species_b='H', delr=0.02)
@@ -168,10 +164,6 @@ class TestRDFResultsMatchLegacy:
 
 class TestComputeRDFConvenience:
     """Test the compute_rdf convenience function."""
-
-    def test_compute_rdf_importable(self):
-        from revelsMD.rdf import compute_rdf
-        assert callable(compute_rdf)
 
     def test_compute_rdf_returns_rdf_object(self, water_trajectory):
         from revelsMD.rdf import compute_rdf, RDF

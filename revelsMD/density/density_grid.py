@@ -16,7 +16,11 @@ from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
-from revelsMD.statistics import compute_lambda_weights, combine_estimators
+from revelsMD.statistics import (
+    WelfordAccumulator3D,
+    combine_estimators,
+    compute_lambda_weights,
+)
 
 # Module-level backend functions (loaded once at import)
 _triangular_allocation, _box_allocation = _get_grid_backend_functions()
@@ -101,33 +105,48 @@ class DensityGrid:
         # Density selection
         self.density_type = validate_density_type(density_type)
 
-        # Progress flag
-        self.progress = "Generated"
+        # Bookkeeping for multi-trajectory accumulation
+        self.frames_processed = 0
 
-        # Density results (populated by get_real_density or get_lambda)
-        self._rho_count = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
-        self._rho_force = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
+        # Density results (computed on demand when properties are accessed)
+        self._rho_count: np.ndarray | None = None
+        self._rho_force: np.ndarray | None = None
         self._rho_lambda: np.ndarray | None = None
         self._lambda_weights: np.ndarray | None = None
 
+        # Lambda statistics accumulator (populated if compute_lambda=True in accumulate)
+        self._welford: WelfordAccumulator3D | None = None
+
     @property
-    def rho_count(self) -> np.ndarray:
-        """Counting-based density (zeros until get_real_density or get_lambda is called)."""
+    def rho_count(self) -> np.ndarray | None:
+        """Counting-based density. Computed on first access after accumulate()."""
+        if self.count == 0:
+            return None  # No data accumulated yet
+        if self._rho_count is None:
+            self._compute_real_densities()
         return self._rho_count
 
     @property
-    def rho_force(self) -> np.ndarray:
-        """Force-based density via FFT (zeros until get_real_density or get_lambda is called)."""
+    def rho_force(self) -> np.ndarray | None:
+        """Force-based density via FFT. Computed on first access after accumulate()."""
+        if self.count == 0:
+            return None  # No data accumulated yet
+        if self._rho_force is None:
+            self._compute_real_densities()
         return self._rho_force
 
     @property
     def rho_lambda(self) -> np.ndarray | None:
-        """Variance-minimised density (available after get_lambda)."""
+        """Variance-minimised density (available after get_lambda or compute_lambda)."""
+        if self._rho_lambda is None and self._welford is not None:
+            self._finalise_lambda()
         return self._rho_lambda
 
     @property
     def lambda_weights(self) -> np.ndarray | None:
-        """Per-voxel lambda weights (available after get_lambda)."""
+        """Per-voxel lambda weights (available after get_lambda or compute_lambda)."""
+        if self._lambda_weights is None and self._welford is not None:
+            self._finalise_lambda()
         return self._lambda_weights
 
     @property
@@ -138,7 +157,7 @@ class DensityGrid:
             DeprecationWarning,
             stacklevel=2,
         )
-        return self._rho_lambda
+        return self.rho_lambda
 
     @property
     def combination(self) -> np.ndarray | None:
@@ -148,7 +167,7 @@ class DensityGrid:
             DeprecationWarning,
             stacklevel=2,
         )
-        return self._lambda_weights
+        return self.lambda_weights
 
     def _process_frame(
         self,
@@ -256,6 +275,8 @@ class DensityGrid:
         start: int = 0,
         stop: int | None = None,
         period: int = 1,
+        compute_lambda: bool = False,
+        sections: int | None = None,
     ) -> None:
         """
         Accumulate per-frame force contributions on the voxel grid.
@@ -284,12 +305,35 @@ class DensityGrid:
             Negative indices count from end (e.g., -1 = all but last).
         period : int, optional
             Frame stride (default: 1).
+        compute_lambda : bool, optional
+            If True, collect variance statistics for lambda estimation during
+            accumulation using Welford's algorithm. The variance-minimised density
+            will be available via grid.rho_lambda. Default is False (faster, no
+            lambda overhead).
+        sections : int or None, optional
+            Number of sections for lambda estimation. Only used when
+            compute_lambda=True. If None, defaults to one section per frame
+            (matching the original get_lambda behaviour). At least 2 sections
+            are required across all ``accumulate()`` calls for variance
+            estimation; accessing ``rho_lambda`` with fewer raises ValueError.
+
+        Notes
+        -----
+        When ``compute_lambda=True``, variance statistics accumulate across
+        multiple ``accumulate()`` calls, enabling lambda estimation from
+        multiple trajectories.
+
+        Calling ``accumulate(..., compute_lambda=False)`` clears any existing
+        lambda statistics. After this, ``rho_lambda`` will return ``None``
+        until ``compute_lambda=True`` is used again.
 
         Raises
         ------
         ValueError
             On invalid frame selection, unsupported density/kernel combinations,
-            or malformed inputs for rigid/centre options.
+            malformed inputs for rigid/centre options, or if ``rho_lambda`` is
+            accessed with fewer than 2 accumulated sections (variance estimation
+            requires at least 2 data points).
         """
         # --- Validate atom_names ---
         if isinstance(atom_names, str):
@@ -347,19 +391,365 @@ class DensityGrid:
             polarisation_axis=polarisation_axis,
         )
 
-        # Process frames using unified approach
-        for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(self.to_run)):
+        # Invalidate any previous derived state — accumulator data is changing,
+        # so cached results would be stale.
+        self._invalidate_derived_state()
+        if not compute_lambda and self._welford is not None:
+            warnings.warn(
+                "Calling accumulate() with compute_lambda=False discards existing "
+                "lambda statistics. Use compute_lambda=True to preserve them.",
+                UserWarning,
+                stacklevel=2,
+            )
+            self._welford = None
+
+        if not compute_lambda:
+            # Simple accumulation (existing behaviour, fast path)
+            self._accumulate_simple(trajectory, start, stop, period)
+        else:
+            # Sectioned accumulation with lambda statistics
+            if sections is not None and sections <= 0:
+                raise ValueError("sections must be a positive integer")
+            # Default to one section per frame (matches original get_lambda behaviour)
+            effective_sections = sections if sections is not None else len(self.to_run)
+            if effective_sections > len(self.to_run):
+                raise ValueError(
+                    f"sections ({effective_sections}) exceeds the number of frames "
+                    f"to process ({len(self.to_run)})"
+                )
+            self._accumulate_with_sections(trajectory, effective_sections)
+
+        self.frames_processed += len(self.to_run)
+
+    def _invalidate_derived_state(self) -> None:
+        """Clear cached densities and lambda weights.
+
+        Called when accumulator data changes, making any previously computed
+        densities stale.
+        """
+        self._rho_force = None
+        self._rho_count = None
+        self._rho_lambda = None
+        self._lambda_weights = None
+
+    def _accumulate_simple(
+        self,
+        trajectory: Trajectory,
+        start: int,
+        stop: int | None,
+        period: int,
+    ) -> None:
+        """Accumulate without collecting lambda statistics (fast path)."""
+        for positions, forces in tqdm(
+            trajectory.iter_frames(start, stop, period), total=len(self.to_run)
+        ):
             deposit_positions = self._selection.get_positions(positions)
             deposit_forces = self._selection.get_forces(forces)
             weights = self._selection.get_weights(positions)
             self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
 
-        self.frames_processed = self.to_run
-        self.progress = "Allocated"
+    def _accumulate_with_sections(
+        self,
+        trajectory: Trajectory,
+        sections: int,
+    ) -> None:
+        """Accumulate while collecting lambda statistics via Welford's algorithm.
+
+        Uses self.to_run (set by accumulate()) for frame indices.
+        """
+        # Initialise Welford accumulator if first call with compute_lambda
+        if self._welford is None:
+            self._welford = WelfordAccumulator3D(
+                shape=(self.nbinsx, self.nbinsy, self.nbinsz)
+            )
+
+        # self.to_run is a range, which supports slicing without materialising
+        # all indices into a list. This avoids memory overhead for large trajectories.
+        frame_indices = self.to_run
+
+        # Preallocate section buffers once, reused each iteration via .fill(0).
+        # This avoids O(sections) allocations which can cause significant memory
+        # churn for large grids (e.g., 100^3 grid = 32MB per allocation cycle).
+        section_force_x = np.zeros_like(self.force_x)
+        section_force_y = np.zeros_like(self.force_y)
+        section_force_z = np.zeros_like(self.force_z)
+        section_counter = np.zeros_like(self.counter)
+
+        # Process each section with interleaved sampling
+        for k in tqdm(range(sections), desc="Accumulating sections"):
+            # Compute interleaved frame indices for this section
+            # E.g., with 10 frames and 2 sections: section 0 gets [0,2,4,6,8], section 1 gets [1,3,5,7,9]
+            section_frame_indices = frame_indices[k::sections]
+
+            if len(section_frame_indices) == 0:
+                continue
+
+            # Reset section accumulators
+            section_force_x.fill(0)
+            section_force_y.fill(0)
+            section_force_z.fill(0)
+            section_counter.fill(0)
+            section_count = 0
+
+            # Process frames in this section
+            for frame_idx in section_frame_indices:
+                positions, forces = trajectory.get_frame(frame_idx)
+                deposit_positions = self._selection.get_positions(positions)
+                deposit_forces = self._selection.get_forces(forces)
+                weights = self._selection.get_weights(positions)
+
+                # Deposit to section accumulators
+                self._deposit_to_arrays(
+                    section_force_x, section_force_y, section_force_z, section_counter,
+                    deposit_positions, deposit_forces, weights, self.kernel
+                )
+
+                # Keep section_count semantics consistent with _process_frame/deposit:
+                # increment once per deposited array, not once per frame.
+                if isinstance(deposit_positions, list):
+                    section_count += len(deposit_positions)
+                else:
+                    section_count += 1
+
+            # Add section data to main accumulators (for rho_force/rho_count)
+            self.force_x += section_force_x
+            self.force_y += section_force_y
+            self.force_z += section_force_z
+            self.counter += section_counter
+            self.count += section_count
+
+            # Compute section densities for Welford update
+            section_rho_force, section_rho_count = self._compute_densities_from_arrays(
+                section_force_x, section_force_y, section_force_z,
+                section_counter, section_count
+            )
+            section_delta = section_rho_force - section_rho_count
+
+            # Update Welford statistics
+            self._welford.update(section_delta, section_rho_force)
+
+    def _deposit_to_arrays(
+        self,
+        force_x: np.ndarray,
+        force_y: np.ndarray,
+        force_z: np.ndarray,
+        counter: np.ndarray,
+        positions: np.ndarray | list[np.ndarray],
+        forces: np.ndarray | list[np.ndarray],
+        weights: float | np.ndarray | list[np.ndarray],
+        kernel: str,
+    ) -> None:
+        """Deposit to provided arrays (not self's accumulators)."""
+        if isinstance(positions, list):
+            if not isinstance(forces, list):
+                raise TypeError("positions and forces must both be lists or both be arrays")
+            if isinstance(weights, list):
+                for pos, frc, wgt in zip(positions, forces, weights):
+                    self._deposit_single_to_arrays(
+                        force_x, force_y, force_z, counter, pos, frc, wgt, kernel
+                    )
+            else:
+                scalar_weight: float | np.ndarray = weights
+                for pos, frc in zip(positions, forces):
+                    self._deposit_single_to_arrays(
+                        force_x, force_y, force_z, counter, pos, frc, scalar_weight, kernel
+                    )
+        else:
+            if isinstance(forces, list):
+                raise TypeError("positions and forces must both be lists or both be arrays")
+            if isinstance(weights, list):
+                raise TypeError("weights cannot be a list when positions is a single array")
+            self._deposit_single_to_arrays(
+                force_x, force_y, force_z, counter, positions, forces, weights, kernel
+            )
+
+    def _deposit_single_to_arrays(
+        self,
+        force_x: np.ndarray,
+        force_y: np.ndarray,
+        force_z: np.ndarray,
+        counter: np.ndarray,
+        positions: np.ndarray,
+        forces: np.ndarray,
+        weight: float | np.ndarray,
+        kernel: str,
+    ) -> None:
+        """Deposit a single set of positions/forces to provided arrays."""
+        # Bring positions to the primary image (periodic remainder)
+        homeX = np.remainder(positions[:, 0], self.box_x)
+        homeY = np.remainder(positions[:, 1], self.box_y)
+        homeZ = np.remainder(positions[:, 2], self.box_z)
+
+        # Component forces
+        fox = forces[:, 0]
+        foy = forces[:, 1]
+        foz = forces[:, 2]
+
+        # Map to voxel indices
+        x = np.digitize(homeX, self.binsx)
+        y = np.digitize(homeY, self.binsy)
+        z = np.digitize(homeZ, self.binsz)
+
+        if kernel.lower() == "triangular":
+            _triangular_allocation(
+                force_x, force_y, force_z, counter,
+                x, y, z, homeX, homeY, homeZ,
+                fox, foy, foz, weight,
+                self.lx, self.ly, self.lz,
+                self.nbinsx, self.nbinsy, self.nbinsz,
+            )
+        elif kernel.lower() == "box":
+            _box_allocation(
+                force_x, force_y, force_z, counter,
+                x - 1, y - 1, z - 1,
+                fox, foy, foz, weight,
+            )
+        else:
+            raise ValueError(f"Unsupported kernel: {kernel!r}")
+
+    def _fft_force_to_density(
+        self,
+        force_x: np.ndarray,
+        force_y: np.ndarray,
+        force_z: np.ndarray,
+        counter: np.ndarray,
+        count: int,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Convert force/counter arrays to densities via FFT.
+
+        This is the core density calculation implementing (Borgis et al.,
+        Mol. Phys. 111, 3486-3492 (2013)):
+        delta_rho(k) = i / (k_B T k^2) * k . F(k), with delta_rho(k=0) := 0,
+        then rho(r) = <rho_count(r)> + F^-1[delta_rho(k)].
+
+        Parameters
+        ----------
+        force_x, force_y, force_z : ndarray
+            Accumulated force components on the grid.
+        counter : ndarray
+            Accumulated particle counts on the grid.
+        count : int
+            Total number of deposited samples (for normalisation).
+
+        Returns
+        -------
+        rho_force : ndarray
+            Force-based density.
+        rho_count : ndarray
+            Counting-based density.
+        del_rho_k : ndarray
+            Density perturbation in k-space.
+        del_rho_n : ndarray
+            Density perturbation in real space.
+        """
+        if count == 0:
+            zeros = np.zeros_like(force_x)
+            return zeros, zeros, zeros.astype(complex), zeros
+
+        # Counting density
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rho_count = counter / self.voxel_volume / count
+
+        # FFT of normalised forces
+        with np.errstate(divide="ignore", invalid="ignore"):
+            fx_fft = np.fft.fftn(force_x / count / self.voxel_volume)
+            fy_fft = np.fft.fftn(force_y / count / self.voxel_volume)
+            fz_fft = np.fft.fftn(force_z / count / self.voxel_volume)
+
+        # k-vectors
+        xrep, yrep, zrep = self.get_kvectors()
+
+        # Multiply by k components
+        for n in range(len(xrep)):
+            fx_fft[n, :, :] = xrep[n] * fx_fft[n, :, :]
+        for m in range(len(yrep)):
+            fy_fft[:, m, :] = yrep[m] * fy_fft[:, m, :]
+        for l_idx in range(len(zrep)):
+            fz_fft[:, :, l_idx] = zrep[l_idx] * fz_fft[:, :, l_idx]
+
+        # delta_rho(k)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            del_rho_k = (
+                complex(0, 1)
+                * self.beta / self.get_ksquared()
+                * (fx_fft + fy_fft + fz_fft)
+            )
+        del_rho_k[0, 0, 0] = 0.0
+
+        # Back to real space
+        del_rho_n = -1.0 * np.real(np.fft.ifftn(del_rho_k))
+        rho_force = del_rho_n + np.mean(rho_count)
+
+        return rho_force, rho_count, del_rho_k, del_rho_n
+
+    def _compute_densities_from_arrays(
+        self,
+        force_x: np.ndarray,
+        force_y: np.ndarray,
+        force_z: np.ndarray,
+        counter: np.ndarray,
+        count: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Compute rho_force and rho_count from provided arrays.
+
+        Returns
+        -------
+        rho_force : ndarray
+            Force-based density.
+        rho_count : ndarray
+            Counting-based density.
+        """
+        rho_force, rho_count, _, _ = self._fft_force_to_density(
+            force_x, force_y, force_z, counter, count
+        )
+        return rho_force, rho_count
+
+    def _finalise_lambda(self) -> None:
+        """Compute final lambda weights and density from Welford statistics."""
+        if self._welford is None or not self._welford.has_data:
+            return
+
+        if self._rho_lambda is not None:
+            return  # Already finalised
+
+        # Compute the expected densities from full accumulation (uses caching)
+        expected_rho_force = self.rho_force
+        expected_rho_count = self.rho_count
+
+        # These can't be None here - we've accumulated data (count > 0)
+        # and the properties trigger computation if needed
+        assert expected_rho_force is not None
+        assert expected_rho_count is not None
+
+        if self._welford.count < 2:
+            raise ValueError(
+                f"Cannot compute lambda with fewer than 2 sections (have {self._welford.count}). "
+                "Use sections >= 2 or accumulate from additional trajectories."
+            )
+
+        # Finalise Welford statistics
+        var_buffer, cov_buffer_force = self._welford.finalise()
+
+        # Compute lambda weights: lambda = 1 - Cov(delta, rho_force) / Var(delta)
+        lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
+        self._lambda_weights = 1.0 - lambda_raw
+
+        # Compute variance-minimised density
+        self._rho_lambda = combine_estimators(
+            expected_rho_count,
+            expected_rho_force,
+            self._lambda_weights,
+        )
 
     def get_real_density(self) -> None:
         """
         Convert accumulated force field to real-space density via FFT.
+
+        .. deprecated::
+            Densities are now computed on demand. Access ``rho_force`` or
+            ``rho_count`` directly instead of calling this method.
 
         Notes
         -----
@@ -371,55 +761,25 @@ class DensityGrid:
         ------------
         Sets `self.del_rho_k`, `self.del_rho_n`, `self.rho_count`, `self.rho_force`.
         """
-        if self.progress == "Generated":
+        warnings.warn(
+            "get_real_density() is deprecated and will be removed in a future version. "
+            "Access grid.rho_force or grid.rho_count directly; "
+            "densities are now computed on demand.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self._compute_real_densities()
+
+    def _compute_real_densities(self) -> None:
+        """Internal: compute rho_force and rho_count from accumulators via FFT."""
+        if self.count == 0:
             raise RuntimeError("Run accumulate() before computing densities.")
 
-        # Normalize by number of frames and voxel volume before FFT
-        with np.errstate(divide="ignore", invalid="ignore"):
-            force_x = np.fft.fftn(self.force_x / self.count / self.voxel_volume)
-            force_y = np.fft.fftn(self.force_y / self.count / self.voxel_volume)
-            force_z = np.fft.fftn(self.force_z / self.count / self.voxel_volume)
-
-        # k-vectors per dimension
-        xrep, yrep, zrep = self.get_kvectors()
-
-        # Multiply by k components (component-wise dot in spectral space)
-        for n in range(len(xrep)):
-            force_x[n, :, :] = xrep[n] * force_x[n, :, :]
-        for m in range(len(yrep)):
-            force_y[:, m, :] = yrep[m] * force_y[:, m, :]
-        for l in range(len(zrep)):
-            force_z[:, :, l] = zrep[l] * force_z[:, :, l]
-
-        # delta_rho(k): i * beta / k^2 * (F.k); handle k^2=0 via errstate; enforce delta_rho(0)=0
-        with np.errstate(divide="ignore", invalid="ignore"):
-            self.del_rho_k = (
-                complex(0, 1)
-                * self.beta / self.get_ksquared()
-                * (force_x + force_y + force_z)
+        self._rho_force, self._rho_count, self.del_rho_k, self.del_rho_n = (
+            self._fft_force_to_density(
+                self.force_x, self.force_y, self.force_z, self.counter, self.count
             )
-        self.del_rho_k[0, 0, 0] = 0.0
-
-        # Back to real space (density perturbation), add mean counting density
-        del_rho_n = np.fft.ifftn(self.del_rho_k)
-        self.del_rho_n = -1.0 * np.real(del_rho_n)
-
-        # Conventional counting density (averaged)
-        self._compute_rho_count()
-        self._rho_force = self.del_rho_n + np.mean(self._rho_count)
-
-    def _compute_rho_count(self) -> None:
-        """
-        Compute conventional counting-based density from `self.counter`.
-
-        Side Effects
-        ------------
-        Sets `self._rho_count`.
-        """
-        if self.progress == "Generated":
-            raise RuntimeError("Run accumulate() before computing densities.")
-        with np.errstate(divide="ignore", invalid="ignore"):
-            self._rho_count = self.counter / self.voxel_volume / self.count
+        )
 
     def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -498,8 +858,10 @@ class DensityGrid:
         """
         Compute optimal lambda(r) to combine counting and force densities.
 
-        Implements the linear-combination approach of:
-        J. Chem. Phys. 154, 191101 (2021).
+        .. deprecated::
+            Use ``accumulate(..., compute_lambda=True)`` instead. This method
+            re-reads the trajectory, whereas the new approach collects statistics
+            during accumulation (significantly faster, supports multiple trajectories).
 
         Parameters
         ----------
@@ -507,91 +869,49 @@ class DensityGrid:
             Trajectory-state providing per-frame positions and forces.
         sections : int, optional
             Number of interleaved frame-subsets used to accumulate covariance
-            buffers. If None, defaults to `trajectory.frames`.
-
-        Returns
-        -------
-        None
-            Results stored as attributes:
-            - rho_lambda: variance-minimised density
-            - lambda_weights: per-voxel combination weights
+            buffers. If None, defaults to `trajectory.frames`. Must be >= 2
+            for variance estimation (a ValueError is raised otherwise).
 
         Raises
         ------
         RuntimeError
             If called before `accumulate`.
-        ValueError
-            If called on a grid already produced by `get_lambda`.
-
-        Notes
-        -----
-        After this method completes, the internal accumulators (force_x/y/z, counter)
-        will contain only the last section's data, not the full trajectory. This means
-        rho_force and rho_count will no longer reflect the full accumulation — only
-        rho_lambda should be used after calling this method.
         """
-        if self.progress == "Generated":
+        warnings.warn(
+            "get_lambda() is deprecated. Use accumulate(..., compute_lambda=True) instead: "
+            "grid.accumulate(traj, atom_names, compute_lambda=True)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if self.count == 0:
             raise RuntimeError("Run accumulate() before estimating lambda.")
-        if self.progress == "Lambda":
-            raise ValueError("This grid was already produced by get_lambda; re-run upstream to refresh.")
 
         if sections is None:
             sections = trajectory.frames
 
-        # Baseline expectation from full accumulation
-        self.get_real_density()
-        expected_rho_force = np.copy(self._rho_force)
-        expected_rho_count = np.copy(self._rho_count)
-        delta = expected_rho_force - expected_rho_count
+        if sections > len(self.to_run):
+            raise ValueError(
+                f"sections ({sections}) exceeds the number of frames "
+                f"to process ({len(self.to_run)})"
+            )
 
-        # Covariance/variance accumulators (local, not stored)
-        cov_buffer_force = np.zeros((self.nbinsx, self.nbinsy, self.nbinsz))
-        var_buffer = np.zeros((self.nbinsx, self.nbinsy, self.nbinsz))
+        # Reset accumulators and re-accumulate with lambda statistics.
+        self.force_x.fill(0)
+        self.force_y.fill(0)
+        self.force_z.fill(0)
+        self.counter.fill(0)
+        self.count = 0
+        self._welford = None
+        self._invalidate_derived_state()
 
-        # Interleaved accumulation across sections
-        for k in tqdm(range(sections)):
-            # Reset accumulators for this section
-            self.force_x.fill(0)
-            self.force_y.fill(0)
-            self.force_z.fill(0)
-            self._rho_count.fill(0)
-            self.counter.fill(0)
-            self.del_rho_k.fill(0)
-            self.del_rho_n.fill(0)
-            self._rho_force.fill(0)
-            self.count = 0
-
-            # Frame indices for this section (interleaved sampling)
-            frame_indices = np.array(self.to_run)[
-                np.arange(k, sections * (len(self.to_run) // sections), sections)
-            ]
-            for frame_idx in frame_indices:
-                positions, forces = trajectory.get_frame(frame_idx)
-                deposit_positions = self._selection.get_positions(positions)
-                deposit_forces = self._selection.get_forces(forces)
-                weights = self._selection.get_weights(positions)
-                self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
-
-            # Compute densities for this section and accumulate statistics
-            self.get_real_density()
-            delta_cur = self._rho_force - self._rho_count
-            var_buffer += (delta_cur - delta) ** 2
-            cov_buffer_force += (delta_cur - delta) * (self._rho_force - expected_rho_force)
-
-        # lambda = 1 - cov(force)/var(delta); optimal density = (1-lambda)*count + lambda*force
-        lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
-        self._lambda_weights = 1.0 - lambda_raw
-        self._rho_lambda = combine_estimators(
-            expected_rho_count,
-            expected_rho_force,
-            self._lambda_weights,
-        )
-        self.progress = "Lambda"
+        self._accumulate_with_sections(trajectory, sections)
+        self._finalise_lambda()
 
 
 def compute_density(
     trajectory: Trajectory,
     atom_names: str | list[str],
+    *,
     rigid: bool = False,
     centre_location: bool | int = True,
     density_type: str = "number",
@@ -601,8 +921,9 @@ def compute_density(
     start: int = 0,
     stop: int | None = None,
     period: int = 1,
-    integration: str = "standard",
+    compute_lambda: bool = False,
     sections: int | None = None,
+    integration: str | None = None,  # Deprecated
 ) -> DensityGrid:
     """
     Compute density from trajectory with a single function call.
@@ -636,20 +957,39 @@ def compute_density(
         Last frame to process, None for all frames (default: None).
     period : int, optional
         Frame stride (default: 1).
-    integration : {'standard', 'lambda'}, optional
-        Integration method (default: 'standard'). Use 'lambda' for
-        variance-minimised combination of counting and force densities.
+    compute_lambda : bool, optional
+        If True, collect variance statistics for lambda estimation during
+        accumulation. The variance-minimised density will be available via
+        grid.rho_lambda. Default is False (faster, no lambda overhead).
     sections : int or None, optional
-        Number of interleaved frame-subsets for lambda estimation.
-        Only used when integration='lambda'. If None, defaults to the
-        number of frames in the trajectory.
+        Number of sections for lambda estimation. Only used when
+        compute_lambda=True. If None, defaults to one section per frame.
+    integration : str, optional
+        .. deprecated::
+            Use ``compute_lambda=True`` instead of ``integration='lambda'``.
 
     Returns
     -------
     DensityGrid
-        Grid with computed density. For integration='standard', the result
-        is available as `rho_force`. For integration='lambda', the
-        variance-minimised result is available as `rho_lambda`.
+        Grid with computed density. Access rho_force for force-based density,
+        rho_count for counting density, or rho_lambda for variance-minimised
+        density (if compute_lambda=True).
+
+    Notes
+    -----
+    Densities are computed lazily on first access to the corresponding
+    properties (``rho_force``, ``rho_count``, and ``rho_lambda``).
+
+    When ``compute_lambda=False`` (the default), lambda statistics are not
+    accumulated and only ``rho_force`` and ``rho_count`` are available; their
+    FFT-based real-space densities are computed on demand when those
+    properties are first accessed.
+
+    When ``compute_lambda=True``, lambda statistics are accumulated during
+    :meth:`DensityGrid.accumulate`, and the variance-minimised density
+    ``rho_lambda`` is computed on demand when that property is first accessed.
+    Accessing ``rho_force`` or ``rho_count`` similarly triggers computation of
+    their respective densities if they have not yet been evaluated.
 
     Examples
     --------
@@ -657,10 +997,23 @@ def compute_density(
     >>> grid = compute_density(trajectory, 'O', nbins=50)
     >>> density = grid.rho_force
 
-    >>> # With variance-minimised lambda integration
-    >>> grid = compute_density(trajectory, 'O', integration='lambda', sections=10)
+    >>> # With variance-minimised lambda estimation
+    >>> grid = compute_density(trajectory, 'O', compute_lambda=True)
     >>> density = grid.rho_lambda
     """
+    # Handle deprecated integration parameter
+    if integration is not None:
+        warnings.warn(
+            "integration parameter is deprecated. Use compute_lambda=True instead: "
+            "compute_density(..., compute_lambda=True)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if integration == "lambda":
+            compute_lambda = True
+        elif integration != "standard":
+            raise ValueError(f"integration must be 'standard' or 'lambda', got '{integration}'")
+
     grid = DensityGrid(trajectory, density_type, nbins=nbins)
     grid.accumulate(
         trajectory,
@@ -672,12 +1025,10 @@ def compute_density(
         start=start,
         stop=stop,
         period=period,
+        compute_lambda=compute_lambda,
+        sections=sections,
     )
-    grid.get_real_density()
-
-    if integration == "lambda":
-        grid.get_lambda(trajectory, sections=sections)
-    elif integration != "standard":
-        raise ValueError(f"integration must be 'standard' or 'lambda', got '{integration}'")
+    # Densities are computed on demand when rho_force/rho_count/rho_lambda
+    # properties are accessed, so no explicit computation call is needed here.
 
     return grid
