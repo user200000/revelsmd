@@ -1509,3 +1509,52 @@ class TestComputeOnDemand:
         # Results should be identical
         np.testing.assert_array_equal(rho_force_main, rho_force_array)
         np.testing.assert_array_equal(rho_count_main, rho_count_array)
+
+
+# ---------------------------------------------------------------------------
+# rho_hybrid tests
+# ---------------------------------------------------------------------------
+
+class TestHybridDensity:
+    """Tests for DensityGrid.rho_hybrid()."""
+
+    def test_selects_force_above_and_count_below_threshold(self, ts):
+        """Result should exactly match np.where(rho_count >= threshold, rho_force, rho_count)."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        threshold = 0.01
+        expected = np.where(gs.rho_count >= threshold, gs.rho_force, gs.rho_count)
+
+        np.testing.assert_array_equal(gs.rho_hybrid(threshold), expected)
+
+    def test_zero_threshold_returns_force_everywhere(self, ts):
+        """Threshold of zero means rho_count >= 0 always, so result equals rho_force."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        np.testing.assert_array_equal(gs.rho_hybrid(0.0), gs.rho_force)
+
+    def test_large_threshold_returns_count_everywhere(self, ts):
+        """Threshold above max rho_count means all voxels use rho_count."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        large_threshold = gs.rho_count.max() + 1.0
+
+        np.testing.assert_array_equal(gs.rho_hybrid(large_threshold), gs.rho_count)
+
+    def test_negative_threshold_raises_value_error(self, ts):
+        """Negative threshold should raise ValueError."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with pytest.raises(ValueError, match="threshold must be non-negative"):
+            gs.rho_hybrid(-0.1)
+
+    def test_before_accumulate_raises_runtime_error(self, ts):
+        """Calling rho_hybrid before accumulate should raise RuntimeError."""
+        gs = DensityGrid(ts, "number", nbins=4)
+
+        with pytest.raises(RuntimeError, match="No density data available"):
+            gs.rho_hybrid(0.01)

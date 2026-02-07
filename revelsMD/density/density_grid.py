@@ -170,6 +170,49 @@ class DensityGrid:
         )
         return self._lambda_weights
 
+    def rho_hybrid(self, threshold: float) -> np.ndarray:
+        """Threshold-switched density combining force and count estimators.
+
+        Uses the force-based density where the counting density is at or
+        above the threshold, and the counting density elsewhere. This
+        eliminates spurious negative density artefacts from the force
+        estimator in poorly sampled regions while preserving the higher
+        resolution of the force estimator in well-sampled regions.
+
+        Parameters
+        ----------
+        threshold : float
+            Density threshold (in the same units as ``rho_count``).
+            Voxels with ``rho_count >= threshold`` use the force estimate;
+            voxels below the threshold use the counting estimate.
+
+        Returns
+        -------
+        np.ndarray
+            Hybrid density field, same shape as ``rho_count``.
+
+        Raises
+        ------
+        RuntimeError
+            If no data has been accumulated yet.
+        ValueError
+            If threshold is negative.
+        """
+        if threshold < 0:
+            raise ValueError(
+                f"threshold must be non-negative, got {threshold}"
+            )
+
+        rho_c = self.rho_count
+        rho_f = self.rho_force
+
+        if rho_c is None or rho_f is None:
+            raise RuntimeError(
+                "No density data available. Run accumulate() first."
+            )
+
+        return np.where(rho_c >= threshold, rho_f, rho_c)
+
     def _process_frame(
         self,
         positions: np.ndarray,
