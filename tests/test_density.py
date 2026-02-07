@@ -586,6 +586,42 @@ class MockTrajectory:
         return charges[atom_name]
 
 
+class IterableMockTrajectory(MockTrajectory):
+    """MockTrajectory extended with frame iteration support."""
+
+    def __init__(self):
+        super().__init__()
+        self.frames = 2
+        self._positions = [
+            np.array([
+                [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
+                [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
+                [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
+            ], dtype=float),
+            np.array([
+                [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
+                [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
+                [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
+            ], dtype=float),
+        ]
+        self._forces = [
+            np.array([
+                [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
+                [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
+                [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
+            ], dtype=float),
+            np.array([
+                [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
+                [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
+                [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
+            ], dtype=float),
+        ]
+
+    def iter_frames(self, start, stop, period):
+        for i in range(start, stop or self.frames, period):
+            yield self._positions[i], self._forces[i]
+
+
 # ---------------------------------------------------------------------------
 # Selection.get_positions() tests
 # ---------------------------------------------------------------------------
@@ -687,40 +723,6 @@ class TestMakeForceGridUnified:
 
     @pytest.fixture
     def trajectory(self):
-        """Create mock trajectory that supports iteration."""
-        class IterableMockTrajectory(MockTrajectory):
-            def __init__(self):
-                super().__init__()
-                self.frames = 2
-                self._positions = [
-                    np.array([
-                        [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
-                        [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
-                        [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
-                    ], dtype=float),
-                    np.array([
-                        [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
-                        [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
-                        [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
-                    ], dtype=float),
-                ]
-                self._forces = [
-                    np.array([
-                        [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
-                        [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
-                        [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
-                    ], dtype=float),
-                    np.array([
-                        [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
-                        [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
-                        [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
-                    ], dtype=float),
-                ]
-
-            def iter_frames(self, start, stop, period):
-                for i in range(start, stop or self.frames, period):
-                    yield self._positions[i], self._forces[i]
-
         return IterableMockTrajectory()
 
     def test_accumulate_single_species_number(self, trajectory):
@@ -1076,40 +1078,6 @@ class TestComputeDensity:
 
     @pytest.fixture
     def trajectory(self):
-        """Create mock trajectory that supports iteration."""
-        class IterableMockTrajectory(MockTrajectory):
-            def __init__(self):
-                super().__init__()
-                self.frames = 2
-                self._positions = [
-                    np.array([
-                        [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
-                        [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
-                        [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
-                    ], dtype=float),
-                    np.array([
-                        [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
-                        [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
-                        [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
-                    ], dtype=float),
-                ]
-                self._forces = [
-                    np.array([
-                        [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
-                        [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
-                        [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
-                    ], dtype=float),
-                    np.array([
-                        [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
-                        [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
-                        [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
-                    ], dtype=float),
-                ]
-
-            def iter_frames(self, start, stop, period):
-                for i in range(start, stop or self.frames, period):
-                    yield self._positions[i], self._forces[i]
-
         return IterableMockTrajectory()
 
     def test_compute_density_returns_densitygrid(self, trajectory):
