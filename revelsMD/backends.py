@@ -8,10 +8,16 @@ The backend can be configured via the REVELSMD_BACKEND environment variable:
 - 'numba': JIT-compiled implementations (default, requires numba)
 - 'numpy': Pure NumPy implementations
 
+FFT parallelism can be configured via REVELSMD_FFT_WORKERS:
+- 1: single-threaded (default)
+- N: use N threads
+- -1: use all available cores
+
 Example
 -------
 >>> import os
 >>> os.environ['REVELSMD_BACKEND'] = 'numpy'  # Before importing revelsMD
+>>> os.environ['REVELSMD_FFT_WORKERS'] = '4'  # Use 4 threads for FFTs
 """
 
 from __future__ import annotations
@@ -21,6 +27,9 @@ import os
 BACKEND_ENV_VAR = 'REVELSMD_BACKEND'
 AVAILABLE_BACKENDS = frozenset({'numpy', 'numba'})
 DEFAULT_BACKEND = 'numba'
+
+FFT_WORKERS_ENV_VAR = 'REVELSMD_FFT_WORKERS'
+DEFAULT_FFT_WORKERS = 1
 
 
 def _resolve_backend() -> str:
@@ -49,7 +58,38 @@ def _resolve_backend() -> str:
     return value
 
 
+def _resolve_fft_workers() -> int:
+    """Resolve FFT worker count from environment variable.
+
+    Returns
+    -------
+    int
+        Number of FFT worker threads. 1 for single-threaded,
+        -1 for all available cores.
+
+    Raises
+    ------
+    ValueError
+        If the environment variable is not a valid integer.
+    """
+    value = os.environ.get(FFT_WORKERS_ENV_VAR, '')
+    if not value:
+        return DEFAULT_FFT_WORKERS
+    try:
+        workers = int(value)
+    except ValueError:
+        raise ValueError(
+            f"Invalid {FFT_WORKERS_ENV_VAR} '{value}'. Must be an integer."
+        )
+    if workers == 0:
+        raise ValueError(
+            f"Invalid {FFT_WORKERS_ENV_VAR} '{value}'. Must be non-zero."
+        )
+    return workers
+
+
 BACKEND = _resolve_backend()
+FFT_WORKERS = _resolve_fft_workers()
 
 
 def get_backend() -> str:
@@ -62,3 +102,16 @@ def get_backend() -> str:
         Backend name ('numpy' or 'numba').
     """
     return BACKEND
+
+
+def get_fft_workers() -> int:
+    """
+    Get the number of FFT worker threads.
+
+    Returns
+    -------
+    int
+        Number of worker threads. 1 for single-threaded,
+        -1 for all available cores.
+    """
+    return FFT_WORKERS
