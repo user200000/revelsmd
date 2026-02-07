@@ -596,16 +596,30 @@ class DensityGrid:
         else:
             raise ValueError(f"Unsupported kernel: {kernel!r}")
 
-    def _compute_densities_from_arrays(
+    def _fft_force_to_density(
         self,
         force_x: np.ndarray,
         force_y: np.ndarray,
         force_z: np.ndarray,
         counter: np.ndarray,
         count: int,
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Compute rho_force and rho_count from provided arrays.
+        Convert force/counter arrays to densities via FFT.
+
+        This is the core density calculation implementing (Borgis et al.,
+        Mol. Phys. 111, 3486-3492 (2013)):
+        delta_rho(k) = i / (k_B T k^2) * k . F(k), with delta_rho(k=0) := 0,
+        then rho(r) = <rho_count(r)> + F^-1[delta_rho(k)].
+
+        Parameters
+        ----------
+        force_x, force_y, force_z : ndarray
+            Accumulated force components on the grid.
+        counter : ndarray
+            Accumulated particle counts on the grid.
+        count : int
+            Total number of deposited samples (for normalisation).
 
         Returns
         -------
@@ -613,15 +627,20 @@ class DensityGrid:
             Force-based density.
         rho_count : ndarray
             Counting-based density.
+        del_rho_k : ndarray
+            Density perturbation in k-space.
+        del_rho_n : ndarray
+            Density perturbation in real space.
         """
         if count == 0:
-            return np.zeros_like(force_x), np.zeros_like(counter)
+            zeros = np.zeros_like(force_x)
+            return zeros, zeros, zeros.astype(complex), zeros
 
         # Counting density
         with np.errstate(divide="ignore", invalid="ignore"):
             rho_count = counter / self.voxel_volume / count
 
-        # FFT-based force density
+        # FFT of normalised forces
         with np.errstate(divide="ignore", invalid="ignore"):
             fx_fft = np.fft.fftn(force_x / count / self.voxel_volume)
             fy_fft = np.fft.fftn(force_y / count / self.voxel_volume)
@@ -651,6 +670,29 @@ class DensityGrid:
         del_rho_n = -1.0 * np.real(np.fft.ifftn(del_rho_k))
         rho_force = del_rho_n + np.mean(rho_count)
 
+        return rho_force, rho_count, del_rho_k, del_rho_n
+
+    def _compute_densities_from_arrays(
+        self,
+        force_x: np.ndarray,
+        force_y: np.ndarray,
+        force_z: np.ndarray,
+        counter: np.ndarray,
+        count: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Compute rho_force and rho_count from provided arrays.
+
+        Returns
+        -------
+        rho_force : ndarray
+            Force-based density.
+        rho_count : ndarray
+            Counting-based density.
+        """
+        rho_force, rho_count, _, _ = self._fft_force_to_density(
+            force_x, force_y, force_z, counter, count
+        )
         return rho_force, rho_count
 
     def _finalise_lambda(self) -> None:
@@ -725,40 +767,11 @@ class DensityGrid:
         if self.progress == "Generated":
             raise RuntimeError("Run accumulate() before computing densities.")
 
-        # Normalize by number of frames and voxel volume before FFT
-        with np.errstate(divide="ignore", invalid="ignore"):
-            force_x = np.fft.fftn(self.force_x / self.count / self.voxel_volume)
-            force_y = np.fft.fftn(self.force_y / self.count / self.voxel_volume)
-            force_z = np.fft.fftn(self.force_z / self.count / self.voxel_volume)
-
-        # k-vectors per dimension
-        xrep, yrep, zrep = self.get_kvectors()
-
-        # Multiply by k components (component-wise dot in spectral space)
-        for n in range(len(xrep)):
-            force_x[n, :, :] = xrep[n] * force_x[n, :, :]
-        for m in range(len(yrep)):
-            force_y[:, m, :] = yrep[m] * force_y[:, m, :]
-        for l in range(len(zrep)):
-            force_z[:, :, l] = zrep[l] * force_z[:, :, l]
-
-        # delta_rho(k): i * beta / k^2 * (F.k); handle k^2=0 via errstate; enforce delta_rho(0)=0
-        with np.errstate(divide="ignore", invalid="ignore"):
-            self.del_rho_k = (
-                complex(0, 1)
-                * self.beta / self.get_ksquared()
-                * (force_x + force_y + force_z)
+        self._rho_force, self._rho_count, self.del_rho_k, self.del_rho_n = (
+            self._fft_force_to_density(
+                self.force_x, self.force_y, self.force_z, self.counter, self.count
             )
-        self.del_rho_k[0, 0, 0] = 0.0
-
-        # Back to real space (density perturbation), add mean counting density
-        del_rho_n = np.fft.ifftn(self.del_rho_k)
-        self.del_rho_n = -1.0 * np.real(del_rho_n)
-
-        # Conventional counting density (averaged)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            self._rho_count = self.counter / self.voxel_volume / self.count
-        self._rho_force = self.del_rho_n + np.mean(self._rho_count)
+        )
 
     def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """

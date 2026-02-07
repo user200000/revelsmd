@@ -1630,3 +1630,21 @@ class TestComputeOnDemand:
 
         # The cached rho_force should still be the same object
         assert gs.rho_force is rho_force_cached
+
+    def test_fft_density_calculation_consistent(self, ts):
+        """FFT density calculation should be consistent between main and array methods."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        # Compute via the main method (uses self.force_x, etc.)
+        rho_force_main = gs.rho_force
+        rho_count_main = gs.rho_count
+
+        # Compute via the array method with the same data
+        rho_force_array, rho_count_array = gs._compute_densities_from_arrays(
+            gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
+        )
+
+        # Results should be identical
+        np.testing.assert_array_equal(rho_force_main, rho_force_array)
+        np.testing.assert_array_equal(rho_count_main, rho_count_array)
