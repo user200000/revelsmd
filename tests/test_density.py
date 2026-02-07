@@ -528,6 +528,22 @@ class TestAccumulateComputeLambda:
         assert rho is not None
         assert gs._lambda_finalised is True
 
+    def test_frames_processed_accumulates_across_calls(self, multi_frame_trajectory):
+        """frames_processed should accumulate total frames across multiple accumulate() calls."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First accumulation: frames 0-4 (5 frames)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H", start=0, stop=5
+        )
+        assert gs.frames_processed == 5
+
+        # Second accumulation: frames 5-9 (5 frames)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H", start=5, stop=10
+        )
+        assert gs.frames_processed == 10  # Total from both calls
+
     def test_compute_lambda_false_clears_welford_with_warning(self, multi_frame_trajectory):
         """accumulate(compute_lambda=False) clears existing Welford state with warning."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)

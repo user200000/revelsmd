@@ -107,6 +107,7 @@ class DensityGrid:
 
         # Progress flag
         self.progress = "Generated"
+        self.frames_processed = 0
 
         # Density results (computed on demand when properties are accessed)
         self._rho_count: np.ndarray | None = None
@@ -420,7 +421,7 @@ class DensityGrid:
                 )
             self._accumulate_with_sections(trajectory, effective_sections)
 
-        self.frames_processed = self.to_run
+        self.frames_processed += len(self.to_run)
         self.progress = "Allocated"
 
     def _invalidate_derived_state(self) -> None:
