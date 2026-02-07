@@ -392,23 +392,15 @@ class TestRDFCountAccumulation:
         assert len(rdf.g_count) == len(rdf.r)
         assert len(rdf.g_force) == len(rdf.r)
 
-    def test_g_count_is_none_before_get_rdf(self, water_trajectory):
-        """g_count is None before calling get_rdf."""
+    @pytest.mark.parametrize("attr", ["g_count", "g_force"])
+    def test_g_property_is_none_before_get_rdf(self, water_trajectory, attr):
+        """g_count/g_force is None before calling get_rdf."""
         from revelsMD.rdf import RDF
 
         rdf = RDF(water_trajectory, 'O', 'H')
         rdf.accumulate(water_trajectory)
 
-        assert rdf.g_count is None
-
-    def test_g_force_is_none_before_get_rdf(self, water_trajectory):
-        """g_force is None before calling get_rdf."""
-        from revelsMD.rdf import RDF
-
-        rdf = RDF(water_trajectory, 'O', 'H')
-        rdf.accumulate(water_trajectory)
-
-        assert rdf.g_force is None
+        assert getattr(rdf, attr) is None
 
     def test_g_count_lambda_integration(self, water_trajectory):
         """g_count should work with lambda integration."""
