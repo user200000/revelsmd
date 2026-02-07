@@ -1,5 +1,7 @@
 """Tests for revelsMD.density package and its module structure."""
 
+import warnings
+
 import numpy as np
 import pytest
 from ase import Atoms
@@ -530,8 +532,8 @@ class TestAccumulateComputeLambda:
         assert rho is not None
         assert gs._lambda_finalised is True
 
-    def test_compute_lambda_false_clears_welford(self, multi_frame_trajectory):
-        """accumulate(compute_lambda=False) clears any existing Welford state."""
+    def test_compute_lambda_false_clears_welford_with_warning(self, multi_frame_trajectory):
+        """accumulate(compute_lambda=False) clears existing Welford state with warning."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
 
         # Accumulate with lambda
@@ -540,12 +542,25 @@ class TestAccumulateComputeLambda:
         )
         assert gs._welford is not None
 
-        # Accumulate without lambda clears the Welford
-        gs.accumulate(
-            multi_frame_trajectory, atom_names="H", compute_lambda=False
-        )
+        # Accumulate without lambda clears the Welford and warns
+        with pytest.warns(UserWarning, match="discards existing lambda statistics"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H", compute_lambda=False
+            )
         assert gs._welford is None
         assert gs._rho_lambda is None
+
+    def test_compute_lambda_false_no_warning_when_no_welford(self, multi_frame_trajectory):
+        """accumulate(compute_lambda=False) does not warn if no Welford exists."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # First accumulate without lambda - no warning expected
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # Turn warnings into errors
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H", compute_lambda=False
+            )
+        assert gs._welford is None
 
     def test_rho_lambda_raises_with_insufficient_sections(self, multi_frame_trajectory):
         """Accessing rho_lambda with < 2 sections raises ValueError."""

@@ -394,13 +394,15 @@ class DensityGrid:
 
         # Invalidate any previous derived state — accumulator data is changing,
         # so cached results would be stale.
-        self._rho_force = None
-        self._rho_count = None
-        if not compute_lambda:
+        self._invalidate_derived_state()
+        if not compute_lambda and self._welford is not None:
+            warnings.warn(
+                "Calling accumulate() with compute_lambda=False discards existing "
+                "lambda statistics. Use compute_lambda=True to preserve them.",
+                UserWarning,
+                stacklevel=2,
+            )
             self._welford = None
-        self._lambda_finalised = False
-        self._rho_lambda = None
-        self._lambda_weights = None
 
         if not compute_lambda:
             # Simple accumulation (existing behaviour, fast path)
@@ -420,6 +422,18 @@ class DensityGrid:
 
         self.frames_processed = self.to_run
         self.progress = "Allocated"
+
+    def _invalidate_derived_state(self) -> None:
+        """Clear cached densities and lambda weights.
+
+        Called when accumulator data changes, making any previously computed
+        densities stale.
+        """
+        self._rho_force = None
+        self._rho_count = None
+        self._rho_lambda = None
+        self._lambda_weights = None
+        self._lambda_finalised = False
 
     def _accumulate_simple(
         self,
@@ -910,13 +924,7 @@ class DensityGrid:
         self.counter.fill(0)
         self.count = 0
         self._welford = None
-        self._lambda_finalised = False
-
-        # Invalidate any cached densities / lambda weights that depended on the old accumulators
-        self._rho_force = None
-        self._rho_count = None
-        self._rho_lambda = None
-        self._lambda_weights = None
+        self._invalidate_derived_state()
 
         # Use the new internal method to accumulate with variance statistics
         self._accumulate_with_sections(trajectory, sections)
