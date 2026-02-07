@@ -863,9 +863,6 @@ class DensityGrid:
             re-reads the trajectory, whereas the new approach collects statistics
             during accumulation (significantly faster, supports multiple trajectories).
 
-        Implements the linear-combination approach of:
-        J. Chem. Phys. 154, 191101 (2021).
-
         Parameters
         ----------
         trajectory : Trajectory
@@ -875,27 +872,10 @@ class DensityGrid:
             buffers. If None, defaults to `trajectory.frames`. Must be >= 2
             for variance estimation (a ValueError is raised otherwise).
 
-        Returns
-        -------
-        None
-            Results stored as attributes:
-            - rho_lambda: variance-minimised density
-            - lambda_weights: per-voxel combination weights
-
         Raises
         ------
         RuntimeError
             If called before `accumulate`.
-        ValueError
-            If called on a grid already produced by `get_lambda`, or if
-            fewer than 2 sections are accumulated (variance estimation
-            requires at least 2 data points).
-
-        Notes
-        -----
-        After this method completes, the internal accumulators (force_x/y/z, counter)
-        will contain the full trajectory data (not just the last section as in
-        previous versions).
         """
         warnings.warn(
             "get_lambda() is deprecated. Use accumulate(..., compute_lambda=True) instead: "
@@ -909,19 +889,13 @@ class DensityGrid:
         if sections is None:
             sections = trajectory.frames
 
-        # Validate sections
-        if sections < 2:
-            raise ValueError(
-                "sections must be at least 2 to estimate lambda "
-                "(variance requires >= 2 samples)."
-            )
         if sections > len(self.to_run):
             raise ValueError(
                 f"sections ({sections}) exceeds the number of frames "
                 f"to process ({len(self.to_run)})"
             )
 
-        # Reset accumulators for fresh re-accumulation with sections
+        # Reset accumulators and re-accumulate with lambda statistics.
         self.force_x.fill(0)
         self.force_y.fill(0)
         self.force_z.fill(0)
@@ -930,10 +904,7 @@ class DensityGrid:
         self._welford = None
         self._invalidate_derived_state()
 
-        # Use the new internal method to accumulate with variance statistics
         self._accumulate_with_sections(trajectory, sections)
-
-        # Finalise lambda computation
         self._finalise_lambda()
 
 
