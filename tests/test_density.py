@@ -308,7 +308,7 @@ def test_get_lambda_basic(ts):
     """Test basic get_lambda functionality."""
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
-    gs.get_real_density()
+    # get_lambda() re-accumulates internally, so no need to call get_real_density()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         gs.get_lambda(ts, sections=2)
@@ -321,7 +321,7 @@ def test_get_lambda_emits_deprecation_warning(ts):
     """get_lambda should emit a DeprecationWarning."""
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names="H", rigid=False)
-    gs.get_real_density()
+    # get_lambda() re-accumulates internally, so no need to call get_real_density()
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")

@@ -917,6 +917,18 @@ class DensityGrid:
         if sections is None:
             sections = trajectory.frames
 
+        # Validate sections
+        if sections < 2:
+            raise ValueError(
+                "sections must be at least 2 to estimate lambda "
+                "(variance requires >= 2 samples)."
+            )
+        if sections > len(self.to_run):
+            raise ValueError(
+                f"sections ({sections}) exceeds the number of frames "
+                f"to process ({len(self.to_run)})"
+            )
+
         # Reset accumulators for fresh re-accumulation with sections
         self.force_x.fill(0)
         self.force_y.fill(0)
