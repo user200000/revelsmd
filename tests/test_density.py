@@ -7,7 +7,6 @@ import pytest
 from ase import Atoms
 
 from revelsMD.density import DensityGrid, Selection
-from conftest import TSMock
 
 
 # ---------------------------------------------------------------------------
@@ -1405,11 +1404,6 @@ class TestWriteToCube:
 
 class TestComputeOnDemand:
     """Tests for compute-on-demand behaviour of rho_force and rho_count."""
-
-    @pytest.fixture
-    def ts(self):
-        """Fixture providing a basic test trajectory."""
-        return TSMock()
 
     @pytest.mark.parametrize("attr", ["rho_force", "rho_count"])
     def test_density_computes_on_demand(self, ts, attr):
