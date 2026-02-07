@@ -1294,6 +1294,62 @@ class TestDensityGridGetLambdaEdgeCases:
 
 
 # ---------------------------------------------------------------------------
+# Deprecated property alias tests
+# ---------------------------------------------------------------------------
+
+class TestDeprecatedPropertyAliases:
+    """Tests for deprecated property aliases on DensityGrid."""
+
+    def test_optimal_density_emits_deprecation_warning(self, ts):
+        """optimal_density should emit DeprecationWarning."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _ = gs.optimal_density
+
+        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
+        assert dep_warnings, "Expected DeprecationWarning from optimal_density"
+        assert any("optimal_density" in str(warn.message) for warn in dep_warnings)
+
+    def test_combination_emits_deprecation_warning(self, ts):
+        """combination should emit DeprecationWarning."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _ = gs.combination
+
+        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
+        assert dep_warnings, "Expected DeprecationWarning from combination"
+        assert any("combination" in str(warn.message) for warn in dep_warnings)
+
+    def test_optimal_density_returns_same_as_rho_lambda(self, ts):
+        """optimal_density should return the same value as rho_lambda."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            # Access rho_lambda first to trigger finalisation
+            rho_lambda = gs.rho_lambda
+            assert gs.optimal_density is rho_lambda
+
+    def test_combination_returns_same_as_lambda_weights(self, ts):
+        """combination should return the same value as lambda_weights."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            # Access lambda_weights first to trigger finalisation
+            lambda_weights = gs.lambda_weights
+            assert gs.combination is lambda_weights
+
+
+# ---------------------------------------------------------------------------
 # DensityGrid.write_to_cube() tests
 # ---------------------------------------------------------------------------
 

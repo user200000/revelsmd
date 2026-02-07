@@ -36,6 +36,21 @@ class TestRDFClassAPI:
         assert rdf.species_b == 'H'
         assert rdf.delr == 0.02
 
+    def test_rdf_default_rmax_is_half_box(self, water_trajectory):
+        """Default rmax should be half the shortest box dimension."""
+        from revelsMD.rdf import RDF
+        rdf = RDF(water_trajectory, 'O', 'H')
+        assert rdf.rmax == 5.0  # box is 10x10x10
+
+    def test_rdf_custom_rmax(self, water_trajectory):
+        """Custom rmax should override the default."""
+        from revelsMD.rdf import RDF
+        rdf = RDF(water_trajectory, 'O', 'H', rmax=3.0)
+        assert rdf.rmax == 3.0
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='forward')
+        assert rdf.r[-1] <= 3.0
+
     def test_rdf_accumulate_sets_progress(self, water_trajectory):
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, 'O', 'H')
