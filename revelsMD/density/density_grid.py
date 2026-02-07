@@ -158,7 +158,7 @@ class DensityGrid:
             DeprecationWarning,
             stacklevel=2,
         )
-        return self._rho_lambda
+        return self.rho_lambda
 
     @property
     def combination(self) -> np.ndarray | None:
@@ -168,7 +168,7 @@ class DensityGrid:
             DeprecationWarning,
             stacklevel=2,
         )
-        return self._lambda_weights
+        return self.lambda_weights
 
     def _process_frame(
         self,
