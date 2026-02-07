@@ -6,13 +6,8 @@ J. Chem. Phys. 154, 191101 (2021).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 from numpy.typing import NDArray
-
-if TYPE_CHECKING:
-    from typing import Any
 
 
 class WelfordAccumulator3D:
@@ -60,15 +55,15 @@ class WelfordAccumulator3D:
     def __init__(self, shape: tuple[int, int, int]) -> None:
         self.shape = shape
         self.count = 0
-        self.mean_delta: NDArray[np.floating[Any]] = np.zeros(shape)
-        self.mean_rho_force: NDArray[np.floating[Any]] = np.zeros(shape)
-        self.M2_delta: NDArray[np.floating[Any]] = np.zeros(shape)
-        self.C_delta_force: NDArray[np.floating[Any]] = np.zeros(shape)
+        self.mean_delta: NDArray[np.floating] = np.zeros(shape)
+        self.mean_rho_force: NDArray[np.floating] = np.zeros(shape)
+        self.M2_delta: NDArray[np.floating] = np.zeros(shape)
+        self.C_delta_force: NDArray[np.floating] = np.zeros(shape)
 
     def update(
         self,
-        delta: NDArray[np.floating[Any]],
-        rho_force: NDArray[np.floating[Any]],
+        delta: NDArray[np.floating],
+        rho_force: NDArray[np.floating],
     ) -> None:
         """
         Add one section's densities to the running statistics.
@@ -97,7 +92,7 @@ class WelfordAccumulator3D:
 
     def finalise(
         self,
-    ) -> tuple[NDArray[np.floating[Any]], NDArray[np.floating[Any]]]:
+    ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
         """
         Return variance and covariance arrays.
 
