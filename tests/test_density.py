@@ -1444,50 +1444,27 @@ class TestComputeOnDemand:
         """Fixture providing a basic test trajectory."""
         return TSMock()
 
-    def test_rho_force_computes_on_demand(self, ts):
-        """rho_force should compute automatically without calling get_real_density()."""
+    @pytest.mark.parametrize("attr", ["rho_force", "rho_count"])
+    def test_density_computes_on_demand(self, ts, attr):
+        """rho_force/rho_count should compute automatically without calling get_real_density()."""
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
-        # Access rho_force WITHOUT calling get_real_density()
-        result = gs.rho_force
+        result = getattr(gs, attr)
 
         assert result is not None
         assert result.shape == (4, 4, 4)
         assert np.any(result != 0)
 
-    def test_rho_count_computes_on_demand(self, ts):
-        """rho_count should compute automatically without calling get_real_density()."""
+    @pytest.mark.parametrize("attr", ["rho_force", "rho_count"])
+    def test_density_is_cached(self, ts, attr):
+        """rho_force/rho_count should return the same cached object on repeated access."""
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
-        # Access rho_count WITHOUT calling get_real_density()
-        result = gs.rho_count
+        first_access = getattr(gs, attr)
+        second_access = getattr(gs, attr)
 
-        assert result is not None
-        assert result.shape == (4, 4, 4)
-        assert np.any(result != 0)
-
-    def test_rho_force_is_cached(self, ts):
-        """rho_force should return the same cached object on repeated access."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        first_access = gs.rho_force
-        second_access = gs.rho_force
-
-        # Should be the exact same object (cached)
-        assert first_access is second_access
-
-    def test_rho_count_is_cached(self, ts):
-        """rho_count should return the same cached object on repeated access."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        first_access = gs.rho_count
-        second_access = gs.rho_count
-
-        # Should be the exact same object (cached)
         assert first_access is second_access
 
     def test_accumulate_clears_cached_densities(self, ts):
@@ -1506,19 +1483,12 @@ class TestComputeOnDemand:
         second_rho_force = gs.rho_force
         assert second_rho_force is not first_rho_force
 
-    def test_rho_force_returns_none_before_accumulate(self, ts):
-        """rho_force should return None before any accumulation."""
+    @pytest.mark.parametrize("attr", ["rho_force", "rho_count"])
+    def test_density_returns_none_before_accumulate(self, ts, attr):
+        """rho_force/rho_count should return None before any accumulation."""
         gs = DensityGrid(ts, "number", nbins=4)
 
-        # No accumulation yet
-        assert gs.rho_force is None
-
-    def test_rho_count_returns_none_before_accumulate(self, ts):
-        """rho_count should return None before any accumulation."""
-        gs = DensityGrid(ts, "number", nbins=4)
-
-        # No accumulation yet
-        assert gs.rho_count is None
+        assert getattr(gs, attr) is None
 
     def test_get_real_density_emits_deprecation_warning(self, ts):
         """get_real_density() should emit a DeprecationWarning."""
