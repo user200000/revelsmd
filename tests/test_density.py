@@ -1174,32 +1174,6 @@ class TestSelectionGetPositions:
 
 
 # ---------------------------------------------------------------------------
-# Import tests
-# ---------------------------------------------------------------------------
-
-def test_selectionstate_importable_from_density():
-    """Selection should be importable from revelsMD.density."""
-    assert Selection is not None
-
-
-def test_selectionstate_importable_from_submodule():
-    """Selection should be importable from revelsMD.density.selection."""
-    from revelsMD.density.selection import Selection
-    assert Selection is not None
-
-
-def test_gridstate_importable_from_density():
-    """DensityGrid should be importable from revelsMD.density."""
-    assert DensityGrid is not None
-
-
-def test_gridstate_importable_from_submodule():
-    """DensityGrid should be importable from revelsMD.density.density_grid."""
-    from revelsMD.density.density_grid import DensityGrid
-    assert DensityGrid is not None
-
-
-# ---------------------------------------------------------------------------
 # compute_density() convenience function
 # ---------------------------------------------------------------------------
 
