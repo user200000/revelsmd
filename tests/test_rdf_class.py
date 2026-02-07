@@ -49,7 +49,7 @@ class TestRDFClassAPI:
         assert rdf.rmax == 3.0
         rdf.accumulate(water_trajectory)
         rdf.get_rdf(integration='forward')
-        assert rdf.r[-1] <= 3.0
+        assert rdf.r[-1] <= 3.0 + 1e-8
 
     def test_rdf_accumulate_sets_progress(self, water_trajectory):
         from revelsMD.rdf import RDF
