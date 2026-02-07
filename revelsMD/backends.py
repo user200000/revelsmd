@@ -72,7 +72,7 @@ def _resolve_fft_workers() -> int:
     ValueError
         If the environment variable is not a valid integer.
     """
-    value = os.environ.get(FFT_WORKERS_ENV_VAR, '')
+    value = os.environ.get(FFT_WORKERS_ENV_VAR, '').strip()
     if not value:
         return DEFAULT_FFT_WORKERS
     try:
@@ -81,9 +81,10 @@ def _resolve_fft_workers() -> int:
         raise ValueError(
             f"Invalid {FFT_WORKERS_ENV_VAR} '{value}'. Must be an integer."
         )
-    if workers == 0:
+    if workers != -1 and workers < 1:
         raise ValueError(
-            f"Invalid {FFT_WORKERS_ENV_VAR} '{value}'. Must be non-zero."
+            f"Invalid {FFT_WORKERS_ENV_VAR} '{value}'. "
+            f"Must be -1 or a positive integer."
         )
     return workers
 

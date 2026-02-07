@@ -178,9 +178,22 @@ class TestGetFftWorkers:
         assert result.returncode == 0
         assert result.stdout.strip() == '-1'
 
+    def test_whitespace_is_stripped(self):
+        """Whitespace around worker count is stripped."""
+        result = self._run_get_fft_workers(' 4 ')
+        assert result.returncode == 0
+        assert result.stdout.strip() == '4'
+
     def test_zero_raises_error(self):
         """Zero is not a valid worker count."""
         result = self._run_get_fft_workers('0')
+        assert result.returncode != 0
+        assert 'ValueError' in result.stderr
+        assert 'REVELSMD_FFT_WORKERS' in result.stderr
+
+    def test_negative_two_raises_error(self):
+        """Negative values other than -1 are not valid."""
+        result = self._run_get_fft_workers('-2')
         assert result.returncode != 0
         assert 'ValueError' in result.stderr
         assert 'REVELSMD_FFT_WORKERS' in result.stderr
