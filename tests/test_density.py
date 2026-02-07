@@ -582,6 +582,17 @@ class TestAccumulateComputeLambda:
         rho = gs.rho_lambda
         assert rho is not None
 
+    def test_sections_exceeds_frames_raises_error(self, multi_frame_trajectory):
+        """Requesting more sections than frames should raise ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+
+        # multi_frame_trajectory has 10 frames, request 20 sections
+        with pytest.raises(ValueError, match="sections.*exceeds.*frames"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, sections=20
+            )
+
 
 # ---------------------------------------------------------------------------
 # Mock trajectory for Selection tests (water molecules)

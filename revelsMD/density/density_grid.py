@@ -411,6 +411,11 @@ class DensityGrid:
                 raise ValueError("sections must be a positive integer")
             # Default to one section per frame (matches original get_lambda behaviour)
             effective_sections = sections if sections is not None else len(self.to_run)
+            if effective_sections > len(self.to_run):
+                raise ValueError(
+                    f"sections ({effective_sections}) exceeds the number of frames "
+                    f"to process ({len(self.to_run)})"
+                )
             self._accumulate_with_sections(trajectory, effective_sections)
 
         self.frames_processed = self.to_run
