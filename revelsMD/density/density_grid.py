@@ -657,17 +657,18 @@ class DensityGrid:
             fy_fft = np.fft.fftn(force_y / count / self.voxel_volume)
             fz_fft = np.fft.fftn(force_z / count / self.voxel_volume)
 
-        # Multiply each FFT component by its k-vector
-        xrep, yrep, zrep = self.get_kvectors()
-        fx_fft *= xrep[:, None, None]
-        fy_fft *= yrep[None, :, None]
-        fz_fft *= zrep[None, None, :]
+        # Multiply each FFT component by its k-vector and compute k^2
+        kx, ky, kz = self.get_kvectors()
+        fx_fft *= kx[:, None, None]
+        fy_fft *= ky[None, :, None]
+        fz_fft *= kz[None, None, :]
+        ksquared = kx[:, None, None]**2 + ky[None, :, None]**2 + kz[None, None, :]**2
 
         # delta_rho(k)
         with np.errstate(divide="ignore", invalid="ignore"):
             del_rho_k = (
                 complex(0, 1)
-                * self.beta / self.get_ksquared()
+                * self.beta / ksquared
                 * (fx_fft + fy_fft + fz_fft)
             )
         del_rho_k[0, 0, 0] = 0.0
