@@ -92,6 +92,92 @@ def test_kvectors_ksquared_shapes(ts):
     assert np.all(ks >= 0)
 
 
+def test_build_kvectors_3d_shape():
+    """_build_kvectors_3d should return (nbins, nbins, nbins, 3) k-vectors
+    and (nbins, nbins, nbins) ksquared."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.diag([10.0, 8.0, 6.0])
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=4)
+    k_vectors, ksquared = gs._build_kvectors_3d()
+    assert k_vectors.shape == (4, 4, 4, 3)
+    assert ksquared.shape == (4, 4, 4)
+    # ksquared should equal the sum of squares of k components
+    np.testing.assert_allclose(ksquared, np.sum(k_vectors ** 2, axis=-1))
+
+
+def test_build_kvectors_3d_orthorhombic_equivalence():
+    """For an orthorhombic cell, _build_kvectors_3d should give k-vectors
+    equivalent to the existing per-axis get_kvectors method."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.diag([10.0, 8.0, 6.0])
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=4)
+
+    # Get the existing 1D k-vectors
+    kx_1d, ky_1d, kz_1d = gs.get_kvectors()
+
+    # Build full 3D k-vectors
+    k_vectors, ksquared = gs._build_kvectors_3d()
+
+    # For orthorhombic cells, k_x[i,j,k] should equal kx_1d[i] etc.
+    for i in range(4):
+        for j in range(4):
+            for k in range(4):
+                np.testing.assert_allclose(
+                    k_vectors[i, j, k],
+                    [kx_1d[i], ky_1d[j], kz_1d[k]],
+                    atol=1e-12,
+                )
+
+
+def test_build_kvectors_3d_triclinic():
+    """For a triclinic cell, verify k-vectors match 2*pi * inv(M)^T @ m."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [0.0, 0.0, 8.0],
+    ])
+    nbins = 4
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=nbins)
+
+    k_vectors, _ = gs._build_kvectors_3d()
+
+    # Expected: k = 2*pi * inv(M)^T @ [m1, m2, m3]^T
+    M_inv_T = np.linalg.inv(cell).T
+    miller = np.fft.fftfreq(nbins, d=1.0 / nbins)
+    for i, m1 in enumerate(miller):
+        for j, m2 in enumerate(miller):
+            for k_idx, m3 in enumerate(miller):
+                expected = 2 * np.pi * M_inv_T @ np.array([m1, m2, m3])
+                np.testing.assert_allclose(
+                    k_vectors[i, j, k_idx], expected, atol=1e-12,
+                )
+
+
 # ---------------------------------------------------------------------------
 # DensityGrid._process_frame: Box & Triangular kernels
 # ---------------------------------------------------------------------------
