@@ -8,6 +8,7 @@ via MDAnalysis.
 from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
+from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-untyped]
 import numpy as np
 
 from ._base import Trajectory
@@ -33,8 +34,8 @@ class MDATrajectory(Trajectory):
     ----------
     frames : int
         Number of trajectory frames.
-    box_x, box_y, box_z : float
-        Orthorhombic simulation box dimensions in each Cartesian direction.
+    cell_matrix : np.ndarray
+        Cell matrix with rows = lattice vectors, shape ``(3, 3)``.
     units : str
         Unit system identifier (`'mda'`).
     temperature : float
@@ -45,14 +46,9 @@ class MDATrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If no topology file is provided or the box is non-orthorhombic.
+        If no topology file is provided or the cell matrix is invalid.
     RuntimeError
         If MDAnalysis fails to load the trajectory or topology file.
-
-    Notes
-    -----
-    - Only orthorhombic or cubic cells are supported (alpha = beta = gamma = 90 degrees).
-    - For triclinic boxes, preprocessing to orthorhombic form is required.
     """
 
     def __init__(self, trajectory_file: str, topology_file: str, *, temperature: float):
@@ -76,13 +72,15 @@ class MDATrajectory(Trajectory):
         if len(dims) < 3:
             raise ValueError(f"Invalid simulation box dimensions: {dims}")
 
-        # Safe unpack for older trajectories lacking angular information
-        lx, ly, lz = dims[:3]
-        angles = list(dims[3:6]) if len(dims) >= 6 else [90.0, 90.0, 90.0]
-
-        self._validate_orthorhombic(angles)
-        lx, ly, lz = self._validate_box_dimensions(lx, ly, lz)
-        self.cell_matrix = self._cell_matrix_from_dimensions(lx, ly, lz)
+        # Build full cell matrix from MDAnalysis dimensions [a, b, c, alpha, beta, gamma]
+        # For older trajectories lacking angular information, assume orthorhombic
+        if len(dims) < 6:
+            lx, ly, lz = float(dims[0]), float(dims[1]), float(dims[2])
+            lx, ly, lz = self._validate_box_dimensions(lx, ly, lz)
+            self.cell_matrix = self._cell_matrix_from_dimensions(lx, ly, lz)
+        else:
+            self.cell_matrix = np.array(triclinic_vectors(dims), dtype=np.float64)
+        self._validate_cell_matrix(self.cell_matrix)
 
     def get_indices(self, atype: str) -> np.ndarray:
         """

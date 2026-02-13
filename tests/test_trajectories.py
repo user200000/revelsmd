@@ -82,6 +82,27 @@ def test_mda_raises_no_topology():
         MDATrajectory("traj.xtc", "", temperature=300.0)
 
 
+@patch("revelsMD.trajectories.mda.MD.Universe")
+def test_mda_triclinic_cell(mock_universe):
+    """MDATrajectory should accept and store a full triclinic cell matrix."""
+    mock_uni = MagicMock()
+    # MDAnalysis dimensions: [a, b, c, alpha, beta, gamma]
+    mock_uni.dimensions = np.array([10.0, 9.0, 8.0, 80.0, 85.0, 70.0])
+    mock_uni.trajectory = [0, 1, 2]
+    mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
+    mock_universe.return_value = mock_uni
+
+    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
+
+    assert state.cell_matrix.shape == (3, 3)
+    assert state.is_orthorhombic is False
+    assert state.cell_volume > 0
+    # Verify the cell matrix determinant matches expected volume
+    from MDAnalysis.lib.mdamath import triclinic_vectors
+    expected_matrix = triclinic_vectors(mock_uni.dimensions)
+    np.testing.assert_allclose(state.cell_matrix, expected_matrix)
+
+
 # -----------------------------------------------------------------------------
 # NumpyTrajectory
 # -----------------------------------------------------------------------------
@@ -142,6 +163,29 @@ def test_lammps_state_requires_topology():
         LammpsTrajectory("dump.lammpstrj", None, temperature=300.0)
 
 
+@patch("revelsMD.trajectories.mda.MD.Universe")
+@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+def test_lammps_triclinic_cell(mock_first_read, mock_universe):
+    """LammpsTrajectory should accept and store a full triclinic cell matrix."""
+    mock_uni = MagicMock()
+    # MDAnalysis dimensions: [a, b, c, alpha, beta, gamma]
+    mock_uni.dimensions = np.array([10.0, 9.0, 8.0, 80.0, 85.0, 70.0])
+    mock_trajectory = MagicMock()
+    mock_trajectory.__len__ = MagicMock(return_value=10)
+    mock_uni.trajectory = mock_trajectory
+    mock_universe.return_value = mock_uni
+
+    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
+
+    assert state.cell_matrix.shape == (3, 3)
+    assert state.is_orthorhombic is False
+    assert state.cell_volume > 0
+    # Verify the cell matrix matches triclinic_vectors output
+    from MDAnalysis.lib.mdamath import triclinic_vectors
+    expected_matrix = triclinic_vectors(mock_uni.dimensions)
+    np.testing.assert_allclose(state.cell_matrix, expected_matrix)
+
+
 # -----------------------------------------------------------------------------
 # VaspTrajectory
 # -----------------------------------------------------------------------------
@@ -186,16 +230,51 @@ def test_vasp_state_raises_no_forces(mock_vasprun):
 
 
 @patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_state_invalid_angles(mock_vasprun):
+def test_vasp_state_triclinic_cell(mock_vasprun):
+    """VaspTrajectory should accept and store a full triclinic cell matrix."""
     mock = MagicMock()
     mock.structures = [MagicMock()]
-    mock.structures[0].lattice.angles = [90.0, 95.0, 90.0]
-    mock.structures[0].lattice.matrix = np.diag([5.0, 5.0, 5.0])
+    triclinic_matrix = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [0.0, 0.0, 8.0],
+    ])
+    mock.structures[0].lattice.matrix = triclinic_matrix
+    mock.structures[0].lattice.angles = [90.0, 90.0, 71.57]  # non-orthorhombic
     mock.forces = np.zeros((1, 1, 3))
     mock.cart_coords = np.zeros((1, 1, 3))
+    mock.start = mock.structures[0]
+    mock.start.indices_from_symbol.return_value = np.array([0])
     mock_vasprun.return_value = mock
-    with pytest.raises(ValueError, match="orthorhombic"):
-        VaspTrajectory("vasprun.xml", temperature=300.0)
+
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
+
+    np.testing.assert_allclose(state.cell_matrix, triclinic_matrix)
+    assert state.is_orthorhombic is False
+    assert state.cell_volume == pytest.approx(abs(np.linalg.det(triclinic_matrix)))
+
+
+@patch("revelsMD.trajectories.vasp.Vasprun")
+def test_vasp_state_triclinic_cell_volume_positive(mock_vasprun):
+    """VaspTrajectory with a triclinic cell should have positive volume."""
+    mock = MagicMock()
+    mock.structures = [MagicMock()]
+    triclinic_matrix = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [1.0, 2.0, 8.0],
+    ])
+    mock.structures[0].lattice.matrix = triclinic_matrix
+    mock.structures[0].lattice.angles = [75.0, 82.0, 71.0]
+    mock.forces = np.zeros((1, 1, 3))
+    mock.cart_coords = np.zeros((1, 1, 3))
+    mock.start = mock.structures[0]
+    mock.start.indices_from_symbol.return_value = np.array([0])
+    mock_vasprun.return_value = mock
+
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
+
+    assert state.cell_volume > 0
 
 
 # -----------------------------------------------------------------------------
