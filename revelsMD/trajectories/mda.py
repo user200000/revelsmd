@@ -81,7 +81,8 @@ class MDATrajectory(Trajectory):
         angles = list(dims[3:6]) if len(dims) >= 6 else [90.0, 90.0, 90.0]
 
         self._validate_orthorhombic(angles)
-        self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
+        lx, ly, lz = self._validate_box_dimensions(lx, ly, lz)
+        self.cell_matrix = self._cell_matrix_from_dimensions(lx, ly, lz)
 
     def get_indices(self, atype: str) -> np.ndarray:
         """

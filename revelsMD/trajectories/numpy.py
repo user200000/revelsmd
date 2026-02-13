@@ -84,9 +84,7 @@ class NumpyTrajectory(Trajectory):
         self.positions = positions
         self.forces = forces
         self.species_string = species_list
-        self.box_x = box_x
-        self.box_y = box_y
-        self.box_z = box_z
+        self.cell_matrix = self._cell_matrix_from_dimensions(box_x, box_y, box_z)
         self.frames = positions.shape[0]
 
         if charge_list is not None:

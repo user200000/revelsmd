@@ -1124,3 +1124,37 @@ class TestValidateCellMatrix:
         cell = np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
         with pytest.raises(ValueError, match="volume"):
             Trajectory._validate_cell_matrix(cell)
+
+
+# -----------------------------------------------------------------------------
+# Cell matrix attribute and properties on NumpyTrajectory
+# -----------------------------------------------------------------------------
+class TestCellMatrixProperties:
+    """Tests for cell_matrix, cell_volume, is_orthorhombic, box_x/y/z."""
+
+    @pytest.fixture
+    def orthorhombic_traj(self):
+        """Orthorhombic NumpyTrajectory with box (10, 8, 6)."""
+        return NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            box_x=10.0, box_y=8.0, box_z=6.0,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+
+    def test_cell_matrix_is_set(self, orthorhombic_traj):
+        cell = orthorhombic_traj.cell_matrix
+        expected = np.diag([10.0, 8.0, 6.0])
+        np.testing.assert_allclose(cell, expected)
+
+    def test_cell_volume(self, orthorhombic_traj):
+        assert orthorhombic_traj.cell_volume == pytest.approx(10.0 * 8.0 * 6.0)
+
+    def test_is_orthorhombic(self, orthorhombic_traj):
+        assert orthorhombic_traj.is_orthorhombic is True
+
+    def test_box_x_y_z_for_orthorhombic(self, orthorhombic_traj):
+        assert orthorhombic_traj.box_x == pytest.approx(10.0)
+        assert orthorhombic_traj.box_y == pytest.approx(8.0)
+        assert orthorhombic_traj.box_z == pytest.approx(6.0)
