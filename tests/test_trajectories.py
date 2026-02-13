@@ -1090,3 +1090,37 @@ class TestComputeBeta:
         """NaN temperature should raise ValueError."""
         with pytest.raises(ValueError, match="Temperature must be finite"):
             compute_beta('real', float('nan'))
+
+
+# -----------------------------------------------------------------------------
+# Cell matrix validation
+# -----------------------------------------------------------------------------
+class TestValidateCellMatrix:
+    """Tests for Trajectory._validate_cell_matrix."""
+
+    def test_valid_orthorhombic_cell(self):
+        cell = np.diag([10.0, 8.0, 6.0])
+        Trajectory._validate_cell_matrix(cell)  # should not raise
+
+    def test_valid_triclinic_cell(self):
+        cell = np.array([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [0.0, 0.0, 8.0]])
+        Trajectory._validate_cell_matrix(cell)  # should not raise
+
+    def test_wrong_shape_raises(self):
+        with pytest.raises(ValueError, match="shape"):
+            Trajectory._validate_cell_matrix(np.eye(4))
+
+    def test_non_finite_raises(self):
+        cell = np.diag([10.0, np.inf, 6.0])
+        with pytest.raises(ValueError, match="finite"):
+            Trajectory._validate_cell_matrix(cell)
+
+    def test_nan_raises(self):
+        cell = np.diag([10.0, np.nan, 6.0])
+        with pytest.raises(ValueError, match="finite"):
+            Trajectory._validate_cell_matrix(cell)
+
+    def test_zero_volume_raises(self):
+        cell = np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        with pytest.raises(ValueError, match="volume"):
+            Trajectory._validate_cell_matrix(cell)
