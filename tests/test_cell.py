@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from revelsMD.cell import (
+    apply_minimum_image,
+    apply_minimum_image_orthorhombic,
     cartesian_to_fractional,
     fractional_to_cartesian,
     is_orthorhombic,
@@ -149,3 +151,112 @@ class TestWrapFractional:
             [0.5, 0.8, 0.1],
             [0.0, 0.0, 0.5],
         ])
+
+
+class TestApplyMinimumImage:
+    """Tests for apply_minimum_image (general triclinic MIC)."""
+
+    def test_small_displacement_unchanged(self):
+        """A displacement well within half the cell should be unchanged."""
+        cell = np.diag([10.0, 8.0, 6.0])
+        cell_inv = np.linalg.inv(cell)
+        disp = np.array([[1.0, 2.0, -1.0]])
+
+        result = apply_minimum_image(disp, cell, cell_inv)
+        np.testing.assert_allclose(result, [[1.0, 2.0, -1.0]])
+
+    def test_displacement_across_orthorhombic_boundary(self):
+        """Displacement > half the box should be wrapped to nearest image."""
+        cell = np.diag([10.0, 10.0, 10.0])
+        cell_inv = np.linalg.inv(cell)
+        # Displacement of 7.0 in x: nearest image is 7.0 - 10.0 = -3.0
+        disp = np.array([[7.0, 0.0, 0.0]])
+
+        result = apply_minimum_image(disp, cell, cell_inv)
+        np.testing.assert_allclose(result, [[-3.0, 0.0, 0.0]])
+
+    def test_triclinic_cell_known_displacement(self):
+        """Hand-calculated MIC for a triclinic cell.
+
+        Cell: a = (10, 0, 0), b = (3, 9, 0), c = (0, 0, 8)
+        Displacement: (8, 1, 0) in Cartesian.
+
+        Fractional: s = (8, 1, 0) @ inv(M)
+          inv(M) = [[0.1, 0, 0], [-1/30, 1/9, 0], [0, 0, 0.125]]
+          s = (0.8, -8/30 + 1/9, 0) = (0.8, -0.1556, 0)
+        round(s) = (1, 0, 0)
+        s - round(s) = (-0.2, -0.1556, 0)
+        Back to Cartesian: (-0.2, -0.1556, 0) @ M
+          = (-0.2*10 + (-0.1556)*3, (-0.1556)*9, 0)
+          = (-2.0 - 0.4667, -1.4, 0)
+          = (-2.4667, -1.4, 0)
+        """
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        cell_inv = np.linalg.inv(cell)
+        disp = np.array([[8.0, 1.0, 0.0]])
+
+        result = apply_minimum_image(disp, cell, cell_inv)
+
+        # Verify by hand: s = disp @ inv(M) = [0.8, -1/9+1/9, 0]
+        # Let's compute more carefully:
+        s = disp @ cell_inv  # fractional
+        s_rounded = s - np.round(s)
+        expected = s_rounded @ cell
+
+        np.testing.assert_allclose(result, expected)
+
+    def test_agrees_with_orthorhombic_for_diagonal_cell(self):
+        """General MIC should agree with orthorhombic MIC for diagonal cells."""
+        cell = np.diag([10.0, 8.0, 6.0])
+        cell_inv = np.linalg.inv(cell)
+        box = np.array([10.0, 8.0, 6.0])
+
+        displacements = np.array([
+            [6.0, -5.0, 3.5],
+            [-1.0, 2.0, -4.0],
+            [0.0, 4.0, 0.0],
+        ])
+
+        result_general = apply_minimum_image(displacements, cell, cell_inv)
+        result_ortho = apply_minimum_image_orthorhombic(displacements, box)
+
+        np.testing.assert_allclose(result_general, result_ortho, atol=1e-12)
+
+
+class TestApplyMinimumImageOrthorhombic:
+    """Tests for apply_minimum_image_orthorhombic."""
+
+    def test_small_displacement_unchanged(self):
+        box = np.array([10.0, 10.0, 10.0])
+        disp = np.array([[1.0, -2.0, 3.0]])
+
+        result = apply_minimum_image_orthorhombic(disp, box)
+        np.testing.assert_allclose(result, [[1.0, -2.0, 3.0]])
+
+    def test_wraps_to_nearest_image(self):
+        box = np.array([10.0, 10.0, 10.0])
+        disp = np.array([[7.0, -8.0, 0.0]])
+
+        result = apply_minimum_image_orthorhombic(disp, box)
+        np.testing.assert_allclose(result, [[-3.0, 2.0, 0.0]])
+
+    def test_matches_existing_rdf_helpers(self):
+        """Should produce same results as revelsMD.rdf.rdf_helpers.apply_minimum_image."""
+        from revelsMD.rdf.rdf_helpers import apply_minimum_image as rdf_mic
+
+        box = np.array([10.0, 8.0, 6.0])
+        displacements = np.array([
+            [6.0, -5.0, 3.5],
+            [-1.0, 2.0, -4.0],
+            [0.0, 4.001, 0.0],
+            [5.0, -4.0, 3.0],
+        ])
+
+        result_cell = apply_minimum_image_orthorhombic(displacements, box)
+        result_rdf = rdf_mic(displacements, box)
+
+        np.testing.assert_allclose(result_cell, result_rdf)

@@ -97,3 +97,65 @@ def wrap_fractional(fractional: np.ndarray) -> np.ndarray:
         Wrapped fractional coordinates in [0, 1).
     """
     return fractional - np.floor(fractional)
+
+
+def apply_minimum_image(
+    displacement: np.ndarray,
+    cell_matrix: np.ndarray,
+    cell_inverse: np.ndarray,
+) -> np.ndarray:
+    """
+    Apply the minimum image convention to displacement vectors.
+
+    Works for arbitrary triclinic cells.  The displacement is converted to
+    fractional coordinates, each component is rounded to the nearest integer
+    and subtracted, then the result is converted back to Cartesian.
+
+    Parameters
+    ----------
+    displacement : np.ndarray, shape (..., 3)
+        Displacement vectors in Cartesian coordinates.
+    cell_matrix : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
+    cell_inverse : np.ndarray, shape (3, 3)
+        Inverse of the cell matrix.
+
+    Returns
+    -------
+    np.ndarray, shape (..., 3)
+        Minimum-image displacement vectors in Cartesian coordinates.
+    """
+    fractional = displacement @ cell_inverse
+    fractional -= np.round(fractional)
+    return fractional @ cell_matrix
+
+
+def apply_minimum_image_orthorhombic(
+    displacement: np.ndarray, box: np.ndarray
+) -> np.ndarray:
+    """
+    Apply the minimum image convention for an orthorhombic cell.
+
+    Uses the per-axis formula:
+    ``r -= ceil((abs(r) - box/2) / box) * box * sign(r)``
+
+    Parameters
+    ----------
+    displacement : np.ndarray, shape (..., 3)
+        Displacement vectors in Cartesian coordinates.
+    box : np.ndarray, shape (3,)
+        Box dimensions ``[box_x, box_y, box_z]``.
+
+    Returns
+    -------
+    np.ndarray, shape (..., 3)
+        Minimum-image displacement vectors.
+    """
+    result = displacement.copy()
+    for i in range(3):
+        result[..., i] -= (
+            np.ceil((np.abs(result[..., i]) - box[i] / 2) / box[i])
+            * box[i]
+            * np.sign(result[..., i])
+        )
+    return result
