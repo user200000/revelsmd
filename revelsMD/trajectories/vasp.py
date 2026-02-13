@@ -288,7 +288,8 @@ class VaspTrajectory(Trajectory):
             self.frames = len(self.Vasprun.structures)
 
             self._validate_cell(self._start_structure.lattice)
-            self.box_x, self.box_y, self.box_z = np.diag(self._start_structure.lattice.matrix)
+            diag = np.diag(self._start_structure.lattice.matrix)
+            self.cell_matrix = self._cell_matrix_from_dimensions(*diag)
             if self.Vasprun.forces is None:
                 raise ValueError(f"No forces found in {trajectory_file[0]}")
             self.positions: np.ndarray = self.Vasprun.cart_coords
@@ -308,7 +309,8 @@ class VaspTrajectory(Trajectory):
             self.frames = len(self.Vasprun.structures)
 
             self._validate_cell(self._start_structure.lattice)
-            self.box_x, self.box_y, self.box_z = np.diag(self._start_structure.lattice.matrix)
+            diag = np.diag(self._start_structure.lattice.matrix)
+            self.cell_matrix = self._cell_matrix_from_dimensions(*diag)
             if self.Vasprun.forces is None:
                 raise ValueError(f"No forces found in {trajectory_file}")
             self.positions = self.Vasprun.cart_coords

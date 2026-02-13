@@ -242,7 +242,8 @@ class LammpsTrajectory(Trajectory):
         lx, ly, lz, alpha, beta, gamma = dims[:6]
 
         self._validate_orthorhombic([alpha, beta, gamma])
-        self.box_x, self.box_y, self.box_z = self._validate_box_dimensions(lx, ly, lz)
+        lx, ly, lz = self._validate_box_dimensions(lx, ly, lz)
+        self.cell_matrix = self._cell_matrix_from_dimensions(lx, ly, lz)
 
     def get_indices(self, atype: str) -> np.ndarray:
         """Return atom indices for a given LAMMPS atom type (as string, e.g. '1', '2')."""
