@@ -7,6 +7,7 @@ from revelsMD.cell import (
     apply_minimum_image,
     apply_minimum_image_orthorhombic,
     cartesian_to_fractional,
+    cells_are_compatible,
     fractional_to_cartesian,
     inscribed_sphere_radius,
     is_orthorhombic,
@@ -310,3 +311,35 @@ class TestInscribedSphereRadius:
     def test_identity_cell(self):
         """Unit cell: rmax = 0.5."""
         assert inscribed_sphere_radius(np.eye(3)) == pytest.approx(0.5)
+
+
+class TestCellsAreCompatible:
+    """Tests for cells_are_compatible()."""
+
+    def test_identical_cells(self):
+        cell = np.diag([10.0, 8.0, 6.0])
+        assert cells_are_compatible(cell, cell.copy()) is True
+
+    def test_cells_within_tolerance(self):
+        cell_a = np.diag([10.0, 8.0, 6.0])
+        cell_b = cell_a + 1e-8
+        assert cells_are_compatible(cell_a, cell_b) is True
+
+    def test_cells_outside_tolerance(self):
+        cell_a = np.diag([10.0, 8.0, 6.0])
+        cell_b = np.diag([10.0, 8.0, 6.1])
+        assert cells_are_compatible(cell_a, cell_b) is False
+
+    def test_triclinic_cells_match(self):
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        assert cells_are_compatible(cell, cell.copy()) is True
+
+    def test_custom_tolerance(self):
+        cell_a = np.diag([10.0, 8.0, 6.0])
+        cell_b = np.diag([10.0, 8.0, 6.01])
+        assert cells_are_compatible(cell_a, cell_b, atol=0.001) is False
+        assert cells_are_compatible(cell_a, cell_b, atol=0.1) is True
