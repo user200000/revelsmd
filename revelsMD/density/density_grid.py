@@ -82,27 +82,43 @@ class DensityGrid:
         self.voxel_volume = float(
             abs(np.linalg.det(self.cell_matrix)) / (nbinsx * nbinsy * nbinsz)
         )
+        self.nbinsx, self.nbinsy, self.nbinsz = nbinsx, nbinsy, nbinsz
 
-        # Orthorhombic path: keep existing Cartesian bin edges and voxel sizes
-        lx = trajectory.box_x / nbinsx
-        ly = trajectory.box_y / nbinsy
-        lz = trajectory.box_z / nbinsz
-        if min(lx, ly, lz) <= 0:
-            raise ValueError("Box lengths must be positive to define voxel sizes.")
+        if self.is_orthorhombic:
+            # Orthorhombic path: Cartesian bin edges and voxel sizes (unchanged)
+            lx = trajectory.box_x / nbinsx
+            ly = trajectory.box_y / nbinsy
+            lz = trajectory.box_z / nbinsz
+            if min(lx, ly, lz) <= 0:
+                raise ValueError("Box lengths must be positive to define voxel sizes.")
 
-        # Box and bins (Cartesian, orthorhombic)
-        self.box_x = trajectory.box_x
-        self.box_y = trajectory.box_y
-        self.box_z = trajectory.box_z
-        self.box_array = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
-        self.binsx = np.arange(0, trajectory.box_x + lx, lx)
-        self.binsy = np.arange(0, trajectory.box_y + ly, ly)
-        self.binsz = np.arange(0, trajectory.box_z + lz, lz)
+            self.box_x = trajectory.box_x
+            self.box_y = trajectory.box_y
+            self.box_z = trajectory.box_z
+            self.box_array = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
+            self.binsx = np.arange(0, trajectory.box_x + lx, lx)
+            self.binsy = np.arange(0, trajectory.box_y + ly, ly)
+            self.binsz = np.arange(0, trajectory.box_z + lz, lz)
+            self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
+            # k-vectors: computed on demand by get_kvectors / get_ksquared
+            self._k_vectors = None
+            self._ksquared = None
+        else:
+            # Triclinic path: fractional bin edges and voxel sizes
+            lx = 1.0 / nbinsx
+            ly = 1.0 / nbinsy
+            lz = 1.0 / nbinsz
+
+            self.binsx = np.linspace(0, 1, nbinsx + 1)
+            self.binsy = np.linspace(0, 1, nbinsy + 1)
+            self.binsz = np.linspace(0, 1, nbinsz + 1)
+            self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
+            # Precompute full 3D k-vectors for triclinic cells
+            self._k_vectors, self._ksquared = self._build_kvectors_3d()
+
         self.beta = trajectory.beta
-        self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
         self.count = 0
         self.units = trajectory.units
-        self.nbinsx, self.nbinsy, self.nbinsz = nbinsx, nbinsy, nbinsz
 
         # Accumulators
         self.force_x = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
@@ -820,6 +836,31 @@ class DensityGrid:
         zrep_3d = np.repeat(np.repeat(zrep[None, None, :], self.nbinsx, axis=0), self.nbinsy, axis=1)
 
         return xrep_3d * xrep_3d + yrep_3d * yrep_3d + zrep_3d * zrep_3d
+
+    def _build_kvectors_3d(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Build full 3D k-vector arrays for general (triclinic) cells.
+
+        The k-vector at Miller indices (m1, m2, m3) is:
+            k = 2 * pi * inv(M)^T @ [m1, m2, m3]^T
+        where M is the cell matrix with rows = lattice vectors.
+
+        Returns
+        -------
+        k_vectors : np.ndarray, shape (nbinsx, nbinsy, nbinsz, 3)
+            Cartesian k-vectors at each reciprocal grid point.
+        ksquared : np.ndarray, shape (nbinsx, nbinsy, nbinsz)
+            |k|^2 at each reciprocal grid point.
+        """
+        m1 = np.fft.fftfreq(self.nbinsx, d=1.0 / self.nbinsx)
+        m2 = np.fft.fftfreq(self.nbinsy, d=1.0 / self.nbinsy)
+        m3 = np.fft.fftfreq(self.nbinsz, d=1.0 / self.nbinsz)
+        M1, M2, M3 = np.meshgrid(m1, m2, m3, indexing='ij')
+        m_stack = np.stack([M1, M2, M3], axis=-1)
+        M_inv_T = self.cell_inverse.T
+        k_vectors = 2 * np.pi * np.einsum('ab,ijkb->ijka', M_inv_T, m_stack)
+        ksquared = np.sum(k_vectors ** 2, axis=-1)
+        return k_vectors, ksquared
 
     def write_to_cube(
         self,
