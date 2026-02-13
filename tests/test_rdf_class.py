@@ -537,13 +537,9 @@ class TestRDFCellMatrix:
         expected_prefactor = expected_volume / (2 * 1) / 2
         assert abs(rdf._prefactor - expected_prefactor) < 1e-10
 
-    def test_rdf_triclinic_accumulate_produces_results(self, monkeypatch):
+    def test_rdf_triclinic_accumulate_produces_results(self):
         """RDF accumulate and get_rdf should work for triclinic cells."""
         from revelsMD.rdf import RDF
-        import revelsMD.backends
-
-        # Force numpy backend since Numba doesn't support triclinic yet
-        monkeypatch.setattr(revelsMD.backends, 'BACKEND', 'numpy')
 
         cell_matrix = np.array([
             [10.0, 0.0, 0.0],

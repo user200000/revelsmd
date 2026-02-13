@@ -972,6 +972,73 @@ class TestPairwiseContributionsNumba:
         )
 
 
+class TestPairwiseTriclinicNumba:
+    """Test Numba pairwise contributions with triclinic cells."""
+
+    @pytest.fixture(autouse=True)
+    def skip_if_no_numba(self):
+        """Skip tests if numba is not available."""
+        pytest.importorskip('numba')
+
+    def test_numba_triclinic_matches_numpy(self):
+        """Numba triclinic result should match NumPy triclinic result."""
+        from revelsMD.rdf.rdf_helpers import compute_pairwise_contributions
+        from revelsMD.rdf.rdf_helpers_numba import compute_pairwise_contributions_numba
+
+        cell_matrix = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        cell_inverse = np.linalg.inv(cell_matrix)
+
+        np.random.seed(42)
+        pos_a = np.random.uniform(0, 8, (15, 3))
+        pos_b = np.random.uniform(0, 8, (20, 3))
+        forces_a = np.random.randn(15, 3)
+        forces_b = np.random.randn(20, 3)
+
+        r_numpy, dot_numpy = compute_pairwise_contributions(
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
+        )
+
+        r_numba, dot_numba = compute_pairwise_contributions_numba(
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
+        )
+
+        np.testing.assert_allclose(r_numpy, r_numba, rtol=1e-12,
+            err_msg="Numba triclinic distances don't match NumPy")
+        np.testing.assert_allclose(dot_numpy, dot_numba, rtol=1e-12,
+            err_msg="Numba triclinic dot products don't match NumPy")
+
+    def test_numba_triclinic_like_species_matches_numpy(self):
+        """Numba triclinic like-species should match NumPy."""
+        from revelsMD.rdf.rdf_helpers import compute_pairwise_contributions
+        from revelsMD.rdf.rdf_helpers_numba import compute_pairwise_contributions_numba
+
+        cell_matrix = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        cell_inverse = np.linalg.inv(cell_matrix)
+
+        np.random.seed(43)
+        pos = np.random.uniform(0, 8, (25, 3))
+        forces = np.random.randn(25, 3)
+
+        r_numpy, dot_numpy = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
+        )
+
+        r_numba, dot_numba = compute_pairwise_contributions_numba(
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
+        )
+
+        np.testing.assert_allclose(r_numpy, r_numba, rtol=1e-12)
+        np.testing.assert_allclose(dot_numpy, dot_numba, rtol=1e-12)
+
+
 class TestPairwiseTriclinic:
     """Test pairwise contributions with triclinic cell_matrix/cell_inverse."""
 
