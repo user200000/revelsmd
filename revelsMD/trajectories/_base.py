@@ -184,6 +184,36 @@ class Trajectory(ABC):
             )
 
     @staticmethod
+    def _validate_cell_matrix(cell_matrix: np.ndarray) -> None:
+        """
+        Validate that a cell matrix is well-formed.
+
+        Parameters
+        ----------
+        cell_matrix : np.ndarray
+            Expected shape (3, 3), all elements finite, positive volume.
+
+        Raises
+        ------
+        ValueError
+            If the cell matrix has wrong shape, non-finite elements, or
+            zero/negative volume.
+        """
+        if cell_matrix.shape != (3, 3):
+            raise ValueError(
+                f"Cell matrix must have shape (3, 3). Got shape: {cell_matrix.shape}"
+            )
+        if not np.all(np.isfinite(cell_matrix)):
+            raise ValueError(
+                f"Cell matrix elements must all be finite. Got:\n{cell_matrix}"
+            )
+        volume = abs(np.linalg.det(cell_matrix))
+        if volume < 1e-12:
+            raise ValueError(
+                f"Cell matrix must have positive volume. Got volume: {volume}"
+            )
+
+    @staticmethod
     def _validate_box_dimensions(lx: float, ly: float, lz: float) -> tuple[float, float, float]:
         """
         Validate that box dimensions are positive and finite.
