@@ -1496,9 +1496,9 @@ class TestTriclinicFFT:
         assert peak_pos[0] in (1, nbins - 1), \
             f"Peak should be at Miller index m1=1 or {nbins-1}, got {peak_pos[0]}"
 
-    def test_orthorhombic_triclinic_paths_agree(self):
-        """For a diagonal cell, orthorhombic and triclinic FFT paths should
-        produce identical results."""
+    def test_orthorhombic_triclinic_fft_paths_agree(self):
+        """For a diagonal cell, forcing the triclinic FFT path should produce
+        results identical to the orthorhombic path."""
         from revelsMD.trajectories.numpy import NumpyTrajectory
 
         cell = np.diag([10.0, 8.0, 6.0])
@@ -1529,27 +1529,22 @@ class TestTriclinicFFT:
             gs_ortho.counter, gs_ortho.count
         )
 
-        # Now force the triclinic path by building k-vectors and using them
+        # Force the triclinic FFT path on a copy of the same data
         gs_tri = DensityGrid(traj, density_type="number", nbins=nbins)
         for i in range(n_frames):
             gs_tri._process_frame(positions[i], forces[i], weight=1.0)
 
-        # Manually invoke triclinic FFT path
-        k_vectors, ksquared = gs_tri._build_kvectors_3d()
-        # Verify k-vectors match the orthorhombic ones
-        kx_1d, ky_1d, kz_1d = gs_tri.get_kvectors()
-        ksq_ortho = gs_tri.get_ksquared()
-        np.testing.assert_allclose(ksquared, ksq_ortho, atol=1e-10)
+        # Override is_orthorhombic to force the triclinic FFT code path
+        gs_tri.is_orthorhombic = False
+        gs_tri._k_vectors, gs_tri._ksquared = gs_tri._build_kvectors_3d()
 
-        # Both grids have the same accumulated data
-        np.testing.assert_allclose(gs_ortho.force_x, gs_tri.force_x)
-
-        # The orthorhombic rho_force and a manually-computed triclinic rho_force
-        # should agree
+        # Compute density using triclinic path
         rho_tri, _, _, _ = gs_tri._fft_force_to_density(
             gs_tri.force_x, gs_tri.force_y, gs_tri.force_z,
             gs_tri.counter, gs_tri.count
         )
+
+        # Both paths should produce identical results for a diagonal cell
         np.testing.assert_allclose(rho_ortho, rho_tri, atol=1e-10)
 
 
