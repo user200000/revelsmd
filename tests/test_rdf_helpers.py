@@ -77,15 +77,16 @@ class TestBackendSelection:
         np.random.seed(42)
         pos = np.random.uniform(0, 10, (50, 3))
         forces = np.random.randn(50, 3)
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
         bins = np.arange(0, 5, 0.1)
 
         np_pairwise, np_accum, np_tri = get_backend_functions('numpy')
         nb_pairwise, nb_accum, nb_tri = get_backend_functions('numba')
 
         # Use copies to ensure value comparison works (not identity)
-        r_np, dot_np = np_pairwise(pos, pos.copy(), forces, forces.copy(), box)
-        r_nb, dot_nb = nb_pairwise(pos, pos.copy(), forces, forces.copy(), box)
+        r_np, dot_np = np_pairwise(pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse)
+        r_nb, dot_nb = nb_pairwise(pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse)
 
         storage_np = np_accum(dot_np, r_np, bins)
         storage_nb = nb_accum(dot_nb, r_nb, bins)
@@ -102,14 +103,22 @@ class TestBackendSelection:
 class TestMinimumImage:
     """Test the minimum image convention helper function."""
 
+    @staticmethod
+    def _box_to_cell(box):
+        """Convert box array to cell_matrix and cell_inverse."""
+        cell_matrix = np.diag(box)
+        cell_inverse = np.linalg.inv(cell_matrix)
+        return cell_matrix, cell_inverse
+
     def test_no_wrapping_within_half_box(self):
         """Displacement within half-box should be unchanged."""
         from revelsMD.rdf.rdf_helpers import apply_minimum_image
 
         box = np.array([10.0, 10.0, 10.0])
+        cell_matrix, cell_inverse = self._box_to_cell(box)
         displacement = np.array([2.0, -3.0, 4.0])
 
-        result = apply_minimum_image(displacement, box)
+        result = apply_minimum_image(displacement, cell_matrix, cell_inverse)
 
         np.testing.assert_array_almost_equal(result, displacement)
 
@@ -118,10 +127,11 @@ class TestMinimumImage:
         from revelsMD.rdf.rdf_helpers import apply_minimum_image
 
         box = np.array([10.0, 10.0, 10.0])
+        cell_matrix, cell_inverse = self._box_to_cell(box)
         # Displacement of 7.0 in x should wrap to -3.0
         displacement = np.array([7.0, 0.0, 0.0])
 
-        result = apply_minimum_image(displacement, box)
+        result = apply_minimum_image(displacement, cell_matrix, cell_inverse)
 
         np.testing.assert_array_almost_equal(result, np.array([-3.0, 0.0, 0.0]))
 
@@ -130,10 +140,11 @@ class TestMinimumImage:
         from revelsMD.rdf.rdf_helpers import apply_minimum_image
 
         box = np.array([10.0, 10.0, 10.0])
+        cell_matrix, cell_inverse = self._box_to_cell(box)
         # Displacement of -8.0 in y should wrap to +2.0
         displacement = np.array([0.0, -8.0, 0.0])
 
-        result = apply_minimum_image(displacement, box)
+        result = apply_minimum_image(displacement, cell_matrix, cell_inverse)
 
         np.testing.assert_array_almost_equal(result, np.array([0.0, 2.0, 0.0]))
 
@@ -142,9 +153,10 @@ class TestMinimumImage:
         from revelsMD.rdf.rdf_helpers import apply_minimum_image
 
         box = np.array([10.0, 10.0, 10.0])
+        cell_matrix, cell_inverse = self._box_to_cell(box)
         displacement = np.array([5.0, -5.0, 5.0])
 
-        result = apply_minimum_image(displacement, box)
+        result = apply_minimum_image(displacement, cell_matrix, cell_inverse)
 
         # At exactly half-box, no wrapping should occur
         np.testing.assert_array_almost_equal(result, displacement)
@@ -154,9 +166,10 @@ class TestMinimumImage:
         from revelsMD.rdf.rdf_helpers import apply_minimum_image
 
         box = np.array([10.0, 10.0, 10.0])
+        cell_matrix, cell_inverse = self._box_to_cell(box)
         displacement = np.array([7.0, -8.0, 6.0])
 
-        result = apply_minimum_image(displacement, box)
+        result = apply_minimum_image(displacement, cell_matrix, cell_inverse)
 
         # 7 -> -3, -8 -> 2, 6 -> -4
         np.testing.assert_array_almost_equal(result, np.array([-3.0, 2.0, -4.0]))
@@ -166,9 +179,10 @@ class TestMinimumImage:
         from revelsMD.rdf.rdf_helpers import apply_minimum_image
 
         box = np.array([8.0, 10.0, 12.0])
+        cell_matrix, cell_inverse = self._box_to_cell(box)
         displacement = np.array([5.0, 7.0, 8.0])
 
-        result = apply_minimum_image(displacement, box)
+        result = apply_minimum_image(displacement, cell_matrix, cell_inverse)
 
         # 5 > 4 -> -3, 7 > 5 -> -3, 8 > 6 -> -4
         np.testing.assert_array_almost_equal(result, np.array([-3.0, -3.0, -4.0]))
@@ -178,13 +192,14 @@ class TestMinimumImage:
         from revelsMD.rdf.rdf_helpers import apply_minimum_image
 
         box = np.array([10.0, 10.0, 10.0])
+        cell_matrix, cell_inverse = self._box_to_cell(box)
         displacements = np.array([
             [2.0, 3.0, 4.0],    # No wrapping
             [7.0, 0.0, 0.0],    # Wrap x
             [0.0, -8.0, 0.0],   # Wrap y
         ])
 
-        result = apply_minimum_image(displacements, box)
+        result = apply_minimum_image(displacements, cell_matrix, cell_inverse)
 
         expected = np.array([
             [2.0, 3.0, 4.0],
@@ -202,9 +217,10 @@ class TestMinimumImage:
 
         np.random.seed(42)
         box = np.array([10.0, 12.0, 8.0])
+        cell_matrix, cell_inverse = self._box_to_cell(box)
         displacements = np.random.uniform(-15, 15, (100, 3))
 
-        result = apply_minimum_image(displacements, box)
+        result = apply_minimum_image(displacements, cell_matrix, cell_inverse)
 
         # Compute expected using original formula
         expected = displacements.copy()
@@ -233,11 +249,12 @@ class TestPairwiseContributions:
             [1.0, 0.0, 0.0],
             [1.0, 0.0, 0.0],
         ])
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         # Use copies to ensure value comparison works (not identity)
         r_flat, dot_prod_flat = compute_pairwise_contributions(
-            pos, pos.copy(), forces, forces.copy(), box
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
         )
 
         # For like-species, should have n*(n-1)/2 = 1 pair
@@ -261,11 +278,12 @@ class TestPairwiseContributions:
             [0.0, 0.0, 0.0],
             [2.0, 0.0, 0.0],
         ])
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         # Use copies to ensure value comparison works (not identity)
         r_flat, dot_prod_flat = compute_pairwise_contributions(
-            pos, pos.copy(), forces, forces.copy(), box
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
         )
 
         # r_ij = pos[1] - pos[0] = (3, 0, 0), |r| = 3
@@ -288,11 +306,12 @@ class TestPairwiseContributions:
             [0.0, 0.0, 0.0],
             [0.0, 2.0, 0.0],  # Perpendicular force difference
         ])
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         # Use copies to ensure value comparison works (not identity)
         r_flat, dot_prod_flat = compute_pairwise_contributions(
-            pos, pos.copy(), forces, forces.copy(), box
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
         )
 
         # Perpendicular force should give zero contribution
@@ -312,11 +331,12 @@ class TestPairwiseContributions:
             [1.0, 0.0, 0.0],
             [1.0, 0.0, 0.0],
         ])
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         # Use copies to ensure value comparison works (not identity)
         r_flat, dot_prod_flat = compute_pairwise_contributions(
-            pos, pos.copy(), forces, forces.copy(), box
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
         )
 
         np.testing.assert_almost_equal(r_flat[0], 2.0)
@@ -329,10 +349,11 @@ class TestPairwiseContributions:
         pos_b = np.array([[4.0, 0.0, 0.0]])
         forces_a = np.array([[1.0, 0.0, 0.0]])
         forces_b = np.array([[0.5, 0.0, 0.0]])
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         r_flat, dot_prod_flat = compute_pairwise_contributions(
-            pos_a, pos_b, forces_a, forces_b, box
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
         )
 
         # Should have 1 pair
@@ -348,10 +369,11 @@ class TestPairwiseContributions:
         pos_b = np.array([[3.0, 0.0, 0.0]])
         forces_a = np.array([[2.0, 0.0, 0.0]])  # F_A
         forces_b = np.array([[0.5, 0.0, 0.0]])  # F_B
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         r_flat, dot_prod_flat = compute_pairwise_contributions(
-            pos_a, pos_b, forces_a, forces_b, box
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
         )
 
         # r = pos_a - pos_b = (-3, 0, 0), |r| = 3
@@ -375,10 +397,11 @@ class TestPairwiseContributions:
         ])  # 3 B atoms
         forces_a = np.ones((2, 3))
         forces_b = np.ones((3, 3))
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         r_flat, dot_prod_flat = compute_pairwise_contributions(
-            pos_a, pos_b, forces_a, forces_b, box
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
         )
 
         # Should have 2 * 3 = 6 pairs
@@ -393,11 +416,12 @@ class TestPairwiseContributions:
         np.random.seed(42)
         pos = np.random.uniform(0, 10, (n, 3))
         forces = np.random.randn(n, 3)
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         # Use copies to ensure value comparison works (not identity)
         r_flat, dot_flat = compute_pairwise_contributions(
-            pos, pos.copy(), forces, forces.copy(), box
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
         )
 
         # For like-species (same values), should have n*(n-1)/2 unique pairs
@@ -416,10 +440,11 @@ class TestPairwiseContributions:
         pos_b = np.random.uniform(0, 10, (n2, 3))
         forces_a = np.random.randn(n1, 3)
         forces_b = np.random.randn(n2, 3)
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         r_flat, dot_flat = compute_pairwise_contributions(
-            pos_a, pos_b, forces_a, forces_b, box
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
         )
 
         # For unlike-species, should have n1 * n2 pairs
@@ -597,8 +622,10 @@ class TestComparisonWithOriginal:
         # The unified function returns upper-triangle pairs only,
         # but accumulation should give same result because (i,j) and (j,i)
         # pairs sum to (F_j - F_i) . r_ij which is what unified computes.
+        cell_matrix = np.diag([box_x, box_y, box_z])
+        cell_inverse = np.linalg.inv(cell_matrix)
         r_vec, dot_vec = compute_pairwise_contributions(
-            pos_ang, pos_ang, force_total, force_total, (box_x, box_y, box_z)
+            pos_ang, pos_ang, force_total, force_total, cell_matrix, cell_inverse
         )
         storage_vec = accumulate_binned_contributions(dot_vec, r_vec, bins)
 
@@ -674,9 +701,11 @@ class TestComparisonWithOriginal:
         storage_orig = np.nan_to_num(storage_orig, nan=0.0, posinf=0.0, neginf=0.0)
 
         # --- Vectorised implementation ---
+        cell_matrix = np.diag([box_x, box_y, box_z])
+        cell_inverse = np.linalg.inv(cell_matrix)
         r_vec, dot_vec = compute_pairwise_contributions(
             pos_ang_1, pos_ang_2, force_total_1, force_total_2,
-            (box_x, box_y, box_z)
+            cell_matrix, cell_inverse
         )
         storage_vec = accumulate_binned_contributions(dot_vec, r_vec, bins)
 
@@ -842,11 +871,12 @@ class TestPairwiseContributionsNumba:
         np.random.seed(44)
         pos = np.random.uniform(0, 10, (n, 3))
         forces = np.random.randn(n, 3)
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         # Use copies to ensure value comparison works (not identity)
         r_flat, dot_flat = compute_pairwise_contributions_numba(
-            pos, pos.copy(), forces, forces.copy(), box
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
         )
 
         expected_pairs = n * (n - 1) // 2
@@ -864,10 +894,11 @@ class TestPairwiseContributionsNumba:
         pos_b = np.random.uniform(0, 10, (n2, 3))
         forces_a = np.random.randn(n1, 3)
         forces_b = np.random.randn(n2, 3)
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         r_flat, dot_flat = compute_pairwise_contributions_numba(
-            pos_a, pos_b, forces_a, forces_b, box
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
         )
 
         expected_pairs = n1 * n2
@@ -885,16 +916,17 @@ class TestPairwiseContributionsNumba:
         pos_b = np.random.uniform(0, 10, (30, 3))
         forces_a = np.random.randn(25, 3)
         forces_b = np.random.randn(30, 3)
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
 
         # NumPy
         r_numpy, dot_numpy = compute_pairwise_contributions(
-            pos_a, pos_b, forces_a, forces_b, box
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
         )
 
         # Numba
         r_numba, dot_numba = compute_pairwise_contributions_numba(
-            pos_a, pos_b, forces_a, forces_b, box
+            pos_a, pos_b, forces_a, forces_b, cell_matrix, cell_inverse
         )
 
         np.testing.assert_allclose(
@@ -918,18 +950,19 @@ class TestPairwiseContributionsNumba:
         np.random.seed(42)
         pos = np.random.uniform(0, 10, (50, 3))
         forces = np.random.randn(50, 3)
-        box = (10.0, 10.0, 10.0)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
         bins = np.arange(0, 5, 0.1)
 
         # NumPy - use copies to ensure value comparison works (not identity)
         r_np, dot_np = compute_pairwise_contributions(
-            pos, pos.copy(), forces, forces.copy(), box
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
         )
         acc_np = accumulate_binned_contributions(dot_np, r_np, bins)
 
         # Numba - use copies to ensure value comparison works (not identity)
         r_nb, dot_nb = compute_pairwise_contributions_numba(
-            pos, pos.copy(), forces, forces.copy(), box
+            pos, pos.copy(), forces, forces.copy(), cell_matrix, cell_inverse
         )
         acc_nb = accumulate_binned_contributions_numba(dot_nb, r_nb, bins)
 
@@ -937,3 +970,73 @@ class TestPairwiseContributionsNumba:
             acc_np, acc_nb, rtol=1e-10,
             err_msg="Numba like-species accumulated contributions don't match NumPy"
         )
+
+
+class TestPairwiseTriclinic:
+    """Test pairwise contributions with triclinic cell_matrix/cell_inverse."""
+
+    def test_orthorhombic_cell_matrix_matches_box_tuple(self):
+        """Orthorhombic cell_matrix should produce identical results to box tuple."""
+        np.random.seed(42)
+        pos = np.random.uniform(0, 10, (20, 3))
+        forces = np.random.randn(20, 3)
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
+        cell_inverse = np.linalg.inv(cell_matrix)
+
+        r_flat, dot_flat = compute_pairwise_contributions(
+            pos, pos.copy(), forces, forces.copy(),
+            cell_matrix, cell_inverse,
+        )
+
+        assert r_flat.shape[0] == 20 * 19 // 2
+        assert dot_flat.shape[0] == 20 * 19 // 2
+        # All distances should be finite and positive
+        assert np.all(np.isfinite(r_flat))
+        assert np.all(r_flat >= 0)
+
+    def test_triclinic_mic_known_displacement(self):
+        """Triclinic MIC should correctly wrap a known displacement."""
+        # Cell: a = (10, 0, 0), b = (3, 9, 0), c = (0, 0, 8)
+        cell_matrix = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        cell_inverse = np.linalg.inv(cell_matrix)
+
+        # Two atoms: one at origin, one near the edge of the b vector
+        pos_a = np.array([[0.5, 0.5, 4.0]])
+        pos_b = np.array([[3.3, 8.7, 4.0]])
+        forces_a = np.array([[1.0, 0.0, 0.0]])
+        forces_b = np.array([[0.0, 0.0, 0.0]])
+
+        r_flat, dot_flat = compute_pairwise_contributions(
+            pos_a, pos_b, forces_a, forces_b,
+            cell_matrix, cell_inverse,
+        )
+
+        # Verify the distance is the MIC distance (not the raw Cartesian distance)
+        raw_dist = np.linalg.norm(pos_a[0] - pos_b[0])
+        assert r_flat[0] < raw_dist  # MIC should give shorter distance
+
+    def test_unlike_species_triclinic(self):
+        """Unlike-species pairwise computation works with triclinic cell."""
+        cell_matrix = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        cell_inverse = np.linalg.inv(cell_matrix)
+
+        pos_a = np.array([[1.0, 1.0, 1.0], [5.0, 5.0, 5.0]])
+        pos_b = np.array([[8.0, 8.0, 7.0]])
+        forces_a = np.random.randn(2, 3)
+        forces_b = np.random.randn(1, 3)
+
+        r_flat, dot_flat = compute_pairwise_contributions(
+            pos_a, pos_b, forces_a, forces_b,
+            cell_matrix, cell_inverse,
+        )
+
+        assert r_flat.shape == (2,)
+        assert dot_flat.shape == (2,)

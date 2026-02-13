@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 from tqdm import tqdm
 
+from revelsMD.cell import inscribed_sphere_radius, is_orthorhombic
 from revelsMD.rdf.rdf_helpers import get_backend_functions
 from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
@@ -62,15 +63,19 @@ class RDF:
         self.species_b = species_b
         self.delr = delr
 
-        # Store box dimensions for use in deposit
-        self._box_x = trajectory.box_x
-        self._box_y = trajectory.box_y
-        self._box_z = trajectory.box_z
+        # Store cell geometry for use in deposit
+        self._cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
+        self._cell_inverse = np.linalg.inv(self._cell_matrix)
+        self._cell_volume = float(abs(np.linalg.det(self._cell_matrix)))
         self._beta = trajectory.beta
 
         # Compute rmax
         if rmax is None:
-            self.rmax = min(trajectory.box_x, trajectory.box_y, trajectory.box_z) / 2
+            if is_orthorhombic(self._cell_matrix):
+                # Use exact diagonal values for bit-identical orthorhombic results
+                self.rmax = float(np.min(np.diag(self._cell_matrix))) / 2
+            else:
+                self.rmax = inscribed_sphere_radius(self._cell_matrix)
         else:
             self.rmax = rmax
 
@@ -89,11 +94,11 @@ class RDF:
                     f"but only {n_a} found."
                 )
             self._indices = [indices_a, indices_a]
-            self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
+            self._prefactor = self._cell_volume / (float(n_a) * float(n_a - 1))
         else:
             indices_b = self._get_species_indices(trajectory, species_b)
             self._indices = [indices_a, indices_b]
-            self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
+            self._prefactor = self._cell_volume / (float(len(indices_b)) * float(len(indices_a))) / 2
 
         # Get backend-selected functions
         (self._compute_pairwise,
@@ -226,7 +231,7 @@ class RDF:
 
         r_flat, dot_flat = self._compute_pairwise(
             pos_a, pos_b, force_a, force_b,
-            (self._box_x, self._box_y, self._box_z)
+            self._cell_matrix, self._cell_inverse,
         )
 
         force_result = self._accumulate_binned(dot_flat, r_flat, self._bins)
@@ -297,7 +302,7 @@ class RDF:
         eff_vol[0] = np.pi * delr**3 / 3.0
 
         # Box volume and particle counts
-        volume = self._box_x * self._box_y * self._box_z
+        volume = self._cell_volume
         n_ref = len(self._indices[0])
 
         # Ideal count at each bin edge:
