@@ -185,13 +185,13 @@ class TestApplyMinimumImage:
 
         Fractional: s = (8, 1, 0) @ inv(M)
           inv(M) = [[0.1, 0, 0], [-1/30, 1/9, 0], [0, 0, 0.125]]
-          s = (0.8, -8/30 + 1/9, 0) = (0.8, -0.1556, 0)
+          s = (0.8 - 1/30, 1/9, 0) = (23/30, 1/9, 0)
         round(s) = (1, 0, 0)
-        s - round(s) = (-0.2, -0.1556, 0)
-        Back to Cartesian: (-0.2, -0.1556, 0) @ M
-          = (-0.2*10 + (-0.1556)*3, (-0.1556)*9, 0)
-          = (-2.0 - 0.4667, -1.4, 0)
-          = (-2.4667, -1.4, 0)
+        s - round(s) = (-7/30, 1/9, 0)
+        Back to Cartesian: (-7/30, 1/9, 0) @ M
+          = (-7/30*10 + 1/9*3, 1/9*9, 0)
+          = (-7/3 + 1/3, 1, 0)
+          = (-2, 1, 0)
         """
         cell = np.array([
             [10.0, 0.0, 0.0],
@@ -203,13 +203,7 @@ class TestApplyMinimumImage:
 
         result = apply_minimum_image(disp, cell, cell_inv)
 
-        # Verify by hand: s = disp @ inv(M) = [0.8, -1/9+1/9, 0]
-        # Let's compute more carefully:
-        s = disp @ cell_inv  # fractional
-        s_rounded = s - np.round(s)
-        expected = s_rounded @ cell
-
-        np.testing.assert_allclose(result, expected)
+        np.testing.assert_allclose(result, [[-2.0, 1.0, 0.0]], atol=1e-14)
 
     def test_agrees_with_orthorhombic_for_diagonal_cell(self):
         """General MIC should agree with orthorhombic MIC for diagonal cells."""

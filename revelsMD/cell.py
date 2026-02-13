@@ -208,4 +208,4 @@ def cells_are_compatible(
     atol : float, optional
         Absolute tolerance for element-wise comparison (default: 1e-6).
     """
-    return bool(np.allclose(cell_a, cell_b, atol=atol))
+    return bool(np.allclose(cell_a, cell_b, atol=atol, rtol=0))
