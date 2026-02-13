@@ -742,24 +742,35 @@ class DensityGrid:
             fy_fft = np.fft.fftn(force_y / count / self.voxel_volume)
             fz_fft = np.fft.fftn(force_z / count / self.voxel_volume)
 
-        # k-vectors
-        xrep, yrep, zrep = self.get_kvectors()
+        if self.is_orthorhombic:
+            # Orthorhombic path: per-axis k-vector multiplication (unchanged)
+            xrep, yrep, zrep = self.get_kvectors()
 
-        # Multiply by k components
-        for n in range(len(xrep)):
-            fx_fft[n, :, :] = xrep[n] * fx_fft[n, :, :]
-        for m in range(len(yrep)):
-            fy_fft[:, m, :] = yrep[m] * fy_fft[:, m, :]
-        for l_idx in range(len(zrep)):
-            fz_fft[:, :, l_idx] = zrep[l_idx] * fz_fft[:, :, l_idx]
+            for n in range(len(xrep)):
+                fx_fft[n, :, :] = xrep[n] * fx_fft[n, :, :]
+            for m in range(len(yrep)):
+                fy_fft[:, m, :] = yrep[m] * fy_fft[:, m, :]
+            for l_idx in range(len(zrep)):
+                fz_fft[:, :, l_idx] = zrep[l_idx] * fz_fft[:, :, l_idx]
 
-        # delta_rho(k)
-        with np.errstate(divide="ignore", invalid="ignore"):
+            ksq = self.get_ksquared()
+            ksq[0, 0, 0] = 1.0  # avoid division by zero
             del_rho_k = (
                 complex(0, 1)
-                * self.beta / self.get_ksquared()
+                * self.beta / ksq
                 * (fx_fft + fy_fft + fz_fft)
             )
+        else:
+            # Triclinic path: full 3D k.F(k) dot product
+            kx = self._k_vectors[..., 0]
+            ky = self._k_vectors[..., 1]
+            kz = self._k_vectors[..., 2]
+            k_dot_F = kx * fx_fft + ky * fy_fft + kz * fz_fft
+
+            ksq = self._ksquared.copy()
+            ksq[0, 0, 0] = 1.0  # avoid division by zero
+            del_rho_k = complex(0, 1) * self.beta / ksq * k_dot_F
+
         del_rho_k[0, 0, 0] = 0.0
 
         # Back to real space
