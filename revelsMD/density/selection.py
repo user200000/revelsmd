@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from revelsMD.cell import apply_minimum_image, is_orthorhombic
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
 
@@ -66,7 +67,9 @@ class Selection:
         self.rigid = rigid
         self.density_type = validate_density_type(density_type)
         self.polarisation_axis = polarisation_axis
-        self._box = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
+        self._cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
+        self._cell_inverse = np.linalg.inv(self._cell_matrix)
+        self._is_orthorhombic = is_orthorhombic(self._cell_matrix)
 
         # Determine what data we need
         needs_charges = density_type in ('charge', 'polarisation')
@@ -178,18 +181,19 @@ class Selection:
         mass_tot = self.masses[0].copy()
         mass_cumulant = ref_positions * self.masses[0][:, np.newaxis]
 
-        box = self._box
-
         for species_idx in range(1, len(self.indices)):
             species_positions = positions[self.indices[species_idx]]
             species_mass = self.masses[species_idx]
 
             # Apply minimum image convention relative to reference species
             diff = ref_positions - species_positions
-            # If diff > box/2, species is wrapped left, shift it right (+box)
-            # If diff < -box/2, species is wrapped right, shift it left (-box)
-            shift = np.where(diff > box / 2, box, np.where(diff < -box / 2, -box, 0))
-            species_positions_unwrapped = species_positions + shift
+            if self._is_orthorhombic:
+                box = np.diag(self._cell_matrix)
+                shift = np.where(diff > box / 2, box, np.where(diff < -box / 2, -box, 0))
+                species_positions_unwrapped = species_positions + shift
+            else:
+                mic_diff = apply_minimum_image(diff, self._cell_matrix, self._cell_inverse)
+                species_positions_unwrapped = ref_positions - mic_diff
 
             mass_tot = mass_tot + species_mass
             mass_cumulant = mass_cumulant + species_positions_unwrapped * species_mass[:, np.newaxis]
@@ -308,7 +312,6 @@ class Selection:
             Dipole projection for each molecule.
         """
         coms = self._compute_com(positions)
-        box = self._box
 
         dipole = np.zeros((coms.shape[0], 3))
         for species_idx in range(len(self.indices)):
@@ -317,8 +320,12 @@ class Selection:
 
             # Apply minimum image convention for displacement from COM
             displacement = species_positions - coms
-            shift = np.where(displacement > box / 2, -box, np.where(displacement < -box / 2, box, 0))
-            displacement = displacement + shift
+            if self._is_orthorhombic:
+                box = np.diag(self._cell_matrix)
+                shift = np.where(displacement > box / 2, -box, np.where(displacement < -box / 2, box, 0))
+                displacement = displacement + shift
+            else:
+                displacement = apply_minimum_image(displacement, self._cell_matrix, self._cell_inverse)
 
             dipole = dipole + species_charges[:, np.newaxis] * displacement
 
