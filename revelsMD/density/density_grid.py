@@ -15,6 +15,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.cell import (
     cartesian_to_fractional,
+    cells_are_compatible,
     is_orthorhombic as _is_orthorhombic_cell,
     wrap_fractional,
 )
@@ -422,6 +423,12 @@ class DensityGrid:
             accessed with fewer than 2 accumulated sections (variance estimation
             requires at least 2 data points).
         """
+        # --- Validate cell compatibility ---
+        if not cells_are_compatible(trajectory.cell_matrix, self.cell_matrix):
+            raise ValueError(
+                "Trajectory cell does not match DensityGrid cell."
+            )
+
         # --- Validate atom_names ---
         if isinstance(atom_names, str):
             atom_list = atom_names.replace(',', ' ').split()

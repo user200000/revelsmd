@@ -898,6 +898,28 @@ class TestDeposit:
             gs.deposit(positions_list, forces, weights=1.0)
 
 
+def test_accumulate_mismatched_cell_raises(ts):
+    """Accumulating a trajectory with a different cell should raise ValueError."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+
+    class MismatchedTrajectory:
+        def __init__(self):
+            self.box_x = self.box_y = self.box_z = 12.0
+            self.cell_matrix = np.diag([12.0, 12.0, 12.0])
+            self.units = "real"
+            self.temperature = 300.0
+            self.frames = 2
+            from revelsMD.trajectories._base import compute_beta
+            self.beta = compute_beta(self.units, self.temperature)
+        def get_indices(self, atype):
+            return np.array([0])
+        def iter_frames(self, start=0, stop=None, stride=1):
+            yield np.array([[1.0, 2.0, 3.0]]), np.array([[0.1, 0.0, 0.0]])
+
+    with pytest.raises(ValueError, match="[Cc]ell"):
+        gs.accumulate(MismatchedTrajectory(), atom_names="H")
+
+
 class TestMakeForceGridUnified:
     """Test that accumulate using unified approach gives same results."""
 
