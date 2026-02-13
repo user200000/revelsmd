@@ -13,7 +13,11 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
-from revelsMD.cell import is_orthorhombic as _is_orthorhombic_cell
+from revelsMD.cell import (
+    cartesian_to_fractional,
+    is_orthorhombic as _is_orthorhombic_cell,
+    wrap_fractional,
+)
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
@@ -236,6 +240,24 @@ class DensityGrid:
 
         return np.where(rho_c >= threshold, rho_f, rho_c)
 
+    def _wrap_to_grid(self, positions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Wrap Cartesian positions to grid coordinates and return (homeX, homeY, homeZ).
+
+        For orthorhombic cells, homeX/Y/Z are Cartesian coordinates in [0, box_i).
+        For triclinic cells, homeX/Y/Z are fractional coordinates in [0, 1).
+        In both cases, lx/ly/lz and binsx/y/z are in the same coordinate system.
+        """
+        if self.is_orthorhombic:
+            homeX = np.remainder(positions[:, 0], self.box_x)
+            homeY = np.remainder(positions[:, 1], self.box_y)
+            homeZ = np.remainder(positions[:, 2], self.box_z)
+        else:
+            frac = cartesian_to_fractional(positions, self.cell_inverse)
+            frac = wrap_fractional(frac)
+            homeX, homeY, homeZ = frac[:, 0], frac[:, 1], frac[:, 2]
+        return homeX, homeY, homeZ
+
     def _process_frame(
         self,
         positions: np.ndarray,
@@ -259,20 +281,18 @@ class DensityGrid:
         """
         self.count += 1
 
-        # Bring positions to the primary image (periodic remainder)
-        homeX = np.remainder(positions[:, 0], self.box_x)
-        homeY = np.remainder(positions[:, 1], self.box_y)
-        homeZ = np.remainder(positions[:, 2], self.box_z)
+        # Bring positions to the primary image
+        homeX, homeY, homeZ = self._wrap_to_grid(positions)
 
-        # Component forces
+        # Component forces (always Cartesian)
         fox = forces[:, 0]
         foy = forces[:, 1]
         foz = forces[:, 2]
 
         # Map to voxel indices (np.digitize returns 1..len(bins)-1)
-        x = np.digitize(homeX, self.binsx)
-        y = np.digitize(homeY, self.binsy)
-        z = np.digitize(homeZ, self.binsz)
+        x = np.clip(np.digitize(homeX, self.binsx), 1, self.nbinsx)
+        y = np.clip(np.digitize(homeY, self.binsy), 1, self.nbinsy)
+        z = np.clip(np.digitize(homeZ, self.binsz), 1, self.nbinsz)
 
         if kernel.lower() == "triangular":
             _triangular_allocation(
@@ -642,20 +662,18 @@ class DensityGrid:
         kernel: str,
     ) -> None:
         """Deposit a single set of positions/forces to provided arrays."""
-        # Bring positions to the primary image (periodic remainder)
-        homeX = np.remainder(positions[:, 0], self.box_x)
-        homeY = np.remainder(positions[:, 1], self.box_y)
-        homeZ = np.remainder(positions[:, 2], self.box_z)
+        # Bring positions to the primary image
+        homeX, homeY, homeZ = self._wrap_to_grid(positions)
 
-        # Component forces
+        # Component forces (always Cartesian)
         fox = forces[:, 0]
         foy = forces[:, 1]
         foz = forces[:, 2]
 
         # Map to voxel indices
-        x = np.digitize(homeX, self.binsx)
-        y = np.digitize(homeY, self.binsy)
-        z = np.digitize(homeZ, self.binsz)
+        x = np.clip(np.digitize(homeX, self.binsx), 1, self.nbinsx)
+        y = np.clip(np.digitize(homeY, self.binsy), 1, self.nbinsy)
+        z = np.clip(np.digitize(homeZ, self.binsz), 1, self.nbinsz)
 
         if kernel.lower() == "triangular":
             _triangular_allocation(
