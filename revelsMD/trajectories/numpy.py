@@ -27,9 +27,11 @@ class NumpyTrajectory(Trajectory):
         Atomic forces of shape ``(frames, atoms, 3)``.
     box_x, box_y, box_z : float, optional
         Simulation box lengths in each Cartesian direction.
+        All three must be provided together.
         Mutually exclusive with ``cell_matrix``.
-    species_list : list of str
-        Atom names corresponding to each atom index.
+    species_list : list of str, optional
+        Atom names corresponding to each atom index.  If ``None``,
+        ``get_indices`` and related methods will not be available.
     temperature : float
         Simulation temperature in Kelvin.
     units : str, optional
@@ -84,7 +86,8 @@ class NumpyTrajectory(Trajectory):
             raise ValueError("Species list and trajectory arrays are incommensurate.")
 
         # Determine cell geometry from either cell_matrix or box_x/y/z
-        has_box = box_x is not None or box_y is not None or box_z is not None
+        box_args = (box_x, box_y, box_z)
+        has_box = any(v is not None for v in box_args)
         has_cell = cell_matrix is not None
 
         if has_box and has_cell:
@@ -102,7 +105,11 @@ class NumpyTrajectory(Trajectory):
             self._validate_cell_matrix(cell_matrix)
             self.cell_matrix = cell_matrix
         else:
-            if not all(val > 0 for val in (box_x, box_y, box_z)):
+            if not all(v is not None for v in box_args):
+                raise ValueError(
+                    "All three of box_x, box_y, box_z must be provided together."
+                )
+            if not all(val > 0 for val in box_args):
                 raise ValueError("Box dimensions must all be positive values.")
             self.cell_matrix = self._cell_matrix_from_dimensions(box_x, box_y, box_z)
 
@@ -135,6 +142,8 @@ class NumpyTrajectory(Trajectory):
         ValueError
             If the species name is not present in the provided species list.
         """
+        if self.species_string is None:
+            raise ValueError("Species list was not provided for this trajectory.")
         inds = np.where(np.array(self.species_string) == atype)[0]
         if len(inds) == 0:
             raise ValueError(f"Species '{atype}' not found in species list.")

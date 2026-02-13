@@ -1158,3 +1158,133 @@ class TestCellMatrixProperties:
         assert orthorhombic_traj.box_x == pytest.approx(10.0)
         assert orthorhombic_traj.box_y == pytest.approx(8.0)
         assert orthorhombic_traj.box_z == pytest.approx(6.0)
+
+
+# -----------------------------------------------------------------------------
+# NumpyTrajectory cell_matrix constructor parameter
+# -----------------------------------------------------------------------------
+class TestNumpyTrajectoryCellMatrix:
+    """Tests for constructing NumpyTrajectory with cell_matrix parameter."""
+
+    def test_construction_with_orthorhombic_cell_matrix(self):
+        cell = np.diag([10.0, 8.0, 6.0])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        np.testing.assert_allclose(traj.cell_matrix, cell)
+        assert traj.is_orthorhombic is True
+        assert traj.box_x == pytest.approx(10.0)
+
+    def test_construction_with_triclinic_cell_matrix(self):
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        np.testing.assert_allclose(traj.cell_matrix, cell)
+        assert traj.is_orthorhombic is False
+
+    def test_box_x_raises_for_triclinic_cell(self):
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        with pytest.raises(AttributeError, match="box_x is not defined"):
+            _ = traj.box_x
+        with pytest.raises(AttributeError, match="box_y is not defined"):
+            _ = traj.box_y
+        with pytest.raises(AttributeError, match="box_z is not defined"):
+            _ = traj.box_z
+
+    def test_construction_with_box_x_y_z_still_works(self):
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            box_x=10.0, box_y=8.0, box_z=6.0,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        np.testing.assert_allclose(traj.cell_matrix, np.diag([10.0, 8.0, 6.0]))
+
+    def test_both_cell_matrix_and_box_raises(self):
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                box_x=10.0, box_y=8.0, box_z=6.0,
+                cell_matrix=np.diag([10.0, 8.0, 6.0]),
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+
+    def test_neither_cell_matrix_nor_box_raises(self):
+        with pytest.raises(ValueError, match="Must specify either"):
+            NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+
+    def test_invalid_cell_matrix_raises(self):
+        with pytest.raises(ValueError, match="shape"):
+            NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                cell_matrix=np.eye(4),
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+
+    def test_partial_box_dimensions_raises(self):
+        """Providing only some of box_x/y/z should raise a clear error."""
+        with pytest.raises(ValueError, match="All three"):
+            NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                box_x=10.0,
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+
+    def test_construction_without_species_list(self):
+        """Construction without species_list should work."""
+        cell = np.diag([10.0, 8.0, 6.0])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            temperature=300.0, units="real",
+        )
+        assert traj.species_string is None
+
+    def test_get_indices_without_species_list_raises(self):
+        """Calling get_indices when species_list was not provided should raise."""
+        cell = np.diag([10.0, 8.0, 6.0])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            temperature=300.0, units="real",
+        )
+        with pytest.raises(ValueError, match="[Ss]pecies list"):
+            traj.get_indices("A")
