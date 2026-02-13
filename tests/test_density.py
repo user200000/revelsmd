@@ -269,6 +269,57 @@ def test_process_frame_invalid_kernel(ts):
         gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), kernel="invalid")
 
 
+@pytest.mark.parametrize("kernel", ["box", "triangular"])
+def test_process_frame_triclinic_deposits(kernel):
+    """_process_frame should deposit to grid for triclinic cells."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [0.0, 0.0, 8.0],
+    ])
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=4)
+    # Position at (5, 4.5, 4) should be inside the cell
+    pos = np.array([[5.0, 4.5, 4.0]])
+    frc = np.array([[0.5, 0.0, 0.0]])
+    gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
+    assert np.any(gs.force_x != 0)
+    assert np.any(gs.counter != 0)
+
+
+def test_process_frame_triclinic_boundary_particles():
+    """Particles at fractional coordinate boundaries should not crash."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [0.0, 0.0, 8.0],
+    ])
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=4)
+    # Origin and near-edge positions in Cartesian
+    pos = np.array([[0.0, 0.0, 0.0], [9.99, 8.99, 7.99]])
+    frc = np.array([[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]])
+    gs._process_frame(pos, frc, weight=1.0, kernel="triangular")
+    # Should not crash and should deposit something
+    assert np.any(gs.counter != 0)
+
+
 # ---------------------------------------------------------------------------
 # DensityGrid.deposit (basic tests)
 # ---------------------------------------------------------------------------
