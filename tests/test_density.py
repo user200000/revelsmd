@@ -1369,6 +1369,169 @@ class TestSelectionGetPositions:
 
 
 # ---------------------------------------------------------------------------
+# Triclinic FFT validation tests
+# ---------------------------------------------------------------------------
+
+class TestTriclinicFFT:
+    """Tests for the Borgis density formula with triclinic cells."""
+
+    def test_ideal_gas_triclinic_flat_density(self):
+        """Uniform random positions + zero forces -> flat density."""
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        n_atoms = 50
+        n_frames = 10
+        nbins = 8
+        rng = np.random.default_rng(42)
+
+        # Random positions in fractional coordinates, then convert to Cartesian
+        frac = rng.random((n_frames, n_atoms, 3))
+        positions = np.einsum('fai,ij->faj', frac, cell)
+        forces = np.zeros((n_frames, n_atoms, 3))
+
+        traj = NumpyTrajectory(
+            positions=positions, forces=forces,
+            cell_matrix=cell,
+            species_list=["A"] * n_atoms,
+            temperature=300.0, units="real",
+        )
+        gs = DensityGrid(traj, density_type="number", nbins=nbins)
+        for i in range(n_frames):
+            gs._process_frame(positions[i], forces[i], weight=1.0)
+
+        # Force-based density should be flat (all perturbation is zero)
+        rho_force, rho_count, _, _ = gs._fft_force_to_density(
+            gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
+        )
+        # rho_force should equal mean(rho_count) everywhere
+        np.testing.assert_allclose(
+            rho_force, np.mean(rho_count), rtol=0.3,
+            err_msg="Ideal gas (zero forces) should produce approximately flat density",
+        )
+
+    def test_sinusoidal_force_triclinic(self):
+        """Sinusoidal force at a reciprocal lattice vector should produce
+        the expected density perturbation in a triclinic cell."""
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        n_atoms = 500
+        n_frames = 20
+        nbins = 16
+        rng = np.random.default_rng(99)
+
+        # Use a reciprocal lattice vector: k = 2*pi * inv(M)^T @ [1,0,0]
+        M_inv_T = np.linalg.inv(cell).T
+        k0 = 2 * np.pi * M_inv_T @ np.array([1.0, 0.0, 0.0])
+        F0 = 0.1  # force amplitude
+
+        # Uniformly distributed positions
+        frac = rng.random((n_frames, n_atoms, 3))
+        positions = np.einsum('fai,ij->faj', frac, cell)
+
+        # Force = F0 * sin(k0 . r) in the x-direction
+        # k0 . r for each frame/atom
+        k_dot_r = np.einsum('fai,i->fa', positions, k0)
+        forces = np.zeros((n_frames, n_atoms, 3))
+        forces[:, :, 0] = F0 * np.sin(k_dot_r)
+
+        traj = NumpyTrajectory(
+            positions=positions, forces=forces,
+            cell_matrix=cell,
+            species_list=["A"] * n_atoms,
+            temperature=300.0, units="real",
+        )
+        gs = DensityGrid(traj, density_type="number", nbins=nbins)
+        for i in range(n_frames):
+            gs._process_frame(positions[i], forces[i], weight=1.0)
+
+        rho_force, rho_count, del_rho_k, _ = gs._fft_force_to_density(
+            gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
+        )
+
+        # The density perturbation should be non-zero (force is non-trivial)
+        assert np.max(np.abs(rho_force - np.mean(rho_force))) > 1e-6, \
+            "Sinusoidal force should produce non-trivial density perturbation"
+
+        # The del_rho_k should have dominant peaks at the Miller indices [1,0,0]
+        # and [-1,0,0] (the applied k-vector and its conjugate)
+        del_rho_k_abs = np.abs(del_rho_k)
+        # Zero the DC component
+        del_rho_k_abs[0, 0, 0] = 0
+        # The peak should be at index [1,0,0] or [-1,0,0] = [nbins-1,0,0]
+        peak_pos = np.unravel_index(np.argmax(del_rho_k_abs), del_rho_k_abs.shape)
+        assert peak_pos[1] == 0 and peak_pos[2] == 0, \
+            f"Peak should be at [*,0,0] Miller indices, got {peak_pos}"
+        assert peak_pos[0] in (1, nbins - 1), \
+            f"Peak should be at Miller index m1=1 or {nbins-1}, got {peak_pos[0]}"
+
+    def test_orthorhombic_triclinic_paths_agree(self):
+        """For a diagonal cell, orthorhombic and triclinic FFT paths should
+        produce identical results."""
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+
+        cell = np.diag([10.0, 8.0, 6.0])
+        n_atoms = 20
+        n_frames = 5
+        nbins = 8
+        rng = np.random.default_rng(123)
+
+        positions = rng.random((n_frames, n_atoms, 3)) * np.array([10, 8, 6])
+        forces = rng.standard_normal((n_frames, n_atoms, 3))
+
+        traj = NumpyTrajectory(
+            positions=positions, forces=forces,
+            cell_matrix=cell,
+            species_list=["A"] * n_atoms,
+            temperature=300.0, units="real",
+        )
+
+        # Build grid (will use orthorhombic path since cell is diagonal)
+        gs_ortho = DensityGrid(traj, density_type="number", nbins=nbins)
+        assert gs_ortho.is_orthorhombic is True
+        for i in range(n_frames):
+            gs_ortho._process_frame(positions[i], forces[i], weight=1.0)
+
+        # Compute density using orthorhombic path
+        rho_ortho, _, _, _ = gs_ortho._fft_force_to_density(
+            gs_ortho.force_x, gs_ortho.force_y, gs_ortho.force_z,
+            gs_ortho.counter, gs_ortho.count
+        )
+
+        # Now force the triclinic path by building k-vectors and using them
+        gs_tri = DensityGrid(traj, density_type="number", nbins=nbins)
+        for i in range(n_frames):
+            gs_tri._process_frame(positions[i], forces[i], weight=1.0)
+
+        # Manually invoke triclinic FFT path
+        k_vectors, ksquared = gs_tri._build_kvectors_3d()
+        # Verify k-vectors match the orthorhombic ones
+        kx_1d, ky_1d, kz_1d = gs_tri.get_kvectors()
+        ksq_ortho = gs_tri.get_ksquared()
+        np.testing.assert_allclose(ksquared, ksq_ortho, atol=1e-10)
+
+        # Both grids have the same accumulated data
+        np.testing.assert_allclose(gs_ortho.force_x, gs_tri.force_x)
+
+        # The orthorhombic rho_force and a manually-computed triclinic rho_force
+        # should agree
+        rho_tri, _, _, _ = gs_tri._fft_force_to_density(
+            gs_tri.force_x, gs_tri.force_y, gs_tri.force_z,
+            gs_tri.counter, gs_tri.count
+        )
+        np.testing.assert_allclose(rho_ortho, rho_tri, atol=1e-10)
+
+
+# ---------------------------------------------------------------------------
 # compute_density() convenience function
 # ---------------------------------------------------------------------------
 
