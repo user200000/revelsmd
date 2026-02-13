@@ -80,3 +80,20 @@ def fractional_to_cartesian(
         Cartesian positions.
     """
     return fractional @ cell_matrix
+
+
+def wrap_fractional(fractional: np.ndarray) -> np.ndarray:
+    """
+    Wrap fractional coordinates into [0, 1).
+
+    Parameters
+    ----------
+    fractional : np.ndarray, shape (N, 3)
+        Fractional coordinates (may be outside [0, 1)).
+
+    Returns
+    -------
+    np.ndarray, shape (N, 3)
+        Wrapped fractional coordinates in [0, 1).
+    """
+    return fractional - np.floor(fractional)
