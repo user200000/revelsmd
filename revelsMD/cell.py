@@ -159,3 +159,37 @@ def apply_minimum_image_orthorhombic(
             * np.sign(result[..., i])
         )
     return result
+
+
+def inscribed_sphere_radius(cell_matrix: np.ndarray) -> float:
+    """
+    Compute the inscribed sphere radius of the parallelepiped defined by
+    the cell matrix.
+
+    This is the maximum valid cutoff for the minimum image convention:
+    half the smallest perpendicular height of the cell.
+
+    For orthorhombic cells this reduces to ``min(Lx, Ly, Lz) / 2``.
+
+    Parameters
+    ----------
+    cell_matrix : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
+
+    Returns
+    -------
+    float
+        Inscribed sphere radius.
+    """
+    a, b, c = cell_matrix[0], cell_matrix[1], cell_matrix[2]
+    volume = abs(np.linalg.det(cell_matrix))
+
+    cross_bc = np.cross(b, c)
+    cross_ca = np.cross(c, a)
+    cross_ab = np.cross(a, b)
+
+    h_bc = volume / np.linalg.norm(cross_bc)
+    h_ca = volume / np.linalg.norm(cross_ca)
+    h_ab = volume / np.linalg.norm(cross_ab)
+
+    return min(h_bc, h_ca, h_ab) / 2

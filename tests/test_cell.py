@@ -8,6 +8,7 @@ from revelsMD.cell import (
     apply_minimum_image_orthorhombic,
     cartesian_to_fractional,
     fractional_to_cartesian,
+    inscribed_sphere_radius,
     is_orthorhombic,
     wrap_fractional,
     ORTHORHOMBIC_TOLERANCE,
@@ -260,3 +261,52 @@ class TestApplyMinimumImageOrthorhombic:
         result_rdf = rdf_mic(displacements, box)
 
         np.testing.assert_allclose(result_cell, result_rdf)
+
+
+class TestInscribedSphereRadius:
+    """Tests for inscribed_sphere_radius()."""
+
+    def test_orthorhombic_cell(self):
+        """For orthorhombic (10, 8, 6), rmax = min(10, 8, 6) / 2 = 3.0."""
+        cell = np.diag([10.0, 8.0, 6.0])
+        assert inscribed_sphere_radius(cell) == pytest.approx(3.0)
+
+    def test_cubic_cell(self):
+        """For cubic cell with side 5, rmax = 5 / 2 = 2.5."""
+        cell = np.diag([5.0, 5.0, 5.0])
+        assert inscribed_sphere_radius(cell) == pytest.approx(2.5)
+
+    def test_hexagonal_cell(self):
+        """Hexagonal cell: a=(10,0,0), b=(5, 5*sqrt(3), 0), c=(0,0,8).
+
+        V = |det(M)| = 10 * 5*sqrt(3) * 8 = 400*sqrt(3)
+        |b x c| = |(5*sqrt(3)*8, -5*8, 0)| = |(40*sqrt(3), -40, 0)| = 80
+        |c x a| = |(0, 0, 80)| -> wait, need to compute properly.
+
+        a x b = (0, 0, 10*5*sqrt(3) - 0) = (0, 0, 50*sqrt(3))
+        |a x b| = 50*sqrt(3)
+        h_ab = V / |a x b| = 400*sqrt(3) / (50*sqrt(3)) = 8
+
+        b x c = (5*sqrt(3)*8 - 0, 0 - 10*0*0, ...) -- let me just use cross.
+        Actually: b=(5, 5*sqrt(3), 0), c=(0, 0, 8)
+        b x c = (5*sqrt(3)*8, -5*8, 0) = (40*sqrt(3), -40, 0)
+        |b x c| = sqrt(4800 + 1600) = sqrt(6400) = 80
+        h_bc = 400*sqrt(3) / 80 = 5*sqrt(3) ~ 8.66
+
+        c x a = (0, 0, 8) x (10, 0, 0) = (0*0-8*0, 8*10-0*0, 0*0-0*10)
+             = (0, 80, 0)
+        |c x a| = 80
+        h_ca = 400*sqrt(3) / 80 = 5*sqrt(3) ~ 8.66
+
+        rmax = min(8.66, 8.66, 8) / 2 = 4.0
+        """
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [5.0, 5.0 * np.sqrt(3), 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        assert inscribed_sphere_radius(cell) == pytest.approx(4.0)
+
+    def test_identity_cell(self):
+        """Unit cell: rmax = 0.5."""
+        assert inscribed_sphere_radius(np.eye(3)) == pytest.approx(0.5)
