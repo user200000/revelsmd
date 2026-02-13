@@ -19,6 +19,7 @@ class TSMock:
         self.box_x = 10.0
         self.box_y = 10.0
         self.box_z = 10.0
+        self.cell_matrix = np.diag([10.0, 10.0, 10.0])
         self.units = units
         self.temperature = temperature
         self.frames = 2
@@ -95,6 +96,46 @@ def test_densitygrid_invalid_box(ts):
 def test_densitygrid_invalid_bins(ts):
     with pytest.raises(ValueError):
         DensityGrid(ts, "number", nbins=(0, 4, 4))
+
+
+def test_densitygrid_stores_cell_matrix(ts):
+    """DensityGrid should store cell_matrix from the trajectory."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    expected = np.diag([10.0, 10.0, 10.0])
+    np.testing.assert_allclose(gs.cell_matrix, expected)
+
+
+def test_densitygrid_stores_cell_inverse(ts):
+    """DensityGrid should store the inverse cell matrix."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    expected_inv = np.linalg.inv(np.diag([10.0, 10.0, 10.0]))
+    np.testing.assert_allclose(gs.cell_inverse, expected_inv)
+
+
+def test_densitygrid_is_orthorhombic(ts):
+    """DensityGrid should flag the cell as orthorhombic."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    assert gs.is_orthorhombic is True
+
+
+def test_densitygrid_voxel_volume_from_cell(ts):
+    """Voxel volume should equal det(cell_matrix) / (nbins^3)."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    expected = abs(np.linalg.det(np.diag([10.0, 10.0, 10.0]))) / (4 * 4 * 4)
+    assert gs.voxel_volume == pytest.approx(expected)
+
+
+def test_densitygrid_orthorhombic_regression(ts):
+    """Orthorhombic DensityGrid should produce identical bin edges and voxel sizes."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    # Bin edges should be Cartesian
+    np.testing.assert_allclose(gs.binsx, np.arange(0, 10.0 + 2.5, 2.5))
+    np.testing.assert_allclose(gs.binsy, np.arange(0, 10.0 + 2.5, 2.5))
+    np.testing.assert_allclose(gs.binsz, np.arange(0, 10.0 + 2.5, 2.5))
+    # Voxel sizes should be Cartesian
+    assert gs.lx == pytest.approx(2.5)
+    assert gs.ly == pytest.approx(2.5)
+    assert gs.lz == pytest.approx(2.5)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +302,7 @@ def test_selection_rigid_water():
     """
     class WaterTSMock:
         box_x = box_y = box_z = 10.0
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
         units = "real"
         species = ["Ow", "Hw1", "Hw2"]
         # 2 water molecules: Ow, Hw1, Hw2 each = 2 atoms per species
@@ -346,6 +388,7 @@ class TestAccumulateComputeLambda:
         class MultiFrameTrajectory:
             def __init__(self):
                 self.box_x = self.box_y = self.box_z = 10.0
+                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
                 self.units = 'real'
                 self.temperature = 300.0
                 from revelsMD.trajectories._base import compute_beta
@@ -627,6 +670,7 @@ class MockTrajectory:
 
     def __init__(self):
         self.box_x = self.box_y = self.box_z = 10.0
+        self.cell_matrix = np.diag([10.0, 10.0, 10.0])
         self.units = 'real'
         self.beta = 1.0 / (300.0 * 0.0019872041)  # 1/(kB*T) for T=300K in real units
 
@@ -982,6 +1026,7 @@ class TestSelectionGetPositionsPeriodicBoundary:
         class SingleMolTrajectory:
             def __init__(self):
                 self.box_x = self.box_y = self.box_z = 10.0
+                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
                 self.units = 'real'
 
             def get_indices(self, atom_name):
@@ -1400,6 +1445,7 @@ class TestDensityGridGetLambdaEdgeCases:
         class MinimalTrajectory:
             def __init__(self):
                 self.box_x = self.box_y = self.box_z = 10.0
+                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
                 self.units = 'real'
                 self.frames = 2
                 self.beta = 1.0 / (300.0 * 0.0019872041)
