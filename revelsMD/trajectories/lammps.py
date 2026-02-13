@@ -9,6 +9,7 @@ from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
 from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
+from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-untyped]
 import numpy as np
 
 from ._base import Trajectory, DataUnavailableError
@@ -193,7 +194,7 @@ class LammpsTrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If the cell is not orthorhombic or box dimensions are invalid.
+        If the cell matrix is invalid or box dimensions cannot be parsed.
     RuntimeError
         If the trajectory cannot be parsed by MDAnalysis.
     """
@@ -239,11 +240,8 @@ class LammpsTrajectory(Trajectory):
         if len(dims) < 6:
             raise ValueError(f"Invalid LAMMPS box dimensions: {dims}")
 
-        lx, ly, lz, alpha, beta, gamma = dims[:6]
-
-        self._validate_orthorhombic([alpha, beta, gamma])
-        lx, ly, lz = self._validate_box_dimensions(lx, ly, lz)
-        self.cell_matrix = self._cell_matrix_from_dimensions(lx, ly, lz)
+        self.cell_matrix = np.array(triclinic_vectors(dims), dtype=np.float64)
+        self._validate_cell_matrix(self.cell_matrix)
 
     def get_indices(self, atype: str) -> np.ndarray:
         """Return atom indices for a given LAMMPS atom type (as string, e.g. '1', '2')."""

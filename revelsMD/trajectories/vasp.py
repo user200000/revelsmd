@@ -241,8 +241,8 @@ class VaspTrajectory(Trajectory):
     """
     Represents a molecular dynamics trajectory obtained from VASP ``vasprun.xml`` output.
 
-    Supports parsing one or multiple sequential ``vasprun.xml`` files, validating
-    orthorhombicity, and providing cartesian coordinates and forces as NumPy arrays.
+    Supports parsing one or multiple sequential ``vasprun.xml`` files and
+    providing cartesian coordinates and forces as NumPy arrays.
 
     Parameters
     ----------
@@ -255,8 +255,8 @@ class VaspTrajectory(Trajectory):
     ----------
     frames : int
         Total number of time steps across all vasprun files.
-    box_x, box_y, box_z : float
-        Simulation box lengths along each Cartesian axis.
+    cell_matrix : np.ndarray
+        Cell matrix with rows = lattice vectors, shape ``(3, 3)``.
     positions : np.ndarray
         Cartesian coordinates array of shape ``(frames, atoms, 3)``.
     forces : np.ndarray
@@ -269,7 +269,7 @@ class VaspTrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If no forces are found or if the lattice is non-orthorhombic.
+        If no forces are found or the cell matrix is invalid.
 
     Notes
     -----
@@ -287,9 +287,8 @@ class VaspTrajectory(Trajectory):
             self._start_structure = self.Vasprun.structures[0]
             self.frames = len(self.Vasprun.structures)
 
-            self._validate_cell(self._start_structure.lattice)
-            diag = np.diag(self._start_structure.lattice.matrix)
-            self.cell_matrix = self._cell_matrix_from_dimensions(*diag)
+            self.cell_matrix = np.array(self._start_structure.lattice.matrix, dtype=np.float64)
+            self._validate_cell_matrix(self.cell_matrix)
             if self.Vasprun.forces is None:
                 raise ValueError(f"No forces found in {trajectory_file[0]}")
             self.positions: np.ndarray = self.Vasprun.cart_coords
@@ -308,9 +307,8 @@ class VaspTrajectory(Trajectory):
             self._start_structure = self.Vasprun.structures[0]
             self.frames = len(self.Vasprun.structures)
 
-            self._validate_cell(self._start_structure.lattice)
-            diag = np.diag(self._start_structure.lattice.matrix)
-            self.cell_matrix = self._cell_matrix_from_dimensions(*diag)
+            self.cell_matrix = np.array(self._start_structure.lattice.matrix, dtype=np.float64)
+            self._validate_cell_matrix(self.cell_matrix)
             if self.Vasprun.forces is None:
                 raise ValueError(f"No forces found in {trajectory_file}")
             self.positions = self.Vasprun.cart_coords
@@ -318,11 +316,6 @@ class VaspTrajectory(Trajectory):
 
         # Backwards compatibility: expose start structure via Vasprun.start
         self.Vasprun.start = self._start_structure  # type: ignore[attr-defined]
-
-    @staticmethod
-    def _validate_cell(lattice: Lattice):
-        """Validate that the VASP lattice is orthorhombic."""
-        Trajectory._validate_orthorhombic(list(lattice.angles))
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
