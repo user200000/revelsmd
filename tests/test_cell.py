@@ -7,6 +7,7 @@ from revelsMD.cell import (
     cartesian_to_fractional,
     fractional_to_cartesian,
     is_orthorhombic,
+    wrap_fractional,
     ORTHORHOMBIC_TOLERANCE,
 )
 
@@ -108,3 +109,43 @@ class TestCoordinateTransforms:
             expected = np.zeros((1, 3))
             expected[0, i] = 1.0
             np.testing.assert_allclose(frac, expected, atol=1e-14)
+
+
+class TestWrapFractional:
+    """Tests for wrap_fractional()."""
+
+    def test_already_in_range(self):
+        frac = np.array([[0.25, 0.5, 0.75]])
+        result = wrap_fractional(frac)
+        np.testing.assert_allclose(result, [[0.25, 0.5, 0.75]])
+
+    def test_negative_values_wrapped(self):
+        frac = np.array([[-0.1, -0.5, -1.3]])
+        result = wrap_fractional(frac)
+        np.testing.assert_allclose(result, [[0.9, 0.5, 0.7]])
+
+    def test_values_above_one_wrapped(self):
+        frac = np.array([[1.2, 2.7, 3.0]])
+        result = wrap_fractional(frac)
+        np.testing.assert_allclose(result, [[0.2, 0.7, 0.0]])
+
+    def test_exactly_one_maps_to_zero(self):
+        frac = np.array([[1.0, 0.0, 0.0]])
+        result = wrap_fractional(frac)
+        np.testing.assert_allclose(result, [[0.0, 0.0, 0.0]])
+
+    def test_exactly_zero_stays_zero(self):
+        frac = np.array([[0.0, 0.0, 0.0]])
+        result = wrap_fractional(frac)
+        np.testing.assert_allclose(result, [[0.0, 0.0, 0.0]])
+
+    def test_multiple_positions(self):
+        frac = np.array([
+            [0.5, -0.2, 1.1],
+            [2.0, 0.0, -0.5],
+        ])
+        result = wrap_fractional(frac)
+        np.testing.assert_allclose(result, [
+            [0.5, 0.8, 0.1],
+            [0.0, 0.0, 0.5],
+        ])
