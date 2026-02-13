@@ -21,6 +21,10 @@ from typing import Callable
 import numpy as np
 
 from revelsMD.backends import get_backend, AVAILABLE_BACKENDS
+from revelsMD.cell import (
+    apply_minimum_image as _cell_apply_minimum_image,
+    is_orthorhombic as _cell_is_orthorhombic,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -99,36 +103,41 @@ def get_backend_functions(
 
 def apply_minimum_image(
     displacement: np.ndarray,
-    box: np.ndarray,
+    cell_matrix: np.ndarray,
+    cell_inverse: np.ndarray,
 ) -> np.ndarray:
     """
     Apply minimum image convention to displacement vectors.
+
+    For orthorhombic cells, uses the per-axis formula for bit-identical
+    results with the original code. For triclinic cells, delegates to
+    the general fractional-coordinate MIC.
 
     Parameters
     ----------
     displacement : np.ndarray, shape (..., 3)
         Displacement vectors (can be any shape with last dimension = 3).
-    box : np.ndarray, shape (3,)
-        Box dimensions [box_x, box_y, box_z].
+    cell_matrix : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
+    cell_inverse : np.ndarray, shape (3, 3)
+        Inverse of the cell matrix.
 
     Returns
     -------
     np.ndarray
         Corrected displacements with same shape as input.
-
-    Notes
-    -----
-    Uses the original formula from revels_rdf.py for bit-identical results:
-        r -= ceil((abs(r) - box/2) / box) * box * sign(r)
     """
-    result = displacement.copy()
-    for i in range(3):
-        result[..., i] -= (
-            np.ceil((np.abs(result[..., i]) - box[i] / 2) / box[i])
-            * box[i]
-            * np.sign(result[..., i])
-        )
-    return result
+    if _cell_is_orthorhombic(cell_matrix):
+        box = np.diag(cell_matrix)
+        result = displacement.copy()
+        for i in range(3):
+            result[..., i] -= (
+                np.ceil((np.abs(result[..., i]) - box[i] / 2) / box[i])
+                * box[i]
+                * np.sign(result[..., i])
+            )
+        return result
+    return _cell_apply_minimum_image(displacement, cell_matrix, cell_inverse)
 
 
 def accumulate_binned_contributions(
@@ -255,7 +264,8 @@ def compute_pairwise_contributions(
     pos_b: np.ndarray,
     forces_a: np.ndarray,
     forces_b: np.ndarray,
-    box: tuple[float, float, float],
+    cell_matrix: np.ndarray,
+    cell_inverse: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute pairwise distances and force projections for any species combination.
@@ -278,8 +288,10 @@ def compute_pairwise_contributions(
         Forces on atoms in species A.
     forces_b : np.ndarray, shape (n_b, 3)
         Forces on atoms in species B.
-    box : tuple of (box_x, box_y, box_z)
-        Orthorhombic box dimensions.
+    cell_matrix : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
+    cell_inverse : np.ndarray, shape (3, 3)
+        Inverse of the cell matrix.
 
     Returns
     -------
@@ -291,7 +303,6 @@ def compute_pairwise_contributions(
         Flattened force projections (F_a - F_b) . r_ab / |r|^3.
         Same shape as r_flat.
     """
-    box_arr = np.array(box)
     same_species = np.array_equal(pos_a, pos_b)
 
     # Build displacement and force-difference arrays.
@@ -307,7 +318,7 @@ def compute_pairwise_contributions(
         r_vec = pos_a[np.newaxis, :, :] - pos_b[:, np.newaxis, :]
         F_diff = forces_a[np.newaxis, :, :] - forces_b[:, np.newaxis, :]
 
-    r_vec = apply_minimum_image(r_vec, box_arr)
+    r_vec = apply_minimum_image(r_vec, cell_matrix, cell_inverse)
 
     # Compute |r| and (F_diff . r) / |r|^3. Using axis=-1 works for both
     # 2D (n_pairs, 3) and 3D (n_b, n_a, 3) arrays.

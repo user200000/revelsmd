@@ -466,3 +466,107 @@ class TestRDFBackendSelection:
         assert callable(rdf._compute_pairwise)
         assert callable(rdf._accumulate_binned)
         assert callable(rdf._accumulate_triangular)
+
+
+class TestRDFCellMatrix:
+    """Test that RDF uses cell_matrix for volume and rmax."""
+
+    def test_rdf_stores_cell_matrix(self, water_trajectory):
+        """RDF should store cell_matrix from trajectory."""
+        from revelsMD.rdf import RDF
+        rdf = RDF(water_trajectory, 'O', 'H')
+        np.testing.assert_allclose(rdf._cell_matrix, water_trajectory.cell_matrix)
+
+    def test_rdf_rmax_from_inscribed_sphere(self):
+        """Default rmax should use inscribed_sphere_radius for triclinic cells."""
+        from revelsMD.rdf import RDF
+
+        # Triclinic cell
+        cell_matrix = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        positions = np.array([
+            [[1, 2, 3], [4, 5, 6], [7, 1, 2]],
+            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 1.1, 2.1]],
+        ], dtype=float)
+        forces = np.array([
+            [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
+            [[0.2, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.2]],
+        ], dtype=float)
+        ts = NumpyTrajectory(
+            positions, forces, species_list=["H", "O", "H"],
+            temperature=300.0, units="real", cell_matrix=cell_matrix,
+        )
+
+        rdf = RDF(ts, 'O', 'H')
+
+        from revelsMD.cell import inscribed_sphere_radius
+        expected_rmax = inscribed_sphere_radius(cell_matrix)
+        assert abs(rdf.rmax - expected_rmax) < 1e-10
+
+    def test_rdf_volume_from_cell_determinant(self):
+        """RDF prefactor should use det(cell_matrix) for volume."""
+        from revelsMD.rdf import RDF
+
+        cell_matrix = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        positions = np.array([
+            [[1, 2, 3], [4, 5, 6], [7, 1, 2]],
+            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 1.1, 2.1]],
+        ], dtype=float)
+        forces = np.array([
+            [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
+            [[0.2, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.2]],
+        ], dtype=float)
+        ts = NumpyTrajectory(
+            positions, forces, species_list=["H", "O", "H"],
+            temperature=300.0, units="real", cell_matrix=cell_matrix,
+        )
+
+        rdf = RDF(ts, 'O', 'H')
+
+        # Volume should be det(cell_matrix) = 10 * 9 * 8 = 720
+        expected_volume = abs(np.linalg.det(cell_matrix))
+        # Prefactor includes volume / (n_a * n_b) / 2 for unlike species
+        # n_O = 1, n_H = 2
+        expected_prefactor = expected_volume / (2 * 1) / 2
+        assert abs(rdf._prefactor - expected_prefactor) < 1e-10
+
+    def test_rdf_triclinic_accumulate_produces_results(self, monkeypatch):
+        """RDF accumulate and get_rdf should work for triclinic cells."""
+        from revelsMD.rdf import RDF
+        import revelsMD.backends
+
+        # Force numpy backend since Numba doesn't support triclinic yet
+        monkeypatch.setattr(revelsMD.backends, 'BACKEND', 'numpy')
+
+        cell_matrix = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        positions = np.array([
+            [[1, 2, 3], [4, 5, 6], [7, 1, 2]],
+            [[1.1, 2.1, 3.1], [4.1, 5.1, 6.1], [7.1, 1.1, 2.1]],
+        ], dtype=float)
+        forces = np.array([
+            [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, 0.1]],
+            [[0.2, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.2]],
+        ], dtype=float)
+        ts = NumpyTrajectory(
+            positions, forces, species_list=["H", "O", "H"],
+            temperature=300.0, units="real", cell_matrix=cell_matrix,
+        )
+
+        rdf = RDF(ts, 'O', 'H')
+        rdf.accumulate(ts)
+        rdf.get_rdf(integration='forward')
+
+        assert rdf.r is not None
+        assert rdf.g is not None
+        assert len(rdf.r) == len(rdf.g)

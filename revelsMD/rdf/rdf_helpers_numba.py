@@ -12,6 +12,8 @@ from __future__ import annotations
 import numpy as np
 from numba import jit, prange  # type: ignore[import-untyped]
 
+from revelsMD.cell import is_orthorhombic as _cell_is_orthorhombic
+
 
 # ---------------------------------------------------------------------------
 # Internal JIT-compiled functions
@@ -220,7 +222,8 @@ def compute_pairwise_contributions_numba(
     pos_b: np.ndarray,
     forces_a: np.ndarray,
     forces_b: np.ndarray,
-    box: tuple[float, float, float],
+    cell_matrix: np.ndarray,
+    cell_inverse: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute pairwise distances and force projections for any species combination.
@@ -243,8 +246,10 @@ def compute_pairwise_contributions_numba(
         Forces on atoms in species A.
     forces_b : np.ndarray, shape (n_b, 3)
         Forces on atoms in species B.
-    box : tuple of (box_x, box_y, box_z)
-        Orthorhombic box dimensions.
+    cell_matrix : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
+    cell_inverse : np.ndarray, shape (3, 3)
+        Inverse of the cell matrix.
 
     Returns
     -------
@@ -256,13 +261,20 @@ def compute_pairwise_contributions_numba(
         Flattened force projections (F_a - F_b) . r_ab / |r|^3.
         Same shape as r_flat.
     """
+    if not _cell_is_orthorhombic(cell_matrix):
+        raise NotImplementedError(
+            "Numba RDF backend does not yet support triclinic cells. "
+            "Use the numpy backend (REVELSMD_BACKEND=numpy) for triclinic cells."
+        )
     same_species = np.array_equal(pos_a, pos_b)
     pos_a = np.ascontiguousarray(pos_a, dtype=np.float64)
     pos_b = np.ascontiguousarray(pos_b, dtype=np.float64)
     forces_a = np.ascontiguousarray(forces_a, dtype=np.float64)
     forces_b = np.ascontiguousarray(forces_b, dtype=np.float64)
     return _compute_pairwise_contributions_numba(
-        pos_a, pos_b, forces_a, forces_b, box[0], box[1], box[2], same_species
+        pos_a, pos_b, forces_a, forces_b,
+        cell_matrix[0, 0], cell_matrix[1, 1], cell_matrix[2, 2],
+        same_species,
     )
 
 

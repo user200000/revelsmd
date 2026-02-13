@@ -253,7 +253,9 @@ class TestApplyMinimumImageOrthorhombic:
         ])
 
         result_cell = apply_minimum_image_orthorhombic(displacements, box)
-        result_rdf = rdf_mic(displacements, box)
+        cell_matrix = np.diag(box)
+        cell_inverse = np.linalg.inv(cell_matrix)
+        result_rdf = rdf_mic(displacements, cell_matrix, cell_inverse)
 
         np.testing.assert_allclose(result_cell, result_rdf)
 
