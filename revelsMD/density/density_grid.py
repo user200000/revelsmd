@@ -13,6 +13,7 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
+from revelsMD.cell import is_orthorhombic as _is_orthorhombic_cell
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
@@ -72,14 +73,24 @@ class DensityGrid:
         if min(nbinsx, nbinsy, nbinsz) <= 0:
             raise ValueError("nbins values must be positive integers.")
 
-        # Voxel sizes
+        # Cell geometry
+        self.cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
+        self.cell_inverse = np.linalg.inv(self.cell_matrix)
+        self.is_orthorhombic = _is_orthorhombic_cell(self.cell_matrix)
+
+        # Voxel volume from cell determinant
+        self.voxel_volume = float(
+            abs(np.linalg.det(self.cell_matrix)) / (nbinsx * nbinsy * nbinsz)
+        )
+
+        # Orthorhombic path: keep existing Cartesian bin edges and voxel sizes
         lx = trajectory.box_x / nbinsx
         ly = trajectory.box_y / nbinsy
         lz = trajectory.box_z / nbinsz
         if min(lx, ly, lz) <= 0:
             raise ValueError("Box lengths must be positive to define voxel sizes.")
 
-        # Box and bins
+        # Box and bins (Cartesian, orthorhombic)
         self.box_x = trajectory.box_x
         self.box_y = trajectory.box_y
         self.box_z = trajectory.box_z
@@ -87,9 +98,6 @@ class DensityGrid:
         self.binsx = np.arange(0, trajectory.box_x + lx, lx)
         self.binsy = np.arange(0, trajectory.box_y + ly, ly)
         self.binsz = np.arange(0, trajectory.box_z + lz, lz)
-
-        # Bookkeeping
-        self.voxel_volume = float(np.prod(self.box_array) / (nbinsx * nbinsy * nbinsz))
         self.beta = trajectory.beta
         self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
         self.count = 0
