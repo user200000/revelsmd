@@ -38,3 +38,45 @@ def is_orthorhombic(
     """
     off_diagonal = cell_matrix[~np.eye(3, dtype=bool)]
     return bool(np.all(np.abs(off_diagonal) < atol))
+
+
+def cartesian_to_fractional(
+    positions: np.ndarray, cell_inverse: np.ndarray
+) -> np.ndarray:
+    """
+    Convert Cartesian positions to fractional coordinates.
+
+    Parameters
+    ----------
+    positions : np.ndarray, shape (N, 3)
+        Cartesian positions.
+    cell_inverse : np.ndarray, shape (3, 3)
+        Inverse of the cell matrix (``np.linalg.inv(cell_matrix)``).
+
+    Returns
+    -------
+    np.ndarray, shape (N, 3)
+        Fractional coordinates.
+    """
+    return positions @ cell_inverse
+
+
+def fractional_to_cartesian(
+    fractional: np.ndarray, cell_matrix: np.ndarray
+) -> np.ndarray:
+    """
+    Convert fractional coordinates to Cartesian positions.
+
+    Parameters
+    ----------
+    fractional : np.ndarray, shape (N, 3)
+        Fractional coordinates.
+    cell_matrix : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
+
+    Returns
+    -------
+    np.ndarray, shape (N, 3)
+        Cartesian positions.
+    """
+    return fractional @ cell_matrix
