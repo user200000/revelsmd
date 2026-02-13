@@ -193,3 +193,19 @@ def inscribed_sphere_radius(cell_matrix: np.ndarray) -> float:
     h_ab = volume / np.linalg.norm(cross_ab)
 
     return min(h_bc, h_ca, h_ab) / 2
+
+
+def cells_are_compatible(
+    cell_a: np.ndarray, cell_b: np.ndarray, atol: float = 1e-6
+) -> bool:
+    """
+    Return ``True`` if two cell matrices match element-wise within tolerance.
+
+    Parameters
+    ----------
+    cell_a, cell_b : np.ndarray, shape (3, 3)
+        Cell matrices to compare.
+    atol : float, optional
+        Absolute tolerance for element-wise comparison (default: 1e-6).
+    """
+    return bool(np.allclose(cell_a, cell_b, atol=atol))
