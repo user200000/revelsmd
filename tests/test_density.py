@@ -1185,6 +1185,79 @@ class TestSelectionGetPositionsPeriodicBoundary:
         assert result[0] < 1.0, f"Dipole x={result[0]} should be < 1.0 (small molecule)"
 
 
+class TestSelectionTriclinic:
+    """Tests for Selection with triclinic cells."""
+
+    @pytest.fixture
+    def triclinic_trajectory(self):
+        """Trajectory with triclinic cell."""
+        class TriclinicMolTrajectory:
+            def __init__(self):
+                self.cell_matrix = np.array([
+                    [10.0, 0.0, 0.0],
+                    [3.0, 9.0, 0.0],
+                    [0.0, 0.0, 8.0],
+                ])
+                self.units = 'real'
+
+            def get_indices(self, atom_name):
+                return {'O': np.array([0]), 'H1': np.array([1]), 'H2': np.array([2])}[atom_name]
+
+            def get_masses(self, atom_name):
+                return {'O': np.array([16.0]), 'H1': np.array([1.0]), 'H2': np.array([1.0])}[atom_name]
+
+            def get_charges(self, atom_name):
+                return {'O': np.array([-0.8]), 'H1': np.array([0.4]), 'H2': np.array([0.4])}[atom_name]
+
+        return TriclinicMolTrajectory()
+
+    def test_selection_init_triclinic(self, triclinic_trajectory):
+        """Selection should initialise successfully with a triclinic trajectory."""
+        ss = Selection(
+            triclinic_trajectory, ['O', 'H1', 'H2'],
+            centre_location=True, rigid=True,
+        )
+        np.testing.assert_allclose(ss._cell_matrix, triclinic_trajectory.cell_matrix)
+
+    def test_com_triclinic_boundary(self, triclinic_trajectory):
+        """COM should handle molecules spanning a triclinic boundary."""
+        ss = Selection(
+            triclinic_trajectory, ['O', 'H1', 'H2'],
+            centre_location=True, rigid=True,
+        )
+        # O near origin, H atoms wrapped across the a-axis boundary
+        # In this cell: a=(10,0,0), b=(3,9,0), c=(0,0,8)
+        positions = np.array([
+            [0.5, 4.5, 4.0],   # O (index 0)
+            [9.8, 4.5, 4.0],   # H1 (index 1) - near right edge in x
+            [9.9, 4.5, 4.0],   # H2 (index 2) - near right edge in x
+        ], dtype=float)
+        result = ss.get_positions(positions)
+        # H1 and H2 are across the boundary from O
+        # With correct MIC they should be unwrapped near x=0.5
+        # COM should be near the O atom
+        assert abs(result[0, 0] - 0.5) < 2.0, \
+            f"COM x={result[0, 0]} should be near O at x=0.5"
+
+    def test_dipole_triclinic(self, triclinic_trajectory):
+        """Dipole projection should work with triclinic cells."""
+        ss = Selection(
+            triclinic_trajectory, ['O', 'H1', 'H2'],
+            centre_location=True, rigid=True,
+            density_type='polarisation', polarisation_axis=0,
+        )
+        # All atoms well within the cell (no boundary issues)
+        positions = np.array([
+            [5.0, 4.5, 4.0],   # O
+            [5.5, 4.5, 4.0],   # H1
+            [4.5, 4.5, 4.0],   # H2
+        ], dtype=float)
+        result = ss.get_weights(positions)
+        # Symmetric molecule, dipole_x should be near zero
+        assert abs(result[0]) < 0.1, \
+            f"Symmetric molecule dipole x={result[0]} should be near zero"
+
+
 class TestSelectionExtract:
     """Tests for Selection.extract() method."""
 
