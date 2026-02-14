@@ -89,7 +89,7 @@ def test_densitygrid_uses_trajectory_beta(ts):
 
 def test_densitygrid_singular_cell(ts):
     ts.cell_matrix = np.array([[10.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 0.0, 10.0]])
-    with pytest.raises((ValueError, np.linalg.LinAlgError)):
+    with pytest.raises(ValueError, match="positive volume"):
         DensityGrid(ts, "number")
 
 
