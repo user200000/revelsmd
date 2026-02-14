@@ -102,6 +102,7 @@ class NumpyTrajectory(Trajectory):
         super().__init__(units=units, temperature=temperature)
 
         if has_cell:
+            cell_matrix = np.array(cell_matrix, dtype=np.float64, copy=True)
             self._validate_cell_matrix(cell_matrix)
             self.cell_matrix = cell_matrix
         else:

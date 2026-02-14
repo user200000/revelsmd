@@ -79,6 +79,7 @@ class DensityGrid:
 
         # Cell geometry
         self.cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
+        Trajectory._validate_cell_matrix(self.cell_matrix)
         self.cell_inverse = np.linalg.inv(self.cell_matrix)
 
         # Voxel volume from cell determinant

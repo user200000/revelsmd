@@ -77,8 +77,11 @@ class RDF:
 
         # Set up bins from 0 to rmax (inclusive), with spacing delr.
         # The returned r values will exclude the first (r=0) and last bin.
-        # Use integer arithmetic to avoid floating point sensitivity in
-        # np.arange at the upper boundary.
+        # Use round() rather than np.arange(0, rmax+delr, delr) to avoid
+        # floating point sensitivity: inscribed_sphere_radius can introduce
+        # ~1e-14 noise that causes np.arange to produce an extra bin edge.
+        # round() is appropriate here because rmax is always expected to be
+        # a near-exact multiple of delr.
         n_edges = int(round(self.rmax / delr)) + 1
         self._bins = np.arange(n_edges) * delr
 
