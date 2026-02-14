@@ -840,12 +840,14 @@ class DensityGrid:
 
     def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Return the Cartesian k-vectors per dimension.
+        Return the diagonal Cartesian k-vector components per dimension.
 
-        For orthorhombic cells these are the standard 1D FFT frequencies.
-        For general cells, each 1D array is extracted from the precomputed
-        3D k-vector grid along the corresponding axis (with the other
-        indices set to zero).
+        Extracts the k-vector component along each axis at the Miller
+        indices where the other two indices are zero. For orthorhombic
+        cells this gives the complete 1D k-vectors (each axis is
+        independent). For triclinic cells the off-diagonal coupling
+        means these 1D slices do not capture the full k-space structure;
+        use ``_k_vectors`` or ``get_ksquared()`` for the complete picture.
 
         Returns
         -------
