@@ -82,6 +82,27 @@ def test_mda_raises_no_topology():
         MDATrajectory("traj.xtc", "", temperature=300.0)
 
 
+@patch("revelsMD.trajectories.mda.MD.Universe")
+def test_mda_triclinic_cell(mock_universe):
+    """MDATrajectory should accept and store a full triclinic cell matrix."""
+    mock_uni = MagicMock()
+    # MDAnalysis dimensions: [a, b, c, alpha, beta, gamma]
+    mock_uni.dimensions = np.array([10.0, 9.0, 8.0, 80.0, 85.0, 70.0])
+    mock_uni.trajectory = [0, 1, 2]
+    mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
+    mock_universe.return_value = mock_uni
+
+    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
+
+    assert state.cell_matrix.shape == (3, 3)
+    assert state.is_orthorhombic is False
+    assert state.cell_volume > 0
+    # Verify the cell matrix determinant matches expected volume
+    from MDAnalysis.lib.mdamath import triclinic_vectors
+    expected_matrix = triclinic_vectors(mock_uni.dimensions)
+    np.testing.assert_allclose(state.cell_matrix, expected_matrix)
+
+
 # -----------------------------------------------------------------------------
 # NumpyTrajectory
 # -----------------------------------------------------------------------------
@@ -142,6 +163,29 @@ def test_lammps_state_requires_topology():
         LammpsTrajectory("dump.lammpstrj", None, temperature=300.0)
 
 
+@patch("revelsMD.trajectories.mda.MD.Universe")
+@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+def test_lammps_triclinic_cell(mock_first_read, mock_universe):
+    """LammpsTrajectory should accept and store a full triclinic cell matrix."""
+    mock_uni = MagicMock()
+    # MDAnalysis dimensions: [a, b, c, alpha, beta, gamma]
+    mock_uni.dimensions = np.array([10.0, 9.0, 8.0, 80.0, 85.0, 70.0])
+    mock_trajectory = MagicMock()
+    mock_trajectory.__len__ = MagicMock(return_value=10)
+    mock_uni.trajectory = mock_trajectory
+    mock_universe.return_value = mock_uni
+
+    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
+
+    assert state.cell_matrix.shape == (3, 3)
+    assert state.is_orthorhombic is False
+    assert state.cell_volume > 0
+    # Verify the cell matrix matches triclinic_vectors output
+    from MDAnalysis.lib.mdamath import triclinic_vectors
+    expected_matrix = triclinic_vectors(mock_uni.dimensions)
+    np.testing.assert_allclose(state.cell_matrix, expected_matrix)
+
+
 # -----------------------------------------------------------------------------
 # VaspTrajectory
 # -----------------------------------------------------------------------------
@@ -186,16 +230,51 @@ def test_vasp_state_raises_no_forces(mock_vasprun):
 
 
 @patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_state_invalid_angles(mock_vasprun):
+def test_vasp_state_triclinic_cell(mock_vasprun):
+    """VaspTrajectory should accept and store a full triclinic cell matrix."""
     mock = MagicMock()
     mock.structures = [MagicMock()]
-    mock.structures[0].lattice.angles = [90.0, 95.0, 90.0]
-    mock.structures[0].lattice.matrix = np.diag([5.0, 5.0, 5.0])
+    triclinic_matrix = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [0.0, 0.0, 8.0],
+    ])
+    mock.structures[0].lattice.matrix = triclinic_matrix
+    mock.structures[0].lattice.angles = [90.0, 90.0, 71.57]  # non-orthorhombic
     mock.forces = np.zeros((1, 1, 3))
     mock.cart_coords = np.zeros((1, 1, 3))
+    mock.start = mock.structures[0]
+    mock.start.indices_from_symbol.return_value = np.array([0])
     mock_vasprun.return_value = mock
-    with pytest.raises(ValueError, match="orthorhombic"):
-        VaspTrajectory("vasprun.xml", temperature=300.0)
+
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
+
+    np.testing.assert_allclose(state.cell_matrix, triclinic_matrix)
+    assert state.is_orthorhombic is False
+    assert state.cell_volume == pytest.approx(abs(np.linalg.det(triclinic_matrix)))
+
+
+@patch("revelsMD.trajectories.vasp.Vasprun")
+def test_vasp_state_triclinic_cell_volume_positive(mock_vasprun):
+    """VaspTrajectory with a triclinic cell should have positive volume."""
+    mock = MagicMock()
+    mock.structures = [MagicMock()]
+    triclinic_matrix = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [1.0, 2.0, 8.0],
+    ])
+    mock.structures[0].lattice.matrix = triclinic_matrix
+    mock.structures[0].lattice.angles = [75.0, 82.0, 71.0]
+    mock.forces = np.zeros((1, 1, 3))
+    mock.cart_coords = np.zeros((1, 1, 3))
+    mock.start = mock.structures[0]
+    mock.start.indices_from_symbol.return_value = np.array([0])
+    mock_vasprun.return_value = mock
+
+    state = VaspTrajectory("vasprun.xml", temperature=300.0)
+
+    assert state.cell_volume > 0
 
 
 # -----------------------------------------------------------------------------
@@ -1090,3 +1169,201 @@ class TestComputeBeta:
         """NaN temperature should raise ValueError."""
         with pytest.raises(ValueError, match="Temperature must be finite"):
             compute_beta('real', float('nan'))
+
+
+# -----------------------------------------------------------------------------
+# Cell matrix validation
+# -----------------------------------------------------------------------------
+class TestValidateCellMatrix:
+    """Tests for Trajectory._validate_cell_matrix."""
+
+    def test_valid_orthorhombic_cell(self):
+        cell = np.diag([10.0, 8.0, 6.0])
+        Trajectory._validate_cell_matrix(cell)  # should not raise
+
+    def test_valid_triclinic_cell(self):
+        cell = np.array([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [0.0, 0.0, 8.0]])
+        Trajectory._validate_cell_matrix(cell)  # should not raise
+
+    def test_wrong_shape_raises(self):
+        with pytest.raises(ValueError, match="shape"):
+            Trajectory._validate_cell_matrix(np.eye(4))
+
+    def test_non_finite_raises(self):
+        cell = np.diag([10.0, np.inf, 6.0])
+        with pytest.raises(ValueError, match="finite"):
+            Trajectory._validate_cell_matrix(cell)
+
+    def test_nan_raises(self):
+        cell = np.diag([10.0, np.nan, 6.0])
+        with pytest.raises(ValueError, match="finite"):
+            Trajectory._validate_cell_matrix(cell)
+
+    def test_zero_volume_raises(self):
+        cell = np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        with pytest.raises(ValueError, match="volume"):
+            Trajectory._validate_cell_matrix(cell)
+
+
+# -----------------------------------------------------------------------------
+# Cell matrix attribute and properties on NumpyTrajectory
+# -----------------------------------------------------------------------------
+class TestCellMatrixProperties:
+    """Tests for cell_matrix, cell_volume, is_orthorhombic, box_x/y/z."""
+
+    @pytest.fixture
+    def orthorhombic_traj(self):
+        """Orthorhombic NumpyTrajectory with box (10, 8, 6)."""
+        return NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            box_x=10.0, box_y=8.0, box_z=6.0,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+
+    def test_cell_matrix_is_set(self, orthorhombic_traj):
+        cell = orthorhombic_traj.cell_matrix
+        expected = np.diag([10.0, 8.0, 6.0])
+        np.testing.assert_allclose(cell, expected)
+
+    def test_cell_volume(self, orthorhombic_traj):
+        assert orthorhombic_traj.cell_volume == pytest.approx(10.0 * 8.0 * 6.0)
+
+    def test_is_orthorhombic(self, orthorhombic_traj):
+        assert orthorhombic_traj.is_orthorhombic is True
+
+    def test_box_x_y_z_for_orthorhombic(self, orthorhombic_traj):
+        assert orthorhombic_traj.box_x == pytest.approx(10.0)
+        assert orthorhombic_traj.box_y == pytest.approx(8.0)
+        assert orthorhombic_traj.box_z == pytest.approx(6.0)
+
+
+# -----------------------------------------------------------------------------
+# NumpyTrajectory cell_matrix constructor parameter
+# -----------------------------------------------------------------------------
+class TestNumpyTrajectoryCellMatrix:
+    """Tests for constructing NumpyTrajectory with cell_matrix parameter."""
+
+    def test_construction_with_orthorhombic_cell_matrix(self):
+        cell = np.diag([10.0, 8.0, 6.0])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        np.testing.assert_allclose(traj.cell_matrix, cell)
+        assert traj.is_orthorhombic is True
+        assert traj.box_x == pytest.approx(10.0)
+
+    def test_construction_with_triclinic_cell_matrix(self):
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        np.testing.assert_allclose(traj.cell_matrix, cell)
+        assert traj.is_orthorhombic is False
+
+    def test_box_x_raises_for_triclinic_cell(self):
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        with pytest.raises(AttributeError, match="box_x is not defined"):
+            _ = traj.box_x
+        with pytest.raises(AttributeError, match="box_y is not defined"):
+            _ = traj.box_y
+        with pytest.raises(AttributeError, match="box_z is not defined"):
+            _ = traj.box_z
+
+    def test_construction_with_box_x_y_z_still_works(self):
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            box_x=10.0, box_y=8.0, box_z=6.0,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        np.testing.assert_allclose(traj.cell_matrix, np.diag([10.0, 8.0, 6.0]))
+
+    def test_both_cell_matrix_and_box_raises(self):
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                box_x=10.0, box_y=8.0, box_z=6.0,
+                cell_matrix=np.diag([10.0, 8.0, 6.0]),
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+
+    def test_neither_cell_matrix_nor_box_raises(self):
+        with pytest.raises(ValueError, match="Must specify either"):
+            NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+
+    def test_invalid_cell_matrix_raises(self):
+        with pytest.raises(ValueError, match="shape"):
+            NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                cell_matrix=np.eye(4),
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+
+    def test_partial_box_dimensions_raises(self):
+        """Providing only some of box_x/y/z should raise a clear error."""
+        with pytest.raises(ValueError, match="All three"):
+            NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                box_x=10.0,
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+
+    def test_construction_without_species_list(self):
+        """Construction without species_list should work."""
+        cell = np.diag([10.0, 8.0, 6.0])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            temperature=300.0, units="real",
+        )
+        assert traj.species_string is None
+
+    def test_get_indices_without_species_list_raises(self):
+        """Calling get_indices when species_list was not provided should raise."""
+        cell = np.diag([10.0, 8.0, 6.0])
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=cell,
+            temperature=300.0, units="real",
+        )
+        with pytest.raises(ValueError, match="[Ss]pecies list"):
+            traj.get_indices("A")
