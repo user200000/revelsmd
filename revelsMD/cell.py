@@ -130,37 +130,6 @@ def apply_minimum_image(
     return fractional @ cell_matrix
 
 
-def apply_minimum_image_orthorhombic(
-    displacement: np.ndarray, box: np.ndarray
-) -> np.ndarray:
-    """
-    Apply the minimum image convention for an orthorhombic cell.
-
-    Uses the per-axis formula:
-    ``r -= ceil((abs(r) - box/2) / box) * box * sign(r)``
-
-    Parameters
-    ----------
-    displacement : np.ndarray, shape (..., 3)
-        Displacement vectors in Cartesian coordinates.
-    box : np.ndarray, shape (3,)
-        Box dimensions ``[box_x, box_y, box_z]``.
-
-    Returns
-    -------
-    np.ndarray, shape (..., 3)
-        Minimum-image displacement vectors.
-    """
-    result = displacement.copy()
-    for i in range(3):
-        result[..., i] -= (
-            np.ceil((np.abs(result[..., i]) - box[i] / 2) / box[i])
-            * box[i]
-            * np.sign(result[..., i])
-        )
-    return result
-
-
 def inscribed_sphere_radius(cell_matrix: np.ndarray) -> float:
     """
     Compute the inscribed sphere radius of the parallelepiped defined by

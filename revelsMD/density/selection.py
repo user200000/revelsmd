@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from revelsMD.cell import apply_minimum_image, is_orthorhombic
+from revelsMD.cell import apply_minimum_image
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
 
@@ -69,7 +69,6 @@ class Selection:
         self.polarisation_axis = polarisation_axis
         self._cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
         self._cell_inverse = np.linalg.inv(self._cell_matrix)
-        self._is_orthorhombic = is_orthorhombic(self._cell_matrix)
 
         # Determine what data we need
         needs_charges = density_type in ('charge', 'polarisation')
@@ -187,13 +186,8 @@ class Selection:
 
             # Apply minimum image convention relative to reference species
             diff = ref_positions - species_positions
-            if self._is_orthorhombic:
-                box = np.diag(self._cell_matrix)
-                shift = np.where(diff > box / 2, box, np.where(diff < -box / 2, -box, 0))
-                species_positions_unwrapped = species_positions + shift
-            else:
-                mic_diff = apply_minimum_image(diff, self._cell_matrix, self._cell_inverse)
-                species_positions_unwrapped = ref_positions - mic_diff
+            mic_diff = apply_minimum_image(diff, self._cell_matrix, self._cell_inverse)
+            species_positions_unwrapped = ref_positions - mic_diff
 
             mass_tot = mass_tot + species_mass
             mass_cumulant = mass_cumulant + species_positions_unwrapped * species_mass[:, np.newaxis]
@@ -320,12 +314,7 @@ class Selection:
 
             # Apply minimum image convention for displacement from COM
             displacement = species_positions - coms
-            if self._is_orthorhombic:
-                box = np.diag(self._cell_matrix)
-                shift = np.where(displacement > box / 2, -box, np.where(displacement < -box / 2, box, 0))
-                displacement = displacement + shift
-            else:
-                displacement = apply_minimum_image(displacement, self._cell_matrix, self._cell_inverse)
+            displacement = apply_minimum_image(displacement, self._cell_matrix, self._cell_inverse)
 
             dipole = dipole + species_charges[:, np.newaxis] * displacement
 

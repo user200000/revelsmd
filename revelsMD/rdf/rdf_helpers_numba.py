@@ -12,8 +12,6 @@ from __future__ import annotations
 import numpy as np
 from numba import jit, prange  # type: ignore[import-untyped]
 
-from revelsMD.cell import is_orthorhombic as _cell_is_orthorhombic
-
 
 # ---------------------------------------------------------------------------
 # Internal JIT-compiled functions
@@ -21,56 +19,15 @@ from revelsMD.cell import is_orthorhombic as _cell_is_orthorhombic
 
 @jit(nopython=True, cache=True)
 def _apply_minimum_image_numba(
-    displacement: np.ndarray,
-    box: np.ndarray,
-) -> np.ndarray:
-    """
-    Apply minimum image convention to displacement vectors.
-
-    Parameters
-    ----------
-    displacement : np.ndarray, shape (n, 3)
-        Displacement vectors.
-    box : np.ndarray, shape (3,)
-        Box dimensions [box_x, box_y, box_z].
-
-    Returns
-    -------
-    np.ndarray
-        Corrected displacements with same shape as input.
-    """
-    result = displacement.copy()
-    n = result.shape[0]
-    for i in range(n):
-        for j in range(3):
-            r = result[i, j]
-            half_box = box[j] / 2
-            if abs(r) > half_box:
-                result[i, j] -= np.ceil((abs(r) - half_box) / box[j]) * box[j] * np.sign(r)
-    return result
-
-
-@jit(nopython=True, cache=True)
-def _is_diagonal(cell: np.ndarray) -> bool:
-    """Check if a 3x3 matrix is diagonal (all off-diagonal elements near zero)."""
-    tol = 1e-6
-    for i in range(3):
-        for j in range(3):
-            if i != j and abs(cell[i, j]) > tol:
-                return False
-    return True
-
-
-@jit(nopython=True, cache=True)
-def _mic_triclinic(
     rx: float, ry: float, rz: float,
     cell: np.ndarray, cell_inv: np.ndarray,
 ) -> tuple[float, float, float]:
     """
-    Apply minimum image convention for a triclinic cell.
+    Apply minimum image convention for an arbitrary cell.
 
     Converts displacement to fractional coordinates, wraps to nearest image
-    via round(), and converts back to Cartesian.
+    via round(), and converts back to Cartesian. Works for both orthorhombic
+    and triclinic cells.
 
     Parameters
     ----------
@@ -101,28 +58,6 @@ def _mic_triclinic(
     return rx, ry, rz
 
 
-@jit(nopython=True, cache=True)
-def _mic_orthorhombic(
-    rx: float, ry: float, rz: float,
-    box_x: float, box_y: float, box_z: float,
-) -> tuple[float, float, float]:
-    """
-    Apply minimum image convention for an orthorhombic cell.
-
-    Uses the existing per-axis ceil-based formula for bit-identical results.
-    """
-    half_box_x = box_x / 2
-    half_box_y = box_y / 2
-    half_box_z = box_z / 2
-    if abs(rx) > half_box_x:
-        rx -= np.ceil((abs(rx) - half_box_x) / box_x) * box_x * np.sign(rx)
-    if abs(ry) > half_box_y:
-        ry -= np.ceil((abs(ry) - half_box_y) / box_y) * box_y * np.sign(ry)
-    if abs(rz) > half_box_z:
-        rz -= np.ceil((abs(rz) - half_box_z) / box_z) * box_z * np.sign(rz)
-    return rx, ry, rz
-
-
 @jit(nopython=True, parallel=True, cache=True)
 def _compute_pairwise_contributions_numba(
     pos_a: np.ndarray,
@@ -140,14 +75,9 @@ def _compute_pairwise_contributions_numba(
     For unlike-species, computes all n_a * n_b pairs.
 
     Both use the formula: (F_a - F_b) . r_ab / |r|^3
-
-    Supports both orthorhombic and triclinic cells. Orthorhombic cells use
-    the existing per-axis ceil-based formula for bit-identical results.
     """
     n_a = pos_a.shape[0]
     n_b = pos_b.shape[0]
-
-    orthorhombic = _is_diagonal(cell)
 
     if same_species:
         # Upper triangle: n*(n-1)/2 pairs
@@ -163,13 +93,7 @@ def _compute_pairwise_contributions_numba(
                 rz = pos_a[j, 2] - pos_a[i, 2]
 
                 # Minimum image convention
-                if orthorhombic:
-                    rx, ry, rz = _mic_orthorhombic(
-                        rx, ry, rz,
-                        cell[0, 0], cell[1, 1], cell[2, 2],
-                    )
-                else:
-                    rx, ry, rz = _mic_triclinic(rx, ry, rz, cell, cell_inv)
+                rx, ry, rz = _apply_minimum_image_numba(rx, ry, rz, cell, cell_inv)
 
                 r_mag = np.sqrt(rx * rx + ry * ry + rz * rz)
 
@@ -201,13 +125,7 @@ def _compute_pairwise_contributions_numba(
                 rz = pos_a[j, 2] - pos_b[i, 2]
 
                 # Minimum image convention
-                if orthorhombic:
-                    rx, ry, rz = _mic_orthorhombic(
-                        rx, ry, rz,
-                        cell[0, 0], cell[1, 1], cell[2, 2],
-                    )
-                else:
-                    rx, ry, rz = _mic_triclinic(rx, ry, rz, cell, cell_inv)
+                rx, ry, rz = _apply_minimum_image_numba(rx, ry, rz, cell, cell_inv)
 
                 r_mag = np.sqrt(rx * rx + ry * ry + rz * rz)
 

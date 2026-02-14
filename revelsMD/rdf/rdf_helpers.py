@@ -21,10 +21,7 @@ from typing import Callable
 import numpy as np
 
 from revelsMD.backends import get_backend, AVAILABLE_BACKENDS
-from revelsMD.cell import (
-    apply_minimum_image as _cell_apply_minimum_image,
-    is_orthorhombic as _cell_is_orthorhombic,
-)
+from revelsMD.cell import apply_minimum_image as _cell_apply_minimum_image
 
 
 # ---------------------------------------------------------------------------
@@ -109,9 +106,7 @@ def apply_minimum_image(
     """
     Apply minimum image convention to displacement vectors.
 
-    For orthorhombic cells, uses the per-axis formula for bit-identical
-    results with the original code. For triclinic cells, delegates to
-    the general fractional-coordinate MIC.
+    Works for arbitrary cell geometries (orthorhombic and triclinic).
 
     Parameters
     ----------
@@ -127,16 +122,6 @@ def apply_minimum_image(
     np.ndarray
         Corrected displacements with same shape as input.
     """
-    if _cell_is_orthorhombic(cell_matrix):
-        box = np.diag(cell_matrix)
-        result = displacement.copy()
-        for i in range(3):
-            result[..., i] -= (
-                np.ceil((np.abs(result[..., i]) - box[i] / 2) / box[i])
-                * box[i]
-                * np.sign(result[..., i])
-            )
-        return result
     return _cell_apply_minimum_image(displacement, cell_matrix, cell_inverse)
 
 

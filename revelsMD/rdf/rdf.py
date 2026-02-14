@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from tqdm import tqdm
 
-from revelsMD.cell import inscribed_sphere_radius, is_orthorhombic
+from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.rdf.rdf_helpers import get_backend_functions
 from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
@@ -71,17 +71,16 @@ class RDF:
 
         # Compute rmax
         if rmax is None:
-            if is_orthorhombic(self._cell_matrix):
-                # Use exact diagonal values for bit-identical orthorhombic results
-                self.rmax = float(np.min(np.diag(self._cell_matrix))) / 2
-            else:
-                self.rmax = inscribed_sphere_radius(self._cell_matrix)
+            self.rmax = inscribed_sphere_radius(self._cell_matrix)
         else:
             self.rmax = rmax
 
-        # Set up bins - use rmax + delr to ensure proper boundary handling
-        # The returned r values will exclude the first (r=0) and last bin
-        self._bins = np.arange(0, self.rmax + delr, delr)
+        # Set up bins from 0 to rmax (inclusive), with spacing delr.
+        # The returned r values will exclude the first (r=0) and last bin.
+        # Use integer arithmetic to avoid floating point sensitivity in
+        # np.arange at the upper boundary.
+        n_edges = int(round(self.rmax / delr)) + 1
+        self._bins = np.arange(n_edges) * delr
 
         # Get indices and compute prefactor
         self._like_species = (species_a == species_b)
