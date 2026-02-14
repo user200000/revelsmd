@@ -77,15 +77,6 @@ def test_densitygrid_fractional_bin_edges(ts):
 # k-vectors and FFT utilities
 # ---------------------------------------------------------------------------
 
-def test_kvectors_ksquared_shapes(ts):
-    gs = DensityGrid(ts, "number", nbins=4)
-    kx, ky, kz = gs.get_kvectors()
-    assert kx.shape[0] == gs.nbinsx
-    ks = gs.get_ksquared()
-    assert ks.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
-    assert np.all(ks >= 0)
-
-
 def test_build_kvectors_3d_shape():
     """_build_kvectors_3d should return (nbins, nbins, nbins, 3) k-vectors
     and (nbins, nbins, nbins) ksquared."""
@@ -107,12 +98,12 @@ def test_build_kvectors_3d_shape():
     np.testing.assert_allclose(ksquared, np.sum(k_vectors ** 2, axis=-1))
 
 
-def test_build_kvectors_3d_orthorhombic_equivalence():
-    """For an orthorhombic cell, _build_kvectors_3d should give k-vectors
-    equivalent to the existing per-axis get_kvectors method."""
+def test_build_kvectors_3d_orthorhombic_separability():
+    """For an orthorhombic cell, k-vectors should be separable per axis."""
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
     cell = np.diag([10.0, 8.0, 6.0])
+    nbins = 4
     traj = NumpyTrajectory(
         positions=np.zeros((2, 3, 3)),
         forces=np.zeros((2, 3, 3)),
@@ -120,18 +111,21 @@ def test_build_kvectors_3d_orthorhombic_equivalence():
         species_list=["A", "A", "A"],
         temperature=300.0, units="real",
     )
-    gs = DensityGrid(traj, density_type="number", nbins=4)
+    gs = DensityGrid(traj, density_type="number", nbins=nbins)
 
-    # Get the existing 1D k-vectors
-    kx_1d, ky_1d, kz_1d = gs.get_kvectors()
-
-    # Build full 3D k-vectors
     k_vectors, ksquared = gs._build_kvectors_3d()
 
-    # For orthorhombic cells, k_x[i,j,k] should equal kx_1d[i] etc.
-    for i in range(4):
-        for j in range(4):
-            for k in range(4):
+    # For orthorhombic cells, each component depends only on one axis:
+    # k_x[i,j,k] depends only on i, k_y[i,j,k] only on j, etc.
+    # Extract 1D slices along each axis
+    kx_1d = k_vectors[:, 0, 0, 0]
+    ky_1d = k_vectors[0, :, 0, 1]
+    kz_1d = k_vectors[0, 0, :, 2]
+
+    # Verify separability: full 3D array matches outer product of 1D slices
+    for i in range(nbins):
+        for j in range(nbins):
+            for k in range(nbins):
                 np.testing.assert_allclose(
                     k_vectors[i, j, k],
                     [kx_1d[i], ky_1d[j], kz_1d[k]],

@@ -838,38 +838,6 @@ class DensityGrid:
             )
         )
 
-    def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Return the diagonal Cartesian k-vector components per dimension.
-
-        Extracts the k-vector component along each axis at the Miller
-        indices where the other two indices are zero. For orthorhombic
-        cells this gives the complete 1D k-vectors (each axis is
-        independent). For triclinic cells the off-diagonal coupling
-        means these 1D slices do not capture the full k-space structure;
-        use ``_k_vectors`` or ``get_ksquared()`` for the complete picture.
-
-        Returns
-        -------
-        (kx, ky, kz) : tuple of np.ndarray
-            Frequency vectors for x, y, z (units: 1/length).
-        """
-        kx = self._k_vectors[:, 0, 0, 0]
-        ky = self._k_vectors[0, :, 0, 1]
-        kz = self._k_vectors[0, 0, :, 2]
-        return kx, ky, kz
-
-    def get_ksquared(self) -> np.ndarray:
-        """
-        Return |k|^2 on the 3D grid.
-
-        Returns
-        -------
-        np.ndarray
-            k^2 array with shape (nbinsx, nbinsy, nbinsz).
-        """
-        return self._ksquared.copy()
-
     def _build_kvectors_3d(self) -> tuple[np.ndarray, np.ndarray]:
         """
         Build full 3D k-vector arrays for general (triclinic) cells.
