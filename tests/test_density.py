@@ -16,7 +16,7 @@ from revelsMD.density import DensityGrid, Selection
 def test_densitygrid_initialisation(ts):
     gs = DensityGrid(ts, density_type="number", nbins=4)
     assert gs.nbinsx == 4
-    assert gs.lx == pytest.approx(ts.box_x / 4)
+    assert gs.lx == pytest.approx(1.0 / 4)
     assert gs.voxel_volume > 0
     assert np.all(gs.force_x == 0)
     assert gs.count == 0  # No data accumulated yet
@@ -28,9 +28,9 @@ def test_densitygrid_uses_trajectory_beta(ts):
     assert gs.beta == ts.beta
 
 
-def test_densitygrid_invalid_box(ts):
-    ts.box_x = -10.0
-    with pytest.raises(ValueError):
+def test_densitygrid_singular_cell(ts):
+    ts.cell_matrix = np.array([[10.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 0.0, 10.0]])
+    with pytest.raises((ValueError, np.linalg.LinAlgError)):
         DensityGrid(ts, "number")
 
 
@@ -53,12 +53,6 @@ def test_densitygrid_stores_cell_inverse(ts):
     np.testing.assert_allclose(gs.cell_inverse, expected_inv)
 
 
-def test_densitygrid_is_orthorhombic(ts):
-    """DensityGrid should flag the cell as orthorhombic."""
-    gs = DensityGrid(ts, density_type="number", nbins=4)
-    assert gs.is_orthorhombic is True
-
-
 def test_densitygrid_voxel_volume_from_cell(ts):
     """Voxel volume should equal det(cell_matrix) / (nbins^3)."""
     gs = DensityGrid(ts, density_type="number", nbins=4)
@@ -66,17 +60,17 @@ def test_densitygrid_voxel_volume_from_cell(ts):
     assert gs.voxel_volume == pytest.approx(expected)
 
 
-def test_densitygrid_orthorhombic_regression(ts):
-    """Orthorhombic DensityGrid should produce identical bin edges and voxel sizes."""
+def test_densitygrid_fractional_bin_edges(ts):
+    """DensityGrid should produce fractional bin edges and voxel sizes."""
     gs = DensityGrid(ts, density_type="number", nbins=4)
-    # Bin edges should be Cartesian
-    np.testing.assert_allclose(gs.binsx, np.arange(0, 10.0 + 2.5, 2.5))
-    np.testing.assert_allclose(gs.binsy, np.arange(0, 10.0 + 2.5, 2.5))
-    np.testing.assert_allclose(gs.binsz, np.arange(0, 10.0 + 2.5, 2.5))
-    # Voxel sizes should be Cartesian
-    assert gs.lx == pytest.approx(2.5)
-    assert gs.ly == pytest.approx(2.5)
-    assert gs.lz == pytest.approx(2.5)
+    # Bin edges should be fractional [0, 1]
+    np.testing.assert_allclose(gs.binsx, np.linspace(0, 1, 5))
+    np.testing.assert_allclose(gs.binsy, np.linspace(0, 1, 5))
+    np.testing.assert_allclose(gs.binsz, np.linspace(0, 1, 5))
+    # Voxel sizes should be fractional (1 / nbins)
+    assert gs.lx == pytest.approx(0.25)
+    assert gs.ly == pytest.approx(0.25)
+    assert gs.lz == pytest.approx(0.25)
 
 
 # ---------------------------------------------------------------------------
@@ -1450,57 +1444,6 @@ class TestTriclinicFFT:
             f"Peak should be at [*,0,0] Miller indices, got {peak_pos}"
         assert peak_pos[0] in (1, nbins - 1), \
             f"Peak should be at Miller index m1=1 or {nbins-1}, got {peak_pos[0]}"
-
-    def test_orthorhombic_triclinic_fft_paths_agree(self):
-        """For a diagonal cell, forcing the triclinic FFT path should produce
-        results identical to the orthorhombic path."""
-        from revelsMD.trajectories.numpy import NumpyTrajectory
-
-        cell = np.diag([10.0, 8.0, 6.0])
-        n_atoms = 20
-        n_frames = 5
-        nbins = 8
-        rng = np.random.default_rng(123)
-
-        positions = rng.random((n_frames, n_atoms, 3)) * np.array([10, 8, 6])
-        forces = rng.standard_normal((n_frames, n_atoms, 3))
-
-        traj = NumpyTrajectory(
-            positions=positions, forces=forces,
-            cell_matrix=cell,
-            species_list=["A"] * n_atoms,
-            temperature=300.0, units="real",
-        )
-
-        # Build grid (will use orthorhombic path since cell is diagonal)
-        gs_ortho = DensityGrid(traj, density_type="number", nbins=nbins)
-        assert gs_ortho.is_orthorhombic is True
-        for i in range(n_frames):
-            gs_ortho._process_frame(positions[i], forces[i], weight=1.0)
-
-        # Compute density using orthorhombic path
-        rho_ortho, _, _, _ = gs_ortho._fft_force_to_density(
-            gs_ortho.force_x, gs_ortho.force_y, gs_ortho.force_z,
-            gs_ortho.counter, gs_ortho.count
-        )
-
-        # Force the triclinic FFT path on a copy of the same data
-        gs_tri = DensityGrid(traj, density_type="number", nbins=nbins)
-        for i in range(n_frames):
-            gs_tri._process_frame(positions[i], forces[i], weight=1.0)
-
-        # Override is_orthorhombic to force the triclinic FFT code path
-        gs_tri.is_orthorhombic = False
-        gs_tri._k_vectors, gs_tri._ksquared = gs_tri._build_kvectors_3d()
-
-        # Compute density using triclinic path
-        rho_tri, _, _, _ = gs_tri._fft_force_to_density(
-            gs_tri.force_x, gs_tri.force_y, gs_tri.force_z,
-            gs_tri.counter, gs_tri.count
-        )
-
-        # Both paths should produce identical results for a diagonal cell
-        np.testing.assert_allclose(rho_ortho, rho_tri, atol=1e-10)
 
 
 # ---------------------------------------------------------------------------

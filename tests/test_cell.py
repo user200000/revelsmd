@@ -5,7 +5,6 @@ import pytest
 
 from revelsMD.cell import (
     apply_minimum_image,
-    apply_minimum_image_orthorhombic,
     cartesian_to_fractional,
     cells_are_compatible,
     fractional_to_cartesian,
@@ -204,61 +203,6 @@ class TestApplyMinimumImage:
         result = apply_minimum_image(disp, cell, cell_inv)
 
         np.testing.assert_allclose(result, [[-2.0, 1.0, 0.0]], atol=1e-14)
-
-    def test_agrees_with_orthorhombic_for_diagonal_cell(self):
-        """General MIC should agree with orthorhombic MIC for diagonal cells."""
-        cell = np.diag([10.0, 8.0, 6.0])
-        cell_inv = np.linalg.inv(cell)
-        box = np.array([10.0, 8.0, 6.0])
-
-        displacements = np.array([
-            [6.0, -5.0, 3.5],
-            [-1.0, 2.0, -4.0],
-            [0.0, 4.0, 0.0],
-        ])
-
-        result_general = apply_minimum_image(displacements, cell, cell_inv)
-        result_ortho = apply_minimum_image_orthorhombic(displacements, box)
-
-        np.testing.assert_allclose(result_general, result_ortho, atol=1e-12)
-
-
-class TestApplyMinimumImageOrthorhombic:
-    """Tests for apply_minimum_image_orthorhombic."""
-
-    def test_small_displacement_unchanged(self):
-        box = np.array([10.0, 10.0, 10.0])
-        disp = np.array([[1.0, -2.0, 3.0]])
-
-        result = apply_minimum_image_orthorhombic(disp, box)
-        np.testing.assert_allclose(result, [[1.0, -2.0, 3.0]])
-
-    def test_wraps_to_nearest_image(self):
-        box = np.array([10.0, 10.0, 10.0])
-        disp = np.array([[7.0, -8.0, 0.0]])
-
-        result = apply_minimum_image_orthorhombic(disp, box)
-        np.testing.assert_allclose(result, [[-3.0, 2.0, 0.0]])
-
-    def test_matches_existing_rdf_helpers(self):
-        """Should produce same results as revelsMD.rdf.rdf_helpers.apply_minimum_image."""
-        from revelsMD.rdf.rdf_helpers import apply_minimum_image as rdf_mic
-
-        box = np.array([10.0, 8.0, 6.0])
-        displacements = np.array([
-            [6.0, -5.0, 3.5],
-            [-1.0, 2.0, -4.0],
-            [0.0, 4.001, 0.0],
-            [5.0, -4.0, 3.0],
-        ])
-
-        result_cell = apply_minimum_image_orthorhombic(displacements, box)
-        cell_matrix = np.diag(box)
-        cell_inverse = np.linalg.inv(cell_matrix)
-        result_rdf = rdf_mic(displacements, cell_matrix, cell_inverse)
-
-        np.testing.assert_allclose(result_cell, result_rdf)
-
 
 class TestInscribedSphereRadius:
     """Tests for inscribed_sphere_radius()."""

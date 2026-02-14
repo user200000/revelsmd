@@ -16,7 +16,6 @@ from revelsMD.trajectories._base import Trajectory
 from revelsMD.cell import (
     cartesian_to_fractional,
     cells_are_compatible,
-    is_orthorhombic as _is_orthorhombic_cell,
     wrap_fractional,
 )
 from revelsMD.density.constants import validate_density_type
@@ -81,7 +80,6 @@ class DensityGrid:
         # Cell geometry
         self.cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
         self.cell_inverse = np.linalg.inv(self.cell_matrix)
-        self.is_orthorhombic = _is_orthorhombic_cell(self.cell_matrix)
 
         # Voxel volume from cell determinant
         self.voxel_volume = float(
@@ -89,37 +87,17 @@ class DensityGrid:
         )
         self.nbinsx, self.nbinsy, self.nbinsz = nbinsx, nbinsy, nbinsz
 
-        if self.is_orthorhombic:
-            # Orthorhombic path: Cartesian bin edges and voxel sizes (unchanged)
-            lx = trajectory.box_x / nbinsx
-            ly = trajectory.box_y / nbinsy
-            lz = trajectory.box_z / nbinsz
-            if min(lx, ly, lz) <= 0:
-                raise ValueError("Box lengths must be positive to define voxel sizes.")
+        # Fractional bin edges and voxel sizes (work for any cell geometry)
+        self.lx = 1.0 / nbinsx
+        self.ly = 1.0 / nbinsy
+        self.lz = 1.0 / nbinsz
 
-            self.box_x = trajectory.box_x
-            self.box_y = trajectory.box_y
-            self.box_z = trajectory.box_z
-            self.box_array = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
-            self.binsx = np.arange(0, trajectory.box_x + lx, lx)
-            self.binsy = np.arange(0, trajectory.box_y + ly, ly)
-            self.binsz = np.arange(0, trajectory.box_z + lz, lz)
-            self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
-            # k-vectors: computed on demand by get_kvectors / get_ksquared
-            self._k_vectors = None
-            self._ksquared = None
-        else:
-            # Triclinic path: fractional bin edges and voxel sizes
-            lx = 1.0 / nbinsx
-            ly = 1.0 / nbinsy
-            lz = 1.0 / nbinsz
+        self.binsx = np.linspace(0, 1, nbinsx + 1)
+        self.binsy = np.linspace(0, 1, nbinsy + 1)
+        self.binsz = np.linspace(0, 1, nbinsz + 1)
 
-            self.binsx = np.linspace(0, 1, nbinsx + 1)
-            self.binsy = np.linspace(0, 1, nbinsy + 1)
-            self.binsz = np.linspace(0, 1, nbinsz + 1)
-            self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
-            # Precompute full 3D k-vectors for triclinic cells
-            self._k_vectors, self._ksquared = self._build_kvectors_3d()
+        # Precompute full 3D k-vectors
+        self._k_vectors, self._ksquared = self._build_kvectors_3d()
 
         self.beta = trajectory.beta
         self.count = 0
@@ -243,20 +221,15 @@ class DensityGrid:
 
     def _wrap_to_grid(self, positions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Wrap Cartesian positions to grid coordinates and return (homeX, homeY, homeZ).
+        Wrap Cartesian positions to fractional grid coordinates in [0, 1).
 
-        For orthorhombic cells, homeX/Y/Z are Cartesian coordinates in [0, box_i).
-        For triclinic cells, homeX/Y/Z are fractional coordinates in [0, 1).
-        In both cases, lx/ly/lz and binsx/y/z are in the same coordinate system.
+        Returns (homeX, homeY, homeZ) as fractional coordinates.
+        The bin edges and voxel sizes (lx/ly/lz, binsx/y/z) are in the same
+        fractional coordinate system.
         """
-        if self.is_orthorhombic:
-            homeX = np.remainder(positions[:, 0], self.box_x)
-            homeY = np.remainder(positions[:, 1], self.box_y)
-            homeZ = np.remainder(positions[:, 2], self.box_z)
-        else:
-            frac = cartesian_to_fractional(positions, self.cell_inverse)
-            frac = wrap_fractional(frac)
-            homeX, homeY, homeZ = frac[:, 0], frac[:, 1], frac[:, 2]
+        frac = cartesian_to_fractional(positions, self.cell_inverse)
+        frac = wrap_fractional(frac)
+        homeX, homeY, homeZ = frac[:, 0], frac[:, 1], frac[:, 2]
         return homeX, homeY, homeZ
 
     def _process_frame(
@@ -749,34 +722,15 @@ class DensityGrid:
             fy_fft = np.fft.fftn(force_y / count / self.voxel_volume)
             fz_fft = np.fft.fftn(force_z / count / self.voxel_volume)
 
-        if self.is_orthorhombic:
-            # Orthorhombic path: per-axis k-vector multiplication (unchanged)
-            xrep, yrep, zrep = self.get_kvectors()
+        # k . F(k) dot product using precomputed 3D k-vectors
+        kx = self._k_vectors[..., 0]
+        ky = self._k_vectors[..., 1]
+        kz = self._k_vectors[..., 2]
+        k_dot_F = kx * fx_fft + ky * fy_fft + kz * fz_fft
 
-            for n in range(len(xrep)):
-                fx_fft[n, :, :] = xrep[n] * fx_fft[n, :, :]
-            for m in range(len(yrep)):
-                fy_fft[:, m, :] = yrep[m] * fy_fft[:, m, :]
-            for l_idx in range(len(zrep)):
-                fz_fft[:, :, l_idx] = zrep[l_idx] * fz_fft[:, :, l_idx]
-
-            ksq = self.get_ksquared()
-            ksq[0, 0, 0] = 1.0  # avoid division by zero
-            del_rho_k = (
-                complex(0, 1)
-                * self.beta / ksq
-                * (fx_fft + fy_fft + fz_fft)
-            )
-        else:
-            # Triclinic path: full 3D k.F(k) dot product
-            kx = self._k_vectors[..., 0]
-            ky = self._k_vectors[..., 1]
-            kz = self._k_vectors[..., 2]
-            k_dot_F = kx * fx_fft + ky * fy_fft + kz * fz_fft
-
-            ksq = self._ksquared.copy()
-            ksq[0, 0, 0] = 1.0  # avoid division by zero
-            del_rho_k = complex(0, 1) * self.beta / ksq * k_dot_F
+        ksq = self._ksquared.copy()
+        ksq[0, 0, 0] = 1.0  # avoid division by zero
+        del_rho_k = complex(0, 1) * self.beta / ksq * k_dot_F
 
         del_rho_k[0, 0, 0] = 0.0
 
@@ -886,35 +840,33 @@ class DensityGrid:
 
     def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Return the k-vectors (2*pi * FFT frequencies) per dimension.
+        Return the Cartesian k-vectors per dimension.
+
+        For orthorhombic cells these are the standard 1D FFT frequencies.
+        For general cells, each 1D array is extracted from the precomputed
+        3D k-vector grid along the corresponding axis (with the other
+        indices set to zero).
 
         Returns
         -------
         (kx, ky, kz) : tuple of np.ndarray
             Frequency vectors for x, y, z (units: 1/length).
         """
-        xrep = 2 * np.pi * np.fft.fftfreq(self.nbinsx, d=self.lx)
-        yrep = 2 * np.pi * np.fft.fftfreq(self.nbinsy, d=self.ly)
-        zrep = 2 * np.pi * np.fft.fftfreq(self.nbinsz, d=self.lz)
-        return xrep, yrep, zrep
+        kx = self._k_vectors[:, 0, 0, 0]
+        ky = self._k_vectors[0, :, 0, 1]
+        kz = self._k_vectors[0, 0, :, 2]
+        return kx, ky, kz
 
     def get_ksquared(self) -> np.ndarray:
         """
-        Return k^2 on the 3D grid (broadcasted from 1D k-vectors).
+        Return |k|^2 on the 3D grid.
 
         Returns
         -------
         np.ndarray
             k^2 array with shape (nbinsx, nbinsy, nbinsz).
         """
-        xrep, yrep, zrep = self.get_kvectors()
-
-        # Broadcast 1D k-vectors to a 3D grid
-        xrep_3d = np.repeat(np.repeat(xrep[:, None, None], self.nbinsy, axis=1), self.nbinsz, axis=2)
-        yrep_3d = np.repeat(np.repeat(yrep[None, :, None], self.nbinsx, axis=0), self.nbinsz, axis=2)
-        zrep_3d = np.repeat(np.repeat(zrep[None, None, :], self.nbinsx, axis=0), self.nbinsy, axis=1)
-
-        return xrep_3d * xrep_3d + yrep_3d * yrep_3d + zrep_3d * zrep_3d
+        return self._ksquared.copy()
 
     def _build_kvectors_3d(self) -> tuple[np.ndarray, np.ndarray]:
         """
