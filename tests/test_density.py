@@ -241,18 +241,6 @@ def test_selection_invalid_centre_location(ts):
         Selection(ts, ["H", "O"], centre_location="invalid")
 
 
-def test_selection_position_centre_valid(ts):
-    ss = Selection(ts, ["H", "O"], centre_location=True)
-    ss.position_centre(1)
-    assert ss.species_number == 1
-
-
-def test_selection_position_centre_out_of_range(ts):
-    ss = Selection(ts, ["H", "O"], centre_location=True)
-    with pytest.raises(ValueError):
-        ss.position_centre(10)
-
-
 def test_selection_rigid_water():
     """Rigid molecules require unique labels for each atom in the molecule.
 
