@@ -40,7 +40,7 @@ class TestRDFClassAPI:
         """Default rmax should be half the shortest box dimension."""
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, 'O', 'H')
-        assert rdf.rmax == 5.0  # box is 10x10x10
+        assert rdf.rmax == pytest.approx(5.0)  # box is 10x10x10
 
     def test_rdf_custom_rmax(self, water_trajectory):
         """Custom rmax should override the default."""
