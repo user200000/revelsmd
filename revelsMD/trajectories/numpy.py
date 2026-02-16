@@ -110,7 +110,8 @@ class NumpyTrajectory(Trajectory):
                 raise ValueError(
                     "All three of box_x, box_y, box_z must be provided together."
                 )
-            if not all(val > 0 for val in box_args):
+            assert box_x is not None and box_y is not None and box_z is not None
+            if box_x <= 0 or box_y <= 0 or box_z <= 0:
                 raise ValueError("Box dimensions must all be positive values.")
             self.cell_matrix = self._cell_matrix_from_dimensions(box_x, box_y, box_z)
 
