@@ -1520,9 +1520,8 @@ class TestFFTForceToDensity:
     """Tests for the core FFT force-to-density conversion."""
 
     @pytest.fixture
-    def grid(self):
+    def grid(self, ts):
         """A minimal DensityGrid with known geometry for direct _fft_force_to_density calls."""
-        ts = TSMock()
         gs = DensityGrid(ts, "number", nbins=4)
         return gs
 
