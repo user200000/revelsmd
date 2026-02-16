@@ -303,6 +303,12 @@ class LammpsTrajectory(Trajectory):
 
         LAMMPS dump files are sequential, so random access requires caching
         all frames in memory on first call. Subsequent calls use the cache.
+
+        Warning
+        -------
+        This can cause significant memory usage for large trajectories.
+        See issue #44 for a proposed move to sequential block processing
+        which would allow streaming for all trajectory types.
         """
         # Lazy-load cache on first random access
         if not hasattr(self, '_frame_cache'):

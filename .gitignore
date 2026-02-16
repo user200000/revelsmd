@@ -26,6 +26,15 @@ examples/
 # Benchmarks
 benchmarks/
 
+# Documentation build artifacts
+docs/build/
+
 # Development notes (local only)
 *.md
 !README.md
+
+# Prototype/scratch files
+prototype_*.py
+
+# Reference papers (local only)
+reference/
