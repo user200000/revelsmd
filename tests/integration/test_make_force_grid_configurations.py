@@ -11,6 +11,7 @@ class TSMock:
 
     def __init__(self):
         self.box_x = self.box_y = self.box_z = 10.0
+        self.cell_matrix = np.diag([10.0, 10.0, 10.0])
         self.frames = 2
         self.units = "real"
         self.beta = 1.0 / (300.0 * 0.0019872041)  # 1/(kB*T) for T=300K in real units

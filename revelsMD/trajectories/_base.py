@@ -11,6 +11,8 @@ from typing import Iterator
 import numpy as np
 import scipy.constants as constants
 
+from revelsMD.cell import is_orthorhombic as _is_orthorhombic_cell
+
 
 # Boltzmann constants in different unit systems
 _BOLTZMANN_CONSTANTS: dict[str, float] = {
@@ -74,8 +76,8 @@ class Trajectory(ABC):
     -------------------
     frames : int
         Number of frames in the trajectory.
-    box_x, box_y, box_z : float
-        Simulation box dimensions in each Cartesian direction.
+    cell_matrix : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
     units : str
         Unit system identifier (e.g., 'real', 'metal', 'mda', 'lj').
     temperature : float
@@ -83,13 +85,21 @@ class Trajectory(ABC):
         For 'lj' units, this is the dimensionless reduced temperature T*.
     beta : float
         Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
+
+    Properties
+    ----------
+    box_x, box_y, box_z : float
+        Simulation box dimensions (orthorhombic cells only).
+        Raises ``AttributeError`` for non-orthorhombic cells.
+    cell_volume : float
+        Volume of the simulation cell.
+    is_orthorhombic : bool
+        Whether the cell is orthorhombic (all off-diagonal elements negligible).
     """
 
     # Required attributes - subclasses must set these
     frames: int
-    box_x: float
-    box_y: float
-    box_z: float
+    cell_matrix: np.ndarray
     units: str
     temperature: float
     beta: float
@@ -112,6 +122,53 @@ class Trajectory(ABC):
         self.units = units
         self.temperature = temperature
         self.beta = compute_beta(units, temperature)
+
+    @property
+    def cell_volume(self) -> float:
+        """Volume of the simulation cell: ``abs(det(cell_matrix))``."""
+        return float(abs(np.linalg.det(self.cell_matrix)))
+
+    @property
+    def is_orthorhombic(self) -> bool:
+        """Whether the cell matrix is orthorhombic (diagonal)."""
+        return _is_orthorhombic_cell(self.cell_matrix)
+
+    @property
+    def box_x(self) -> float:
+        """Box length along x (orthorhombic cells only)."""
+        if not self.is_orthorhombic:
+            raise AttributeError(
+                "box_x is not defined for non-orthorhombic cells. "
+                "Use cell_matrix instead."
+            )
+        return float(self.cell_matrix[0, 0])
+
+    @property
+    def box_y(self) -> float:
+        """Box length along y (orthorhombic cells only)."""
+        if not self.is_orthorhombic:
+            raise AttributeError(
+                "box_y is not defined for non-orthorhombic cells. "
+                "Use cell_matrix instead."
+            )
+        return float(self.cell_matrix[1, 1])
+
+    @property
+    def box_z(self) -> float:
+        """Box length along z (orthorhombic cells only)."""
+        if not self.is_orthorhombic:
+            raise AttributeError(
+                "box_z is not defined for non-orthorhombic cells. "
+                "Use cell_matrix instead."
+            )
+        return float(self.cell_matrix[2, 2])
+
+    @staticmethod
+    def _cell_matrix_from_dimensions(
+        lx: float, ly: float, lz: float
+    ) -> np.ndarray:
+        """Build a diagonal cell matrix from orthorhombic box dimensions."""
+        return np.diag(np.array([lx, ly, lz], dtype=np.float64))
 
     def _normalize_bounds(
         self, start: int, stop: int | None, stride: int
@@ -181,6 +238,36 @@ class Trajectory(ABC):
             raise ValueError(
                 "Only orthorhombic or cubic cells are supported. "
                 f"Got angles: {angles}"
+            )
+
+    @staticmethod
+    def _validate_cell_matrix(cell_matrix: np.ndarray) -> None:
+        """
+        Validate that a cell matrix is well-formed.
+
+        Parameters
+        ----------
+        cell_matrix : np.ndarray
+            Expected shape (3, 3), all elements finite, positive volume.
+
+        Raises
+        ------
+        ValueError
+            If the cell matrix has wrong shape, non-finite elements, or
+            zero/negative volume.
+        """
+        if cell_matrix.shape != (3, 3):
+            raise ValueError(
+                f"Cell matrix must have shape (3, 3). Got shape: {cell_matrix.shape}"
+            )
+        if not np.all(np.isfinite(cell_matrix)):
+            raise ValueError(
+                f"Cell matrix elements must all be finite. Got:\n{cell_matrix}"
+            )
+        volume = abs(np.linalg.det(cell_matrix))
+        if volume < 1e-12:
+            raise ValueError(
+                f"Cell matrix must have positive volume. Got volume: {volume}"
             )
 
     @staticmethod

@@ -19,33 +19,43 @@ from numba import jit, prange  # type: ignore[import-untyped]
 
 @jit(nopython=True, cache=True)
 def _apply_minimum_image_numba(
-    displacement: np.ndarray,
-    box: np.ndarray,
-) -> np.ndarray:
+    rx: float, ry: float, rz: float,
+    cell: np.ndarray, cell_inv: np.ndarray,
+) -> tuple[float, float, float]:
     """
-    Apply minimum image convention to displacement vectors.
+    Apply minimum image convention for an arbitrary cell.
+
+    Converts displacement to fractional coordinates, wraps to nearest image
+    via round(), and converts back to Cartesian. Works for both orthorhombic
+    and triclinic cells.
 
     Parameters
     ----------
-    displacement : np.ndarray, shape (n, 3)
-        Displacement vectors.
-    box : np.ndarray, shape (3,)
-        Box dimensions [box_x, box_y, box_z].
+    rx, ry, rz : float
+        Cartesian displacement components.
+    cell : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
+    cell_inv : np.ndarray, shape (3, 3)
+        Inverse of the cell matrix.
 
     Returns
     -------
-    np.ndarray
-        Corrected displacements with same shape as input.
+    rx, ry, rz : float
+        Corrected Cartesian displacement components.
     """
-    result = displacement.copy()
-    n = result.shape[0]
-    for i in range(n):
-        for j in range(3):
-            r = result[i, j]
-            half_box = box[j] / 2
-            if abs(r) > half_box:
-                result[i, j] -= np.ceil((abs(r) - half_box) / box[j]) * box[j] * np.sign(r)
-    return result
+    # Cartesian -> fractional (dr @ cell_inv, row-vector convention)
+    sx = rx * cell_inv[0, 0] + ry * cell_inv[1, 0] + rz * cell_inv[2, 0]
+    sy = rx * cell_inv[0, 1] + ry * cell_inv[1, 1] + rz * cell_inv[2, 1]
+    sz = rx * cell_inv[0, 2] + ry * cell_inv[1, 2] + rz * cell_inv[2, 2]
+    # Wrap to nearest image
+    sx -= round(sx)
+    sy -= round(sy)
+    sz -= round(sz)
+    # Fractional -> Cartesian (ds @ cell)
+    rx = sx * cell[0, 0] + sy * cell[1, 0] + sz * cell[2, 0]
+    ry = sx * cell[0, 1] + sy * cell[1, 1] + sz * cell[2, 1]
+    rz = sx * cell[0, 2] + sy * cell[1, 2] + sz * cell[2, 2]
+    return rx, ry, rz
 
 
 @jit(nopython=True, parallel=True, cache=True)
@@ -54,9 +64,8 @@ def _compute_pairwise_contributions_numba(
     pos_b: np.ndarray,
     forces_a: np.ndarray,
     forces_b: np.ndarray,
-    box_x: float,
-    box_y: float,
-    box_z: float,
+    cell: np.ndarray,
+    cell_inv: np.ndarray,
     same_species: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -69,10 +78,6 @@ def _compute_pairwise_contributions_numba(
     """
     n_a = pos_a.shape[0]
     n_b = pos_b.shape[0]
-
-    half_box_x = box_x / 2
-    half_box_y = box_y / 2
-    half_box_z = box_z / 2
 
     if same_species:
         # Upper triangle: n*(n-1)/2 pairs
@@ -88,12 +93,7 @@ def _compute_pairwise_contributions_numba(
                 rz = pos_a[j, 2] - pos_a[i, 2]
 
                 # Minimum image convention
-                if abs(rx) > half_box_x:
-                    rx -= np.ceil((abs(rx) - half_box_x) / box_x) * box_x * np.sign(rx)
-                if abs(ry) > half_box_y:
-                    ry -= np.ceil((abs(ry) - half_box_y) / box_y) * box_y * np.sign(ry)
-                if abs(rz) > half_box_z:
-                    rz -= np.ceil((abs(rz) - half_box_z) / box_z) * box_z * np.sign(rz)
+                rx, ry, rz = _apply_minimum_image_numba(rx, ry, rz, cell, cell_inv)
 
                 r_mag = np.sqrt(rx * rx + ry * ry + rz * rz)
 
@@ -125,12 +125,7 @@ def _compute_pairwise_contributions_numba(
                 rz = pos_a[j, 2] - pos_b[i, 2]
 
                 # Minimum image convention
-                if abs(rx) > half_box_x:
-                    rx -= np.ceil((abs(rx) - half_box_x) / box_x) * box_x * np.sign(rx)
-                if abs(ry) > half_box_y:
-                    ry -= np.ceil((abs(ry) - half_box_y) / box_y) * box_y * np.sign(ry)
-                if abs(rz) > half_box_z:
-                    rz -= np.ceil((abs(rz) - half_box_z) / box_z) * box_z * np.sign(rz)
+                rx, ry, rz = _apply_minimum_image_numba(rx, ry, rz, cell, cell_inv)
 
                 r_mag = np.sqrt(rx * rx + ry * ry + rz * rz)
 
@@ -220,7 +215,8 @@ def compute_pairwise_contributions_numba(
     pos_b: np.ndarray,
     forces_a: np.ndarray,
     forces_b: np.ndarray,
-    box: tuple[float, float, float],
+    cell_matrix: np.ndarray,
+    cell_inverse: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute pairwise distances and force projections for any species combination.
@@ -243,8 +239,10 @@ def compute_pairwise_contributions_numba(
         Forces on atoms in species A.
     forces_b : np.ndarray, shape (n_b, 3)
         Forces on atoms in species B.
-    box : tuple of (box_x, box_y, box_z)
-        Orthorhombic box dimensions.
+    cell_matrix : np.ndarray, shape (3, 3)
+        Cell matrix with rows = lattice vectors.
+    cell_inverse : np.ndarray, shape (3, 3)
+        Inverse of the cell matrix.
 
     Returns
     -------
@@ -261,8 +259,12 @@ def compute_pairwise_contributions_numba(
     pos_b = np.ascontiguousarray(pos_b, dtype=np.float64)
     forces_a = np.ascontiguousarray(forces_a, dtype=np.float64)
     forces_b = np.ascontiguousarray(forces_b, dtype=np.float64)
+    cell_matrix = np.ascontiguousarray(cell_matrix, dtype=np.float64)
+    cell_inverse = np.ascontiguousarray(cell_inverse, dtype=np.float64)
     return _compute_pairwise_contributions_numba(
-        pos_a, pos_b, forces_a, forces_b, box[0], box[1], box[2], same_species
+        pos_a, pos_b, forces_a, forces_b,
+        cell_matrix, cell_inverse,
+        same_species,
     )
 
 

@@ -16,7 +16,7 @@ from revelsMD.density import DensityGrid, Selection
 def test_densitygrid_initialisation(ts):
     gs = DensityGrid(ts, density_type="number", nbins=4)
     assert gs.nbinsx == 4
-    assert gs.lx == pytest.approx(ts.box_x / 4)
+    assert gs.lx == pytest.approx(1.0 / 4)
     assert gs.voxel_volume > 0
     assert np.all(gs.force_x == 0)
     assert gs.count == 0  # No data accumulated yet
@@ -28,9 +28,9 @@ def test_densitygrid_uses_trajectory_beta(ts):
     assert gs.beta == ts.beta
 
 
-def test_densitygrid_invalid_box(ts):
-    ts.box_x = -10.0
-    with pytest.raises(ValueError):
+def test_densitygrid_singular_cell(ts):
+    ts.cell_matrix = np.array([[10.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 0.0, 10.0]])
+    with pytest.raises(ValueError, match="positive volume"):
         DensityGrid(ts, "number")
 
 
@@ -39,17 +39,131 @@ def test_densitygrid_invalid_bins(ts):
         DensityGrid(ts, "number", nbins=(0, 4, 4))
 
 
+def test_densitygrid_stores_cell_matrix(ts):
+    """DensityGrid should store cell_matrix from the trajectory."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    expected = np.diag([10.0, 10.0, 10.0])
+    np.testing.assert_allclose(gs.cell_matrix, expected)
+
+
+def test_densitygrid_stores_cell_inverse(ts):
+    """DensityGrid should store the inverse cell matrix."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    expected_inv = np.linalg.inv(np.diag([10.0, 10.0, 10.0]))
+    np.testing.assert_allclose(gs.cell_inverse, expected_inv)
+
+
+def test_densitygrid_voxel_volume_from_cell(ts):
+    """Voxel volume should equal det(cell_matrix) / (nbins^3)."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    expected = abs(np.linalg.det(np.diag([10.0, 10.0, 10.0]))) / (4 * 4 * 4)
+    assert gs.voxel_volume == pytest.approx(expected)
+
+
+def test_densitygrid_fractional_bin_edges(ts):
+    """DensityGrid should produce fractional bin edges and voxel sizes."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+    # Bin edges should be fractional [0, 1]
+    np.testing.assert_allclose(gs.binsx, np.linspace(0, 1, 5))
+    np.testing.assert_allclose(gs.binsy, np.linspace(0, 1, 5))
+    np.testing.assert_allclose(gs.binsz, np.linspace(0, 1, 5))
+    # Voxel sizes should be fractional (1 / nbins)
+    assert gs.lx == pytest.approx(0.25)
+    assert gs.ly == pytest.approx(0.25)
+    assert gs.lz == pytest.approx(0.25)
+
+
 # ---------------------------------------------------------------------------
 # k-vectors and FFT utilities
 # ---------------------------------------------------------------------------
 
-def test_kvectors_ksquared_shapes(ts):
-    gs = DensityGrid(ts, "number", nbins=4)
-    kx, ky, kz = gs.get_kvectors()
-    assert kx.shape[0] == gs.nbinsx
-    ks = gs.get_ksquared()
-    assert ks.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
-    assert np.all(ks >= 0)
+def test_build_kvectors_3d_shape():
+    """_build_kvectors_3d should return (nbins, nbins, nbins, 3) k-vectors
+    and (nbins, nbins, nbins) ksquared."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.diag([10.0, 8.0, 6.0])
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=4)
+    k_vectors, ksquared = gs._build_kvectors_3d()
+    assert k_vectors.shape == (4, 4, 4, 3)
+    assert ksquared.shape == (4, 4, 4)
+    # ksquared should equal the sum of squares of k components
+    np.testing.assert_allclose(ksquared, np.sum(k_vectors ** 2, axis=-1))
+
+
+def test_build_kvectors_3d_orthorhombic_separability():
+    """For an orthorhombic cell, k-vectors should be separable per axis."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.diag([10.0, 8.0, 6.0])
+    nbins = 4
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=nbins)
+
+    k_vectors, ksquared = gs._build_kvectors_3d()
+
+    # For orthorhombic cells, each component depends only on one axis:
+    # k_x[i,j,k] depends only on i, k_y[i,j,k] only on j, etc.
+    # Extract 1D slices along each axis
+    kx_1d = k_vectors[:, 0, 0, 0]
+    ky_1d = k_vectors[0, :, 0, 1]
+    kz_1d = k_vectors[0, 0, :, 2]
+
+    # Verify separability: full 3D array matches outer product of 1D slices
+    for i in range(nbins):
+        for j in range(nbins):
+            for k in range(nbins):
+                np.testing.assert_allclose(
+                    k_vectors[i, j, k],
+                    [kx_1d[i], ky_1d[j], kz_1d[k]],
+                    atol=1e-12,
+                )
+
+
+def test_build_kvectors_3d_triclinic():
+    """For a triclinic cell, verify k-vectors match 2*pi * inv(M)^T @ m."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [0.0, 0.0, 8.0],
+    ])
+    nbins = 4
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=nbins)
+
+    k_vectors, _ = gs._build_kvectors_3d()
+
+    # Expected: k = 2*pi * inv(M)^T @ [m1, m2, m3]^T
+    M_inv_T = np.linalg.inv(cell).T
+    miller = np.fft.fftfreq(nbins, d=1.0 / nbins)
+    for i, m1 in enumerate(miller):
+        for j, m2 in enumerate(miller):
+            for k_idx, m3 in enumerate(miller):
+                expected = 2 * np.pi * M_inv_T @ np.array([m1, m2, m3])
+                np.testing.assert_allclose(
+                    k_vectors[i, j, k_idx], expected, atol=1e-12,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +196,57 @@ def test_process_frame_invalid_kernel(ts):
     gs = DensityGrid(ts, "number", nbins=4)
     with pytest.raises(ValueError, match="Unsupported kernel"):
         gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), kernel="invalid")
+
+
+@pytest.mark.parametrize("kernel", ["box", "triangular"])
+def test_process_frame_triclinic_deposits(kernel):
+    """_process_frame should deposit to grid for triclinic cells."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [0.0, 0.0, 8.0],
+    ])
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=4)
+    # Position at (5, 4.5, 4) should be inside the cell
+    pos = np.array([[5.0, 4.5, 4.0]])
+    frc = np.array([[0.5, 0.0, 0.0]])
+    gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
+    assert np.any(gs.force_x != 0)
+    assert np.any(gs.counter != 0)
+
+
+def test_process_frame_triclinic_boundary_particles():
+    """Particles at fractional coordinate boundaries should not crash."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+
+    cell = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [0.0, 0.0, 8.0],
+    ])
+    traj = NumpyTrajectory(
+        positions=np.zeros((2, 3, 3)),
+        forces=np.zeros((2, 3, 3)),
+        cell_matrix=cell,
+        species_list=["A", "A", "A"],
+        temperature=300.0, units="real",
+    )
+    gs = DensityGrid(traj, density_type="number", nbins=4)
+    # Origin and near-edge positions in Cartesian
+    pos = np.array([[0.0, 0.0, 0.0], [9.99, 8.99, 7.99]])
+    frc = np.array([[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]])
+    gs._process_frame(pos, frc, weight=1.0, kernel="triangular")
+    # Should not crash and should deposit something
+    assert np.any(gs.counter != 0)
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +356,7 @@ def test_selection_rigid_water():
     """
     class WaterTSMock:
         box_x = box_y = box_z = 10.0
+        cell_matrix = np.diag([10.0, 10.0, 10.0])
         units = "real"
         species = ["Ow", "Hw1", "Hw2"]
         # 2 water molecules: Ow, Hw1, Hw2 each = 2 atoms per species
@@ -276,6 +442,7 @@ class TestAccumulateComputeLambda:
         class MultiFrameTrajectory:
             def __init__(self):
                 self.box_x = self.box_y = self.box_z = 10.0
+                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
                 self.units = 'real'
                 self.temperature = 300.0
                 from revelsMD.trajectories._base import compute_beta
@@ -557,6 +724,7 @@ class MockTrajectory:
 
     def __init__(self):
         self.box_x = self.box_y = self.box_z = 10.0
+        self.cell_matrix = np.diag([10.0, 10.0, 10.0])
         self.units = 'real'
         self.beta = 1.0 / (300.0 * 0.0019872041)  # 1/(kB*T) for T=300K in real units
 
@@ -716,6 +884,28 @@ class TestDeposit:
         positions_list = [positions[:3], positions[3:6], positions[6:]]
         with pytest.raises(TypeError, match="positions and forces must both be lists or both be arrays"):
             gs.deposit(positions_list, forces, weights=1.0)
+
+
+def test_accumulate_mismatched_cell_raises(ts):
+    """Accumulating a trajectory with a different cell should raise ValueError."""
+    gs = DensityGrid(ts, density_type="number", nbins=4)
+
+    class MismatchedTrajectory:
+        def __init__(self):
+            self.box_x = self.box_y = self.box_z = 12.0
+            self.cell_matrix = np.diag([12.0, 12.0, 12.0])
+            self.units = "real"
+            self.temperature = 300.0
+            self.frames = 2
+            from revelsMD.trajectories._base import compute_beta
+            self.beta = compute_beta(self.units, self.temperature)
+        def get_indices(self, atype):
+            return np.array([0])
+        def iter_frames(self, start=0, stop=None, stride=1):
+            yield np.array([[1.0, 2.0, 3.0]]), np.array([[0.1, 0.0, 0.0]])
+
+    with pytest.raises(ValueError, match="[Cc]ell"):
+        gs.accumulate(MismatchedTrajectory(), atom_names="H")
 
 
 class TestMakeForceGridUnified:
@@ -914,6 +1104,7 @@ class TestSelectionGetPositionsPeriodicBoundary:
         class SingleMolTrajectory:
             def __init__(self):
                 self.box_x = self.box_y = self.box_z = 10.0
+                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
                 self.units = 'real'
 
             def get_indices(self, atom_name):
@@ -980,6 +1171,79 @@ class TestSelectionGetPositionsPeriodicBoundary:
         # The dipole should be small and positive, not large and negative
         assert result[0] > 0, f"Dipole x={result[0]} should be > 0"
         assert result[0] < 1.0, f"Dipole x={result[0]} should be < 1.0 (small molecule)"
+
+
+class TestSelectionTriclinic:
+    """Tests for Selection with triclinic cells."""
+
+    @pytest.fixture
+    def triclinic_trajectory(self):
+        """Trajectory with triclinic cell."""
+        class TriclinicMolTrajectory:
+            def __init__(self):
+                self.cell_matrix = np.array([
+                    [10.0, 0.0, 0.0],
+                    [3.0, 9.0, 0.0],
+                    [0.0, 0.0, 8.0],
+                ])
+                self.units = 'real'
+
+            def get_indices(self, atom_name):
+                return {'O': np.array([0]), 'H1': np.array([1]), 'H2': np.array([2])}[atom_name]
+
+            def get_masses(self, atom_name):
+                return {'O': np.array([16.0]), 'H1': np.array([1.0]), 'H2': np.array([1.0])}[atom_name]
+
+            def get_charges(self, atom_name):
+                return {'O': np.array([-0.8]), 'H1': np.array([0.4]), 'H2': np.array([0.4])}[atom_name]
+
+        return TriclinicMolTrajectory()
+
+    def test_selection_init_triclinic(self, triclinic_trajectory):
+        """Selection should initialise successfully with a triclinic trajectory."""
+        ss = Selection(
+            triclinic_trajectory, ['O', 'H1', 'H2'],
+            centre_location=True, rigid=True,
+        )
+        np.testing.assert_allclose(ss._cell_matrix, triclinic_trajectory.cell_matrix)
+
+    def test_com_triclinic_boundary(self, triclinic_trajectory):
+        """COM should handle molecules spanning a triclinic boundary."""
+        ss = Selection(
+            triclinic_trajectory, ['O', 'H1', 'H2'],
+            centre_location=True, rigid=True,
+        )
+        # O near origin, H atoms wrapped across the a-axis boundary
+        # In this cell: a=(10,0,0), b=(3,9,0), c=(0,0,8)
+        positions = np.array([
+            [0.5, 4.5, 4.0],   # O (index 0)
+            [9.8, 4.5, 4.0],   # H1 (index 1) - near right edge in x
+            [9.9, 4.5, 4.0],   # H2 (index 2) - near right edge in x
+        ], dtype=float)
+        result = ss.get_positions(positions)
+        # H1 and H2 are across the boundary from O
+        # With correct MIC they should be unwrapped near x=0.5
+        # COM should be near the O atom
+        assert abs(result[0, 0] - 0.5) < 2.0, \
+            f"COM x={result[0, 0]} should be near O at x=0.5"
+
+    def test_dipole_triclinic(self, triclinic_trajectory):
+        """Dipole projection should work with triclinic cells."""
+        ss = Selection(
+            triclinic_trajectory, ['O', 'H1', 'H2'],
+            centre_location=True, rigid=True,
+            density_type='polarisation', polarisation_axis=0,
+        )
+        # All atoms well within the cell (no boundary issues)
+        positions = np.array([
+            [5.0, 4.5, 4.0],   # O
+            [5.5, 4.5, 4.0],   # H1
+            [4.5, 4.5, 4.0],   # H2
+        ], dtype=float)
+        result = ss.get_weights(positions)
+        # Symmetric molecule, dipole_x should be near zero
+        assert abs(result[0]) < 0.1, \
+            f"Symmetric molecule dipole x={result[0]} should be near zero"
 
 
 class TestSelectionExtract:
@@ -1067,6 +1331,113 @@ class TestSelectionGetPositions:
 
         expected = positions[[1, 4, 7], :]  # H1 atoms
         np.testing.assert_array_equal(result, expected)
+
+
+# ---------------------------------------------------------------------------
+# Triclinic FFT validation tests
+# ---------------------------------------------------------------------------
+
+class TestTriclinicFFT:
+    """Tests for the Borgis density formula with triclinic cells."""
+
+    def test_ideal_gas_triclinic_flat_density(self):
+        """Uniform random positions + zero forces -> flat density."""
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        n_atoms = 50
+        n_frames = 10
+        nbins = 8
+        rng = np.random.default_rng(42)
+
+        # Random positions in fractional coordinates, then convert to Cartesian
+        frac = rng.random((n_frames, n_atoms, 3))
+        positions = np.einsum('fai,ij->faj', frac, cell)
+        forces = np.zeros((n_frames, n_atoms, 3))
+
+        traj = NumpyTrajectory(
+            positions=positions, forces=forces,
+            cell_matrix=cell,
+            species_list=["A"] * n_atoms,
+            temperature=300.0, units="real",
+        )
+        gs = DensityGrid(traj, density_type="number", nbins=nbins)
+        for i in range(n_frames):
+            gs._process_frame(positions[i], forces[i], weight=1.0)
+
+        # Force-based density should be flat (all perturbation is zero)
+        rho_force, rho_count, _, _ = gs._fft_force_to_density(
+            gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
+        )
+        # rho_force should equal mean(rho_count) everywhere
+        np.testing.assert_allclose(
+            rho_force, np.mean(rho_count), rtol=0.3,
+            err_msg="Ideal gas (zero forces) should produce approximately flat density",
+        )
+
+    def test_sinusoidal_force_triclinic(self):
+        """Sinusoidal force at a reciprocal lattice vector should produce
+        the expected density perturbation in a triclinic cell."""
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [3.0, 9.0, 0.0],
+            [0.0, 0.0, 8.0],
+        ])
+        n_atoms = 500
+        n_frames = 20
+        nbins = 16
+        rng = np.random.default_rng(99)
+
+        # Use a reciprocal lattice vector: k = 2*pi * inv(M)^T @ [1,0,0]
+        M_inv_T = np.linalg.inv(cell).T
+        k0 = 2 * np.pi * M_inv_T @ np.array([1.0, 0.0, 0.0])
+        F0 = 0.1  # force amplitude
+
+        # Uniformly distributed positions
+        frac = rng.random((n_frames, n_atoms, 3))
+        positions = np.einsum('fai,ij->faj', frac, cell)
+
+        # Force = F0 * sin(k0 . r) in the x-direction
+        # k0 . r for each frame/atom
+        k_dot_r = np.einsum('fai,i->fa', positions, k0)
+        forces = np.zeros((n_frames, n_atoms, 3))
+        forces[:, :, 0] = F0 * np.sin(k_dot_r)
+
+        traj = NumpyTrajectory(
+            positions=positions, forces=forces,
+            cell_matrix=cell,
+            species_list=["A"] * n_atoms,
+            temperature=300.0, units="real",
+        )
+        gs = DensityGrid(traj, density_type="number", nbins=nbins)
+        for i in range(n_frames):
+            gs._process_frame(positions[i], forces[i], weight=1.0)
+
+        rho_force, rho_count, del_rho_k, _ = gs._fft_force_to_density(
+            gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
+        )
+
+        # The density perturbation should be non-zero (force is non-trivial)
+        assert np.max(np.abs(rho_force - np.mean(rho_force))) > 1e-6, \
+            "Sinusoidal force should produce non-trivial density perturbation"
+
+        # The del_rho_k should have dominant peaks at the Miller indices [1,0,0]
+        # and [-1,0,0] (the applied k-vector and its conjugate)
+        del_rho_k_abs = np.abs(del_rho_k)
+        # Zero the DC component
+        del_rho_k_abs[0, 0, 0] = 0
+        # The peak should be at index [1,0,0] or [-1,0,0] = [nbins-1,0,0]
+        peak_pos = np.unravel_index(np.argmax(del_rho_k_abs), del_rho_k_abs.shape)
+        assert peak_pos[1] == 0 and peak_pos[2] == 0, \
+            f"Peak should be at [*,0,0] Miller indices, got {peak_pos}"
+        assert peak_pos[0] in (1, nbins - 1), \
+            f"Peak should be at Miller index m1=1 or {nbins-1}, got {peak_pos[0]}"
 
 
 # ---------------------------------------------------------------------------
@@ -1249,6 +1620,7 @@ class TestDensityGridGetLambdaEdgeCases:
         class MinimalTrajectory:
             def __init__(self):
                 self.box_x = self.box_y = self.box_z = 10.0
+                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
                 self.units = 'real'
                 self.frames = 2
                 self.beta = 1.0 / (300.0 * 0.0019872041)

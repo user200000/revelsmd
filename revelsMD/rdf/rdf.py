@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 from tqdm import tqdm
 
+from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.rdf.rdf_helpers import get_backend_functions
 from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
@@ -62,21 +63,27 @@ class RDF:
         self.species_b = species_b
         self.delr = delr
 
-        # Store box dimensions for use in deposit
-        self._box_x = trajectory.box_x
-        self._box_y = trajectory.box_y
-        self._box_z = trajectory.box_z
+        # Store cell geometry for use in deposit
+        self._cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
+        self._cell_inverse = np.linalg.inv(self._cell_matrix)
+        self._cell_volume = float(abs(np.linalg.det(self._cell_matrix)))
         self._beta = trajectory.beta
 
         # Compute rmax
         if rmax is None:
-            self.rmax = min(trajectory.box_x, trajectory.box_y, trajectory.box_z) / 2
+            self.rmax = inscribed_sphere_radius(self._cell_matrix)
         else:
             self.rmax = rmax
 
-        # Set up bins - use rmax + delr to ensure proper boundary handling
-        # The returned r values will exclude the first (r=0) and last bin
-        self._bins = np.arange(0, self.rmax + delr, delr)
+        # Set up bins from 0 to rmax (inclusive), with spacing delr.
+        # The returned r values will exclude the first (r=0) and last bin.
+        # Use round() rather than np.arange(0, rmax+delr, delr) to avoid
+        # floating point sensitivity: inscribed_sphere_radius can introduce
+        # ~1e-14 noise that causes np.arange to produce an extra bin edge.
+        # round() is appropriate here because rmax is always expected to be
+        # a near-exact multiple of delr.
+        n_edges = int(round(self.rmax / delr)) + 1
+        self._bins = np.arange(n_edges) * delr
 
         # Get indices and compute prefactor
         self._like_species = (species_a == species_b)
@@ -89,11 +96,11 @@ class RDF:
                     f"but only {n_a} found."
                 )
             self._indices = [indices_a, indices_a]
-            self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(n_a) * float(n_a - 1))
+            self._prefactor = self._cell_volume / (float(n_a) * float(n_a - 1))
         else:
             indices_b = self._get_species_indices(trajectory, species_b)
             self._indices = [indices_a, indices_b]
-            self._prefactor = float(trajectory.box_x * trajectory.box_y * trajectory.box_z) / (float(len(indices_b)) * float(len(indices_a))) / 2
+            self._prefactor = self._cell_volume / (float(len(indices_b)) * float(len(indices_a))) / 2
 
         # Get backend-selected functions
         (self._compute_pairwise,
@@ -226,7 +233,7 @@ class RDF:
 
         r_flat, dot_flat = self._compute_pairwise(
             pos_a, pos_b, force_a, force_b,
-            (self._box_x, self._box_y, self._box_z)
+            self._cell_matrix, self._cell_inverse,
         )
 
         force_result = self._accumulate_binned(dot_flat, r_flat, self._bins)
@@ -297,7 +304,7 @@ class RDF:
         eff_vol[0] = np.pi * delr**3 / 3.0
 
         # Box volume and particle counts
-        volume = self._box_x * self._box_y * self._box_z
+        volume = self._cell_volume
         n_ref = len(self._indices[0])
 
         # Ideal count at each bin edge:
