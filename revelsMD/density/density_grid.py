@@ -6,6 +6,7 @@ import warnings
 from collections.abc import Sequence
 
 import numpy as np
+import scipy.fft
 from tqdm import tqdm
 from ase import Atoms
 from ase.io.cube import write_cube
@@ -13,6 +14,7 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
+from revelsMD.backends import get_fft_workers
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
@@ -695,33 +697,30 @@ class DensityGrid:
             rho_count = counter / self.voxel_volume / count
 
         # FFT of normalised forces
+        workers = get_fft_workers()
         with np.errstate(divide="ignore", invalid="ignore"):
-            fx_fft = np.fft.fftn(force_x / count / self.voxel_volume)
-            fy_fft = np.fft.fftn(force_y / count / self.voxel_volume)
-            fz_fft = np.fft.fftn(force_z / count / self.voxel_volume)
+            fx_fft = scipy.fft.fftn(force_x / count / self.voxel_volume, workers=workers)
+            fy_fft = scipy.fft.fftn(force_y / count / self.voxel_volume, workers=workers)
+            fz_fft = scipy.fft.fftn(force_z / count / self.voxel_volume, workers=workers)
 
-        # k-vectors
-        xrep, yrep, zrep = self.get_kvectors()
-
-        # Multiply by k components
-        for n in range(len(xrep)):
-            fx_fft[n, :, :] = xrep[n] * fx_fft[n, :, :]
-        for m in range(len(yrep)):
-            fy_fft[:, m, :] = yrep[m] * fy_fft[:, m, :]
-        for l_idx in range(len(zrep)):
-            fz_fft[:, :, l_idx] = zrep[l_idx] * fz_fft[:, :, l_idx]
+        # Multiply each FFT component by its k-vector and compute k^2
+        kx, ky, kz = self.get_kvectors()
+        fx_fft *= kx[:, None, None]
+        fy_fft *= ky[None, :, None]
+        fz_fft *= kz[None, None, :]
+        ksquared = kx[:, None, None]**2 + ky[None, :, None]**2 + kz[None, None, :]**2
 
         # delta_rho(k)
         with np.errstate(divide="ignore", invalid="ignore"):
             del_rho_k = (
                 complex(0, 1)
-                * self.beta / self.get_ksquared()
+                * self.beta / ksquared
                 * (fx_fft + fy_fft + fz_fft)
             )
         del_rho_k[0, 0, 0] = 0.0
 
         # Back to real space
-        del_rho_n = -1.0 * np.real(np.fft.ifftn(del_rho_k))
+        del_rho_n = -1.0 * np.real(scipy.fft.ifftn(del_rho_k, workers=workers))
         rho_force = del_rho_n + np.mean(rho_count)
 
         return rho_force, rho_count, del_rho_k, del_rho_n
@@ -849,12 +848,7 @@ class DensityGrid:
         """
         xrep, yrep, zrep = self.get_kvectors()
 
-        # Broadcast 1D k-vectors to a 3D grid
-        xrep_3d = np.repeat(np.repeat(xrep[:, None, None], self.nbinsy, axis=1), self.nbinsz, axis=2)
-        yrep_3d = np.repeat(np.repeat(yrep[None, :, None], self.nbinsx, axis=0), self.nbinsz, axis=2)
-        zrep_3d = np.repeat(np.repeat(zrep[None, None, :], self.nbinsx, axis=0), self.nbinsy, axis=1)
-
-        return xrep_3d * xrep_3d + yrep_3d * yrep_3d + zrep_3d * zrep_3d
+        return xrep[:, None, None]**2 + yrep[None, :, None]**2 + zrep[None, None, :]**2
 
     def write_to_cube(
         self,

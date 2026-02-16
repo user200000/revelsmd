@@ -52,6 +52,25 @@ def test_kvectors_ksquared_shapes(ts):
     assert np.all(ks >= 0)
 
 
+def test_ksquared_values(ts):
+    """get_ksquared should return kx^2 + ky^2 + kz^2 on a 3D grid."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.get_kvectors = lambda: (
+        np.array([0.0, 1.0, 2.0, 3.0]),
+        np.array([0.0, 4.0, 5.0]),
+        np.array([0.0, 6.0]),
+    )
+    ks = gs.get_ksquared()
+
+    assert ks.shape == (4, 3, 2)
+    assert ks[0, 0, 0] == pytest.approx(0.0)
+    assert ks[1, 0, 0] == pytest.approx(1.0)
+    assert ks[0, 1, 0] == pytest.approx(16.0)
+    assert ks[0, 0, 1] == pytest.approx(36.0)
+    assert ks[2, 1, 1] == pytest.approx(4.0 + 16.0 + 36.0)
+    assert ks[3, 2, 1] == pytest.approx(9.0 + 25.0 + 36.0)
+
+
 # ---------------------------------------------------------------------------
 # DensityGrid._process_frame: Box & Triangular kernels
 # ---------------------------------------------------------------------------
@@ -1492,23 +1511,126 @@ class TestComputeOnDemand:
         # The cached rho_force should still be the same object
         assert gs.rho_force is rho_force_cached
 
-    def test_fft_density_calculation_consistent(self, ts):
-        """FFT density calculation should be consistent between main and array methods."""
+
+# ---------------------------------------------------------------------------
+# _fft_force_to_density unit tests
+# ---------------------------------------------------------------------------
+
+class TestFFTForceToDensity:
+    """Tests for the core FFT force-to-density conversion."""
+
+    @pytest.fixture
+    def grid(self, ts):
+        """A minimal DensityGrid with known geometry for direct _fft_force_to_density calls."""
         gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
+        return gs
 
-        # Compute via the main method (uses self.force_x, etc.)
-        rho_force_main = gs.rho_force
-        rho_count_main = gs.rho_count
+    def test_zero_count_returns_zeros(self, grid):
+        """count=0 should return all-zero arrays."""
+        shape = (grid.nbinsx, grid.nbinsy, grid.nbinsz)
+        zeros = np.zeros(shape)
+        rho_force, rho_count, del_rho_k, del_rho_n = grid._fft_force_to_density(
+            zeros, zeros, zeros, zeros, count=0
+        )
+        np.testing.assert_array_equal(rho_force, 0.0)
+        np.testing.assert_array_equal(rho_count, 0.0)
+        np.testing.assert_array_equal(del_rho_n, 0.0)
+        assert np.issubdtype(del_rho_k.dtype, np.complexfloating)
 
-        # Compute via the array method with the same data
-        rho_force_array, rho_count_array = gs._compute_densities_from_arrays(
-            gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
+    def test_zero_forces_gives_mean_rho_count(self, grid):
+        """With zero forces, rho_force should equal mean(rho_count) everywhere."""
+        shape = (grid.nbinsx, grid.nbinsy, grid.nbinsz)
+        zeros = np.zeros(shape)
+        # Non-uniform counter so mean(rho_count) is non-trivial
+        counter = np.ones(shape)
+        counter[0, 0, 0] = 5.0
+
+        rho_force, rho_count, del_rho_k, del_rho_n = grid._fft_force_to_density(
+            zeros, zeros, zeros, counter, count=1
         )
 
-        # Results should be identical
-        np.testing.assert_array_equal(rho_force_main, rho_force_array)
-        np.testing.assert_array_equal(rho_count_main, rho_count_array)
+        expected_rho_count = counter / grid.voxel_volume
+        np.testing.assert_allclose(rho_count, expected_rho_count)
+        # del_rho_k should be all zeros (no force contribution)
+        np.testing.assert_allclose(del_rho_k, 0.0, atol=1e-15)
+        # rho_force is a flat field at mean(rho_count)
+        np.testing.assert_allclose(rho_force, np.mean(expected_rho_count), atol=1e-10)
+
+    def test_rho_count_normalisation(self, grid):
+        """rho_count should be counter / voxel_volume / count."""
+        shape = (grid.nbinsx, grid.nbinsy, grid.nbinsz)
+        counter = np.full(shape, 3.0)
+        count = 6
+
+        _, rho_count, _, _ = grid._fft_force_to_density(
+            np.zeros(shape), np.zeros(shape), np.zeros(shape),
+            counter, count
+        )
+
+        np.testing.assert_allclose(rho_count, 3.0 / grid.voxel_volume / 6)
+
+    @pytest.mark.parametrize("axis", [0, 1, 2], ids=["x", "y", "z"])
+    def test_single_mode_force(self, grid, axis):
+        """A single sinusoidal force mode should produce the correct density perturbation.
+
+        For a force field F_axis(r) = A * sin(k1 * r_axis) with all other
+        components zero, the Borgis formula gives:
+
+            del_rho(k1) = i * beta * k1 * F_hat(k1) / k1^2
+                        = i * beta * F_hat(k1) / k1
+
+        where F_hat(k1) is the FFT of the normalised force at mode k1.
+        The real-space perturbation is then del_rho_n = -real(ifft(del_rho_k)).
+
+        We verify this by checking the perturbation amplitude against
+        the analytically expected value.
+        """
+        nbins = [grid.nbinsx, grid.nbinsy, grid.nbinsz]
+        voxel_sizes = [grid.lx, grid.ly, grid.lz]
+        shape = tuple(nbins)
+
+        # Build a sinusoidal force along the chosen axis at mode index 1
+        n = nbins[axis]
+        l = voxel_sizes[axis]
+        coords = np.arange(n) * l  # voxel centres
+        k1 = 2 * np.pi * np.fft.fftfreq(n, d=l)[1]  # first non-zero mode
+        amplitude = 2.5
+        mode = amplitude * np.sin(k1 * coords)
+
+        # Place the 1D mode into the right axis of a 3D force array
+        force_arrays = [np.zeros(shape) for _ in range(3)]
+        broadcast_shape = [1, 1, 1]
+        broadcast_shape[axis] = n
+        force_arrays[axis] = mode.reshape(broadcast_shape) * np.ones(shape)
+
+        counter = np.ones(shape)
+        count = 1
+
+        rho_force, rho_count, del_rho_k, del_rho_n = grid._fft_force_to_density(
+            force_arrays[0], force_arrays[1], force_arrays[2],
+            counter, count
+        )
+
+        # The perturbation should be non-zero
+        assert np.max(np.abs(del_rho_n)) > 0
+
+        # Compute expected: the normalised force FFT at mode 1 along this axis
+        normed_force_1d = mode / count / grid.voxel_volume
+        fft_1d = np.fft.fft(normed_force_1d)
+        # From Borgis: del_rho(k1) = i * beta * k1 * F_hat(k1) / k1^2 = i * beta * F_hat(k1) / k1
+        expected_coeff = 1j * grid.beta * fft_1d[1] / k1
+
+        # Check the corresponding element of del_rho_k
+        idx = [0, 0, 0]
+        idx[axis] = 1
+        # del_rho_k at this mode should match (scaled by the number of grid points
+        # on the other axes since FFT of ones gives N)
+        other_axes_product = np.prod([nbins[i] for i in range(3) if i != axis])
+        np.testing.assert_allclose(
+            del_rho_k[tuple(idx)],
+            expected_coeff * other_axes_product,
+            rtol=1e-10,
+        )
 
 
 # ---------------------------------------------------------------------------
