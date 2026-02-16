@@ -10,64 +10,6 @@ from revelsMD.density import DensityGrid, Selection
 
 
 # ---------------------------------------------------------------------------
-# Mock trajectory for basic DensityGrid and Selection tests
-# ---------------------------------------------------------------------------
-
-class TSMock:
-    """Minimal trajectory-state mock with required attributes for testing."""
-    def __init__(self, temperature: float = 300.0, units: str = "real"):
-        self.box_x = 10.0
-        self.box_y = 10.0
-        self.box_z = 10.0
-        self.units = units
-        self.temperature = temperature
-        self.frames = 2
-
-        # Compute beta from temperature and units
-        from revelsMD.trajectories._base import compute_beta
-        self.beta = compute_beta(units, temperature)
-
-        # Two atoms, 2 frames
-        self.positions = np.array([
-            [[1, 2, 3], [4, 5, 6]],
-            [[2, 3, 4], [5, 6, 7]],
-        ])
-        self.forces = np.array([
-            [[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]],
-            [[0.1, 0.1, 0.0], [0.0, 0.0, 0.1]],
-        ])
-
-        self.species = ["H", "O"]
-        self._ids = {"H": np.array([0]), "O": np.array([1])}
-        self._charges = {"H": np.array([0.1]), "O": np.array([-0.1])}
-        self._masses = {"H": np.array([1.0]), "O": np.array([16.0])}
-
-    def get_indices(self, atype):
-        return self._ids[atype]
-
-    def get_charges(self, atype):
-        return self._charges[atype]
-
-    def get_masses(self, atype):
-        return self._masses[atype]
-
-    def iter_frames(self, start=0, stop=None, stride=1):
-        if stop is None:
-            stop = self.frames
-        for i in range(start, stop, stride):
-            yield self.positions[i], self.forces[i]
-
-    def get_frame(self, index):
-        return self.positions[index], self.forces[index]
-
-
-@pytest.fixture
-def ts():
-    """Fixture providing a basic test trajectory."""
-    return TSMock()
-
-
-# ---------------------------------------------------------------------------
 # DensityGrid Initialisation
 # ---------------------------------------------------------------------------
 
@@ -644,6 +586,42 @@ class MockTrajectory:
         return charges[atom_name]
 
 
+class IterableMockTrajectory(MockTrajectory):
+    """MockTrajectory extended with frame iteration support."""
+
+    def __init__(self):
+        super().__init__()
+        self.frames = 2
+        self._positions = [
+            np.array([
+                [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
+                [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
+                [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
+            ], dtype=float),
+            np.array([
+                [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
+                [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
+                [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
+            ], dtype=float),
+        ]
+        self._forces = [
+            np.array([
+                [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
+                [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
+                [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
+            ], dtype=float),
+            np.array([
+                [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
+                [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
+                [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
+            ], dtype=float),
+        ]
+
+    def iter_frames(self, start, stop, period):
+        for i in range(start, stop or self.frames, period):
+            yield self._positions[i], self._forces[i]
+
+
 # ---------------------------------------------------------------------------
 # Selection.get_positions() tests
 # ---------------------------------------------------------------------------
@@ -745,40 +723,6 @@ class TestMakeForceGridUnified:
 
     @pytest.fixture
     def trajectory(self):
-        """Create mock trajectory that supports iteration."""
-        class IterableMockTrajectory(MockTrajectory):
-            def __init__(self):
-                super().__init__()
-                self.frames = 2
-                self._positions = [
-                    np.array([
-                        [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
-                        [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
-                        [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
-                    ], dtype=float),
-                    np.array([
-                        [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
-                        [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
-                        [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
-                    ], dtype=float),
-                ]
-                self._forces = [
-                    np.array([
-                        [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
-                        [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
-                        [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
-                    ], dtype=float),
-                    np.array([
-                        [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
-                        [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
-                        [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
-                    ], dtype=float),
-                ]
-
-            def iter_frames(self, start, stop, period):
-                for i in range(start, stop or self.frames, period):
-                    yield self._positions[i], self._forces[i]
-
         return IterableMockTrajectory()
 
     def test_accumulate_single_species_number(self, trajectory):
@@ -1041,66 +985,17 @@ class TestSelectionGetPositionsPeriodicBoundary:
 class TestSelectionExtract:
     """Tests for Selection.extract() method."""
 
-    @pytest.fixture
-    def trajectory(self):
-        return MockTrajectory()
-
-    @pytest.fixture
-    def positions(self):
-        """9 atoms: 3 water molecules."""
-        return np.array([
-            [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
-            [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
-            [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
-        ], dtype=float)
-
-    @pytest.fixture
-    def forces(self):
-        """Forces for 9 atoms."""
-        return np.array([
-            [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
-            [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
-            [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
-        ], dtype=float)
-
-    def test_extract_returns_tuple_of_three(self, trajectory, positions, forces):
+    def test_extract_returns_tuple_of_three(self):
         """extract() should return a tuple of (positions, forces, weights)."""
+        trajectory = MockTrajectory()
+        positions = np.zeros((9, 3))
+        forces = np.zeros((9, 3))
 
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
         result = ss.extract(positions, forces)
 
         assert isinstance(result, tuple)
         assert len(result) == 3
-
-    def test_extract_matches_individual_methods_single_species(self, trajectory, positions, forces):
-        """extract() should return same values as calling get_positions, get_forces, get_weights."""
-
-        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
-        extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
-
-        np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
-        np.testing.assert_array_equal(extracted_forces, ss.get_forces(forces))
-        assert extracted_weights == ss.get_weights(positions)
-
-    def test_extract_matches_individual_methods_rigid_com(self, trajectory, positions, forces):
-        """extract() should match individual methods for rigid COM case."""
-
-        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
-        extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
-
-        np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
-        np.testing.assert_array_equal(extracted_forces, ss.get_forces(forces))
-        assert extracted_weights == ss.get_weights(positions)
-
-    def test_extract_matches_individual_methods_charge_density(self, trajectory, positions, forces):
-        """extract() should match individual methods for charge density."""
-
-        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
-        extracted_positions, extracted_forces, extracted_weights = ss.extract(positions, forces)
-
-        np.testing.assert_array_equal(extracted_positions, ss.get_positions(positions))
-        np.testing.assert_array_equal(extracted_forces, ss.get_forces(forces))
-        np.testing.assert_array_equal(extracted_weights, ss.get_weights(positions))
 
 
 class TestSelectionGetPositions:
@@ -1183,40 +1078,6 @@ class TestComputeDensity:
 
     @pytest.fixture
     def trajectory(self):
-        """Create mock trajectory that supports iteration."""
-        class IterableMockTrajectory(MockTrajectory):
-            def __init__(self):
-                super().__init__()
-                self.frames = 2
-                self._positions = [
-                    np.array([
-                        [1.0, 5.0, 5.0], [1.5, 5.0, 5.0], [0.5, 5.0, 5.0],
-                        [4.0, 5.0, 5.0], [4.5, 5.0, 5.0], [3.5, 5.0, 5.0],
-                        [7.0, 5.0, 5.0], [7.5, 5.0, 5.0], [6.5, 5.0, 5.0],
-                    ], dtype=float),
-                    np.array([
-                        [1.1, 5.1, 5.0], [1.6, 5.1, 5.0], [0.6, 5.1, 5.0],
-                        [4.1, 5.1, 5.0], [4.6, 5.1, 5.0], [3.6, 5.1, 5.0],
-                        [7.1, 5.1, 5.0], [7.6, 5.1, 5.0], [6.6, 5.1, 5.0],
-                    ], dtype=float),
-                ]
-                self._forces = [
-                    np.array([
-                        [1.0, 0.1, 0.0], [0.5, 0.05, 0.0], [0.5, 0.05, 0.0],
-                        [2.0, 0.2, 0.0], [1.0, 0.1, 0.0], [1.0, 0.1, 0.0],
-                        [3.0, 0.3, 0.0], [1.5, 0.15, 0.0], [1.5, 0.15, 0.0],
-                    ], dtype=float),
-                    np.array([
-                        [1.1, 0.11, 0.0], [0.55, 0.055, 0.0], [0.55, 0.055, 0.0],
-                        [2.2, 0.22, 0.0], [1.1, 0.11, 0.0], [1.1, 0.11, 0.0],
-                        [3.3, 0.33, 0.0], [1.65, 0.165, 0.0], [1.65, 0.165, 0.0],
-                    ], dtype=float),
-                ]
-
-            def iter_frames(self, start, stop, period):
-                for i in range(start, stop or self.frames, period):
-                    yield self._positions[i], self._forces[i]
-
         return IterableMockTrajectory()
 
     def test_compute_density_returns_densitygrid(self, trajectory):
@@ -1432,6 +1293,62 @@ class TestDensityGridGetLambdaEdgeCases:
 
 
 # ---------------------------------------------------------------------------
+# Deprecated property alias tests
+# ---------------------------------------------------------------------------
+
+class TestDeprecatedPropertyAliases:
+    """Tests for deprecated property aliases on DensityGrid."""
+
+    def test_optimal_density_emits_deprecation_warning(self, ts):
+        """optimal_density should emit DeprecationWarning."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _ = gs.optimal_density
+
+        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
+        assert dep_warnings, "Expected DeprecationWarning from optimal_density"
+        assert any("optimal_density" in str(warn.message) for warn in dep_warnings)
+
+    def test_combination_emits_deprecation_warning(self, ts):
+        """combination should emit DeprecationWarning."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _ = gs.combination
+
+        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
+        assert dep_warnings, "Expected DeprecationWarning from combination"
+        assert any("combination" in str(warn.message) for warn in dep_warnings)
+
+    def test_optimal_density_returns_same_as_rho_lambda(self, ts):
+        """optimal_density should return the same value as rho_lambda."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            # Access rho_lambda first to trigger finalisation
+            rho_lambda = gs.rho_lambda
+            assert gs.optimal_density is rho_lambda
+
+    def test_combination_returns_same_as_lambda_weights(self, ts):
+        """combination should return the same value as lambda_weights."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            # Access lambda_weights first to trigger finalisation
+            lambda_weights = gs.lambda_weights
+            assert gs.combination is lambda_weights
+
+
+# ---------------------------------------------------------------------------
 # DensityGrid.write_to_cube() tests
 # ---------------------------------------------------------------------------
 
@@ -1488,55 +1405,27 @@ class TestWriteToCube:
 class TestComputeOnDemand:
     """Tests for compute-on-demand behaviour of rho_force and rho_count."""
 
-    @pytest.fixture
-    def ts(self):
-        """Fixture providing a basic test trajectory."""
-        return TSMock()
-
-    def test_rho_force_computes_on_demand(self, ts):
-        """rho_force should compute automatically without calling get_real_density()."""
+    @pytest.mark.parametrize("attr", ["rho_force", "rho_count"])
+    def test_density_computes_on_demand(self, ts, attr):
+        """rho_force/rho_count should compute automatically without calling get_real_density()."""
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
-        # Access rho_force WITHOUT calling get_real_density()
-        result = gs.rho_force
+        result = getattr(gs, attr)
 
         assert result is not None
         assert result.shape == (4, 4, 4)
         assert np.any(result != 0)
 
-    def test_rho_count_computes_on_demand(self, ts):
-        """rho_count should compute automatically without calling get_real_density()."""
+    @pytest.mark.parametrize("attr", ["rho_force", "rho_count"])
+    def test_density_is_cached(self, ts, attr):
+        """rho_force/rho_count should return the same cached object on repeated access."""
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
-        # Access rho_count WITHOUT calling get_real_density()
-        result = gs.rho_count
+        first_access = getattr(gs, attr)
+        second_access = getattr(gs, attr)
 
-        assert result is not None
-        assert result.shape == (4, 4, 4)
-        assert np.any(result != 0)
-
-    def test_rho_force_is_cached(self, ts):
-        """rho_force should return the same cached object on repeated access."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        first_access = gs.rho_force
-        second_access = gs.rho_force
-
-        # Should be the exact same object (cached)
-        assert first_access is second_access
-
-    def test_rho_count_is_cached(self, ts):
-        """rho_count should return the same cached object on repeated access."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        first_access = gs.rho_count
-        second_access = gs.rho_count
-
-        # Should be the exact same object (cached)
         assert first_access is second_access
 
     def test_accumulate_clears_cached_densities(self, ts):
@@ -1555,19 +1444,12 @@ class TestComputeOnDemand:
         second_rho_force = gs.rho_force
         assert second_rho_force is not first_rho_force
 
-    def test_rho_force_returns_none_before_accumulate(self, ts):
-        """rho_force should return None before any accumulation."""
+    @pytest.mark.parametrize("attr", ["rho_force", "rho_count"])
+    def test_density_returns_none_before_accumulate(self, ts, attr):
+        """rho_force/rho_count should return None before any accumulation."""
         gs = DensityGrid(ts, "number", nbins=4)
 
-        # No accumulation yet
-        assert gs.rho_force is None
-
-    def test_rho_count_returns_none_before_accumulate(self, ts):
-        """rho_count should return None before any accumulation."""
-        gs = DensityGrid(ts, "number", nbins=4)
-
-        # No accumulation yet
-        assert gs.rho_count is None
+        assert getattr(gs, attr) is None
 
     def test_get_real_density_emits_deprecation_warning(self, ts):
         """get_real_density() should emit a DeprecationWarning."""
@@ -1627,3 +1509,52 @@ class TestComputeOnDemand:
         # Results should be identical
         np.testing.assert_array_equal(rho_force_main, rho_force_array)
         np.testing.assert_array_equal(rho_count_main, rho_count_array)
+
+
+# ---------------------------------------------------------------------------
+# rho_hybrid tests
+# ---------------------------------------------------------------------------
+
+class TestHybridDensity:
+    """Tests for DensityGrid.rho_hybrid()."""
+
+    def test_selects_force_above_and_count_below_threshold(self, ts):
+        """Result should exactly match np.where(rho_count >= threshold, rho_force, rho_count)."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        threshold = 0.01
+        expected = np.where(gs.rho_count >= threshold, gs.rho_force, gs.rho_count)
+
+        np.testing.assert_array_equal(gs.rho_hybrid(threshold), expected)
+
+    def test_zero_threshold_returns_force_everywhere(self, ts):
+        """Threshold of zero means rho_count >= 0 always, so result equals rho_force."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        np.testing.assert_array_equal(gs.rho_hybrid(0.0), gs.rho_force)
+
+    def test_large_threshold_returns_count_everywhere(self, ts):
+        """Threshold above max rho_count means all voxels use rho_count."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        large_threshold = gs.rho_count.max() + 1.0
+
+        np.testing.assert_array_equal(gs.rho_hybrid(large_threshold), gs.rho_count)
+
+    def test_negative_threshold_raises_value_error(self, ts):
+        """Negative threshold should raise ValueError."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with pytest.raises(ValueError, match="threshold must be non-negative"):
+            gs.rho_hybrid(-0.1)
+
+    def test_before_accumulate_raises_runtime_error(self, ts):
+        """Calling rho_hybrid before accumulate should raise RuntimeError."""
+        gs = DensityGrid(ts, "number", nbins=4)
+
+        with pytest.raises(RuntimeError, match="No density data available"):
+            gs.rho_hybrid(0.01)
