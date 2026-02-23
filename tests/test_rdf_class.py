@@ -49,7 +49,37 @@ class TestRDFClassAPI:
         assert rdf.rmax == 3.0
         rdf.accumulate(water_trajectory)
         rdf.get_rdf(integration='forward')
-        assert rdf.r[-1] <= 3.0 + 1e-8
+        assert rdf.r[-1] == pytest.approx(3.0)
+
+    def test_standard_r_reaches_rmax(self, water_trajectory):
+        """Standard integration r grid should include rmax."""
+        from revelsMD.rdf import RDF
+        rdf = RDF(water_trajectory, 'O', 'H', rmax=5.0, delr=0.1)
+        rdf.accumulate(water_trajectory)
+        rdf.get_rdf(integration='forward')
+        assert rdf.r[-1] == pytest.approx(5.0)
+        assert rdf.r[0] == pytest.approx(0.0)
+
+    def test_all_methods_return_same_grid(self, water_trajectory):
+        """All integration methods should return the same r grid."""
+        from revelsMD.rdf import RDF
+
+        rdf_fwd = RDF(water_trajectory, 'O', 'H', delr=0.1)
+        rdf_fwd.accumulate(water_trajectory)
+        rdf_fwd.get_rdf(integration='forward')
+
+        rdf_bwd = RDF(water_trajectory, 'O', 'H', delr=0.1)
+        rdf_bwd.accumulate(water_trajectory)
+        rdf_bwd.get_rdf(integration='backward')
+
+        rdf_lam = RDF(water_trajectory, 'O', 'H', delr=0.1)
+        rdf_lam.accumulate(water_trajectory)
+        rdf_lam.get_rdf(integration='lambda')
+
+        np.testing.assert_allclose(rdf_fwd.r, rdf_bwd.r)
+        np.testing.assert_allclose(rdf_fwd.r, rdf_lam.r)
+        assert len(rdf_fwd.g) == len(rdf_lam.g)
+        assert len(rdf_fwd.g_count) == len(rdf_lam.g_count)
 
     def test_rdf_accumulate_sets_progress(self, water_trajectory):
         from revelsMD.rdf import RDF
@@ -426,7 +456,6 @@ class TestRDFCountAccumulation:
         rdf.get_rdf(integration='lambda')
 
         assert rdf.g_count is not None
-        # For lambda, r is trimmed to bins[1:], so g_count should match
         assert len(rdf.g_count) == len(rdf.r)
 
     def test_g_count_backward_integration(self, water_trajectory):
