@@ -24,7 +24,7 @@ import sys
 project_root = Path(__file__).parents[1]
 sys.path.insert(0, str(project_root))
 
-from revelsMD.revels_rdf import run_rdf, run_rdf_lambda
+from revelsMD.rdf import compute_rdf
 
 EXAMPLES_DIR = project_root / "examples"
 TEST_DATA_DIR = project_root / "tests" / "test_data"
@@ -61,14 +61,14 @@ def generate_lammps_references():
 
     # RDF forward integration (5 frames for speed)
     print("  Computing RDF (forward integration)...")
-    rdf_forward = run_rdf(
+    rdf_forward = compute_rdf(
         ts, '1', '1',
-        delr=0.02, from_zero=True, start=0, stop=5
+        delr=0.02, integration='forward', start=0, stop=5
     )
     np.savez(
         output_dir / "rdf_forward.npz",
-        r=rdf_forward[0],
-        g_r=rdf_forward[1],
+        r=rdf_forward.r,
+        g_r=rdf_forward.g,
         frames_used=5,
         delr=0.02,
         temp=1.35,
@@ -77,14 +77,14 @@ def generate_lammps_references():
 
     # RDF backward integration
     print("  Computing RDF (backward integration)...")
-    rdf_backward = run_rdf(
+    rdf_backward = compute_rdf(
         ts, '1', '1',
-        delr=0.02, from_zero=False, start=0, stop=5
+        delr=0.02, integration='backward', start=0, stop=5
     )
     np.savez(
         output_dir / "rdf_backward.npz",
-        r=rdf_backward[0],
-        g_r=rdf_backward[1],
+        r=rdf_backward.r,
+        g_r=rdf_backward.g,
         frames_used=5,
         delr=0.02,
         temp=1.35,
@@ -93,13 +93,13 @@ def generate_lammps_references():
 
     # RDF lambda combination
     print("  Computing RDF lambda...")
-    rdf_lambda = run_rdf_lambda(
+    rdf_lambda = compute_rdf(
         ts, '1', '1',
-        delr=0.02, start=0, stop=5
+        delr=0.02, integration='lambda', start=0, stop=5
     )
     np.savez(
         output_dir / "rdf_lambda.npz",
-        data=rdf_lambda,
+        data=np.column_stack([rdf_lambda.r, rdf_lambda.g, rdf_lambda.lam]),
         frames_used=5,
         delr=0.02,
         temp=1.35,
@@ -149,15 +149,15 @@ def generate_mda_references():
     output_dir = REFERENCE_DIR / "mda_example4"
     ensure_dir(output_dir)
 
-    # RDF lambda (run_rdf has a bug with MDA, but run_rdf_lambda works)
+    # RDF lambda
     print("  Computing RDF lambda...")
-    rdf_lambda = run_rdf_lambda(
+    rdf_lambda = compute_rdf(
         ts, 'Ow', 'Ow',
-        delr=0.1, start=0, stop=5
+        delr=0.1, integration='lambda', start=0, stop=5
     )
     np.savez(
         output_dir / "rdf_lambda_ow.npz",
-        data=rdf_lambda,
+        data=np.column_stack([rdf_lambda.r, rdf_lambda.g, rdf_lambda.lam]),
         frames_used=5,
         delr=0.1,
         temp=300,
@@ -237,13 +237,13 @@ def generate_vasp_references():
 
     # RDF lambda for F-F (BaSnF4 contains F atoms)
     print("  Computing F-F RDF lambda...")
-    rdf_lambda = run_rdf_lambda(
+    rdf_lambda = compute_rdf(
         ts, 'F', 'F',
-        delr=0.1, start=0, stop=10
+        delr=0.1, integration='lambda', start=0, stop=10
     )
     np.savez(
         output_dir / "rdf_lambda_f_f.npz",
-        data=rdf_lambda,
+        data=np.column_stack([rdf_lambda.r, rdf_lambda.g, rdf_lambda.lam]),
         frames_used=10,
         delr=0.1,
         temp=600,
@@ -293,13 +293,13 @@ def generate_synthetic_references():
 
     # RDF for uniform gas (use all frames)
     print("  Computing uniform gas RDF...")
-    rdf = run_rdf_lambda(
+    rdf = compute_rdf(
         ts, '1', '1',
-        delr=0.1, start=0, stop=None
+        delr=0.1, integration='lambda', start=0, stop=None
     )
     np.savez(
         output_dir / "uniform_gas_rdf.npz",
-        data=rdf,
+        data=np.column_stack([rdf.r, rdf.g, rdf.lam]),
         n_atoms=n_atoms,
         n_frames=n_frames,
         box=box,
