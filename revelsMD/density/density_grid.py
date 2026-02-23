@@ -6,6 +6,7 @@ import warnings
 from collections.abc import Sequence
 
 import numpy as np
+import scipy.fft
 from tqdm import tqdm
 from ase import Atoms
 from ase.io.cube import write_cube
@@ -13,6 +14,7 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
+from revelsMD.backends import get_fft_workers
 from revelsMD.cell import (
     cartesian_to_fractional,
     cells_are_compatible,
@@ -718,10 +720,11 @@ class DensityGrid:
             rho_count = counter / self.voxel_volume / count
 
         # FFT of normalised forces
+        workers = get_fft_workers()
         with np.errstate(divide="ignore", invalid="ignore"):
-            fx_fft = np.fft.fftn(force_x / count / self.voxel_volume)
-            fy_fft = np.fft.fftn(force_y / count / self.voxel_volume)
-            fz_fft = np.fft.fftn(force_z / count / self.voxel_volume)
+            fx_fft = scipy.fft.fftn(force_x / count / self.voxel_volume, workers=workers)
+            fy_fft = scipy.fft.fftn(force_y / count / self.voxel_volume, workers=workers)
+            fz_fft = scipy.fft.fftn(force_z / count / self.voxel_volume, workers=workers)
 
         # k . F(k) dot product using precomputed 3D k-vectors
         kx = self._k_vectors[..., 0]
@@ -736,7 +739,7 @@ class DensityGrid:
         del_rho_k[0, 0, 0] = 0.0
 
         # Back to real space
-        del_rho_n = -1.0 * np.real(np.fft.ifftn(del_rho_k))
+        del_rho_n = -1.0 * np.real(scipy.fft.ifftn(del_rho_k, workers=workers))
         rho_force = del_rho_n + np.mean(rho_count)
 
         return rho_force, rho_count, del_rho_k, del_rho_n
