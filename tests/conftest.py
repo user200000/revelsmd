@@ -12,6 +12,7 @@ class TSMock:
         self.box_x = 10.0
         self.box_y = 10.0
         self.box_z = 10.0
+        self.cell_matrix = np.diag([10.0, 10.0, 10.0])
         self.units = units
         self.temperature = temperature
         self.frames = 2

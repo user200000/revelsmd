@@ -13,6 +13,11 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.trajectories._base import Trajectory
+from revelsMD.cell import (
+    cartesian_to_fractional,
+    cells_are_compatible,
+    wrap_fractional,
+)
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
@@ -72,29 +77,32 @@ class DensityGrid:
         if min(nbinsx, nbinsy, nbinsz) <= 0:
             raise ValueError("nbins values must be positive integers.")
 
-        # Voxel sizes
-        lx = trajectory.box_x / nbinsx
-        ly = trajectory.box_y / nbinsy
-        lz = trajectory.box_z / nbinsz
-        if min(lx, ly, lz) <= 0:
-            raise ValueError("Box lengths must be positive to define voxel sizes.")
+        # Cell geometry
+        self.cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
+        Trajectory._validate_cell_matrix(self.cell_matrix)
+        self.cell_inverse = np.linalg.inv(self.cell_matrix)
 
-        # Box and bins
-        self.box_x = trajectory.box_x
-        self.box_y = trajectory.box_y
-        self.box_z = trajectory.box_z
-        self.box_array = np.array([trajectory.box_x, trajectory.box_y, trajectory.box_z])
-        self.binsx = np.arange(0, trajectory.box_x + lx, lx)
-        self.binsy = np.arange(0, trajectory.box_y + ly, ly)
-        self.binsz = np.arange(0, trajectory.box_z + lz, lz)
+        # Voxel volume from cell determinant
+        self.voxel_volume = float(
+            abs(np.linalg.det(self.cell_matrix)) / (nbinsx * nbinsy * nbinsz)
+        )
+        self.nbinsx, self.nbinsy, self.nbinsz = nbinsx, nbinsy, nbinsz
 
-        # Bookkeeping
-        self.voxel_volume = float(np.prod(self.box_array) / (nbinsx * nbinsy * nbinsz))
+        # Fractional bin edges and voxel sizes (work for any cell geometry)
+        self.lx = 1.0 / nbinsx
+        self.ly = 1.0 / nbinsy
+        self.lz = 1.0 / nbinsz
+
+        self.binsx = np.linspace(0, 1, nbinsx + 1)
+        self.binsy = np.linspace(0, 1, nbinsy + 1)
+        self.binsz = np.linspace(0, 1, nbinsz + 1)
+
+        # Precompute full 3D k-vectors
+        self._k_vectors, self._ksquared = self._build_kvectors_3d()
+
         self.beta = trajectory.beta
-        self.lx, self.ly, self.lz = float(lx), float(ly), float(lz)
         self.count = 0
         self.units = trajectory.units
-        self.nbinsx, self.nbinsy, self.nbinsz = nbinsx, nbinsy, nbinsz
 
         # Accumulators
         self.force_x = np.zeros((nbinsx, nbinsy, nbinsz), dtype=float)
@@ -212,6 +220,19 @@ class DensityGrid:
 
         return np.where(rho_c >= threshold, rho_f, rho_c)
 
+    def _wrap_to_grid(self, positions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Wrap Cartesian positions to fractional grid coordinates in [0, 1).
+
+        Returns (homeX, homeY, homeZ) as fractional coordinates.
+        The bin edges and voxel sizes (lx/ly/lz, binsx/y/z) are in the same
+        fractional coordinate system.
+        """
+        frac = cartesian_to_fractional(positions, self.cell_inverse)
+        frac = wrap_fractional(frac)
+        homeX, homeY, homeZ = frac[:, 0], frac[:, 1], frac[:, 2]
+        return homeX, homeY, homeZ
+
     def _process_frame(
         self,
         positions: np.ndarray,
@@ -235,20 +256,18 @@ class DensityGrid:
         """
         self.count += 1
 
-        # Bring positions to the primary image (periodic remainder)
-        homeX = np.remainder(positions[:, 0], self.box_x)
-        homeY = np.remainder(positions[:, 1], self.box_y)
-        homeZ = np.remainder(positions[:, 2], self.box_z)
+        # Bring positions to the primary image
+        homeX, homeY, homeZ = self._wrap_to_grid(positions)
 
-        # Component forces
+        # Component forces (always Cartesian)
         fox = forces[:, 0]
         foy = forces[:, 1]
         foz = forces[:, 2]
 
         # Map to voxel indices (np.digitize returns 1..len(bins)-1)
-        x = np.digitize(homeX, self.binsx)
-        y = np.digitize(homeY, self.binsy)
-        z = np.digitize(homeZ, self.binsz)
+        x = np.clip(np.digitize(homeX, self.binsx), 1, self.nbinsx)
+        y = np.clip(np.digitize(homeY, self.binsy), 1, self.nbinsy)
+        z = np.clip(np.digitize(homeZ, self.binsz), 1, self.nbinsz)
 
         if kernel.lower() == "triangular":
             _triangular_allocation(
@@ -378,6 +397,12 @@ class DensityGrid:
             accessed with fewer than 2 accumulated sections (variance estimation
             requires at least 2 data points).
         """
+        # --- Validate cell compatibility ---
+        if not cells_are_compatible(trajectory.cell_matrix, self.cell_matrix):
+            raise ValueError(
+                "Trajectory cell does not match DensityGrid cell."
+            )
+
         # --- Validate atom_names ---
         if isinstance(atom_names, str):
             atom_list = atom_names.replace(',', ' ').split()
@@ -618,20 +643,18 @@ class DensityGrid:
         kernel: str,
     ) -> None:
         """Deposit a single set of positions/forces to provided arrays."""
-        # Bring positions to the primary image (periodic remainder)
-        homeX = np.remainder(positions[:, 0], self.box_x)
-        homeY = np.remainder(positions[:, 1], self.box_y)
-        homeZ = np.remainder(positions[:, 2], self.box_z)
+        # Bring positions to the primary image
+        homeX, homeY, homeZ = self._wrap_to_grid(positions)
 
-        # Component forces
+        # Component forces (always Cartesian)
         fox = forces[:, 0]
         foy = forces[:, 1]
         foz = forces[:, 2]
 
         # Map to voxel indices
-        x = np.digitize(homeX, self.binsx)
-        y = np.digitize(homeY, self.binsy)
-        z = np.digitize(homeZ, self.binsz)
+        x = np.clip(np.digitize(homeX, self.binsx), 1, self.nbinsx)
+        y = np.clip(np.digitize(homeY, self.binsy), 1, self.nbinsy)
+        z = np.clip(np.digitize(homeZ, self.binsz), 1, self.nbinsz)
 
         if kernel.lower() == "triangular":
             _triangular_allocation(
@@ -700,24 +723,16 @@ class DensityGrid:
             fy_fft = np.fft.fftn(force_y / count / self.voxel_volume)
             fz_fft = np.fft.fftn(force_z / count / self.voxel_volume)
 
-        # k-vectors
-        xrep, yrep, zrep = self.get_kvectors()
+        # k . F(k) dot product using precomputed 3D k-vectors
+        kx = self._k_vectors[..., 0]
+        ky = self._k_vectors[..., 1]
+        kz = self._k_vectors[..., 2]
+        k_dot_F = kx * fx_fft + ky * fy_fft + kz * fz_fft
 
-        # Multiply by k components
-        for n in range(len(xrep)):
-            fx_fft[n, :, :] = xrep[n] * fx_fft[n, :, :]
-        for m in range(len(yrep)):
-            fy_fft[:, m, :] = yrep[m] * fy_fft[:, m, :]
-        for l_idx in range(len(zrep)):
-            fz_fft[:, :, l_idx] = zrep[l_idx] * fz_fft[:, :, l_idx]
+        ksq = self._ksquared.copy()
+        ksq[0, 0, 0] = 1.0  # avoid division by zero
+        del_rho_k = complex(0, 1) * self.beta / ksq * k_dot_F
 
-        # delta_rho(k)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            del_rho_k = (
-                complex(0, 1)
-                * self.beta / self.get_ksquared()
-                * (fx_fft + fy_fft + fz_fft)
-            )
         del_rho_k[0, 0, 0] = 0.0
 
         # Back to real space
@@ -824,37 +839,30 @@ class DensityGrid:
             )
         )
 
-    def get_kvectors(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _build_kvectors_3d(self) -> tuple[np.ndarray, np.ndarray]:
         """
-        Return the k-vectors (2*pi * FFT frequencies) per dimension.
+        Build full 3D k-vector arrays for general (triclinic) cells.
+
+        The k-vector at Miller indices (m1, m2, m3) is:
+            k = 2 * pi * inv(M)^T @ [m1, m2, m3]^T
+        where M is the cell matrix with rows = lattice vectors.
 
         Returns
         -------
-        (kx, ky, kz) : tuple of np.ndarray
-            Frequency vectors for x, y, z (units: 1/length).
+        k_vectors : np.ndarray, shape (nbinsx, nbinsy, nbinsz, 3)
+            Cartesian k-vectors at each reciprocal grid point.
+        ksquared : np.ndarray, shape (nbinsx, nbinsy, nbinsz)
+            |k|^2 at each reciprocal grid point.
         """
-        xrep = 2 * np.pi * np.fft.fftfreq(self.nbinsx, d=self.lx)
-        yrep = 2 * np.pi * np.fft.fftfreq(self.nbinsy, d=self.ly)
-        zrep = 2 * np.pi * np.fft.fftfreq(self.nbinsz, d=self.lz)
-        return xrep, yrep, zrep
-
-    def get_ksquared(self) -> np.ndarray:
-        """
-        Return k^2 on the 3D grid (broadcasted from 1D k-vectors).
-
-        Returns
-        -------
-        np.ndarray
-            k^2 array with shape (nbinsx, nbinsy, nbinsz).
-        """
-        xrep, yrep, zrep = self.get_kvectors()
-
-        # Broadcast 1D k-vectors to a 3D grid
-        xrep_3d = np.repeat(np.repeat(xrep[:, None, None], self.nbinsy, axis=1), self.nbinsz, axis=2)
-        yrep_3d = np.repeat(np.repeat(yrep[None, :, None], self.nbinsx, axis=0), self.nbinsz, axis=2)
-        zrep_3d = np.repeat(np.repeat(zrep[None, None, :], self.nbinsx, axis=0), self.nbinsy, axis=1)
-
-        return xrep_3d * xrep_3d + yrep_3d * yrep_3d + zrep_3d * zrep_3d
+        m1 = np.fft.fftfreq(self.nbinsx, d=1.0 / self.nbinsx)
+        m2 = np.fft.fftfreq(self.nbinsy, d=1.0 / self.nbinsy)
+        m3 = np.fft.fftfreq(self.nbinsz, d=1.0 / self.nbinsz)
+        M1, M2, M3 = np.meshgrid(m1, m2, m3, indexing='ij')
+        m_stack = np.stack([M1, M2, M3], axis=-1)
+        M_inv_T = self.cell_inverse.T
+        k_vectors = 2 * np.pi * np.einsum('ab,ijkb->ijka', M_inv_T, m_stack)
+        ksquared = np.sum(k_vectors ** 2, axis=-1)
+        return k_vectors, ksquared
 
     def write_to_cube(
         self,
