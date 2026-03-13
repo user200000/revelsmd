@@ -194,7 +194,6 @@ class TestDensityGridResolution:
         for nbins in [20, 50, 100]:
             gs = DensityGrid(ts, 'number', nbins=nbins)
             gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
-    
 
             assert gs.rho_force.shape == (nbins, nbins, nbins)
             assert np.all(np.isfinite(gs.rho_force))
@@ -208,7 +207,6 @@ class TestDensityGridResolution:
         for nbins in [20, 40]:
             gs = DensityGrid(ts, 'number', nbins=nbins)
             gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
-    
 
             # Calculate voxel volume and integrate
             voxel_vol = (ts.box_x / nbins) * (ts.box_y / nbins) * (ts.box_z / nbins)

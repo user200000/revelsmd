@@ -173,7 +173,6 @@ class TestVASPPhysicalProperties:
 
         try:
             gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
-    
         except Exception:
             pytest.skip("Could not compute density")
 
