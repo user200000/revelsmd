@@ -247,8 +247,6 @@ class RDF:
         """
         Compute g(r) from accumulated data.
 
-        Mirrors DensityGrid.get_real_density() pattern.
-
         Parameters
         ----------
         integration : {'forward', 'backward', 'lambda'}

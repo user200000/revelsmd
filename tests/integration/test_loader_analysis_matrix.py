@@ -77,7 +77,7 @@ class TestNumpyAnalysisMatrix:
         gs.accumulate(
             uniform_gas_trajectory, '1', kernel='triangular', rigid=False
         )
-        gs.get_real_density()
+
 
         assert hasattr(gs, 'rho_force')
         assert np.all(np.isfinite(gs.rho_force))

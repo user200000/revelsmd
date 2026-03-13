@@ -203,7 +203,7 @@ def plot_single_atom_density():
     Expected: Peak at atom location (5, 5, 5)
     """
     from revelsMD.trajectories import NumpyTrajectory
-    from revelsMD.revels_3D import Revels3D
+    from revelsMD.density import DensityGrid
 
     print("\n=== Single Atom Density ===")
 
@@ -220,15 +220,14 @@ def plot_single_atom_density():
     ts = NumpyTrajectory(positions, forces, box, box, box, species, units='lj', temperature=1.0)
 
     nbins = 20
-    gs = Revels3D.GridState(ts, 'number', nbins=nbins, temperature=1.0)
+    gs = DensityGrid(ts, 'number', nbins=nbins)
     gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-    gs.get_real_density()
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
 
     # XY slice at z=10 (centre)
     ax = axes[0]
-    im = ax.imshow(gs.rho[:, :, nbins//2].T, origin='lower', extent=[0, box, 0, box])
+    im = ax.imshow(gs.rho_force[:, :, nbins//2].T, origin='lower', extent=[0, box, 0, box])
     ax.plot(5, 5, 'rx', markersize=15, markeredgewidth=3, label='Atom position')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
@@ -238,7 +237,7 @@ def plot_single_atom_density():
 
     # XZ slice at y=10
     ax = axes[1]
-    im = ax.imshow(gs.rho[:, nbins//2, :].T, origin='lower', extent=[0, box, 0, box])
+    im = ax.imshow(gs.rho_force[:, nbins//2, :].T, origin='lower', extent=[0, box, 0, box])
     ax.plot(5, 5, 'rx', markersize=15, markeredgewidth=3, label='Atom position')
     ax.set_xlabel('x')
     ax.set_ylabel('z')
@@ -248,7 +247,7 @@ def plot_single_atom_density():
 
     # YZ slice at x=10
     ax = axes[2]
-    im = ax.imshow(gs.rho[nbins//2, :, :].T, origin='lower', extent=[0, box, 0, box])
+    im = ax.imshow(gs.rho_force[nbins//2, :, :].T, origin='lower', extent=[0, box, 0, box])
     ax.plot(5, 5, 'rx', markersize=15, markeredgewidth=3, label='Atom position')
     ax.set_xlabel('y')
     ax.set_ylabel('z')
@@ -262,7 +261,7 @@ def plot_single_atom_density():
     plt.close()
     print(f"  Saved: single_atom_density.png")
 
-    max_idx = np.unravel_index(np.argmax(gs.rho), gs.rho.shape)
+    max_idx = np.unravel_index(np.argmax(gs.rho_force), gs.rho_force.shape)
     max_pos = [(idx + 0.5) * box / nbins for idx in max_idx]
     print(f"  Maximum density at bin {max_idx} = position ~{[f'{p:.1f}' for p in max_pos]} (expected 5,5,5)")
 
@@ -274,7 +273,7 @@ def plot_uniform_density():
     Expected: Relatively flat density field
     """
     from revelsMD.trajectories import NumpyTrajectory
-    from revelsMD.revels_3D import Revels3D
+    from revelsMD.density import DensityGrid
 
     print("\n=== Uniform Gas Density ===")
 
@@ -290,15 +289,14 @@ def plot_uniform_density():
     ts = NumpyTrajectory(positions, forces, box, box, box, species, units='lj', temperature=1.0)
 
     nbins = 20
-    gs = Revels3D.GridState(ts, 'number', nbins=nbins, temperature=1.0)
+    gs = DensityGrid(ts, 'number', nbins=nbins)
     gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-    gs.get_real_density()
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
     # XY slice
     ax = axes[0]
-    im = ax.imshow(gs.rho[:, :, nbins//2].T, origin='lower', extent=[0, box, 0, box])
+    im = ax.imshow(gs.rho_force[:, :, nbins//2].T, origin='lower', extent=[0, box, 0, box])
     ax.set_xlabel('x')
     ax.set_ylabel('y')
     ax.set_title('XY slice at z=5')
@@ -306,8 +304,8 @@ def plot_uniform_density():
 
     # Histogram of density values
     ax = axes[1]
-    ax.hist(gs.rho.flatten(), bins=50, density=True, alpha=0.7)
-    ax.axvline(x=np.mean(gs.rho), color='r', linestyle='--', label=f'Mean={np.mean(gs.rho):.3f}')
+    ax.hist(gs.rho_force.flatten(), bins=50, density=True, alpha=0.7)
+    ax.axvline(x=np.mean(gs.rho_force), color='r', linestyle='--', label=f'Mean={np.mean(gs.rho_force):.3f}')
     ax.set_xlabel('Density')
     ax.set_ylabel('Frequency')
     ax.set_title('Density Distribution (should be narrow for uniform gas)')
@@ -318,8 +316,8 @@ def plot_uniform_density():
     plt.savefig(OUTPUT_DIR / 'uniform_gas_density.png', dpi=150)
     plt.close()
     print(f"  Saved: uniform_gas_density.png")
-    print(f"  Mean density: {np.mean(gs.rho):.4f}, Std: {np.std(gs.rho):.4f}")
-    print(f"  CV (std/mean): {np.std(gs.rho)/np.mean(gs.rho):.3f} (lower is more uniform)")
+    print(f"  Mean density: {np.mean(gs.rho_force):.4f}, Std: {np.std(gs.rho_force):.4f}")
+    print(f"  CV (std/mean): {np.std(gs.rho_force)/np.mean(gs.rho_force):.3f} (lower is more uniform)")
 
 
 def plot_lj_rdf():

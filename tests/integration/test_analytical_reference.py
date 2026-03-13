@@ -2,7 +2,7 @@
 Analytical reference tests for RevelsMD.
 
 These tests validate numerical correctness against mathematically known results
-using synthetic NumpyTrajectoryState data. They require no external data files.
+using synthetic NumpyTrajectory data. They require no external data files.
 """
 
 import pytest
@@ -170,7 +170,7 @@ class TestDensityAnalyticalReference:
         # Note: count may be frames-1 due to stop=-1 handling in API
         assert gs.count > 0
 
-        gs.get_real_density()
+
 
         assert hasattr(gs, 'rho_force')
         assert gs.rho_force.shape == (20, 20, 20)
@@ -196,7 +196,7 @@ class TestDensityAnalyticalReference:
 
         gs = DensityGrid(ts, 'number', nbins=20)
         gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-        gs.get_real_density()
+
 
         assert hasattr(gs, 'rho_force')
         assert np.all(np.isfinite(gs.rho_force))
@@ -222,7 +222,7 @@ class TestDensityAnalyticalReference:
 
         gs = DensityGrid(ts, 'number', nbins=20)
         gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-        gs.get_real_density()
+
 
         # Calculate voxel volume
         voxel_vol = (ts.box_x / 20) * (ts.box_y / 20) * (ts.box_z / 20)

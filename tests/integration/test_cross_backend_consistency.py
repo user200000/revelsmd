@@ -3,7 +3,7 @@ Cross-backend consistency tests for RevelsMD.
 
 These tests verify that the same trajectory data loaded through different
 backends produces identical (or very similar) analysis results. This helps
-ensure that the different TrajectoryState implementations are consistent.
+ensure that the different Trajectory implementations are consistent.
 
 Tests include:
 - LAMMPS vs NumPy (same data, different loaders)
@@ -78,14 +78,14 @@ class TestLammpsVsNumpyConsistency:
             lammps_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
         )
-        gs_lammps.get_real_density()
+
 
         gs_numpy = DensityGrid(numpy_ts, 'number', nbins=30)
         gs_numpy.accumulate(
             numpy_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
         )
-        gs_numpy.get_real_density()
+
 
         # Results should be very close (small numerical differences expected
         # due to different frame iteration methods between LAMMPS/NumPy backends)
@@ -170,7 +170,7 @@ class TestGridResolutionConsistency:
         for nbins in [20, 40, 60]:
             gs = DensityGrid(ts, 'number', nbins=nbins)
             gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-            gs.get_real_density()
+
 
             densities.append(np.mean(gs.rho_force))
 
@@ -197,12 +197,12 @@ class TestKernelConsistency:
         # Triangular kernel
         gs_tri = DensityGrid(ts, 'number', nbins=30)
         gs_tri.accumulate(ts, '1', kernel='triangular', rigid=False)
-        gs_tri.get_real_density()
+
 
         # Box kernel
         gs_box = DensityGrid(ts, 'number', nbins=30)
         gs_box.accumulate(ts, '1', kernel='box', rigid=False)
-        gs_box.get_real_density()
+
 
         mean_tri = np.mean(gs_tri.rho_force)
         mean_box = np.mean(gs_box.rho_force)

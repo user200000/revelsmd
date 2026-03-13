@@ -212,7 +212,7 @@ class TestMinimumImage:
         """Results must match the original ceil-based formula exactly."""
         from revelsMD.rdf.rdf_helpers import apply_minimum_image
 
-        # Original formula from revels_rdf.py:
+        # Original formula:
         # rx -= (np.ceil((np.abs(rx) - box_x / 2) / box_x)) * (box_x) * np.sign(rx)
 
         np.random.seed(42)
@@ -574,7 +574,7 @@ class TestComparisonWithOriginal:
         bins = np.arange(0, 5, 0.1)
         n_bins = len(bins)
 
-        # --- Original implementation (from revels_rdf.py lines 91-134) ---
+        # --- Reference implementation (like-pair RDF) ---
         rx = np.zeros((ns, ns))
         ry = np.zeros((ns, ns))
         rz = np.zeros((ns, ns))
@@ -656,7 +656,7 @@ class TestComparisonWithOriginal:
         bins = np.arange(0, 4, 0.1)
         n_bins = len(bins)
 
-        # --- Original implementation (from revels_rdf.py lines 187-227) ---
+        # --- Reference implementation (unlike-pair RDF) ---
         rx = np.zeros((n2, n1))
         ry = np.zeros((n2, n1))
         rz = np.zeros((n2, n1))

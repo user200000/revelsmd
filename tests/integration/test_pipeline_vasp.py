@@ -2,7 +2,7 @@
 Pipeline integration tests for VASP trajectories (Example 3).
 
 These tests exercise the VASP workflow using BaSnF4 solid electrolyte data:
-- VaspTrajectoryState loading from vasprun.xml
+- VaspTrajectory loading from vasprun.xml
 - 3D number density for fluoride ions
 - RDF calculations for ionic species
 """
@@ -85,7 +85,7 @@ class TestVASPPipelineExample3:
 
         assert gs.count > 0  # Data has been accumulated
 
-        gs.get_real_density()
+
 
         assert hasattr(gs, 'rho_force')
         assert gs.rho_force.shape == (50, 50, 50)
@@ -130,13 +130,12 @@ class TestVASPPipelineExample3:
         ts = vasp_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=30)
-        gs.accumulate(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
-        gs.get_real_density()
+        gs.accumulate(
+            ts, 'F', kernel='triangular', rigid=False,
+            start=0, stop=10, compute_lambda=True, sections=5,
+        )
 
-        # Use 5 sections for variance estimation with 10 frames
-        gs.get_lambda(ts, sections=5)
-
-        assert gs.rho_lambda is not None  # Lambda was computed
+        assert gs.rho_lambda is not None
         assert np.all(np.isfinite(gs.rho_lambda))
 
 
@@ -174,7 +173,6 @@ class TestVASPPhysicalProperties:
 
         try:
             gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
-            gs.get_real_density()
         except Exception:
             pytest.skip("Could not compute density")
 
@@ -253,7 +251,7 @@ class TestVASPSyntheticFallback:
 
         gs = DensityGrid(ts, 'number', nbins=20)
         gs.accumulate(ts, 'F', kernel='triangular', rigid=False)
-        gs.get_real_density()
+
 
         assert hasattr(gs, 'rho_force')
         assert np.all(np.isfinite(gs.rho_force))

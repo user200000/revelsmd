@@ -5,7 +5,5 @@ API Reference
    :maxdepth: 2
    :caption: API documentation
 
-   revelsMD.revels_3D
-   revelsMD.revels_rdf
    revelsMD.trajectory_states
    revelsMD.revels_tools

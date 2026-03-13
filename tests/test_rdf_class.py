@@ -145,48 +145,8 @@ class TestRDFClassAPI:
         assert rdf.g is not None
 
 
-class TestRDFResultsMatchLegacy:
-    """Verify new class produces same results as legacy functions."""
-
-    def test_forward_matches_run_rdf_from_zero(self, water_trajectory):
-        from revelsMD.rdf import RDF
-        from revelsMD.revels_rdf import run_rdf
-
-        legacy_result = run_rdf(water_trajectory, 'O', 'H', from_zero=True)
-
-        rdf = RDF(water_trajectory, 'O', 'H')
-        rdf.accumulate(water_trajectory)
-        rdf.get_rdf(integration='forward')
-
-        np.testing.assert_allclose(rdf.r, legacy_result[0])
-        np.testing.assert_allclose(rdf.g, legacy_result[1])
-
-    def test_backward_matches_run_rdf_from_inf(self, water_trajectory):
-        from revelsMD.rdf import RDF
-        from revelsMD.revels_rdf import run_rdf
-
-        legacy_result = run_rdf(water_trajectory, 'O', 'H', from_zero=False)
-
-        rdf = RDF(water_trajectory, 'O', 'H')
-        rdf.accumulate(water_trajectory)
-        rdf.get_rdf(integration='backward')
-
-        np.testing.assert_allclose(rdf.r, legacy_result[0])
-        np.testing.assert_allclose(rdf.g, legacy_result[1])
-
-    def test_lambda_matches_run_rdf_lambda(self, water_trajectory):
-        from revelsMD.rdf import RDF
-        from revelsMD.revels_rdf import run_rdf_lambda
-
-        legacy_result = run_rdf_lambda(water_trajectory, 'O', 'H')
-
-        rdf = RDF(water_trajectory, 'O', 'H')
-        rdf.accumulate(water_trajectory)
-        rdf.get_rdf(integration='lambda')
-
-        np.testing.assert_allclose(rdf.r, legacy_result[:, 0])
-        np.testing.assert_allclose(rdf.g, legacy_result[:, 1])
-        np.testing.assert_allclose(rdf.lam, legacy_result[:, 2])
+class TestRDFDepositMatchesAccumulate:
+    """Verify deposit-based iteration matches accumulate convenience method."""
 
     def test_deposit_matches_accumulate(self, water_trajectory):
         """Verify deposit-based iteration matches accumulate convenience method."""

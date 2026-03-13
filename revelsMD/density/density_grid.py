@@ -147,37 +147,17 @@ class DensityGrid:
 
     @property
     def rho_lambda(self) -> np.ndarray | None:
-        """Variance-minimised density (available after get_lambda or compute_lambda)."""
+        """Variance-minimised density (available after accumulate with compute_lambda)."""
         if self._rho_lambda is None and self._welford is not None:
             self._finalise_lambda()
         return self._rho_lambda
 
     @property
     def lambda_weights(self) -> np.ndarray | None:
-        """Per-voxel lambda weights (available after get_lambda or compute_lambda)."""
+        """Per-voxel lambda weights (available after accumulate with compute_lambda)."""
         if self._lambda_weights is None and self._welford is not None:
             self._finalise_lambda()
         return self._lambda_weights
-
-    @property
-    def optimal_density(self) -> np.ndarray | None:
-        """Deprecated: use rho_lambda instead."""
-        warnings.warn(
-            "optimal_density is deprecated, use rho_lambda instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.rho_lambda
-
-    @property
-    def combination(self) -> np.ndarray | None:
-        """Deprecated: use lambda_weights instead."""
-        warnings.warn(
-            "combination is deprecated, use lambda_weights instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.lambda_weights
 
     def rho_hybrid(self, threshold: float) -> np.ndarray:
         """Threshold-switched density combining force and count estimators.
@@ -377,7 +357,7 @@ class DensityGrid:
         sections : int or None, optional
             Number of sections for lambda estimation. Only used when
             compute_lambda=True. If None, defaults to one section per frame
-            (matching the original get_lambda behaviour). At least 2 sections
+            (one section per frame). At least 2 sections
             are required across all ``accumulate()`` calls for variance
             estimation; accessing ``rho_lambda`` with fewer raises ValueError.
 
@@ -480,7 +460,7 @@ class DensityGrid:
             # Sectioned accumulation with lambda statistics
             if sections is not None and sections <= 0:
                 raise ValueError("sections must be a positive integer")
-            # Default to one section per frame (matches original get_lambda behaviour)
+            # Default to one section per frame
             effective_sections = sections if sections is not None else len(self.to_run)
             if effective_sections > len(self.to_run):
                 raise ValueError(
@@ -804,33 +784,6 @@ class DensityGrid:
             self._lambda_weights,
         )
 
-    def get_real_density(self) -> None:
-        """
-        Convert accumulated force field to real-space density via FFT.
-
-        .. deprecated::
-            Densities are now computed on demand. Access ``rho_force`` or
-            ``rho_count`` directly instead of calling this method.
-
-        Notes
-        -----
-        Implements (Borgis et al., *Mol. Phys.* **111**, 3486-3492 (2013)):
-        delta_rho(k) = i / (k_B T k^2) * k . F(k), with delta_rho(k=0) := 0,
-        then rho(r) = <rho_count(r)> + F^-1[delta_rho(k)].
-
-        Side Effects
-        ------------
-        Sets `self.del_rho_k`, `self.del_rho_n`, `self.rho_count`, `self.rho_force`.
-        """
-        warnings.warn(
-            "get_real_density() is deprecated and will be removed in a future version. "
-            "Access grid.rho_force or grid.rho_count directly; "
-            "densities are now computed on demand.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self._compute_real_densities()
-
     def _compute_real_densities(self) -> None:
         """Internal: compute rho_force and rho_count from accumulators via FFT."""
         if self.count == 0:
@@ -908,60 +861,6 @@ class DensityGrid:
         with open(filename, "w") as f:
             write_cube(f, atoms, data=grid)
 
-    def get_lambda(self, trajectory: Trajectory, sections: int | None = None) -> None:
-        """
-        Compute optimal lambda(r) to combine counting and force densities.
-
-        .. deprecated::
-            Use ``accumulate(..., compute_lambda=True)`` instead. This method
-            re-reads the trajectory, whereas the new approach collects statistics
-            during accumulation (significantly faster, supports multiple trajectories).
-
-        Parameters
-        ----------
-        trajectory : Trajectory
-            Trajectory-state providing per-frame positions and forces.
-        sections : int, optional
-            Number of interleaved frame-subsets used to accumulate covariance
-            buffers. If None, defaults to `trajectory.frames`. Must be >= 2
-            for variance estimation (a ValueError is raised otherwise).
-
-        Raises
-        ------
-        RuntimeError
-            If called before `accumulate`.
-        """
-        warnings.warn(
-            "get_lambda() is deprecated. Use accumulate(..., compute_lambda=True) instead: "
-            "grid.accumulate(traj, atom_names, compute_lambda=True)",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if self.count == 0:
-            raise RuntimeError("Run accumulate() before estimating lambda.")
-
-        if sections is None:
-            sections = trajectory.frames
-
-        if sections > len(self.to_run):
-            raise ValueError(
-                f"sections ({sections}) exceeds the number of frames "
-                f"to process ({len(self.to_run)})"
-            )
-
-        # Reset accumulators and re-accumulate with lambda statistics.
-        self.force_x.fill(0)
-        self.force_y.fill(0)
-        self.force_z.fill(0)
-        self.counter.fill(0)
-        self.count = 0
-        self._welford = None
-        self._invalidate_derived_state()
-
-        self._accumulate_with_sections(trajectory, sections)
-        self._finalise_lambda()
-
-
 def compute_density(
     trajectory: Trajectory,
     atom_names: str | list[str],
@@ -977,7 +876,6 @@ def compute_density(
     period: int = 1,
     compute_lambda: bool = False,
     sections: int | None = None,
-    integration: str | None = None,  # Deprecated
 ) -> DensityGrid:
     """
     Compute density from trajectory with a single function call.
@@ -1018,10 +916,6 @@ def compute_density(
     sections : int or None, optional
         Number of sections for lambda estimation. Only used when
         compute_lambda=True. If None, defaults to one section per frame.
-    integration : str, optional
-        .. deprecated::
-            Use ``compute_lambda=True`` instead of ``integration='lambda'``.
-
     Returns
     -------
     DensityGrid
@@ -1055,19 +949,6 @@ def compute_density(
     >>> grid = compute_density(trajectory, 'O', compute_lambda=True)
     >>> density = grid.rho_lambda
     """
-    # Handle deprecated integration parameter
-    if integration is not None:
-        warnings.warn(
-            "integration parameter is deprecated. Use compute_lambda=True instead: "
-            "compute_density(..., compute_lambda=True)",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if integration == "lambda":
-            compute_lambda = True
-        elif integration != "standard":
-            raise ValueError(f"integration must be 'standard' or 'lambda', got '{integration}'")
-
     grid = DensityGrid(trajectory, density_type, nbins=nbins)
     grid.accumulate(
         trajectory,

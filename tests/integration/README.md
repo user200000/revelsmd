@@ -76,26 +76,6 @@ python scripts/generate_reference_data.py
 
 ## Known Issues
 
-### MDA RDF Bug (revels_rdf.py:331)
-
-**Status**: Documented, not fixed
-
-`RevelsRDF.run_rdf()` fails with MDA trajectories due to incorrect attribute access:
-```python
-# Current (broken):
-TS.mdanalysis_universe.trajectory.atoms.positions
-
-# Should be:
-TS.mdanalysis_universe.atoms.positions
-```
-
-**Workaround**: Use `run_rdf_lambda()` which has the correct implementation.
-
-**Affected tests**: Marked with `@pytest.mark.xfail`
-- `TestMDAAnalysisMatrix::test_rdf_like`
-- `TestMDAAnalysisMatrix::test_rdf_unlike`
-- `TestMDAVsNumpyConsistency::test_rdf_identical`
-
 ### Non-Pythonic stop=-1 Handling
 
 **Status**: Documented, fix planned in ABC PR
@@ -132,7 +112,7 @@ When using `rigid=True` mode with species that have unequal atom counts, the tri
 
 ## Adding New Tests
 
-1. **Analytical tests**: Add to `test_analytical_reference.py` using synthetic `NumpyTrajectoryState` fixtures
+1. **Analytical tests**: Add to `test_analytical_reference.py` using synthetic `NumpyTrajectory` fixtures
 2. **Loader/analysis combinations**: Add to `test_loader_analysis_matrix.py`
 3. **Regression tests**: Add computation to `scripts/generate_reference_data.py`, then add test to `test_regression.py`
 
