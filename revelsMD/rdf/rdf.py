@@ -75,14 +75,16 @@ class RDF:
         else:
             self.rmax = rmax
 
-        # Set up bins from 0 to rmax (inclusive), with spacing delr.
-        # The returned r values will exclude the first (r=0) and last bin.
-        # Use round() rather than np.arange(0, rmax+delr, delr) to avoid
-        # floating point sensitivity: inscribed_sphere_radius can introduce
-        # ~1e-14 noise that causes np.arange to produce an extra bin edge.
-        # round() is appropriate here because rmax is always expected to be
-        # a near-exact multiple of delr.
-        n_edges = int(round(self.rmax / delr)) + 1
+        # Set up bins from 0 to rmax + delr (inclusive), with spacing delr.
+        # The extra bin beyond rmax is an overflow bin: the accumulation
+        # helpers zero/skip the last bin to handle pairs at distances > rmax,
+        # so the overflow bin absorbs this rather than losing valid data.
+        # The returned r values exclude the overflow bin.
+        #
+        # Use round() rather than np.arange to avoid floating point
+        # sensitivity: inscribed_sphere_radius can introduce ~1e-14 noise
+        # that causes np.arange to produce an extra bin edge.
+        n_edges = int(round(self.rmax / delr)) + 2  # +1 fence-post, +1 overflow
         self._bins = np.arange(n_edges) * delr
 
         # Get indices and compute prefactor
@@ -330,14 +332,8 @@ class RDF:
 
         g_count = np.nan_to_num(g_count, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Trim to match self._r (excludes last bin due to boundary effect)
-        # For lambda integration, r starts at bins[1], so trim accordingly
-        if self._r is not None and len(self._r) == len(self._bins) - 2:
-            # Lambda case: r = bins[1:-1], so g_count = g_count[1:-1]
-            self._g_count = g_count[1:-1]
-        else:
-            # Standard case: r = bins[:-1], so g_count = g_count[:-1]
-            self._g_count = g_count[:-1]
+        # Exclude the overflow bin — all integration methods use r = bins[:-1]
+        self._g_count = g_count[:-1]
 
     def _compute_standard(self, integration: str) -> None:
         """Compute forward or backward integrated g(r)."""
@@ -349,7 +345,7 @@ class RDF:
         else:  # backward
             g_full = 1 - np.cumsum(scaled[::-1])[::-1]
 
-        # Exclude only the last bin (boundary effect from triangular deposition)
+        # Exclude the overflow bin — all integration methods use r = bins[:-1]
         self._r = self._bins[:-1]
         self._g = g_full[:-1]
         self._lam = None
@@ -381,15 +377,12 @@ class RDF:
         per_frame_combined = combine_estimators(base_inf_rdf, base_zero_rdf, combination)
         g_lambda = np.mean(per_frame_combined, axis=0)
 
-        # Array length tracking:
-        # - Forward/backward alignment ([:-1] and [1:]) gives n_bins - 1 elements
-        # - g_lambda therefore has length n_bins - 1
-        # - Excluding the last bin (g_lambda[:-1]) gives n_bins - 2 elements
-        # - self._r = bins[1:-1] also has length n_bins - 2 (excludes first and last)
-        # See issue #26 for discussion of the grid point loss from alignment.
-        self._r = self._bins[1:-1]
-        self._g = g_lambda[:-1]
-        self._lam = combination[:-1]
+        # The forward/backward alignment ([:-1] and [1:]) excludes r=0, where
+        # both estimators are trivially zero. Pad the result so all integration
+        # methods return the same grid: bins[:-1] = [0, delr, ..., rmax].
+        self._r = self._bins[:-1]
+        self._g = np.concatenate([[0.0], g_lambda[:-1]])
+        self._lam = np.concatenate([[0.0], combination[:-1]])
         self._compute_g_count()
 
 

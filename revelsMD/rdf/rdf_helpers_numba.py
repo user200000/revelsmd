@@ -197,7 +197,7 @@ def _accumulate_binned_contributions_numba(
         elif bin_idx >= n_bins:
             bin_idx = n_bins - 1
 
-        # Zero out last bin contributions (matching original behaviour)
+        # Zero out overflow bin contributions (beyond rmax)
         if bin_idx == n_bins - 1:
             continue
 
