@@ -9,7 +9,7 @@ block is an iterable of (positions, forces) tuples.
 """
 
 import itertools
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator, Sequence
 
 import numpy as np
 
@@ -40,18 +40,21 @@ def contiguous_blocks(
     if block_size < 1:
         raise ValueError("block_size must be >= 1")
 
-    _EXHAUSTED = object()
-    it = iter(frame_iterator)
+    Frame = tuple[np.ndarray, np.ndarray]
+
+    _EXHAUSTED: object = object()
+    it: Iterator[Frame] = iter(frame_iterator)
     while True:
-        first = next(it, _EXHAUSTED)
+        first: Frame | object = next(it, _EXHAUSTED)
         if first is _EXHAUSTED:
             return
-        yield itertools.chain([first], itertools.islice(it, block_size - 1))
+        # first is narrowed to Frame by the guard above; help mypy with a cast.
+        yield itertools.chain([first], itertools.islice(it, block_size - 1))  # type: ignore[list-item]
 
 
 def interleaved_blocks(
     trajectory,
-    frame_indices: Iterable[int],
+    frame_indices: Sequence[int],
     sections: int,
 ) -> Iterator[Iterator[tuple[np.ndarray, np.ndarray]]]:
     """Yield blocks of frames using an interleaved index pattern.
