@@ -237,36 +237,10 @@ class DensityGrid:
             Assignment kernel.
         """
         self.count += 1
-
-        # Bring positions to the primary image
-        homeX, homeY, homeZ = self._wrap_to_grid(positions)
-
-        # Component forces (always Cartesian)
-        fox = forces[:, 0]
-        foy = forces[:, 1]
-        foz = forces[:, 2]
-
-        # Map to voxel indices (np.digitize returns 1..len(bins)-1)
-        x = np.clip(np.digitize(homeX, self.binsx), 1, self.nbinsx)
-        y = np.clip(np.digitize(homeY, self.binsy), 1, self.nbinsy)
-        z = np.clip(np.digitize(homeZ, self.binsz), 1, self.nbinsz)
-
-        if kernel.lower() == "triangular":
-            _triangular_allocation(
-                self.force_x, self.force_y, self.force_z, self.counter,
-                x, y, z, homeX, homeY, homeZ,
-                fox, foy, foz, weight,
-                self.lx, self.ly, self.lz,
-                self.nbinsx, self.nbinsy, self.nbinsz,
-            )
-        elif kernel.lower() == "box":
-            _box_allocation(
-                self.force_x, self.force_y, self.force_z, self.counter,
-                x - 1, y - 1, z - 1,
-                fox, foy, foz, weight,
-            )
-        else:
-            raise ValueError(f"Unsupported kernel: {kernel!r}")
+        self._deposit_single_to_arrays(
+            self.force_x, self.force_y, self.force_z, self.counter,
+            positions, forces, weight, kernel,
+        )
 
     def deposit(
         self,
@@ -291,22 +265,16 @@ class DensityGrid:
         kernel : {'triangular', 'box'}
             Deposition kernel (default: 'triangular').
         """
+        self._deposit_to_arrays(
+            self.force_x, self.force_y, self.force_z, self.counter,
+            positions, forces, weights, kernel,
+        )
+        # Increment count: once per array for single species, once per
+        # sub-array for multi-species (list of arrays).
         if isinstance(positions, list):
-            if not isinstance(forces, list):
-                raise TypeError("positions and forces must both be lists or both be arrays")
-            weight_seq: Sequence[float | np.ndarray]
-            if isinstance(weights, list):
-                weight_seq = weights
-            else:
-                weight_seq = [weights] * len(positions)
-            for pos, frc, wgt in zip(positions, forces, weight_seq):
-                self._process_frame(pos, frc, weight=wgt, kernel=kernel)
+            self.count += len(positions)
         else:
-            if isinstance(forces, list):
-                raise TypeError("positions and forces must both be lists or both be arrays")
-            if isinstance(weights, list):
-                raise TypeError("weights cannot be a list when positions is a single array")
-            self._process_frame(positions, forces, weight=weights, kernel=kernel)
+            self.count += 1
 
     def accumulate(
         self,
