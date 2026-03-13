@@ -40,10 +40,11 @@ def contiguous_blocks(
     if block_size < 1:
         raise ValueError("block_size must be >= 1")
 
+    _EXHAUSTED = object()
     it = iter(frame_iterator)
     while True:
-        first = next(it, None)
-        if first is None:
+        first = next(it, _EXHAUSTED)
+        if first is _EXHAUSTED:
             return
         yield itertools.chain([first], itertools.islice(it, block_size - 1))
 
@@ -70,7 +71,8 @@ def interleaved_blocks(
     Yields
     ------
     iterator of (positions, forces)
-        One block of frames.
+        One block of frames.  Each block is a single-use generator that
+        must be fully consumed before advancing to the next.
 
     Raises
     ------
@@ -80,7 +82,7 @@ def interleaved_blocks(
     if sections < 1:
         raise ValueError("sections must be >= 1")
 
-    if not hasattr(trajectory, "get_frame"):
+    if not callable(getattr(trajectory, "get_frame", None)):
         raise ValueError(
             "Interleaved blocking requires a trajectory that supports "
             "random frame access (get_frame).  Use blocking='contiguous' "

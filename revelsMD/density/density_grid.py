@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 import numpy as np
 import scipy.fft
 from tqdm import tqdm
 from ase import Atoms
 
-from revelsMD.frame_sources import contiguous_blocks, interleaved_blocks
 from ase.io.cube import write_cube
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from revelsMD.trajectories._base import Trajectory
 from revelsMD.backends import get_fft_workers
+from revelsMD.frame_sources import contiguous_blocks, interleaved_blocks
+from revelsMD.trajectories._base import Trajectory
 from revelsMD.cell import (
     cartesian_to_fractional,
     cells_are_compatible,
@@ -464,7 +464,7 @@ class DensityGrid:
             if blocking == "interleaved":
                 blocks = interleaved_blocks(trajectory, to_run, effective_sections)
             else:
-                block_size = max(1, len(to_run) // effective_sections)
+                block_size = -(-len(to_run) // effective_sections)  # ceiling division
                 blocks = contiguous_blocks(
                     trajectory.iter_frames(start, stop, period), block_size
                 )
@@ -486,7 +486,7 @@ class DensityGrid:
 
     def _accumulate_blocks(
         self,
-        blocks,
+        blocks: Iterator[Iterator[tuple[np.ndarray, np.ndarray]]],
         kernel: str,
     ) -> None:
         """Accumulate blocks of frames while collecting lambda statistics.

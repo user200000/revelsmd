@@ -841,6 +841,34 @@ class TestBlockingParameter:
                 compute_lambda=True, sections=2, blocking="interleaved",
             )
 
+    def test_uneven_frame_section_split(self, multi_frame_trajectory):
+        """Non-divisible frames/sections produces correct Welford count."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        # 10 frames, 3 sections -> ceil(10/3) = 4 frames/block -> 3 blocks
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=3, blocking="contiguous",
+        )
+        assert gs._welford.count == 3
+
+    def test_compute_density_passes_blocking(self, multi_frame_trajectory):
+        """compute_density() passes blocking parameter through to accumulate()."""
+        from revelsMD.density import compute_density
+
+        grid_c = compute_density(
+            multi_frame_trajectory, "H", nbins=4,
+            compute_lambda=True, sections=2, blocking="contiguous",
+        )
+        grid_i = compute_density(
+            multi_frame_trajectory, "H", nbins=4,
+            compute_lambda=True, sections=2, blocking="interleaved",
+        )
+
+        # Both should have valid lambda, but different weights
+        assert grid_c.rho_lambda is not None
+        assert grid_i.rho_lambda is not None
+        assert not np.allclose(grid_c.lambda_weights, grid_i.lambda_weights)
+
 
 # ---------------------------------------------------------------------------
 # Mock trajectory for Selection tests (water molecules)
