@@ -290,8 +290,9 @@ class DensityGrid:
         stop: int | None = None,
         period: int = 1,
         compute_lambda: bool = False,
-        sections: int | None = None,
         blocking: str = "contiguous",
+        block_size: int | None = None,
+        sections: int | None = None,
     ) -> None:
         """
         Accumulate per-frame force contributions on the voxel grid.
@@ -325,23 +326,31 @@ class DensityGrid:
             accumulation using Welford's algorithm. The variance-minimised density
             will be available via grid.rho_lambda. Default is False (faster, no
             lambda overhead).
-        sections : int or None, optional
-            Number of sections for lambda estimation. Only used when
-            compute_lambda=True. If None, defaults to one section per frame.
-            At least 2 sections are required across all ``accumulate()`` calls
-            for variance estimation; accessing ``rho_lambda`` with fewer raises
-            ValueError.
         blocking : {'contiguous', 'interleaved'}, optional
-            How frames are grouped into sections for lambda estimation
+            How frames are grouped into blocks for lambda estimation
             (default: 'contiguous'). Only used when compute_lambda=True.
 
-            - ``'contiguous'``: each section is a sequential slice of frames.
+            - ``'contiguous'``: each block is a sequential slice of frames.
               Works with all trajectory backends (streaming, no random access
-              required).
+              required). Block size is controlled by ``block_size``.
             - ``'interleaved'``: section *k* gets every *k*-th frame
               (e.g. frames [0,2,4,...] and [1,3,5,...] for 2 sections).
               Requires a trajectory backend that supports random frame access
-              via ``get_frame()``.
+              via ``get_frame()``. Number of sections is controlled by
+              ``sections``.
+        block_size : int or None, optional
+            Number of frames per block for contiguous blocking. Only used when
+            blocking='contiguous' and compute_lambda=True. If None, defaults
+            to one frame per block (i.e. each frame is its own block).
+            The final block may contain fewer frames if the total is not
+            evenly divisible.
+        sections : int or None, optional
+            Number of interleaved sections for lambda estimation. Only used
+            when blocking='interleaved' and compute_lambda=True. If None,
+            defaults to one section per frame.
+            At least 2 blocks/sections are required across all
+            ``accumulate()`` calls for variance estimation; accessing
+            ``rho_lambda`` with fewer raises ValueError.
 
         Notes
         -----
@@ -450,23 +459,24 @@ class DensityGrid:
                 weights = self._selection.get_weights(positions)
                 self.deposit(deposit_positions, deposit_forces, weights, kernel=kernel)
         else:
-            # Sectioned accumulation with lambda statistics
-            if sections is not None and sections <= 0:
-                raise ValueError("sections must be a positive integer")
-            effective_sections = sections if sections is not None else len(to_run)
-            if effective_sections > len(to_run):
-                raise ValueError(
-                    f"sections ({effective_sections}) exceeds the number of frames "
-                    f"to process ({len(to_run)})"
-                )
-
-            # Build frame source based on blocking strategy
+            # Block accumulation with lambda statistics
             if blocking == "interleaved":
+                effective_sections = sections if sections is not None else len(to_run)
+                if effective_sections <= 0:
+                    raise ValueError("sections must be a positive integer")
+                if effective_sections > len(to_run):
+                    raise ValueError(
+                        f"sections ({effective_sections}) exceeds the number of "
+                        f"frames to process ({len(to_run)})"
+                    )
                 blocks = interleaved_blocks(trajectory, to_run, effective_sections)
             else:
-                block_size = -(-len(to_run) // effective_sections)  # ceiling division
+                effective_block_size = block_size if block_size is not None else 1
+                if effective_block_size <= 0:
+                    raise ValueError("block_size must be a positive integer")
                 blocks = contiguous_blocks(
-                    trajectory.iter_frames(start, stop, period), block_size
+                    trajectory.iter_frames(start, stop, period),
+                    effective_block_size,
                 )
 
             self._accumulate_blocks(blocks, kernel)
@@ -857,8 +867,9 @@ def compute_density(
     stop: int | None = None,
     period: int = 1,
     compute_lambda: bool = False,
-    sections: int | None = None,
     blocking: str = "contiguous",
+    block_size: int | None = None,
+    sections: int | None = None,
 ) -> DensityGrid:
     """
     Compute density from trajectory with a single function call.
@@ -896,11 +907,14 @@ def compute_density(
         If True, collect variance statistics for lambda estimation during
         accumulation. The variance-minimised density will be available via
         grid.rho_lambda. Default is False (faster, no lambda overhead).
-    sections : int or None, optional
-        Number of sections for lambda estimation. Only used when
-        compute_lambda=True. If None, defaults to one section per frame.
     blocking : {'contiguous', 'interleaved'}, optional
-        How frames are grouped into sections (default: 'contiguous').
+        How frames are grouped into blocks (default: 'contiguous').
+        See :meth:`DensityGrid.accumulate` for details.
+    block_size : int or None, optional
+        Number of frames per block for contiguous blocking.
+        See :meth:`DensityGrid.accumulate` for details.
+    sections : int or None, optional
+        Number of interleaved sections for lambda estimation.
         See :meth:`DensityGrid.accumulate` for details.
 
     Returns
@@ -948,8 +962,9 @@ def compute_density(
         stop=stop,
         period=period,
         compute_lambda=compute_lambda,
-        sections=sections,
         blocking=blocking,
+        block_size=block_size,
+        sections=sections,
     )
     # Densities are computed on demand when rho_force/rho_count/rho_lambda
     # properties are accessed, so no explicit computation call is needed here.
