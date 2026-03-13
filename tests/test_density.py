@@ -670,6 +670,178 @@ class TestAccumulateComputeLambda:
             )
 
 
+class TestBlockingParameter:
+    """Tests for the blocking parameter on accumulate()."""
+
+    @pytest.fixture
+    def multi_frame_trajectory(self):
+        """Create a trajectory with enough frames for sectioned lambda estimation."""
+        class MultiFrameTrajectory:
+            def __init__(self):
+                self.box_x = self.box_y = self.box_z = 10.0
+                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
+                self.units = 'real'
+                self.temperature = 300.0
+                from revelsMD.trajectories._base import compute_beta
+                self.beta = compute_beta(self.units, self.temperature)
+                self.frames = 10
+
+                np.random.seed(42)
+                self._positions = [
+                    np.random.rand(3, 3) * 10 for _ in range(self.frames)
+                ]
+                self._forces = [
+                    np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
+                ]
+
+                self._ids = {"H": np.array([0, 1, 2])}
+                self._charges = {"H": np.array([0.1, 0.1, 0.1])}
+                self._masses = {"H": np.array([1.0, 1.0, 1.0])}
+
+            def get_indices(self, atype):
+                return self._ids[atype]
+
+            def get_charges(self, atype):
+                return self._charges[atype]
+
+            def get_masses(self, atype):
+                return self._masses[atype]
+
+            def iter_frames(self, start=0, stop=None, stride=1):
+                if stop is None:
+                    stop = self.frames
+                for i in range(start, stop, stride):
+                    yield self._positions[i], self._forces[i]
+
+            def get_frame(self, index):
+                return self._positions[index], self._forces[index]
+
+        return MultiFrameTrajectory()
+
+    def test_contiguous_is_default(self, multi_frame_trajectory):
+        """Default blocking is contiguous."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5,
+        )
+
+        assert gs._welford is not None
+        assert gs._welford.count == 5
+
+    def test_interleaved_blocking(self, multi_frame_trajectory):
+        """Interleaved blocking uses get_frame() with interleaved indices."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5, blocking="interleaved",
+        )
+
+        assert gs._welford is not None
+        assert gs._welford.count == 5
+
+    def test_contiguous_and_interleaved_same_total_density(self, multi_frame_trajectory):
+        """Both blocking strategies produce the same total rho_force/rho_count."""
+        gs_contig = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_contig.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=2, blocking="contiguous",
+        )
+
+        gs_interleaved = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_interleaved.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=2, blocking="interleaved",
+        )
+
+        # Total accumulators should be identical (same frames deposited)
+        np.testing.assert_allclose(gs_contig.rho_force, gs_interleaved.rho_force)
+        np.testing.assert_allclose(gs_contig.rho_count, gs_interleaved.rho_count)
+
+    def test_contiguous_and_interleaved_different_lambda(self, multi_frame_trajectory):
+        """Different blocking strategies produce different variance estimates."""
+        gs_contig = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_contig.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=2, blocking="contiguous",
+        )
+
+        gs_interleaved = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_interleaved.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=2, blocking="interleaved",
+        )
+
+        # Lambda weights differ because the block composition is different
+        assert not np.allclose(gs_contig.lambda_weights, gs_interleaved.lambda_weights)
+
+    def test_contiguous_does_not_use_get_frame(self, multi_frame_trajectory):
+        """Contiguous blocking should only use iter_frames, not get_frame."""
+        calls = []
+        orig_get_frame = multi_frame_trajectory.get_frame
+
+        def tracking_get_frame(index):
+            calls.append(index)
+            return orig_get_frame(index)
+
+        multi_frame_trajectory.get_frame = tracking_get_frame
+
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=2, blocking="contiguous",
+        )
+
+        assert len(calls) == 0
+
+    def test_invalid_blocking_raises(self, multi_frame_trajectory):
+        """Invalid blocking value raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.raises(ValueError, match="blocking must be"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, sections=2, blocking="random",
+            )
+
+    def test_blocking_ignored_without_compute_lambda(self, multi_frame_trajectory):
+        """blocking parameter is ignored when compute_lambda=False."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        # Should not raise even with interleaved when compute_lambda=False
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            blocking="interleaved",
+        )
+        assert gs._welford is None
+
+    def test_interleaved_raises_without_get_frame(self, multi_frame_trajectory):
+        """Interleaved blocking raises if trajectory lacks get_frame()."""
+
+        class SequentialOnly:
+            """Wraps trajectory but without get_frame."""
+            def __init__(self, traj):
+                self.box_x = traj.box_x
+                self.box_y = traj.box_y
+                self.box_z = traj.box_z
+                self.cell_matrix = traj.cell_matrix
+                self.units = traj.units
+                self.temperature = traj.temperature
+                self.beta = traj.beta
+                self.frames = traj.frames
+                self.get_indices = traj.get_indices
+                self.get_charges = traj.get_charges
+                self.get_masses = traj.get_masses
+                self.iter_frames = traj.iter_frames
+
+        seq_traj = SequentialOnly(multi_frame_trajectory)
+
+        gs = DensityGrid(seq_traj, "number", nbins=4)
+        with pytest.raises(ValueError, match="random frame access"):
+            gs.accumulate(
+                seq_traj, atom_names="H",
+                compute_lambda=True, sections=2, blocking="interleaved",
+            )
+
+
 # ---------------------------------------------------------------------------
 # Mock trajectory for Selection tests (water molecules)
 # ---------------------------------------------------------------------------
