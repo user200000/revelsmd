@@ -76,26 +76,6 @@ python scripts/generate_reference_data.py
 
 ## Known Issues
 
-### MDA RDF Bug (revels_rdf.py:331)
-
-**Status**: Documented, not fixed
-
-`RevelsRDF.run_rdf()` fails with MDA trajectories due to incorrect attribute access:
-```python
-# Current (broken):
-TS.mdanalysis_universe.trajectory.atoms.positions
-
-# Should be:
-TS.mdanalysis_universe.atoms.positions
-```
-
-**Workaround**: Use `run_rdf_lambda()` which has the correct implementation.
-
-**Affected tests**: Marked with `@pytest.mark.xfail`
-- `TestMDAAnalysisMatrix::test_rdf_like`
-- `TestMDAAnalysisMatrix::test_rdf_unlike`
-- `TestMDAVsNumpyConsistency::test_rdf_identical`
-
 ### Non-Pythonic stop=-1 Handling
 
 **Status**: Documented, fix planned in ABC PR
