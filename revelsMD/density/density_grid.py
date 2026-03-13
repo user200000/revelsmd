@@ -570,6 +570,11 @@ class DensityGrid:
         if isinstance(positions, list):
             if not isinstance(forces, list):
                 raise TypeError("positions and forces must both be lists or both be arrays")
+            if len(positions) != len(forces):
+                raise ValueError(
+                    f"positions and forces lists must have the same length, "
+                    f"got {len(positions)} and {len(forces)}"
+                )
             if isinstance(weights, list):
                 for pos, frc, wgt in zip(positions, forces, weights):
                     self._deposit_single_to_arrays(
