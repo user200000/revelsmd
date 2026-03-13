@@ -390,42 +390,13 @@ def test_full_number_density_pipeline(tmp_path, ts):
     gs.accumulate(ts, atom_names="H", rigid=False)
     assert gs.count > 0  # Data has been accumulated
 
-    gs.get_real_density()
-    assert hasattr(gs, "rho_force")
+    assert gs.rho_force is not None
     assert gs.rho_force.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
 
     cube_file = tmp_path / "density.cube"
     atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
     gs.write_to_cube(atoms, gs.rho_force, cube_file)
     assert cube_file.exists()
-
-
-def test_get_lambda_basic(ts):
-    """Test basic get_lambda functionality."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    gs.accumulate(ts, atom_names="H", rigid=False)
-    # get_lambda() re-accumulates internally, so no need to call get_real_density()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        gs.get_lambda(ts, sections=2)
-    assert gs.rho_lambda is not None
-    assert gs.rho_lambda.shape == gs.rho_force.shape
-
-
-def test_get_lambda_emits_deprecation_warning(ts):
-    """get_lambda should emit a DeprecationWarning."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    gs.accumulate(ts, atom_names="H", rigid=False)
-    # get_lambda() re-accumulates internally, so no need to call get_real_density()
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        gs.get_lambda(ts, sections=2)
-
-    # Check that at least one DeprecationWarning with expected message was emitted
-    dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
-    assert dep_warnings, "Expected at least one DeprecationWarning from get_lambda"
-    assert any("compute_lambda=True" in str(warn.message) for warn in dep_warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -583,22 +554,6 @@ class TestAccumulateComputeLambda:
         _ = gs.rho_lambda
         assert gs._rho_force is not None
         assert np.any(gs._rho_force != 0)
-
-    def test_deprecated_get_lambda_uses_internal_method(
-        self, multi_frame_trajectory
-    ):
-        """Deprecated get_lambda() delegates to _accumulate_with_sections()."""
-        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
-        gs.accumulate(multi_frame_trajectory, atom_names="H")
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            gs.get_lambda(multi_frame_trajectory, sections=5)
-
-        # Verify it used the Welford accumulator internally
-        assert gs._welford is not None
-        assert gs._welford.count == 5
-        assert gs._rho_lambda is not None  # Lambda was computed
 
     def test_multi_trajectory_lambda_accumulation(self, multi_frame_trajectory):
         """Lambda statistics accumulate across multiple accumulate() calls."""
@@ -1568,47 +1523,16 @@ class TestComputeDensity:
         assert grid.rho_lambda is None
         assert grid.count > 0  # Data has been accumulated
 
-    def test_compute_density_integration_deprecated(self, trajectory_with_get_frame):
-        """integration='lambda' still works but emits DeprecationWarning."""
-        from revelsMD.density import compute_density
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            grid = compute_density(
-                trajectory_with_get_frame,
-                atom_names='O',
-                nbins=5,
-                integration='lambda',
-                sections=2,
-            )
-
-        # Check that at least one DeprecationWarning with expected message was emitted
-        assert any(
-            issubclass(warn.category, DeprecationWarning)
-            and "compute_lambda=True" in str(warn.message)
-            for warn in w
-        )
-        assert grid.rho_lambda is not None
-
-    def test_compute_density_invalid_integration(self, trajectory):
-        """Invalid integration raises ValueError."""
-        from revelsMD.density import compute_density
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            with pytest.raises(ValueError, match="integration"):
-                compute_density(trajectory, atom_names='O', nbins=5, integration='invalid')
-
 
 # ---------------------------------------------------------------------------
-# DensityGrid.get_lambda() edge case tests
+# Lambda edge case tests
 # ---------------------------------------------------------------------------
 
-class TestDensityGridGetLambdaEdgeCases:
-    """Tests for edge case handling in DensityGrid.get_lambda()."""
+class TestLambdaEdgeCases:
+    """Tests for edge case handling in lambda computation."""
 
-    def test_get_lambda_produces_finite_output(self):
-        """get_lambda produces finite combination and optimal_density values.
+    def test_lambda_produces_finite_output(self):
+        """Lambda computation produces finite values.
 
         This test verifies the fix for the zero-variance edge case bug where
         division by zero could produce NaN/Inf in the output.
@@ -1643,81 +1567,11 @@ class TestDensityGridGetLambdaEdgeCases:
 
         traj = MinimalTrajectory()
         gs = DensityGrid(traj, "number", nbins=3)
-        ss = Selection(traj, 'H', centre_location=True, rigid=False, density_type='number')
-        gs._selection = ss
-        gs.kernel = "triangular"
-        gs.to_run = list(range(traj.frames))
-
-        # Manually deposit frames
-        for positions, forces in traj.iter_frames(0, traj.frames, 1):
-            gs.deposit(
-                ss.get_positions(positions),
-                ss.get_forces(forces),
-                ss.get_weights(),
-                kernel="triangular"
-            )
-
-        gs.get_lambda(traj, sections=2)
+        gs.accumulate(traj, atom_names="H", compute_lambda=True, sections=2)
 
         # The key assertion: no NaN or Inf values
         assert np.all(np.isfinite(gs.lambda_weights)), "lambda_weights contains NaN/Inf"
         assert np.all(np.isfinite(gs.rho_lambda)), "rho_lambda contains NaN/Inf"
-
-
-# ---------------------------------------------------------------------------
-# Deprecated property alias tests
-# ---------------------------------------------------------------------------
-
-class TestDeprecatedPropertyAliases:
-    """Tests for deprecated property aliases on DensityGrid."""
-
-    def test_optimal_density_emits_deprecation_warning(self, ts):
-        """optimal_density should emit DeprecationWarning."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            _ = gs.optimal_density
-
-        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
-        assert dep_warnings, "Expected DeprecationWarning from optimal_density"
-        assert any("optimal_density" in str(warn.message) for warn in dep_warnings)
-
-    def test_combination_emits_deprecation_warning(self, ts):
-        """combination should emit DeprecationWarning."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            _ = gs.combination
-
-        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
-        assert dep_warnings, "Expected DeprecationWarning from combination"
-        assert any("combination" in str(warn.message) for warn in dep_warnings)
-
-    def test_optimal_density_returns_same_as_rho_lambda(self, ts):
-        """optimal_density should return the same value as rho_lambda."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            # Access rho_lambda first to trigger finalisation
-            rho_lambda = gs.rho_lambda
-            assert gs.optimal_density is rho_lambda
-
-    def test_combination_returns_same_as_lambda_weights(self, ts):
-        """combination should return the same value as lambda_weights."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            # Access lambda_weights first to trigger finalisation
-            lambda_weights = gs.lambda_weights
-            assert gs.combination is lambda_weights
 
 
 # ---------------------------------------------------------------------------
@@ -1731,7 +1585,6 @@ class TestWriteToCube:
         """write_to_cube creates a cube file."""
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
-        gs.get_real_density()
 
         cube_file = tmp_path / "test.cube"
         atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
@@ -1745,7 +1598,6 @@ class TestWriteToCube:
 
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
-        gs.get_real_density()
 
         structure = Structure(
             Lattice.cubic(10.0),
@@ -1762,7 +1614,6 @@ class TestWriteToCube:
         """write_to_cube with invalid path raises appropriate error."""
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
-        gs.get_real_density()
 
         atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
 
@@ -1779,7 +1630,7 @@ class TestComputeOnDemand:
 
     @pytest.mark.parametrize("attr", ["rho_force", "rho_count"])
     def test_density_computes_on_demand(self, ts, attr):
-        """rho_force/rho_count should compute automatically without calling get_real_density()."""
+        """rho_force/rho_count should compute automatically on first access."""
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
@@ -1822,33 +1673,6 @@ class TestComputeOnDemand:
         gs = DensityGrid(ts, "number", nbins=4)
 
         assert getattr(gs, attr) is None
-
-    def test_get_real_density_emits_deprecation_warning(self, ts):
-        """get_real_density() should emit a DeprecationWarning."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            gs.get_real_density()
-
-        dep_warnings = [warn for warn in w if issubclass(warn.category, DeprecationWarning)]
-        assert dep_warnings, "Expected at least one DeprecationWarning"
-        assert any("get_real_density" in str(warn.message) for warn in dep_warnings)
-
-    def test_get_real_density_still_works(self, ts):
-        """get_real_density() should still work for backward compatibility."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            gs.get_real_density()
-
-        # Should have populated the densities
-        assert gs.rho_force is not None
-        assert gs.rho_count is not None
-        assert np.any(gs.rho_force != 0)
 
     def test_rho_lambda_uses_cached_densities(self, ts):
         """rho_lambda finalisation should use cached rho_force if available."""

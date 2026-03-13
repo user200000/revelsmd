@@ -60,8 +60,8 @@ class NumpyTrajectory(Trajectory):
 
     Notes
     -----
-    This class provides a simple in-memory structure compatible with the
-    ``Revels3D`` and ``RevelsRDF`` interfaces.
+    This class provides a simple in-memory trajectory for use with
+    ``DensityGrid`` and ``RDF`` computations.
     """
 
     def __init__(

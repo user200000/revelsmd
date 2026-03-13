@@ -2,7 +2,7 @@
 Pipeline integration tests for rigid water molecules (Example 4).
 
 These tests exercise the full rigid molecule workflow using the Example 4 GROMACS data:
-- MDATrajectoryState loading from trr/tpr files
+- MDATrajectory loading from trr/tpr files
 - Number density at centre of mass
 - Polarisation density calculation
 - Cube file output
@@ -49,7 +49,7 @@ class TestRigidWaterPipelineExample4:
         """Water trajectory should have charge data."""
         ts = example4_trajectory
 
-        # MDATrajectoryState gets charges via MDAnalysis universe
+        # MDATrajectory gets charges via MDAnalysis universe
         ow_charges = ts.get_charges('Ow')
         hw1_charges = ts.get_charges('Hw1')
 
@@ -77,7 +77,7 @@ class TestRigidWaterPipelineExample4:
         assert gs.count > 0  # Data has been accumulated
         assert gs.count == 5
 
-        gs.get_real_density()
+
 
         assert hasattr(gs, 'rho_force')
         assert gs.rho_force.shape == (50, 50, 50)
@@ -95,7 +95,7 @@ class TestRigidWaterPipelineExample4:
             start=0, stop=5, period=1
         )
 
-        gs.get_real_density()
+
 
         assert hasattr(gs, 'rho_force')
         assert np.all(np.isfinite(gs.rho_force))
@@ -117,7 +117,7 @@ class TestRigidWaterPipelineExample4:
             start=0, stop=10, period=1
         )
 
-        gs.get_real_density()
+
 
         assert gs.count == 10
         assert np.all(np.isfinite(gs.rho_force))
@@ -131,7 +131,7 @@ class TestRigidWaterPipelineExample4:
             ts, ['Ow', 'Hw1', 'Hw2'],
             rigid=True, start=0, stop=3, period=1
         )
-        gs.get_real_density()
+
 
         # Create minimal ASE atoms for cube file
         from ase import Atoms
@@ -245,7 +245,7 @@ class TestRigidWaterPhysicalProperties:
             kernel='triangular', rigid=True,
             start=0, stop=5, period=1
         )
-        gs.get_real_density()
+
 
         # Check that density has spatial variation (not flat)
         # This indicates solvation structure

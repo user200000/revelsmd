@@ -122,7 +122,7 @@ class TestLammpsRegression:
             example1_trajectory, '1', kernel='triangular',
             rigid=False, start=0, stop=5
         )
-        gs.get_real_density()
+
 
         assert_arrays_close(
             gs.rho_force, ref['rho'],
@@ -169,7 +169,7 @@ class TestMDARegression:
             example4_trajectory, 'Ow', kernel='triangular',
             rigid=False, start=0, stop=5
         )
-        gs.get_real_density()
+
 
         assert_arrays_close(
             gs.rho_force, ref['rho'],
@@ -187,7 +187,7 @@ class TestMDARegression:
             example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
             rigid=True, start=0, stop=5
         )
-        gs.get_real_density()
+
 
         assert_arrays_close(
             gs.rho_force, ref['rho'],
@@ -205,7 +205,7 @@ class TestMDARegression:
             example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
             rigid=True, start=0, stop=5
         )
-        gs.get_real_density()
+
 
         assert_arrays_close(
             gs.rho_force, ref['rho'],
@@ -251,7 +251,7 @@ class TestVASPRegression:
             vasp_trajectory, 'F', kernel='triangular',
             rigid=False, start=0, stop=10
         )
-        gs.get_real_density()
+
 
         assert_arrays_close(
             gs.rho_force, ref['rho'],
@@ -301,7 +301,7 @@ class TestSyntheticRegression:
         gs.accumulate(
             uniform_gas_trajectory, '1', kernel='triangular', rigid=False
         )
-        gs.get_real_density()
+
 
         assert_arrays_close(
             gs.rho_force, ref['rho'],

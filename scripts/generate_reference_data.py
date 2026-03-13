@@ -111,7 +111,7 @@ def generate_lammps_references():
     from revelsMD.density import DensityGrid
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, '1', kernel='triangular', start=0, stop=5)
-    gs.get_real_density()
+
     np.savez(
         output_dir / "number_density.npz",
         rho=gs.rho_force,
@@ -169,7 +169,7 @@ def generate_mda_references():
     from revelsMD.density import DensityGrid
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, 'Ow', kernel='triangular', rigid=False, start=0, stop=5)
-    gs.get_real_density()
+
     np.savez(
         output_dir / "number_density_ow.npz",
         rho=gs.rho_force,
@@ -186,7 +186,7 @@ def generate_mda_references():
     gs_rigid.accumulate(
         ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
     )
-    gs_rigid.get_real_density()
+
     np.savez(
         output_dir / "number_density_rigid.npz",
         rho=gs_rigid.rho_force,
@@ -204,7 +204,7 @@ def generate_mda_references():
     gs_pol.accumulate(
         ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
     )
-    gs_pol.get_real_density()
+
     np.savez(
         output_dir / "polarisation_density.npz",
         rho=gs_pol.rho_force,
@@ -255,7 +255,7 @@ def generate_vasp_references():
     from revelsMD.density import DensityGrid
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
-    gs.get_real_density()
+
     np.savez(
         output_dir / "number_density_f.npz",
         rho=gs.rho_force,
@@ -311,7 +311,7 @@ def generate_synthetic_references():
     from revelsMD.density import DensityGrid
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-    gs.get_real_density()
+
     np.savez(
         output_dir / "uniform_gas_density.npz",
         rho=gs.rho_force,

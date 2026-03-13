@@ -132,7 +132,7 @@ When using `rigid=True` mode with species that have unequal atom counts, the tri
 
 ## Adding New Tests
 
-1. **Analytical tests**: Add to `test_analytical_reference.py` using synthetic `NumpyTrajectoryState` fixtures
+1. **Analytical tests**: Add to `test_analytical_reference.py` using synthetic `NumpyTrajectory` fixtures
 2. **Loader/analysis combinations**: Add to `test_loader_analysis_matrix.py`
 3. **Regression tests**: Add computation to `scripts/generate_reference_data.py`, then add test to `test_regression.py`
 
