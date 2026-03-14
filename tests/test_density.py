@@ -855,6 +855,52 @@ class TestBlockingParameter:
         assert gs._welford.sum_weights == 10
         assert gs.frames_processed == 10
 
+    def test_block_size_zero_raises(self, multi_frame_trajectory):
+        """block_size=0 raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.raises(ValueError, match="block_size must be"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, block_size=0,
+            )
+
+    def test_sections_zero_raises(self, multi_frame_trajectory):
+        """sections=0 raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.raises(ValueError, match="sections must be"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, sections=0, blocking="interleaved",
+            )
+
+    def test_sections_exceeds_frames_raises(self, multi_frame_trajectory):
+        """sections exceeding frame count raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.raises(ValueError, match="sections.*exceeds"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, sections=20, blocking="interleaved",
+            )
+
+    def test_sections_with_contiguous_warns(self, multi_frame_trajectory):
+        """Passing sections with contiguous blocking warns."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.warns(UserWarning, match="sections is ignored"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, block_size=2, sections=5,
+            )
+
+    def test_block_size_with_interleaved_warns(self, multi_frame_trajectory):
+        """Passing block_size with interleaved blocking warns."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.warns(UserWarning, match="block_size is ignored"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, block_size=2, sections=5,
+                blocking="interleaved",
+            )
+
     def test_compute_density_passes_blocking(self, multi_frame_trajectory):
         """compute_density() passes blocking parameter through to accumulate()."""
         from revelsMD.density import compute_density

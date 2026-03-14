@@ -41,8 +41,8 @@ class WelfordAccumulator3D:
     Examples
     --------
     >>> acc = WelfordAccumulator3D((10, 10, 10))
-    >>> for delta, rho_force in block_data:
-    ...     acc.update(delta, rho_force)
+    >>> for delta, rho_force, n_frames in block_data:
+    ...     acc.update(delta, rho_force, weight=n_frames)
     >>> variance, covariance = acc.finalise()
     """
 

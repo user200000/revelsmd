@@ -538,6 +538,18 @@ class TestWelfordAccumulator3D:
         np.testing.assert_allclose(var_u, var_w)
         np.testing.assert_allclose(cov_u, cov_w)
 
+    def test_update_rejects_zero_weight(self):
+        """update() raises ValueError for zero weight."""
+        acc = WelfordAccumulator3D((2, 2, 2))
+        with pytest.raises(ValueError, match="weight must be positive"):
+            acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)), weight=0.0)
+
+    def test_update_rejects_negative_weight(self):
+        """update() raises ValueError for negative weight."""
+        acc = WelfordAccumulator3D((2, 2, 2))
+        with pytest.raises(ValueError, match="weight must be positive"):
+            acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)), weight=-1.0)
+
     def test_finalise_returns_correct_shapes(self):
         """finalise() returns arrays matching input shape."""
         shape = (5, 6, 7)

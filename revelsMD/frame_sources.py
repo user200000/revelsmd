@@ -34,8 +34,7 @@ def contiguous_blocks(
     Yields
     ------
     iterator of (positions, forces)
-        One block of frames.  Each block must be fully consumed before
-        advancing to the next.
+        One block of frames.
     """
     if block_size < 1:
         raise ValueError("block_size must be >= 1")
