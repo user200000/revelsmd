@@ -521,8 +521,6 @@ class DensityGrid:
         block_force_z = np.zeros_like(self.force_z)
         block_counter = np.zeros_like(self.counter)
 
-        full_block_count: int | None = None
-
         for block in tqdm(blocks, desc="Accumulating blocks"):
             # Reset block accumulators
             block_force_x.fill(0)
@@ -558,15 +556,6 @@ class DensityGrid:
             self.counter += block_counter
             self.count += block_count
 
-            # The first block sets the expected size.  A smaller final
-            # block (remainder) is excluded from the Welford update so
-            # that all block means fed into the variance estimate are
-            # identically distributed.
-            if full_block_count is None:
-                full_block_count = block_count
-            if block_count < full_block_count:
-                continue
-
             # Compute block densities for Welford update
             block_rho_force, block_rho_count = self._compute_densities_from_arrays(
                 block_force_x, block_force_y, block_force_z,
@@ -574,7 +563,7 @@ class DensityGrid:
             )
             block_delta = block_rho_force - block_rho_count
 
-            self._welford.update(block_delta, block_rho_force)
+            self._welford.update(block_delta, block_rho_force, weight=block_count)
 
     def _deposit_to_arrays(
         self,

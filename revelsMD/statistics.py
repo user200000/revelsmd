@@ -55,6 +55,7 @@ class WelfordAccumulator3D:
     def __init__(self, shape: tuple[int, int, int]) -> None:
         self.shape = shape
         self.count = 0
+        self.sum_weights: float = 0.0
         self.mean_delta: NDArray[np.floating] = np.zeros(shape)
         self.mean_rho_force: NDArray[np.floating] = np.zeros(shape)
         self.M2_delta: NDArray[np.floating] = np.zeros(shape)
@@ -64,31 +65,37 @@ class WelfordAccumulator3D:
         self,
         delta: NDArray[np.floating],
         rho_force: NDArray[np.floating],
+        weight: float = 1.0,
     ) -> None:
         """
-        Add one section's densities to the running statistics.
+        Add one block's densities to the running statistics.
 
         Parameters
         ----------
         delta : ndarray
-            The difference rho_force - rho_count for this section.
+            The difference rho_force - rho_count for this block.
         rho_force : ndarray
-            The force-based density for this section.
+            The force-based density for this block.
+        weight : float, optional
+            Weight for this block (e.g. number of frames).  Blocks with
+            more frames contribute proportionally more to the mean and
+            variance estimates.  Default is 1.0 (unweighted).
         """
         self.count += 1
+        self.sum_weights += weight
 
-        # Welford update for delta mean and variance
+        # Weighted Welford update for delta mean and variance
         d_delta = delta - self.mean_delta
-        self.mean_delta += d_delta / self.count
+        self.mean_delta += d_delta * (weight / self.sum_weights)
         d_delta2 = delta - self.mean_delta  # uses updated mean
-        self.M2_delta += d_delta * d_delta2
+        self.M2_delta += weight * d_delta * d_delta2
 
         # Update mean_rho_force
         d_force = rho_force - self.mean_rho_force
-        self.mean_rho_force += d_force / self.count
+        self.mean_rho_force += d_force * (weight / self.sum_weights)
 
-        # Covariance update: dx * (y - mean_y_new)
-        self.C_delta_force += d_delta * (rho_force - self.mean_rho_force)
+        # Covariance update: w * dx * (y - mean_y_new)
+        self.C_delta_force += weight * d_delta * (rho_force - self.mean_rho_force)
 
     def finalise(
         self,
@@ -111,13 +118,14 @@ class WelfordAccumulator3D:
         if self.count < 2:
             msg = (
                 f"Need at least 2 sections for variance estimation, "
-                f"got {self.count}"
+                f"but only {self.count} have been accumulated. Use fewer "
+                f"sections or accumulate more frames."
             )
             raise ValueError(msg)
 
-        # Population variance (divide by count, not count-1)
-        variance = self.M2_delta / self.count
-        covariance = self.C_delta_force / self.count
+        # Population variance (divide by sum_weights, not count)
+        variance = self.M2_delta / self.sum_weights
+        covariance = self.C_delta_force / self.sum_weights
         return variance, covariance
 
     @property
@@ -128,6 +136,7 @@ class WelfordAccumulator3D:
     def reset(self) -> None:
         """Clear all accumulated state."""
         self.count = 0
+        self.sum_weights = 0.0
         self.mean_delta.fill(0)
         self.mean_rho_force.fill(0)
         self.M2_delta.fill(0)

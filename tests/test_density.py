@@ -842,16 +842,17 @@ class TestBlockingParameter:
                 compute_lambda=True, sections=2, blocking="interleaved",
             )
 
-    def test_remainder_block_excluded_from_welford(self, multi_frame_trajectory):
-        """Remainder block contributes to density but not Welford statistics."""
+    def test_remainder_block_included_with_lower_weight(self, multi_frame_trajectory):
+        """Remainder block contributes to Welford with proportional weight."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
-        # 10 frames, block_size=3 -> 3+3+3+1; remainder (1) excluded from Welford
+        # 10 frames, block_size=3 -> 3+3+3+1 = 4 blocks
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
             compute_lambda=True, block_size=3, blocking="contiguous",
         )
-        assert gs._welford.count == 3
-        # All 10 frames still contribute to the total density
+        assert gs._welford.count == 4
+        # Weighted: 3+3+3+1 = 10
+        assert gs._welford.sum_weights == 10
         assert gs.frames_processed == 10
 
     def test_compute_density_passes_blocking(self, multi_frame_trajectory):
