@@ -292,12 +292,12 @@ class TestWelfordAccumulator3D:
         acc = WelfordAccumulator3D((3, 4, 5))
         assert acc.shape == (3, 4, 5)
         assert acc.count == 0
-        assert acc.mean_delta.shape == (3, 4, 5)
-        assert acc.mean_rho_force.shape == (3, 4, 5)
-        assert acc.M2_delta.shape == (3, 4, 5)
-        assert acc.C_delta_force.shape == (3, 4, 5)
-        np.testing.assert_array_equal(acc.mean_delta, 0)
-        np.testing.assert_array_equal(acc.M2_delta, 0)
+        assert acc._mean_delta.shape == (3, 4, 5)
+        assert acc._mean_rho_force.shape == (3, 4, 5)
+        assert acc._M2_delta.shape == (3, 4, 5)
+        assert acc._C_delta_force.shape == (3, 4, 5)
+        np.testing.assert_array_equal(acc._mean_delta, 0)
+        np.testing.assert_array_equal(acc._M2_delta, 0)
 
     def test_has_data_false_initially(self):
         """has_data is False before any updates."""
@@ -404,7 +404,7 @@ class TestWelfordAccumulator3D:
             acc.update(d, f)
 
         expected_mean = np.ones(shape) * 2.0  # (1+2+3)/3
-        np.testing.assert_allclose(acc.mean_delta, expected_mean)
+        np.testing.assert_allclose(acc._mean_delta, expected_mean)
 
     def test_numerical_stability_large_values(self):
         """Welford remains stable with large values."""
@@ -476,10 +476,10 @@ class TestWelfordAccumulator3D:
         assert acc.count == 0
         assert acc.sum_weights == 0.0
         assert acc.has_data is False
-        np.testing.assert_array_equal(acc.mean_delta, 0)
-        np.testing.assert_array_equal(acc.mean_rho_force, 0)
-        np.testing.assert_array_equal(acc.M2_delta, 0)
-        np.testing.assert_array_equal(acc.C_delta_force, 0)
+        np.testing.assert_array_equal(acc._mean_delta, 0)
+        np.testing.assert_array_equal(acc._mean_rho_force, 0)
+        np.testing.assert_array_equal(acc._M2_delta, 0)
+        np.testing.assert_array_equal(acc._C_delta_force, 0)
 
     def test_weighted_variance_matches_numpy(self):
         """Weighted Welford variance matches numpy weighted average."""

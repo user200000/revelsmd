@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterator, Sequence
+from typing import Literal
 
 import numpy as np
 import scipy.fft
@@ -290,7 +291,7 @@ class DensityGrid:
         stop: int | None = None,
         period: int = 1,
         compute_lambda: bool = False,
-        blocking: str = "contiguous",
+        blocking: Literal["contiguous", "interleaved"] = "contiguous",
         block_size: int | None = None,
         sections: int | None = None,
     ) -> None:
@@ -762,10 +763,10 @@ class DensityGrid:
         expected_rho_force = self.rho_force
         expected_rho_count = self.rho_count
 
-        # These can't be None here - we've accumulated data (count > 0)
-        # and the properties trigger computation if needed
-        assert expected_rho_force is not None
-        assert expected_rho_count is not None
+        if expected_rho_force is None or expected_rho_count is None:
+            raise RuntimeError(
+                "rho_force/rho_count unexpectedly None after accumulation"
+            )
 
         if self._welford.count < 2:
             raise ValueError(
@@ -776,7 +777,8 @@ class DensityGrid:
         # Finalise Welford statistics
         var_buffer, cov_buffer_force = self._welford.finalise()
 
-        # Compute lambda weights: lambda = 1 - Cov(delta, rho_force) / Var(delta)
+        # compute_lambda_weights returns Cov(delta, rho_force) / Var(delta).
+        # The combination weight is 1 - that ratio.
         lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
         self._lambda_weights = 1.0 - lambda_raw
 
@@ -878,7 +880,7 @@ def compute_density(
     stop: int | None = None,
     period: int = 1,
     compute_lambda: bool = False,
-    blocking: str = "contiguous",
+    blocking: Literal["contiguous", "interleaved"] = "contiguous",
     block_size: int | None = None,
     sections: int | None = None,
 ) -> DensityGrid:

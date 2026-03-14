@@ -19,12 +19,12 @@ class WelfordAccumulator3D:
     estimation across multiple trajectories without memory explosion.
 
     For lambda estimation, we track:
-    - delta = rho_force - rho_count (per section)
-    - rho_force (per section)
+    - delta = rho_force - rho_count (per block)
+    - rho_force (per block)
 
     And compute:
-    - Var(delta) across sections
-    - Cov(delta, rho_force) across sections
+    - Var(delta) across blocks
+    - Cov(delta, rho_force) across blocks
 
     Parameters
     ----------
@@ -34,20 +34,14 @@ class WelfordAccumulator3D:
     Attributes
     ----------
     count : int
-        Number of samples (sections) accumulated.
-    mean_delta : ndarray
-        Running mean of delta across sections.
-    mean_rho_force : ndarray
-        Running mean of rho_force across sections.
-    M2_delta : ndarray
-        Sum of squared deviations for variance calculation.
-    C_delta_force : ndarray
-        Sum of cross-deviations for covariance calculation.
+        Number of blocks accumulated.
+    sum_weights : float
+        Sum of weights across all blocks.
 
     Examples
     --------
     >>> acc = WelfordAccumulator3D((10, 10, 10))
-    >>> for delta, rho_force in section_data:
+    >>> for delta, rho_force in block_data:
     ...     acc.update(delta, rho_force)
     >>> variance, covariance = acc.finalise()
     """
@@ -56,10 +50,10 @@ class WelfordAccumulator3D:
         self.shape = shape
         self.count = 0
         self.sum_weights: float = 0.0
-        self.mean_delta: NDArray[np.floating] = np.zeros(shape)
-        self.mean_rho_force: NDArray[np.floating] = np.zeros(shape)
-        self.M2_delta: NDArray[np.floating] = np.zeros(shape)
-        self.C_delta_force: NDArray[np.floating] = np.zeros(shape)
+        self._mean_delta: NDArray[np.floating] = np.zeros(shape)
+        self._mean_rho_force: NDArray[np.floating] = np.zeros(shape)
+        self._M2_delta: NDArray[np.floating] = np.zeros(shape)
+        self._C_delta_force: NDArray[np.floating] = np.zeros(shape)
 
     def update(
         self,
@@ -87,17 +81,17 @@ class WelfordAccumulator3D:
         self.sum_weights += weight
 
         # Weighted Welford update for delta mean and variance
-        d_delta = delta - self.mean_delta
-        self.mean_delta += d_delta * (weight / self.sum_weights)
-        d_delta2 = delta - self.mean_delta  # uses updated mean
-        self.M2_delta += weight * d_delta * d_delta2
+        d_delta = delta - self._mean_delta
+        self._mean_delta += d_delta * (weight / self.sum_weights)
+        d_delta2 = delta - self._mean_delta  # uses updated mean
+        self._M2_delta += weight * d_delta * d_delta2
 
-        # Update mean_rho_force
-        d_force = rho_force - self.mean_rho_force
-        self.mean_rho_force += d_force * (weight / self.sum_weights)
+        # Update _mean_rho_force
+        d_force = rho_force - self._mean_rho_force
+        self._mean_rho_force += d_force * (weight / self.sum_weights)
 
         # Covariance update: w * dx * (y - mean_y_new)
-        self.C_delta_force += weight * d_delta * (rho_force - self.mean_rho_force)
+        self._C_delta_force += weight * d_delta * (rho_force - self._mean_rho_force)
 
     def finalise(
         self,
@@ -108,7 +102,7 @@ class WelfordAccumulator3D:
         Returns
         -------
         variance : ndarray
-            Var(delta) across all sections (population variance).
+            Var(delta) across all blocks (population variance).
         covariance : ndarray
             Cov(delta, rho_force) across all blocks.
 
@@ -126,23 +120,23 @@ class WelfordAccumulator3D:
             raise ValueError(msg)
 
         # Population variance (divide by sum_weights, not count)
-        variance = self.M2_delta / self.sum_weights
-        covariance = self.C_delta_force / self.sum_weights
+        variance = self._M2_delta / self.sum_weights
+        covariance = self._C_delta_force / self.sum_weights
         return variance, covariance
 
     @property
     def has_data(self) -> bool:
-        """Return True if any sections have been accumulated."""
+        """Return True if any blocks have been accumulated."""
         return self.count > 0
 
     def reset(self) -> None:
         """Clear all accumulated state."""
         self.count = 0
         self.sum_weights = 0.0
-        self.mean_delta.fill(0)
-        self.mean_rho_force.fill(0)
-        self.M2_delta.fill(0)
-        self.C_delta_force.fill(0)
+        self._mean_delta.fill(0)
+        self._mean_rho_force.fill(0)
+        self._M2_delta.fill(0)
+        self._C_delta_force.fill(0)
 
 
 def compute_lambda_weights(
