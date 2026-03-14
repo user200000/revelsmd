@@ -13,11 +13,17 @@ from collections.abc import Iterator, Sequence
 
 import numpy as np
 
+#: A single trajectory frame: (positions, forces).
+Frame = tuple[np.ndarray, np.ndarray]
+
+#: An iterable of blocks, where each block is an iterable of frames.
+BlockSource = Iterator[Iterator[Frame]]
+
 
 def contiguous_blocks(
-    frame_iterator: Iterator[tuple[np.ndarray, np.ndarray]],
+    frame_iterator: Iterator[Frame],
     block_size: int,
-) -> Iterator[Iterator[tuple[np.ndarray, np.ndarray]]]:
+) -> BlockSource:
     """Yield contiguous blocks of frames from a sequential stream.
 
     Each block contains up to ``block_size`` frames drawn from the
@@ -48,7 +54,7 @@ def interleaved_blocks(
     trajectory,
     frame_indices: Sequence[int],
     sections: int,
-) -> Iterator[Iterator[tuple[np.ndarray, np.ndarray]]]:
+) -> BlockSource:
     """Yield blocks of frames using an interleaved index pattern.
 
     Section *k* receives frames at indices ``frame_indices[k::sections]``.

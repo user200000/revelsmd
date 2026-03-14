@@ -16,7 +16,7 @@ from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.backends import get_fft_workers
-from revelsMD.frame_sources import contiguous_blocks, interleaved_blocks
+from revelsMD.frame_sources import BlockSource, contiguous_blocks, interleaved_blocks
 from revelsMD.trajectories._base import Trajectory, normalize_bounds
 from revelsMD.cell import (
     cartesian_to_fractional,
@@ -517,7 +517,7 @@ class DensityGrid:
 
     def _accumulate_blocks(
         self,
-        blocks: Iterator[Iterator[tuple[np.ndarray, np.ndarray]]],
+        blocks: BlockSource,
         kernel: str,
         n_blocks: int | None = None,
     ) -> None:
