@@ -489,6 +489,7 @@ class DensityGrid:
                         f"frames to process ({len(to_run)})"
                     )
                 blocks = interleaved_blocks(trajectory, to_run, effective_sections)
+                n_blocks = effective_sections
             else:
                 effective_block_size = block_size if block_size is not None else 1
                 if effective_block_size <= 0:
@@ -497,8 +498,9 @@ class DensityGrid:
                     trajectory.iter_frames(start, stop, period),
                     effective_block_size,
                 )
+                n_blocks = -(-len(to_run) // effective_block_size)  # ceiling division
 
-            self._accumulate_blocks(blocks, kernel)
+            self._accumulate_blocks(blocks, kernel, n_blocks=n_blocks)
 
         self.frames_processed += len(to_run)
 
@@ -517,6 +519,7 @@ class DensityGrid:
         self,
         blocks: Iterator[Iterator[tuple[np.ndarray, np.ndarray]]],
         kernel: str,
+        n_blocks: int | None = None,
     ) -> None:
         """Accumulate blocks of frames while collecting lambda statistics.
 
@@ -540,7 +543,7 @@ class DensityGrid:
         block_force_z = np.zeros_like(self.force_z)
         block_counter = np.zeros_like(self.counter)
 
-        for block in tqdm(blocks, desc="Accumulating blocks"):
+        for block in tqdm(blocks, total=n_blocks, desc="Accumulating blocks"):
             # Reset block accumulators
             block_force_x.fill(0)
             block_force_y.fill(0)

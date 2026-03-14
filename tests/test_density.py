@@ -404,54 +404,55 @@ def test_full_number_density_pipeline(tmp_path, ts):
 # ---------------------------------------------------------------------------
 
 
+class _MultiFrameTrajectory:
+    """Trajectory mock with 10 frames, 3 atoms each, for lambda tests."""
+
+    def __init__(self):
+        self.box_x = self.box_y = self.box_z = 10.0
+        self.cell_matrix = np.diag([10.0, 10.0, 10.0])
+        self.units = 'real'
+        self.temperature = 300.0
+        from revelsMD.trajectories._base import compute_beta
+        self.beta = compute_beta(self.units, self.temperature)
+        self.frames = 10
+
+        np.random.seed(42)
+        self._positions = [
+            np.random.rand(3, 3) * 10 for _ in range(self.frames)
+        ]
+        self._forces = [
+            np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
+        ]
+
+        self._ids = {"H": np.array([0, 1, 2])}
+        self._charges = {"H": np.array([0.1, 0.1, 0.1])}
+        self._masses = {"H": np.array([1.0, 1.0, 1.0])}
+
+    def get_indices(self, atype):
+        return self._ids[atype]
+
+    def get_charges(self, atype):
+        return self._charges[atype]
+
+    def get_masses(self, atype):
+        return self._masses[atype]
+
+    def iter_frames(self, start=0, stop=None, stride=1):
+        if stop is None:
+            stop = self.frames
+        for i in range(start, stop, stride):
+            yield self._positions[i], self._forces[i]
+
+    def get_frame(self, index):
+        return self._positions[index], self._forces[index]
+
+
 class TestAccumulateComputeLambda:
     """Tests for accumulate() with compute_lambda parameter."""
 
     @pytest.fixture
     def multi_frame_trajectory(self):
-        """Create a trajectory with enough frames for sectioned lambda estimation."""
-        class MultiFrameTrajectory:
-            def __init__(self):
-                self.box_x = self.box_y = self.box_z = 10.0
-                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
-                self.units = 'real'
-                self.temperature = 300.0
-                from revelsMD.trajectories._base import compute_beta
-                self.beta = compute_beta(self.units, self.temperature)
-                self.frames = 10
-
-                # 3 atoms per frame, 10 frames
-                np.random.seed(42)
-                self._positions = [
-                    np.random.rand(3, 3) * 10 for _ in range(self.frames)
-                ]
-                self._forces = [
-                    np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
-                ]
-
-                self._ids = {"H": np.array([0, 1, 2])}
-                self._charges = {"H": np.array([0.1, 0.1, 0.1])}
-                self._masses = {"H": np.array([1.0, 1.0, 1.0])}
-
-            def get_indices(self, atype):
-                return self._ids[atype]
-
-            def get_charges(self, atype):
-                return self._charges[atype]
-
-            def get_masses(self, atype):
-                return self._masses[atype]
-
-            def iter_frames(self, start=0, stop=None, stride=1):
-                if stop is None:
-                    stop = self.frames
-                for i in range(start, stop, stride):
-                    yield self._positions[i], self._forces[i]
-
-            def get_frame(self, index):
-                return self._positions[index], self._forces[index]
-
-        return MultiFrameTrajectory()
+        return _MultiFrameTrajectory()
 
     def test_accumulate_without_compute_lambda_no_welford(self, multi_frame_trajectory):
         """accumulate() without compute_lambda does not create Welford accumulator."""
@@ -515,6 +516,22 @@ class TestAccumulateComputeLambda:
         assert gs.rho_force is not None
         # Should have non-trivial values (after finalisation)
         assert np.any(gs.rho_force != 0)
+
+    def test_compute_lambda_same_rho_as_simple(self, multi_frame_trajectory):
+        """compute_lambda=True produces the same rho_force/rho_count as False."""
+        gs_simple = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_simple.accumulate(
+            multi_frame_trajectory, atom_names="H", compute_lambda=False,
+        )
+
+        gs_lambda = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_lambda.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, block_size=2,
+        )
+
+        np.testing.assert_allclose(gs_lambda.rho_force, gs_simple.rho_force)
+        np.testing.assert_allclose(gs_lambda.rho_count, gs_simple.rho_count)
 
     def test_multiple_accumulate_calls_update_welford(self, multi_frame_trajectory):
         """Multiple accumulate() calls with compute_lambda continue building stats."""
@@ -676,48 +693,7 @@ class TestBlockingParameter:
 
     @pytest.fixture
     def multi_frame_trajectory(self):
-        """Create a trajectory with enough frames for sectioned lambda estimation."""
-        class MultiFrameTrajectory:
-            def __init__(self):
-                self.box_x = self.box_y = self.box_z = 10.0
-                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
-                self.units = 'real'
-                self.temperature = 300.0
-                from revelsMD.trajectories._base import compute_beta
-                self.beta = compute_beta(self.units, self.temperature)
-                self.frames = 10
-
-                np.random.seed(42)
-                self._positions = [
-                    np.random.rand(3, 3) * 10 for _ in range(self.frames)
-                ]
-                self._forces = [
-                    np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
-                ]
-
-                self._ids = {"H": np.array([0, 1, 2])}
-                self._charges = {"H": np.array([0.1, 0.1, 0.1])}
-                self._masses = {"H": np.array([1.0, 1.0, 1.0])}
-
-            def get_indices(self, atype):
-                return self._ids[atype]
-
-            def get_charges(self, atype):
-                return self._charges[atype]
-
-            def get_masses(self, atype):
-                return self._masses[atype]
-
-            def iter_frames(self, start=0, stop=None, stride=1):
-                if stop is None:
-                    stop = self.frames
-                for i in range(start, stop, stride):
-                    yield self._positions[i], self._forces[i]
-
-            def get_frame(self, index):
-                return self._positions[index], self._forces[index]
-
-        return MultiFrameTrajectory()
+        return _MultiFrameTrajectory()
 
     def test_contiguous_is_default(self, multi_frame_trajectory):
         """Default blocking is contiguous."""
