@@ -114,8 +114,7 @@ class WelfordAccumulator3D:
         if self.count < 2:
             msg = (
                 f"Need at least 2 blocks for variance estimation, "
-                f"but only {self.count} have been accumulated. Use a smaller "
-                f"block_size or accumulate more frames."
+                f"but only {self.count} have been accumulated."
             )
             raise ValueError(msg)
 

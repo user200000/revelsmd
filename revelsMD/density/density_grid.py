@@ -771,7 +771,8 @@ class DensityGrid:
         if self._welford.count < 2:
             raise ValueError(
                 f"Cannot compute lambda with fewer than 2 blocks (have {self._welford.count}). "
-                "Use a smaller block_size or accumulate from additional trajectories."
+                "Use a smaller block_size (contiguous) or more sections (interleaved), "
+                "or accumulate from additional trajectories."
             )
 
         # Finalise Welford statistics
