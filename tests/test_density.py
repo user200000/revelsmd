@@ -632,7 +632,7 @@ class TestAccumulateComputeLambda:
             compute_lambda=True, block_size=1, start=0, stop=1
         )
 
-        with pytest.raises(ValueError, match="fewer than 2 sections"):
+        with pytest.raises(ValueError, match="fewer than 2 blocks"):
             _ = gs.rho_lambda
 
     def test_rho_lambda_works_with_one_block_per_trajectory(

@@ -460,6 +460,22 @@ class DensityGrid:
                 self.deposit(deposit_positions, deposit_forces, weights, kernel=kernel)
         else:
             # Block accumulation with lambda statistics
+            if blocking == "contiguous" and sections is not None:
+                warnings.warn(
+                    "sections is ignored with blocking='contiguous'. "
+                    "Use block_size to control contiguous block size, or "
+                    "blocking='interleaved' to use sections.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if blocking == "interleaved" and block_size is not None:
+                warnings.warn(
+                    "block_size is ignored with blocking='interleaved'. "
+                    "Use sections to control the number of interleaved groups, "
+                    "or blocking='contiguous' to use block_size.",
+                    UserWarning,
+                    stacklevel=2,
+                )
             if blocking == "interleaved":
                 effective_sections = sections if sections is not None else len(to_run)
                 if effective_sections <= 0:
@@ -580,19 +596,14 @@ class DensityGrid:
         if isinstance(positions, list):
             if not isinstance(forces, list):
                 raise TypeError("positions and forces must both be lists or both be arrays")
-            if len(positions) != len(forces):
-                raise ValueError(
-                    f"positions and forces lists must have the same length, "
-                    f"got {len(positions)} and {len(forces)}"
-                )
             if isinstance(weights, list):
-                for pos, frc, wgt in zip(positions, forces, weights):
+                for pos, frc, wgt in zip(positions, forces, weights, strict=True):
                     self._deposit_single_to_arrays(
                         force_x, force_y, force_z, counter, pos, frc, wgt, kernel
                     )
             else:
                 scalar_weight: float | np.ndarray = weights
-                for pos, frc in zip(positions, forces):
+                for pos, frc in zip(positions, forces, strict=True):
                     self._deposit_single_to_arrays(
                         force_x, force_y, force_z, counter, pos, frc, scalar_weight, kernel
                     )
@@ -758,8 +769,8 @@ class DensityGrid:
 
         if self._welford.count < 2:
             raise ValueError(
-                f"Cannot compute lambda with fewer than 2 sections (have {self._welford.count}). "
-                "Use sections >= 2 or accumulate from additional trajectories."
+                f"Cannot compute lambda with fewer than 2 blocks (have {self._welford.count}). "
+                "Use a smaller block_size or accumulate from additional trajectories."
             )
 
         # Finalise Welford statistics

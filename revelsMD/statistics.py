@@ -81,6 +81,8 @@ class WelfordAccumulator3D:
             more frames contribute proportionally more to the mean and
             variance estimates.  Default is 1.0 (unweighted).
         """
+        if weight <= 0:
+            raise ValueError(f"weight must be positive, got {weight}")
         self.count += 1
         self.sum_weights += weight
 
@@ -108,18 +110,18 @@ class WelfordAccumulator3D:
         variance : ndarray
             Var(delta) across all sections (population variance).
         covariance : ndarray
-            Cov(delta, rho_force) across all sections.
+            Cov(delta, rho_force) across all blocks.
 
         Raises
         ------
         ValueError
-            If fewer than 2 sections have been accumulated.
+            If fewer than 2 blocks have been accumulated.
         """
         if self.count < 2:
             msg = (
-                f"Need at least 2 sections for variance estimation, "
-                f"but only {self.count} have been accumulated. Use fewer "
-                f"sections or accumulate more frames."
+                f"Need at least 2 blocks for variance estimation, "
+                f"but only {self.count} have been accumulated. Use a smaller "
+                f"block_size or accumulate more frames."
             )
             raise ValueError(msg)
 

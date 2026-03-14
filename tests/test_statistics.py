@@ -317,14 +317,14 @@ class TestWelfordAccumulator3D:
             acc.update(np.ones((2, 2, 2)) * i, np.ones((2, 2, 2)) * i)
         assert acc.count == 5
 
-    def test_finalise_raises_with_less_than_two_sections(self):
-        """finalise() requires at least 2 sections."""
+    def test_finalise_raises_with_less_than_two_blocks(self):
+        """finalise() requires at least 2 blocks."""
         acc = WelfordAccumulator3D((2, 2, 2))
-        with pytest.raises(ValueError, match="at least 2 sections"):
+        with pytest.raises(ValueError, match="at least 2 blocks"):
             acc.finalise()
 
         acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)))
-        with pytest.raises(ValueError, match="at least 2 sections"):
+        with pytest.raises(ValueError, match="at least 2 blocks"):
             acc.finalise()
 
     def test_variance_matches_numpy_simple(self):
