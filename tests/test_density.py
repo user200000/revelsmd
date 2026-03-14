@@ -842,15 +842,17 @@ class TestBlockingParameter:
                 compute_lambda=True, sections=2, blocking="interleaved",
             )
 
-    def test_remainder_block(self, multi_frame_trajectory):
-        """Non-divisible frames/block_size produces a smaller final block."""
+    def test_remainder_block_excluded_from_welford(self, multi_frame_trajectory):
+        """Remainder block contributes to density but not Welford statistics."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
-        # 10 frames, block_size=3 -> 3+3+3+1 = 4 blocks
+        # 10 frames, block_size=3 -> 3+3+3+1; remainder (1) excluded from Welford
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
             compute_lambda=True, block_size=3, blocking="contiguous",
         )
-        assert gs._welford.count == 4
+        assert gs._welford.count == 3
+        # All 10 frames still contribute to the total density
+        assert gs.frames_processed == 10
 
     def test_compute_density_passes_blocking(self, multi_frame_trajectory):
         """compute_density() passes blocking parameter through to accumulate()."""
