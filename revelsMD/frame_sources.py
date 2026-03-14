@@ -66,8 +66,8 @@ def interleaved_blocks(
     Yields
     ------
     iterator of (positions, forces)
-        One block of frames.  Each block is a single-use generator that
-        must be fully consumed before advancing to the next.
+        One block of frames.  Each block is an independent generator;
+        blocks do not share iteration state.
 
     Raises
     ------
