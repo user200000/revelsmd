@@ -18,9 +18,9 @@ class WelfordAccumulator3D:
     in a single pass, without storing all samples. This enables variance
     estimation across multiple trajectories without memory explosion.
 
-    For lambda estimation, we track:
-    - delta = rho_force - rho_count (per block)
-    - rho_force (per block)
+    Callers provide per-block values of:
+    - delta = rho_force - rho_count
+    - rho_force
 
     And compute:
     - Var(delta) across blocks
@@ -90,21 +90,21 @@ class WelfordAccumulator3D:
         d_force = rho_force - self._mean_rho_force
         self._mean_rho_force += d_force * (weight / self.sum_weights)
 
-        # Covariance update: w * dx * (y - mean_y_new)
+        # Covariance update: w * d_delta * (rho_force - mean_rho_force_new)
         self._C_delta_force += weight * d_delta * (rho_force - self._mean_rho_force)
 
     def finalise(
         self,
     ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
         """
-        Return variance and covariance arrays.
+        Return weighted population variance and covariance arrays.
 
         Returns
         -------
         variance : ndarray
-            Var(delta) across all blocks (population variance).
+            Weighted population Var(delta) across all blocks.
         covariance : ndarray
-            Cov(delta, rho_force) across all blocks.
+            Weighted population Cov(delta, rho_force) across all blocks.
 
         Raises
         ------
@@ -147,7 +147,7 @@ def compute_lambda_weights(
     """
     Compute optimal combination weights from variance and covariance.
 
-    Calculates lambda = Cov(delta, estimator) / Var(delta), with handling
+    Calculates lambda = Cov(delta, rho_force) / Var(delta), with handling
     for edge cases where variance is zero or results are non-finite.
 
     Parameters
@@ -155,7 +155,7 @@ def compute_lambda_weights(
     variance : ndarray
         Variance of the difference between estimators, Var(delta).
     covariance : ndarray
-        Covariance of delta with one of the estimators.
+        Covariance of delta with rho_force, Cov(delta, rho_force).
     zero_variance_replacement : float, default 0.0
         Value to use for lambda where variance is zero.
 

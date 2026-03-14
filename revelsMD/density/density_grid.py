@@ -784,11 +784,13 @@ class DensityGrid:
         var_buffer, cov_buffer_force = self._welford.finalise()
 
         # compute_lambda_weights returns Cov(delta, rho_force) / Var(delta).
-        # The combination weight is 1 - that ratio.
+        # The combination weight lambda = 1 - that ratio, giving:
+        #   rho_lambda = lambda * rho_count + (1 - lambda) * rho_force
+        # which is the variance-minimised linear combination of the two
+        # density estimators (see Coles et al., J. Phys. Chem. B 2021).
         lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
         self._lambda_weights = 1.0 - lambda_raw
 
-        # Compute variance-minimised density
         self._rho_lambda = combine_estimators(
             expected_rho_count,
             expected_rho_force,

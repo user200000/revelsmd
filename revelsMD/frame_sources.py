@@ -8,15 +8,21 @@ Both functions yield the same interface: an iterable of blocks, where each
 block is an iterable of (positions, forces) tuples.
 """
 
+from __future__ import annotations
+
 import itertools
 from collections.abc import Iterator, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from revelsMD.trajectories._base import Trajectory
 
 #: A single trajectory frame: (positions, forces).
 Frame = tuple[np.ndarray, np.ndarray]
 
-#: An iterable of blocks, where each block is an iterable of frames.
+#: An iterator of blocks, where each block is an iterator of frames.
 BlockSource = Iterator[Iterator[Frame]]
 
 
@@ -46,12 +52,14 @@ def contiguous_blocks(
         raise ValueError("block_size must be >= 1")
 
     it = iter(frame_iterator)
+    # Materialise each batch so that unconsumed inner iterators
+    # cannot silently lose frames from the shared stream.
     while batch := list(itertools.islice(it, block_size)):
         yield iter(batch)
 
 
 def interleaved_blocks(
-    trajectory,
+    trajectory: Trajectory,
     frame_indices: Sequence[int],
     sections: int,
 ) -> BlockSource:

@@ -11,7 +11,7 @@ from revelsMD.trajectories import (
     VaspTrajectory,
     DataUnavailableError,
 )
-from revelsMD.trajectories._base import Trajectory, compute_beta
+from revelsMD.trajectories._base import Trajectory, compute_beta, normalize_bounds
 
 
 # -----------------------------------------------------------------------------
@@ -1367,3 +1367,40 @@ class TestNumpyTrajectoryCellMatrix:
         )
         with pytest.raises(ValueError, match="[Ss]pecies list"):
             traj.get_indices("A")
+
+
+# -----------------------------------------------------------------------------
+# normalize_bounds
+# -----------------------------------------------------------------------------
+class TestNormalizeBounds:
+    """Tests for the module-level normalize_bounds function."""
+
+    def test_defaults_stop_to_n_frames(self):
+        assert normalize_bounds(10, 0, None, 1) == (0, 10, 1)
+
+    def test_negative_start(self):
+        assert normalize_bounds(10, -3, None, 1) == (7, 10, 1)
+
+    def test_negative_stop(self):
+        assert normalize_bounds(10, 0, -2, 1) == (0, 8, 1)
+
+    def test_negative_start_and_stop(self):
+        assert normalize_bounds(10, -5, -1, 1) == (5, 9, 1)
+
+    def test_start_clamped_to_n_frames(self):
+        assert normalize_bounds(10, 15, None, 1) == (10, 10, 1)
+
+    def test_stop_clamped_to_n_frames(self):
+        assert normalize_bounds(10, 0, 20, 1) == (0, 10, 1)
+
+    def test_large_negative_start_clamped_to_zero(self):
+        assert normalize_bounds(10, -100, None, 1) == (0, 10, 1)
+
+    def test_large_negative_stop_clamped_to_zero(self):
+        assert normalize_bounds(10, 0, -100, 1) == (0, 0, 1)
+
+    def test_stride_passed_through(self):
+        assert normalize_bounds(10, 0, None, 3) == (0, 10, 3)
+
+    def test_zero_frames(self):
+        assert normalize_bounds(0, 0, None, 1) == (0, 0, 1)
