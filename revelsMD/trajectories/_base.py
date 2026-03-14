@@ -14,6 +14,38 @@ import scipy.constants as constants
 from revelsMD.cell import is_orthorhombic as _is_orthorhombic_cell
 
 
+def normalize_bounds(
+    n_frames: int, start: int, stop: int | None, stride: int
+) -> tuple[int, int, int]:
+    """Normalise start/stop/stride bounds following Python slice semantics.
+
+    Parameters
+    ----------
+    n_frames : int
+        Total number of frames.
+    start : int
+        Start index (can be negative).
+    stop : int or None
+        Stop index (can be negative or None for end of trajectory).
+    stride : int
+        Step between frames.
+
+    Returns
+    -------
+    tuple of (int, int, int)
+        Normalised (start, stop, stride) suitable for use with ``range()``.
+    """
+    if stop is None:
+        stop = n_frames
+    if start < 0:
+        start = max(0, n_frames + start)
+    if stop < 0:
+        stop = max(0, n_frames + stop)
+    start = min(start, n_frames)
+    stop = min(stop, n_frames)
+    return start, stop, stride
+
+
 # Boltzmann constants in different unit systems
 _BOLTZMANN_CONSTANTS: dict[str, float] = {
     'lj': 1.0,
@@ -173,49 +205,12 @@ class Trajectory(ABC):
     def _normalize_bounds(
         self, start: int, stop: int | None, stride: int
     ) -> tuple[int, int, int]:
+        """Normalise start/stop bounds following Python slice semantics.
+
+        Delegates to the module-level :func:`normalize_bounds` using
+        ``self.frames`` as the frame count.
         """
-        Normalize start/stop bounds to handle negative indices Pythonically.
-
-        Parameters
-        ----------
-        start : int
-            Start index (can be negative).
-        stop : int or None
-            Stop index (can be negative or None for end of trajectory).
-        stride : int
-            Step between frames.
-
-        Returns
-        -------
-        tuple of (int, int, int)
-            Normalized (start, stop, stride) suitable for use with range().
-
-        Notes
-        -----
-        Follows Python slice semantics:
-        - Negative indices count from the end (e.g., -1 is the last frame)
-        - None for stop means iterate to the end
-        - Out-of-bounds indices are clamped to valid range
-        """
-        n = self.frames
-
-        # Handle None stop
-        if stop is None:
-            stop = n
-
-        # Handle negative start
-        if start < 0:
-            start = max(0, n + start)
-
-        # Handle negative stop
-        if stop < 0:
-            stop = max(0, n + stop)
-
-        # Clamp to valid range
-        start = min(start, n)
-        stop = min(stop, n)
-
-        return start, stop, stride
+        return normalize_bounds(self.frames, start, stop, stride)
 
     @staticmethod
     def _validate_orthorhombic(angles: list[float], atol: float = 1e-3) -> None:

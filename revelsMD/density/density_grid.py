@@ -17,7 +17,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.backends import get_fft_workers
 from revelsMD.frame_sources import contiguous_blocks, interleaved_blocks
-from revelsMD.trajectories._base import Trajectory
+from revelsMD.trajectories._base import Trajectory, normalize_bounds
 from revelsMD.cell import (
     cartesian_to_fractional,
     cells_are_compatible,
@@ -397,14 +397,11 @@ class DensityGrid:
             raise ValueError("Final frame index exceeds frames in trajectory.")
         self.stop = stop
 
-        # Calculate to_run for progress bar - normalize bounds for range()
-        norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
-        if stop is None:
-            norm_stop = trajectory.frames
-        elif stop < 0:
-            norm_stop = max(0, trajectory.frames + stop)
-        else:
-            norm_stop = stop
+        # Use the same bound normalisation as the trajectory base class
+        # so that to_run matches the frames iter_frames will produce.
+        norm_start, norm_stop, _ = normalize_bounds(
+            trajectory.frames, start, stop, period
+        )
         to_run = range(int(norm_start), int(norm_stop), period)
         if len(to_run) == 0:
             raise ValueError("Final frame occurs before first frame in trajectory.")
