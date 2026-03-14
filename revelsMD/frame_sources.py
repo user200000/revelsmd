@@ -40,16 +40,9 @@ def contiguous_blocks(
     if block_size < 1:
         raise ValueError("block_size must be >= 1")
 
-    Frame = tuple[np.ndarray, np.ndarray]
-
-    _EXHAUSTED: object = object()
-    it: Iterator[Frame] = iter(frame_iterator)
-    while True:
-        first: Frame | object = next(it, _EXHAUSTED)
-        if first is _EXHAUSTED:
-            return
-        # first is narrowed to Frame by the guard above; help mypy with a cast.
-        yield itertools.chain([first], itertools.islice(it, block_size - 1))  # type: ignore[list-item]
+    it = iter(frame_iterator)
+    while batch := list(itertools.islice(it, block_size)):
+        yield iter(batch)
 
 
 def interleaved_blocks(
