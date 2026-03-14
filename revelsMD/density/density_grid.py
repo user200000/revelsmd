@@ -481,6 +481,11 @@ class DensityGrid:
                 effective_sections = sections if sections is not None else len(to_run)
                 if effective_sections <= 0:
                     raise ValueError("sections must be a positive integer")
+                # Requesting more sections than frames is almost certainly a
+                # user error — fail fast rather than silently producing fewer
+                # blocks than requested.  (interleaved_blocks itself skips
+                # empty sections defensively, but that is an internal safety
+                # net, not a public contract.)
                 if effective_sections > len(to_run):
                     raise ValueError(
                         f"sections ({effective_sections}) exceeds the number of "

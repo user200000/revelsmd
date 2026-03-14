@@ -20,7 +20,7 @@ def contiguous_blocks(
 ) -> Iterator[Iterator[tuple[np.ndarray, np.ndarray]]]:
     """Yield contiguous blocks of frames from a sequential stream.
 
-    Each block lazily consumes up to ``block_size`` frames from the
+    Each block contains up to ``block_size`` frames drawn from the
     underlying iterator.  The final block may contain fewer frames if the
     stream is not evenly divisible.
 
@@ -87,5 +87,5 @@ def interleaved_blocks(
     for k in range(sections):
         section_indices = frame_indices[k::sections]
         if len(section_indices) == 0:
-            continue
+            continue  # defensive: callers should not request sections > frames
         yield (trajectory.get_frame(i) for i in section_indices)
