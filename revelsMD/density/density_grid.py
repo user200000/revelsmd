@@ -106,6 +106,10 @@ class DensityGrid:
         self._k_vectors, self._ksquared = self._build_kvectors_3d()
 
         self.beta = trajectory.beta
+        # Number of deposited arrays (used for normalisation).
+        # For single-species selections this equals the number of frames;
+        # for multi-species non-rigid selections a single frame produces
+        # one deposition per species group, so count > frames_processed.
         self.count = 0
         self.units = trajectory.units
 
@@ -682,7 +686,9 @@ class DensityGrid:
         counter : ndarray
             Accumulated particle counts on the grid.
         count : int
-            Total number of deposited samples (for normalisation).
+            Number of deposited arrays (for normalisation).  Equals the
+            number of frames for single-species selections; may be larger
+            for multi-species non-rigid selections.
 
         Returns
         -------
