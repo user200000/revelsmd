@@ -846,8 +846,9 @@ class DensityGrid:
         ksquared = np.sum(k_vectors ** 2, axis=-1)
         return k_vectors, ksquared
 
-    # Maps short density names to attribute names.  "hybrid" is handled
-    # specially (requires threshold), but is included for validation.
+    # Maps short density names to attribute names.  "force", "count", and
+    # "lambda" are properties; "hybrid" is a method (requires threshold)
+    # and is dispatched separately in write_to_cube.
     _DENSITY_NAMES = {
         "force": "rho_force",
         "count": "rho_count",
@@ -865,7 +866,7 @@ class DensityGrid:
         """Write a density grid to a Gaussian ``.cube`` file.
 
         Uses ``self.cell_matrix`` for the cell geometry.  No atomic
-        positions are written — the purpose of this method is density
+        positions are written -- the purpose of this method is density
         output, not atomic structure.
 
         Parameters

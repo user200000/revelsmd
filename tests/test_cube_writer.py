@@ -124,6 +124,22 @@ class TestWriteCube:
         assert values[1] == pytest.approx(2.0)
         assert values[12] == pytest.approx(3.0)
 
+    def test_fortran_order_array_written_correctly(self, tmp_path):
+        """Fortran-order input produces the same output as C-order."""
+        rng = np.random.default_rng(99)
+        grid_c = rng.standard_normal((3, 4, 5))
+        grid_f = np.asfortranarray(grid_c)
+        cell = np.diag([10.0, 10.0, 10.0])
+
+        path_c = tmp_path / "c_order.cube"
+        path_f = tmp_path / "f_order.cube"
+        write_cube(path_c, grid_c, cell)
+        write_cube(path_f, grid_f, cell)
+
+        header_c = _parse_cube_header(path_c)
+        header_f = _parse_cube_header(path_f)
+        np.testing.assert_allclose(header_f["data_values"], header_c["data_values"])
+
     def test_triclinic_cell(self, tmp_path):
         grid = np.ones((3, 4, 5))
         cell = np.array([

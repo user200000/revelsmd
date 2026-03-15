@@ -20,7 +20,7 @@ def write_cube(
 ) -> None:
     """Write a 3D grid to a Gaussian ``.cube`` file.
 
-    The file is written with zero atoms — this is intended for density
+    The file is written with zero atoms -- this is intended for density
     or other volumetric data, not atomic structure.
 
     Parameters
@@ -35,7 +35,9 @@ def write_cube(
     comment : str, optional
         Comment for the first line of the cube file.
     """
-    grid = np.asarray(grid)
+    # Ensure C-contiguous layout so tofile writes in the correct order
+    # (OUTER LOOP: X, MIDDLE LOOP: Y, INNER LOOP: Z).
+    grid = np.ascontiguousarray(grid)
     cell_matrix = np.asarray(cell_matrix, dtype=np.float64)
 
     if grid.ndim != 3:
@@ -61,5 +63,6 @@ def write_cube(
 
         # No atom lines (natoms = 0)
 
-        # Volumetric data
+        # Volumetric data -- C-order matches the cube header loop order
         grid.tofile(f, sep="\n", format="%e")
+        f.write("\n")
