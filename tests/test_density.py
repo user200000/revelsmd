@@ -1832,6 +1832,24 @@ class TestWriteToCube:
 
         assert cube_file.exists()
 
+    def test_write_to_cube_count(self, tmp_path, ts):
+        """write_to_cube writes counting density."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        cube_file = tmp_path / "count.cube"
+        gs.write_to_cube("count", cube_file)
+
+        assert cube_file.exists()
+
+    def test_write_to_cube_lambda_without_compute_raises(self, ts):
+        """write_to_cube raises RuntimeError with helpful message for lambda."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with pytest.raises(RuntimeError, match="compute_lambda=True"):
+            gs.write_to_cube("lambda", "test.cube")
+
 
 # ---------------------------------------------------------------------------
 # Compute-on-demand tests for rho_force / rho_count

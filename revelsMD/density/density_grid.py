@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -854,7 +856,7 @@ class DensityGrid:
     def write_to_cube(
         self,
         density: str,
-        filename: str,
+        filename: str | Path,
         *,
         threshold: float | None = None,
     ) -> None:
@@ -869,7 +871,7 @@ class DensityGrid:
         density : str
             Name of the density to write.  One of ``"force"``,
             ``"count"``, ``"lambda"``, or ``"hybrid"``.
-        filename : str
+        filename : str or Path
             Output file path.
         threshold : float, optional
             Required when *density* is ``"hybrid"``.  Passed to
@@ -898,9 +900,13 @@ class DensityGrid:
         else:
             grid = getattr(self, self._DENSITY_NAMES[density])
             if grid is None:
+                hint = (
+                    "Call accumulate() with compute_lambda=True."
+                    if density == "lambda"
+                    else "Call accumulate() first."
+                )
                 raise RuntimeError(
-                    f"{density} density has not been computed yet. "
-                    "Call accumulate() first."
+                    f"{density} density has not been computed yet. {hint}"
                 )
 
         from revelsMD.density.writers.cube import write_cube

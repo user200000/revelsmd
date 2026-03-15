@@ -137,6 +137,26 @@ def test_vasprun_forces_parsed(minimal_vasprun_xml):
     assert np.allclose(forces[0][0], [0.1, 0.0, 0.0])
 
 
+def test_structure_from_structure_data_raises_without_pymatgen(monkeypatch):
+    """Lazy import raises ImportError with install instructions if pymatgen is missing."""
+    import builtins
+    real_import = builtins.__import__
+
+    def mock_import(name, *args, **kwargs):
+        if name == "pymatgen.core":
+            raise ImportError("No module named 'pymatgen'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", mock_import)
+
+    with pytest.raises(ImportError, match="pip install revelsMD"):
+        structure_from_structure_data(
+            lattice=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            atom_names=["H"],
+            frac_coords=[[0, 0, 0]],
+        )
+
+
 def test_vasprun_raises_if_no_forces(tmp_path):
     """If there are no forces, parser should raise ValueError."""
     xml_no_forces = """

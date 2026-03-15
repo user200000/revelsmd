@@ -27,9 +27,7 @@ def _parse_cube_header(path):
         vec = [float(x) for x in parts[1:4]]
         voxels.append((n, vec))
 
-    data_start = 3 + 3 + natoms  # 2 comments + natoms line + 3 voxel lines + atom lines
-    # Actually: line 0 = comment1, line 1 = comment2, line 2 = natoms,
-    # lines 3-5 = voxels, lines 6.. = atoms then data
+    # 2 comment lines + natoms line + 3 voxel lines + atom lines
     data_start = 6 + natoms
     data_text = "".join(lines[data_start:])
     data_values = [float(x) for x in data_text.split()]
@@ -140,3 +138,17 @@ class TestWriteCube:
         header = _parse_cube_header(path)
 
         assert "test comment" in header["comment1"]
+
+    def test_2d_grid_raises(self, tmp_path):
+        grid = np.ones((3, 4))
+        cell = np.diag([10.0, 10.0, 10.0])
+
+        with pytest.raises(ValueError, match="3D array"):
+            write_cube(tmp_path / "test.cube", grid, cell)
+
+    def test_wrong_cell_matrix_shape_raises(self, tmp_path):
+        grid = np.ones((3, 4, 5))
+        cell = np.diag([10.0, 10.0])  # 2x2
+
+        with pytest.raises(ValueError, match=r"\(3, 3\)"):
+            write_cube(tmp_path / "test.cube", grid, cell)

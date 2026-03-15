@@ -38,6 +38,13 @@ def write_cube(
     grid = np.asarray(grid)
     cell_matrix = np.asarray(cell_matrix, dtype=np.float64)
 
+    if grid.ndim != 3:
+        raise ValueError(f"grid must be a 3D array, got shape {grid.shape}")
+    if cell_matrix.shape != (3, 3):
+        raise ValueError(
+            f"cell_matrix must have shape (3, 3), got {cell_matrix.shape}"
+        )
+
     with open(filename, "w") as f:
         # Two comment lines
         f.write(f"{comment}\n")
