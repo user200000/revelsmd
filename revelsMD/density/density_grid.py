@@ -879,43 +879,38 @@ class DensityGrid:
         RuntimeError
             If the requested density has not been computed yet.
         """
-        # Maps short names to property attribute names.  "hybrid" is a
-        # method (requires threshold) and is dispatched separately below.
-        density_properties = {
-            "force": "rho_force",
-            "count": "rho_count",
-            "lambda": "rho_lambda",
-        }
-        valid_densities = {*density_properties, "hybrid"}
+        match density:
+            case "force":
+                if threshold is not None:
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                grid = self.rho_force
+            case "count":
+                if threshold is not None:
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                grid = self.rho_count
+            case "lambda":
+                if threshold is not None:
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                grid = self.rho_lambda
+            case "hybrid":
+                if threshold is None:
+                    raise ValueError("threshold is required when density is 'hybrid'.")
+                grid = self.rho_hybrid(threshold)
+            case _:
+                raise ValueError(
+                    f"Unknown density {density!r}. "
+                    f"Expected one of {sorted(['count', 'force', 'hybrid', 'lambda'])}."
+                )
 
-        if density not in valid_densities:
-            raise ValueError(
-                f"Unknown density {density!r}. "
-                f"Expected one of {sorted(valid_densities)}."
+        if grid is None:
+            hint = (
+                "Call accumulate() with compute_lambda=True."
+                if density == "lambda"
+                else "Call accumulate() first."
             )
-
-        if density == "hybrid":
-            if threshold is None:
-                raise ValueError(
-                    "threshold is required when density is 'hybrid'."
-                )
-            grid = self.rho_hybrid(threshold)
-        else:
-            if threshold is not None:
-                raise ValueError(
-                    f"threshold is only valid for 'hybrid', "
-                    f"not {density!r}."
-                )
-            grid = getattr(self, density_properties[density])
-            if grid is None:
-                hint = (
-                    "Call accumulate() with compute_lambda=True."
-                    if density == "lambda"
-                    else "Call accumulate() first."
-                )
-                raise RuntimeError(
-                    f"{density} density has not been computed yet. {hint}"
-                )
+            raise RuntimeError(
+                f"{density} density has not been computed yet. {hint}"
+            )
 
         from revelsMD.density.writers.cube import write_cube
 
