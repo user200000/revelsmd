@@ -8,11 +8,7 @@ from typing import Literal
 import numpy as np
 import scipy.fft
 from tqdm import tqdm
-from ase import Atoms
 
-from ase.io.cube import write_cube
-from pymatgen.core import Structure
-from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.backends import get_fft_workers
 from revelsMD.frame_sources import BlockSource, contiguous_blocks, interleaved_blocks
@@ -850,44 +846,25 @@ class DensityGrid:
 
     def write_to_cube(
         self,
-        structure: Structure | Atoms,
         grid: np.ndarray,
         filename: str,
     ) -> None:
-        """
-        Write a 3D density grid to a Gaussian `.cube` file.
+        """Write a 3D density grid to a Gaussian ``.cube`` file.
+
+        Uses ``self.cell_matrix`` for the cell geometry.  No atomic
+        positions are written — the purpose of this method is density
+        output, not atomic structure.
 
         Parameters
         ----------
-        structure : pymatgen.Structure or ase.Atoms
-            Input structure used to define the cell geometry. Pymatgen structures
-            are automatically converted to ASE Atoms.
-        grid : np.ndarray
+        grid : numpy.ndarray
             3D grid data to write (shape: nbinsx x nbinsy x nbinsz).
         filename : str
-            Output filename.
-
-        Notes
-        -----
-        - Atom deletion occurs **after** conversion from pymatgen to ASE,
-          preserving your original intent.
+            Output file path.
         """
-        # Convert from pymatgen if needed; otherwise assume ASE Atoms
-        if isinstance(structure, Structure):
-            atoms = AseAtomsAdaptor.get_atoms(structure)
-        else:
-            atoms = structure
+        from revelsMD.density.writers.cube import write_cube
 
-        # Optional removal (e.g., to drop solute atoms from density writeout)
-        if hasattr(self, "_selection") and hasattr(self._selection, "indices") and self._selection.indices is not None:
-            try:
-                del atoms[np.array(self._selection.indices)]
-            except Exception:
-                # If selection is a list of arrays (multi-species), do nothing silently
-                pass
-
-        with open(filename, "w") as f:
-            write_cube(f, atoms, data=grid)
+        write_cube(filename, grid, self.cell_matrix)
 
 def compute_density(
     trajectory: Trajectory,

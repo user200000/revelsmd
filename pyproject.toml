@@ -24,12 +24,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-    "ase",
     "lxml",
     "MDAnalysis >=2.4.2",
     "numba",
     "numpy",
-    "pymatgen",
     "scipy >=1.9.3",
     "tqdm",
 ]
@@ -40,7 +38,8 @@ Repository = "https://github.com/user200000/revelsmd"
 
 [project.optional-dependencies]
 docs = ["recommonmark"]
-test = ["pytest", "pytest-cov", "pytest-mock", "mypy", "types-tqdm", "scipy-stubs"]
+test = ["pytest", "pytest-cov", "pytest-mock", "mypy", "types-tqdm", "scipy-stubs", "pymatgen"]
+vasp = ["pymatgen"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

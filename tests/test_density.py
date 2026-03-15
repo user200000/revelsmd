@@ -4,7 +4,6 @@ import warnings
 
 import numpy as np
 import pytest
-from ase import Atoms
 
 from revelsMD.density import DensityGrid, Selection
 
@@ -370,8 +369,7 @@ def test_full_number_density_pipeline(tmp_path, ts):
     assert gs.rho_force.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
 
     cube_file = tmp_path / "density.cube"
-    atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-    gs.write_to_cube(atoms, gs.rho_force, cube_file)
+    gs.write_to_cube(gs.rho_force, cube_file)
     assert cube_file.exists()
 
 
@@ -1789,26 +1787,7 @@ class TestWriteToCube:
         gs.accumulate(ts, atom_names="H", rigid=False)
 
         cube_file = tmp_path / "test.cube"
-        atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-        gs.write_to_cube(atoms, gs.rho_force, cube_file)
-
-        assert cube_file.exists()
-
-    def test_write_to_cube_with_pymatgen_structure(self, tmp_path, ts):
-        """write_to_cube handles pymatgen Structure input."""
-        from pymatgen.core import Structure, Lattice
-
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        structure = Structure(
-            Lattice.cubic(10.0),
-            ["H", "H"],
-            [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]
-        )
-
-        cube_file = tmp_path / "test_pymatgen.cube"
-        gs.write_to_cube(structure, gs.rho_force, cube_file)
+        gs.write_to_cube(gs.rho_force, cube_file)
 
         assert cube_file.exists()
 
@@ -1817,10 +1796,8 @@ class TestWriteToCube:
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
-        atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-
         with pytest.raises((OSError, FileNotFoundError)):
-            gs.write_to_cube(atoms, gs.rho_force, "/nonexistent/path/test.cube")
+            gs.write_to_cube(gs.rho_force, "/nonexistent/path/test.cube")
 
 
 # ---------------------------------------------------------------------------

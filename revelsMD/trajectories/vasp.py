@@ -5,13 +5,17 @@ This module provides the VaspTrajectory class for reading VASP vasprun.xml files
 along with the Vasprun parser class.
 """
 
-from typing import Any, Iterator
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Iterator
 
 import numpy as np
 from lxml import etree  # type: ignore[import-untyped]
-from pymatgen.core import Structure, Lattice
 
 from ._base import Trajectory
+
+if TYPE_CHECKING:
+    from pymatgen.core import Structure
 
 
 # -----------------------------------------------------------------------------
@@ -106,6 +110,14 @@ def structure_from_structure_data(
     pymatgen.core.Structure
         Constructed :class:`Structure` object.
     """
+    try:
+        from pymatgen.core import Structure
+    except ImportError as exc:
+        raise ImportError(
+            "pymatgen is required for VASP trajectory parsing. "
+            "Install it with: pip install revelsMD[vasp]"
+        ) from exc
+
     return Structure(lattice=lattice, species=atom_names, coords=frac_coords, coords_are_cartesian=False)
 
 

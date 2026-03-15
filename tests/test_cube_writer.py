@@ -1,0 +1,142 @@
+"""Tests for the standalone cube file writer."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from revelsMD.density.writers.cube import ANGSTROM_TO_BOHR, write_cube
+
+
+def _parse_cube_header(path):
+    """Parse a cube file header, returning (natoms, origin, voxels, data_lines)."""
+    with open(path) as f:
+        lines = f.readlines()
+
+    comment1 = lines[0]
+    comment2 = lines[1]
+
+    parts = lines[2].split()
+    natoms = int(parts[0])
+    origin = [float(x) for x in parts[1:4]]
+
+    voxels = []
+    for i in range(3):
+        parts = lines[3 + i].split()
+        n = int(parts[0])
+        vec = [float(x) for x in parts[1:4]]
+        voxels.append((n, vec))
+
+    data_start = 3 + 3 + natoms  # 2 comments + natoms line + 3 voxel lines + atom lines
+    # Actually: line 0 = comment1, line 1 = comment2, line 2 = natoms,
+    # lines 3-5 = voxels, lines 6.. = atoms then data
+    data_start = 6 + natoms
+    data_text = "".join(lines[data_start:])
+    data_values = [float(x) for x in data_text.split()]
+
+    return {
+        "comment1": comment1,
+        "comment2": comment2,
+        "natoms": natoms,
+        "origin": origin,
+        "voxels": voxels,
+        "data_values": data_values,
+    }
+
+
+class TestWriteCube:
+    """Tests for write_cube."""
+
+    def test_creates_non_empty_file(self, tmp_path):
+        grid = np.ones((3, 4, 5))
+        cell = np.diag([10.0, 10.0, 10.0])
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, cell)
+
+        assert path.exists()
+        assert path.stat().st_size > 0
+
+    def test_header_has_zero_atoms(self, tmp_path):
+        grid = np.ones((3, 4, 5))
+        cell = np.diag([10.0, 10.0, 10.0])
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, cell)
+        header = _parse_cube_header(path)
+
+        assert header["natoms"] == 0
+        assert header["origin"] == [0.0, 0.0, 0.0]
+
+    def test_voxel_vectors_correct(self, tmp_path):
+        grid = np.ones((4, 6, 8))
+        cell = np.array([
+            [12.0, 0.0, 0.0],
+            [0.0, 18.0, 0.0],
+            [0.0, 0.0, 24.0],
+        ])
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, cell)
+        header = _parse_cube_header(path)
+
+        for i, (n, vec) in enumerate(header["voxels"]):
+            expected_n = grid.shape[i]
+            expected_vec = cell[i] / expected_n * ANGSTROM_TO_BOHR
+            assert n == expected_n
+            np.testing.assert_allclose(vec, expected_vec, atol=1e-5)
+
+    def test_data_section_has_correct_count(self, tmp_path):
+        grid = np.ones((3, 4, 5))
+        cell = np.diag([10.0, 10.0, 10.0])
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, cell)
+        header = _parse_cube_header(path)
+
+        assert len(header["data_values"]) == 3 * 4 * 5
+
+    def test_data_values_roundtrip(self, tmp_path):
+        rng = np.random.default_rng(42)
+        grid = rng.standard_normal((3, 4, 5))
+        cell = np.diag([10.0, 10.0, 10.0])
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, cell)
+        header = _parse_cube_header(path)
+
+        recovered = np.array(header["data_values"]).reshape(grid.shape)
+        np.testing.assert_allclose(recovered, grid, rtol=1e-5)
+
+    def test_triclinic_cell(self, tmp_path):
+        grid = np.ones((3, 4, 5))
+        cell = np.array([
+            [10.0, 0.0, 0.0],
+            [2.0, 9.0, 0.0],
+            [1.0, 1.0, 8.0],
+        ])
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, cell)
+        header = _parse_cube_header(path)
+
+        for i, (n, vec) in enumerate(header["voxels"]):
+            expected_vec = cell[i] / n * ANGSTROM_TO_BOHR
+            np.testing.assert_allclose(vec, expected_vec, atol=1e-5)
+
+    def test_invalid_path_raises(self, tmp_path):
+        grid = np.ones((3, 4, 5))
+        cell = np.diag([10.0, 10.0, 10.0])
+
+        with pytest.raises(FileNotFoundError):
+            write_cube("/nonexistent/path/test.cube", grid, cell)
+
+    def test_custom_comment(self, tmp_path):
+        grid = np.ones((2, 2, 2))
+        cell = np.diag([5.0, 5.0, 5.0])
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, cell, comment="test comment")
+        header = _parse_cube_header(path)
+
+        assert "test comment" in header["comment1"]
