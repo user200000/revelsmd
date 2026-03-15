@@ -167,40 +167,19 @@ def test_build_kvectors_3d_triclinic():
 
 
 # ---------------------------------------------------------------------------
-# DensityGrid._process_frame: Box & Triangular kernels
+# DensityGrid.deposit: invalid kernel and triclinic cells
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("kernel", ["box", "triangular"])
-def test_process_frame_kernels(ts, kernel):
-    """_process_frame deposits positions/forces to grid using specified kernel."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    pos = np.array([[1.0, 2.0, 3.0]])
-    frc = np.array([[0.5, 0.0, 0.0]])
-    gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
-    assert np.any(gs.force_x != 0)
-    assert np.any(gs.counter != 0)
-
-
-def test_process_frame_increments_count(ts):
-    """_process_frame increments the frame count."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    assert gs.count == 0
-    gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]))
-    assert gs.count == 1
-    gs._process_frame(np.array([[2.0, 3.0, 4.0]]), np.array([[0.0, 0.5, 0.0]]))
-    assert gs.count == 2
-
-
-def test_process_frame_invalid_kernel(ts):
-    """_process_frame raises ValueError for unknown kernel."""
+def test_deposit_invalid_kernel(ts):
+    """deposit raises ValueError for unknown kernel."""
     gs = DensityGrid(ts, "number", nbins=4)
     with pytest.raises(ValueError, match="Unsupported kernel"):
-        gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), kernel="invalid")
+        gs.deposit(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), weights=1.0, kernel="invalid")
 
 
 @pytest.mark.parametrize("kernel", ["box", "triangular"])
-def test_process_frame_triclinic_deposits(kernel):
-    """_process_frame should deposit to grid for triclinic cells."""
+def test_deposit_triclinic(kernel):
+    """deposit should deposit to grid for triclinic cells."""
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
     cell = np.array([
@@ -216,15 +195,14 @@ def test_process_frame_triclinic_deposits(kernel):
         temperature=300.0, units="real",
     )
     gs = DensityGrid(traj, density_type="number", nbins=4)
-    # Position at (5, 4.5, 4) should be inside the cell
     pos = np.array([[5.0, 4.5, 4.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
-    gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
+    gs.deposit(pos, frc, weights=1.0, kernel=kernel)
     assert np.any(gs.force_x != 0)
     assert np.any(gs.counter != 0)
 
 
-def test_process_frame_triclinic_boundary_particles():
+def test_deposit_triclinic_boundary_particles():
     """Particles at fractional coordinate boundaries should not crash."""
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
@@ -241,11 +219,9 @@ def test_process_frame_triclinic_boundary_particles():
         temperature=300.0, units="real",
     )
     gs = DensityGrid(traj, density_type="number", nbins=4)
-    # Origin and near-edge positions in Cartesian
     pos = np.array([[0.0, 0.0, 0.0], [9.99, 8.99, 7.99]])
     frc = np.array([[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]])
-    gs._process_frame(pos, frc, weight=1.0, kernel="triangular")
-    # Should not crash and should deposit something
+    gs.deposit(pos, frc, weights=1.0, kernel="triangular")
     assert np.any(gs.counter != 0)
 
 
@@ -1030,7 +1006,7 @@ class TestDeposit:
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
         gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
-        # 3 species deposited = 3 calls to _process_frame
+        # 3 species deposited = 3 deposit calls
         assert gs.count == 3
         assert np.any(gs.counter != 0)
 
@@ -1548,7 +1524,7 @@ class TestTriclinicFFT:
         )
         gs = DensityGrid(traj, density_type="number", nbins=nbins)
         for i in range(n_frames):
-            gs._process_frame(positions[i], forces[i], weight=1.0)
+            gs.deposit(positions[i], forces[i], weights=1.0)
 
         # Force-based density should be flat (all perturbation is zero)
         rho_force, rho_count, _, _ = gs._fft_force_to_density(
@@ -1598,7 +1574,7 @@ class TestTriclinicFFT:
         )
         gs = DensityGrid(traj, density_type="number", nbins=nbins)
         for i in range(n_frames):
-            gs._process_frame(positions[i], forces[i], weight=1.0)
+            gs.deposit(positions[i], forces[i], weights=1.0)
 
         rho_force, rho_count, del_rho_k, _ = gs._fft_force_to_density(
             gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count

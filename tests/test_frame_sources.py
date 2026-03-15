@@ -15,11 +15,6 @@ def _make_frames(n):
     return [(np.array([[i]]), np.array([[i]])) for i in range(n)]
 
 
-def _consume_block(block):
-    """Materialise a lazy block iterator into a list."""
-    return list(block)
-
-
 def _frame_ids(blocks):
     """Extract the integer id from each frame across all blocks.
 

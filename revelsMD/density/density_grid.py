@@ -217,33 +217,6 @@ class DensityGrid:
         homeX, homeY, homeZ = frac[:, 0], frac[:, 1], frac[:, 2]
         return homeX, homeY, homeZ
 
-    def _process_frame(
-        self,
-        positions: np.ndarray,
-        forces: np.ndarray,
-        weight: float | np.ndarray = 1.0,
-        kernel: str = "triangular",
-    ) -> None:
-        """
-        Deposit a single set of positions/forces to the grid.
-
-        Parameters
-        ----------
-        positions : (N, 3) np.ndarray
-            Positions in Cartesian coordinates.
-        forces : (N, 3) np.ndarray
-            Forces corresponding to `positions`.
-        weight : float or np.ndarray, optional
-            Scalar or per-particle weight (number/charge/polarisation projection).
-        kernel : {'triangular', 'box'}
-            Assignment kernel.
-        """
-        self.count += 1
-        self._deposit_single_to_arrays(
-            self.force_x, self.force_y, self.force_z, self.counter,
-            positions, forces, weight, kernel,
-        )
-
     def deposit(
         self,
         positions: np.ndarray | list[np.ndarray],
@@ -418,7 +391,10 @@ class DensityGrid:
         )
         frame_indices = range(int(norm_start), int(norm_stop), period)
         if len(frame_indices) == 0:
-            raise ValueError("Final frame occurs before first frame in trajectory.")
+            raise ValueError(
+                f"No frames selected: start={start}, stop={stop}, "
+                f"period={period} yields an empty range."
+            )
         self.period = period
         self.kernel = kernel
 
