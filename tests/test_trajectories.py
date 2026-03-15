@@ -1398,5 +1398,13 @@ class TestNormalizeBounds:
     def test_stride_passed_through(self):
         assert normalize_bounds(10, 0, None, 3) == (0, 10, 3)
 
+    def test_zero_stride_raises(self):
+        with pytest.raises(ValueError, match="stride must be >= 1"):
+            normalize_bounds(10, 0, None, 0)
+
+    def test_negative_stride_raises(self):
+        with pytest.raises(ValueError, match="stride must be >= 1"):
+            normalize_bounds(10, 0, None, -1)
+
     def test_zero_frames(self):
         assert normalize_bounds(0, 0, None, 1) == (0, 0, 1)

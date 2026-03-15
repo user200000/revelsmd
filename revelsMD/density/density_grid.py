@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterator, Sequence
 from typing import Literal
 
 import numpy as np

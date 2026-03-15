@@ -17,7 +17,10 @@ from revelsMD.cell import is_orthorhombic as _is_orthorhombic_cell
 def normalize_bounds(
     n_frames: int, start: int, stop: int | None, stride: int
 ) -> tuple[int, int, int]:
-    """Normalise start/stop/stride bounds following Python slice semantics.
+    """Normalise start/stop/stride bounds for forward iteration.
+
+    Handles negative indices (counting from the end) and clamps
+    out-of-bounds values.  Only positive strides are supported.
 
     Parameters
     ----------
@@ -28,13 +31,15 @@ def normalize_bounds(
     stop : int or None
         Stop index (can be negative or None for end of trajectory).
     stride : int
-        Step between frames.
+        Step between frames.  Must be >= 1.
 
     Returns
     -------
     tuple of (int, int, int)
         Normalised (start, stop, stride) suitable for use with ``range()``.
     """
+    if stride < 1:
+        raise ValueError(f"stride must be >= 1, got {stride}")
     if stop is None:
         stop = n_frames
     if start < 0:

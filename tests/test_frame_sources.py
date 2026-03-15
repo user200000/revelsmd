@@ -96,8 +96,8 @@ class TestContiguousBlocks:
         with pytest.raises(ValueError, match="block_size must be >= 1"):
             list(contiguous_blocks(iter([]), block_size=-1))
 
-    def test_yields_lazy_iterators(self):
-        """Blocks should be lazy -- not materialised until consumed."""
+    def test_yields_single_use_iterators(self):
+        """Each block should be a single-use iterator of frames."""
         frames = _make_frames(6)
         block_iter = contiguous_blocks(iter(frames), block_size=3)
         # Get first block but don't consume it
