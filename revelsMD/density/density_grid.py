@@ -387,9 +387,11 @@ class DensityGrid:
         else:
             raise ValueError("`atom_names` must be a string or list of strings.")
 
-        # Validate frame bounds — catch likely mistakes before normalisation.
-        # normalize_bounds would clamp these silently, but out-of-range
-        # indices are almost certainly caller errors.
+        # Validate frame bounds — reject out-of-range indices that are
+        # almost certainly caller errors.  normalize_bounds (below) handles
+        # the *representation* (negative indices, None stop) but not
+        # *validity*; it will silently clamp out-of-range values, which
+        # would hide mistakes at this user-facing boundary.
         if start > trajectory.frames:
             raise ValueError("First frame index exceeds frames in trajectory.")
         if start < -trajectory.frames:
@@ -408,8 +410,9 @@ class DensityGrid:
             )
         self.stop = stop
 
-        # Normalise bounds (negative indices, None stop) using the same
-        # logic as the trajectory base class.
+        # Normalise the *representation* of validated bounds (negative
+        # indices → positive, None stop → trajectory.frames) so that
+        # frame_indices matches what iter_frames will produce.
         norm_start, norm_stop, _ = normalize_bounds(
             trajectory.frames, start, stop, period
         )

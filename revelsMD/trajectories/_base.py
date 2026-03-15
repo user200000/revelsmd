@@ -17,10 +17,12 @@ from revelsMD.cell import is_orthorhombic as _is_orthorhombic_cell
 def normalize_bounds(
     n_frames: int, start: int, stop: int | None, stride: int
 ) -> tuple[int, int, int]:
-    """Normalise start/stop/stride bounds for forward iteration.
+    """Normalise the representation of start/stop/stride bounds.
 
-    Handles negative indices (counting from the end) and clamps
-    out-of-bounds values.  Only positive strides are supported.
+    Converts negative indices to positive and resolves ``None`` stop.
+    Out-of-bounds values are clamped, not rejected — callers that need
+    strict validation (e.g. user-facing APIs) should check bounds
+    *before* calling this function.  Only positive strides are supported.
 
     Parameters
     ----------
