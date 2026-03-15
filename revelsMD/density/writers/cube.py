@@ -63,6 +63,11 @@ def write_cube(
 
         # No atom lines (natoms = 0)
 
-        # Volumetric data -- C-order matches the cube header loop order
-        grid.tofile(f, sep="\n", format="%e")
-        f.write("\n")
+        # Volumetric data in C-order (matches OUTER LOOP: X, MIDDLE
+        # LOOP: Y, INNER LOOP: Z).  Standard cube format uses up to
+        # 6 values per line.
+        values = grid.ravel()
+        for i in range(0, len(values), 6):
+            chunk = values[i : i + 6]
+            f.write(" ".join(f"{v:13.5e}" for v in chunk))
+            f.write("\n")

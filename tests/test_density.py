@@ -1822,6 +1822,14 @@ class TestWriteToCube:
         with pytest.raises(ValueError, match="threshold is required"):
             gs.write_to_cube("hybrid", "test.cube")
 
+    def test_write_to_cube_threshold_on_non_hybrid_raises(self, ts):
+        """write_to_cube raises ValueError if threshold passed for non-hybrid density."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with pytest.raises(ValueError, match="only valid for 'hybrid'"):
+            gs.write_to_cube("force", "test.cube", threshold=0.01)
+
     def test_write_to_cube_hybrid_with_threshold(self, tmp_path, ts):
         """write_to_cube writes hybrid density when threshold is provided."""
         gs = DensityGrid(ts, "number", nbins=4)

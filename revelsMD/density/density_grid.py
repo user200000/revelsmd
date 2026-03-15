@@ -846,15 +846,14 @@ class DensityGrid:
         ksquared = np.sum(k_vectors ** 2, axis=-1)
         return k_vectors, ksquared
 
-    # Maps short density names to attribute names.  "force", "count", and
-    # "lambda" are properties; "hybrid" is a method (requires threshold)
-    # and is dispatched separately in write_to_cube.
-    _DENSITY_NAMES = {
+    # Maps short density names to property attribute names.
+    _DENSITY_PROPERTIES = {
         "force": "rho_force",
         "count": "rho_count",
         "lambda": "rho_lambda",
-        "hybrid": "rho_hybrid",
     }
+
+    _VALID_DENSITIES = {*_DENSITY_PROPERTIES, "hybrid"}
 
     def write_to_cube(
         self,
@@ -883,15 +882,16 @@ class DensityGrid:
         Raises
         ------
         ValueError
-            If *density* is not recognised, or ``"hybrid"`` is
-            requested without *threshold*.
+            If *density* is not recognised, ``"hybrid"`` is requested
+            without *threshold*, or *threshold* is passed for a
+            non-hybrid density.
         RuntimeError
             If the requested density has not been computed yet.
         """
-        if density not in self._DENSITY_NAMES:
+        if density not in self._VALID_DENSITIES:
             raise ValueError(
                 f"Unknown density {density!r}. "
-                f"Expected one of {sorted(self._DENSITY_NAMES)}."
+                f"Expected one of {sorted(self._VALID_DENSITIES)}."
             )
 
         if density == "hybrid":
@@ -901,7 +901,12 @@ class DensityGrid:
                 )
             grid = self.rho_hybrid(threshold)
         else:
-            grid = getattr(self, self._DENSITY_NAMES[density])
+            if threshold is not None:
+                raise ValueError(
+                    f"threshold is only valid for 'hybrid', "
+                    f"not {density!r}."
+                )
+            grid = getattr(self, self._DENSITY_PROPERTIES[density])
             if grid is None:
                 hint = (
                     "Call accumulate() with compute_lambda=True."
