@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from scipy.constants import angstrom, physical_constants
 
-# 1 Angstrom in Bohr (CODATA 2018)
-ANGSTROM_TO_BOHR = 1.8897259886
+# 1 Angstrom in Bohr
+ANGSTROM_TO_BOHR = angstrom / physical_constants["Bohr radius"][0]
 
 
 def write_cube(

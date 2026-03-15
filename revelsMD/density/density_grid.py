@@ -844,12 +844,21 @@ class DensityGrid:
         ksquared = np.sum(k_vectors ** 2, axis=-1)
         return k_vectors, ksquared
 
+    _DENSITY_NAMES = {
+        "force": "rho_force",
+        "count": "rho_count",
+        "lambda": "rho_lambda",
+        "hybrid": "rho_hybrid",
+    }
+
     def write_to_cube(
         self,
-        grid: np.ndarray,
+        density: str,
         filename: str,
+        *,
+        threshold: float | None = None,
     ) -> None:
-        """Write a 3D density grid to a Gaussian ``.cube`` file.
+        """Write a density grid to a Gaussian ``.cube`` file.
 
         Uses ``self.cell_matrix`` for the cell geometry.  No atomic
         positions are written — the purpose of this method is density
@@ -857,11 +866,43 @@ class DensityGrid:
 
         Parameters
         ----------
-        grid : numpy.ndarray
-            3D grid data to write (shape: nbinsx x nbinsy x nbinsz).
+        density : str
+            Name of the density to write.  One of ``"force"``,
+            ``"count"``, ``"lambda"``, or ``"hybrid"``.
         filename : str
             Output file path.
+        threshold : float, optional
+            Required when *density* is ``"hybrid"``.  Passed to
+            :meth:`rho_hybrid`.
+
+        Raises
+        ------
+        ValueError
+            If *density* is not recognised, or ``"hybrid"`` is
+            requested without *threshold*.
+        RuntimeError
+            If the requested density has not been computed yet.
         """
+        if density not in self._DENSITY_NAMES:
+            raise ValueError(
+                f"Unknown density {density!r}. "
+                f"Expected one of {sorted(self._DENSITY_NAMES)}."
+            )
+
+        if density == "hybrid":
+            if threshold is None:
+                raise ValueError(
+                    "threshold is required when density is 'hybrid'."
+                )
+            grid = self.rho_hybrid(threshold)
+        else:
+            grid = getattr(self, self._DENSITY_NAMES[density])
+            if grid is None:
+                raise RuntimeError(
+                    f"{density} density has not been computed yet. "
+                    "Call accumulate() first."
+                )
+
         from revelsMD.density.writers.cube import write_cube
 
         write_cube(filename, grid, self.cell_matrix)

@@ -134,7 +134,7 @@ class TestRigidWaterPipelineExample4:
 
 
         cube_file = tmp_path / "test_water_density.cube"
-        gs.write_to_cube(gs.rho_force, str(cube_file))
+        gs.write_to_cube("force", str(cube_file))
 
         assert cube_file.exists()
         assert cube_file.stat().st_size > 0
