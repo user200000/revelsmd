@@ -583,6 +583,12 @@ class DensityGrid:
                     block_count += 1
 
             if block_count == 0:
+                warnings.warn(
+                    "Empty block encountered during accumulation — "
+                    "this block contributes nothing to the variance estimate.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 continue
 
             # Add block data to main accumulators
@@ -782,7 +788,15 @@ class DensityGrid:
 
     def _finalise_lambda(self) -> None:
         """Compute final lambda weights and density from Welford statistics."""
-        if self._welford is None or not self._welford.has_data:
+        if self._welford is None:
+            return
+        if not self._welford.has_data:
+            warnings.warn(
+                "compute_lambda was requested but the Welford accumulator "
+                "has no data — rho_lambda will be None.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return
 
         if self._rho_lambda is not None:
