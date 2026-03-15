@@ -846,15 +846,6 @@ class DensityGrid:
         ksquared = np.sum(k_vectors ** 2, axis=-1)
         return k_vectors, ksquared
 
-    # Maps short density names to property attribute names.
-    _DENSITY_PROPERTIES = {
-        "force": "rho_force",
-        "count": "rho_count",
-        "lambda": "rho_lambda",
-    }
-
-    _VALID_DENSITIES = {*_DENSITY_PROPERTIES, "hybrid"}
-
     def write_to_cube(
         self,
         density: str,
@@ -888,10 +879,19 @@ class DensityGrid:
         RuntimeError
             If the requested density has not been computed yet.
         """
-        if density not in self._VALID_DENSITIES:
+        # Maps short names to property attribute names.  "hybrid" is a
+        # method (requires threshold) and is dispatched separately below.
+        density_properties = {
+            "force": "rho_force",
+            "count": "rho_count",
+            "lambda": "rho_lambda",
+        }
+        valid_densities = {*density_properties, "hybrid"}
+
+        if density not in valid_densities:
             raise ValueError(
                 f"Unknown density {density!r}. "
-                f"Expected one of {sorted(self._VALID_DENSITIES)}."
+                f"Expected one of {sorted(valid_densities)}."
             )
 
         if density == "hybrid":
@@ -906,7 +906,7 @@ class DensityGrid:
                     f"threshold is only valid for 'hybrid', "
                     f"not {density!r}."
                 )
-            grid = getattr(self, self._DENSITY_PROPERTIES[density])
+            grid = getattr(self, density_properties[density])
             if grid is None:
                 hint = (
                     "Call accumulate() with compute_lambda=True."
