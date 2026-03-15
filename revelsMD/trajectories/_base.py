@@ -22,7 +22,7 @@ def normalize_bounds(
     Converts negative indices to positive and resolves ``None`` stop.
     Out-of-bounds values are clamped, not rejected — callers that need
     strict validation (e.g. user-facing APIs) should check bounds
-    *before* calling this function.  Only positive strides are supported.
+    *before* calling this function. Only positive strides are supported.
 
     Parameters
     ----------
@@ -33,7 +33,7 @@ def normalize_bounds(
     stop : int or None
         Stop index (can be negative or None for end of trajectory).
     stride : int
-        Step between frames.  Must be >= 1.
+        Step between frames. Must be >= 1.
 
     Returns
     -------

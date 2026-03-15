@@ -71,9 +71,9 @@ class WelfordAccumulator3D:
         rho_force : ndarray
             The force-based density for this block.
         weight : float, optional
-            Weight for this block (e.g. number of frames).  Blocks with
+            Weight for this block (e.g. number of frames). Blocks with
             more frames contribute proportionally more to the mean and
-            variance estimates.  Default is 1.0 (unweighted).
+            variance estimates. Default is 1.0 (unweighted).
         """
         if weight <= 0:
             raise ValueError(f"weight must be positive, got {weight}")

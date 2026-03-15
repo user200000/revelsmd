@@ -33,7 +33,7 @@ def contiguous_blocks(
     """Yield contiguous blocks of frames from a sequential stream.
 
     Each block contains up to ``block_size`` frames drawn from the
-    underlying iterator.  The final block may contain fewer frames if the
+    underlying iterator. The final block may contain fewer frames if the
     stream is not evenly divisible.
 
     Parameters
@@ -41,7 +41,7 @@ def contiguous_blocks(
     frame_iterator : iterator of (positions, forces)
         Sequential frame stream, e.g. from ``trajectory.iter_frames()``.
     block_size : int
-        Maximum number of frames per block.  Must be >= 1.
+        Maximum number of frames per block. Must be >= 1.
 
     Yields
     ------
@@ -75,12 +75,12 @@ def interleaved_blocks(
     frame_indices : range or sequence of int
         Frame indices to distribute across sections (supports slicing).
     sections : int
-        Number of interleaved sections.  Must be >= 1.
+        Number of interleaved sections. Must be >= 1.
 
     Yields
     ------
     iterator of (positions, forces)
-        One block of frames.  Each block is an independent generator;
+        One block of frames. Each block is an independent generator;
         blocks do not share iteration state.
 
     Raises
@@ -94,7 +94,7 @@ def interleaved_blocks(
     if not callable(getattr(trajectory, "get_frame", None)):
         raise ValueError(
             "Interleaved blocking requires a trajectory that supports "
-            "random frame access (get_frame).  Use blocking='contiguous' "
+            "random frame access (get_frame). Use blocking='contiguous' "
             "for sequential-only backends."
         )
 

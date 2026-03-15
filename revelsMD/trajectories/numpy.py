@@ -30,7 +30,7 @@ class NumpyTrajectory(Trajectory):
         All three must be provided together.
         Mutually exclusive with ``cell_matrix``.
     species_list : list of str, optional
-        Atom names corresponding to each atom index.  If ``None``,
+        Atom names corresponding to each atom index. If ``None``,
         ``get_indices`` and related methods will not be available.
     temperature : float
         Simulation temperature in Kelvin.

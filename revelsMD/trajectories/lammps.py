@@ -298,9 +298,9 @@ class LammpsTrajectory(Trajectory):
         """Return positions and forces for a specific frame by index.
 
         LAMMPS dump files are sequential, so random access requires caching
-        all frames in memory on first call.  Subsequent calls use the cache.
+        all frames in memory on first call. Subsequent calls use the cache.
 
-        This is only needed for interleaved blocking.  Contiguous blocking
+        This is only needed for interleaved blocking. Contiguous blocking
         (the default) streams frames via ``iter_frames()`` and does not
         trigger the cache.
 
