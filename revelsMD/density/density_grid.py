@@ -397,12 +397,12 @@ class DensityGrid:
         self.stop = stop
 
         # Use the same bound normalisation as the trajectory base class
-        # so that to_run matches the frames iter_frames will produce.
+        # so that frame_indices matches what iter_frames will produce.
         norm_start, norm_stop, _ = normalize_bounds(
             trajectory.frames, start, stop, period
         )
-        to_run = range(int(norm_start), int(norm_stop), period)
-        if len(to_run) == 0:
+        frame_indices = range(int(norm_start), int(norm_stop), period)
+        if len(frame_indices) == 0:
             raise ValueError("Final frame occurs before first frame in trajectory.")
         self.period = period
         self.kernel = kernel
@@ -449,7 +449,7 @@ class DensityGrid:
         if not compute_lambda:
             # Simple accumulation — stream frames directly, no block overhead.
             for positions, forces in tqdm(
-                trajectory.iter_frames(start, stop, period), total=len(to_run)
+                trajectory.iter_frames(start, stop, period), total=len(frame_indices)
             ):
                 deposit_positions = self._selection.get_positions(positions)
                 deposit_forces = self._selection.get_forces(forces)
@@ -474,7 +474,7 @@ class DensityGrid:
                     stacklevel=2,
                 )
             if blocking == "interleaved":
-                effective_sections = sections if sections is not None else len(to_run)
+                effective_sections = sections if sections is not None else len(frame_indices)
                 if effective_sections <= 0:
                     raise ValueError("sections must be a positive integer")
                 # Requesting more sections than frames is almost certainly a
@@ -482,12 +482,12 @@ class DensityGrid:
                 # blocks than requested.  (interleaved_blocks itself skips
                 # empty sections defensively, but that is an internal safety
                 # net, not a public contract.)
-                if effective_sections > len(to_run):
+                if effective_sections > len(frame_indices):
                     raise ValueError(
                         f"sections ({effective_sections}) exceeds the number of "
-                        f"frames to process ({len(to_run)})"
+                        f"frames to process ({len(frame_indices)})"
                     )
-                blocks = interleaved_blocks(trajectory, to_run, effective_sections)
+                blocks = interleaved_blocks(trajectory, frame_indices, effective_sections)
                 n_blocks = effective_sections
             else:
                 effective_block_size = block_size if block_size is not None else 1
@@ -497,11 +497,11 @@ class DensityGrid:
                     trajectory.iter_frames(start, stop, period),
                     effective_block_size,
                 )
-                n_blocks = -(-len(to_run) // effective_block_size)  # ceiling division
+                n_blocks = -(-len(frame_indices) // effective_block_size)  # ceiling division
 
             self._accumulate_blocks(blocks, kernel, n_blocks=n_blocks)
 
-        self.frames_processed += len(to_run)
+        self.frames_processed += len(frame_indices)
 
     def _invalidate_derived_state(self) -> None:
         """Clear cached densities and lambda weights.
