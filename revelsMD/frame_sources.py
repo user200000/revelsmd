@@ -4,8 +4,8 @@ This module provides the layer between trajectory loaders and analysis code.
 Trajectory loaders read frames from disk; frame sources group those frames
 into blocks for statistical analysis (e.g. Welford variance estimation).
 
-Both functions yield the same interface: an iterable of blocks, where each
-block is an iterable of (positions, forces) tuples.
+Both functions yield the same interface: an iterator of blocks, where each
+block is an iterator of (positions, forces) tuples.
 """
 
 from __future__ import annotations

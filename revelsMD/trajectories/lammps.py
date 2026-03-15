@@ -247,8 +247,6 @@ class LammpsTrajectory(Trajectory):
         """Return atom indices for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').ids - 1
 
-    get_indicies = get_indices
-
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         try:

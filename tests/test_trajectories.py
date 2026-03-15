@@ -67,8 +67,6 @@ def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_univers
     assert np.allclose(state.get_charges("H"), [0.1, 0.2, 0.3])
     assert np.allclose(state.get_masses("H"), [12.0, 1.0, 16.0])
 
-    # backward compatibility
-    assert np.all(state.get_indicies("H") == np.array([1, 2, 3]))
 
 
 @patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("fail"))
@@ -115,8 +113,6 @@ def test_numpy_state_valid_and_accessors():
     assert state.frames == 5
     assert np.allclose(state.get_indices("H"), [1, 2])
 
-    # backward alias
-    assert np.allclose(state.get_indicies("O"), [0])
 
 
 def test_numpy_state_species_not_found():

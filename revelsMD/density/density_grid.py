@@ -525,8 +525,8 @@ class DensityGrid:
 
         Parameters
         ----------
-        blocks : iterable of iterable of (positions, forces)
-            Frame source producing blocks.  Each block is an iterable of
+        blocks : BlockSource
+            Iterator of blocks, where each block is an iterator of
             (positions, forces) tuples.
         kernel : str
             Deposition kernel name.
@@ -793,11 +793,12 @@ class DensityGrid:
         # Finalise Welford statistics
         var_buffer, cov_buffer_force = self._welford.finalise()
 
-        # compute_lambda_weights returns Cov(delta, rho_force) / Var(delta).
-        # The combination weight lambda = 1 - that ratio, giving:
-        #   rho_lambda = lambda * rho_count + (1 - lambda) * rho_force
-        # which is the variance-minimised linear combination of the two
-        # density estimators (see Coles et al., J. Phys. Chem. B 2021).
+        # lambda_raw = Cov(delta, rho_force) / Var(delta).
+        # _lambda_weights = 1 - lambda_raw.
+        # combine_estimators computes:
+        #   rho_lambda = rho_count * lambda_raw + rho_force * (1 - lambda_raw)
+        # i.e. rho_count * (1 - _lambda_weights) + rho_force * _lambda_weights
+        # (see Coles et al., J. Phys. Chem. B 2021).
         lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
         self._lambda_weights = 1.0 - lambda_raw
 

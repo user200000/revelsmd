@@ -151,8 +151,6 @@ class NumpyTrajectory(Trajectory):
             raise ValueError(f"Species '{atype}' not found in species list.")
         return inds
 
-    get_indicies = get_indices
-
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for atoms of a given species."""
         if not hasattr(self, 'charge_list'):
