@@ -846,6 +846,8 @@ class DensityGrid:
         ksquared = np.sum(k_vectors ** 2, axis=-1)
         return k_vectors, ksquared
 
+    # Maps short density names to attribute names.  "hybrid" is handled
+    # specially (requires threshold), but is included for validation.
     _DENSITY_NAMES = {
         "force": "rho_force",
         "count": "rho_count",

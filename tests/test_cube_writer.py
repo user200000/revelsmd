@@ -106,6 +106,24 @@ class TestWriteCube:
         recovered = np.array(header["data_values"]).reshape(grid.shape)
         np.testing.assert_allclose(recovered, grid, rtol=1e-5)
 
+    def test_data_ordering_c_contiguous(self, tmp_path):
+        """Verify data is written in C (row-major) order by checking specific positions."""
+        grid = np.zeros((2, 3, 4))
+        grid[0, 0, 0] = 1.0
+        grid[0, 0, 1] = 2.0
+        grid[1, 0, 0] = 3.0
+        cell = np.diag([10.0, 10.0, 10.0])
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, cell)
+        header = _parse_cube_header(path)
+        values = header["data_values"]
+
+        # C order: [0,0,0]=1st, [0,0,1]=2nd, [1,0,0] at index 3*4=12th
+        assert values[0] == pytest.approx(1.0)
+        assert values[1] == pytest.approx(2.0)
+        assert values[12] == pytest.approx(3.0)
+
     def test_triclinic_cell(self, tmp_path):
         grid = np.ones((3, 4, 5))
         cell = np.array([
