@@ -389,13 +389,23 @@ class DensityGrid:
 
         # Validate frame bounds — catch likely mistakes before normalisation.
         # normalize_bounds would clamp these silently, but out-of-range
-        # positive indices are almost certainly caller errors.
+        # indices are almost certainly caller errors.
         if start > trajectory.frames:
             raise ValueError("First frame index exceeds frames in trajectory.")
+        if start < -trajectory.frames:
+            raise ValueError(
+                f"Negative start index ({start}) exceeds trajectory length "
+                f"({trajectory.frames})."
+            )
         self.start = start
 
         if stop is not None and stop > trajectory.frames:
             raise ValueError("Final frame index exceeds frames in trajectory.")
+        if stop is not None and stop < -trajectory.frames:
+            raise ValueError(
+                f"Negative stop index ({stop}) exceeds trajectory length "
+                f"({trajectory.frames})."
+            )
         self.stop = stop
 
         # Normalise bounds (negative indices, None stop) using the same
