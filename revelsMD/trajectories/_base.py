@@ -328,7 +328,7 @@ class Trajectory(ABC):
         stride: int = 1
     ) -> Iterator[Frame]:
         """
-        Iterate over trajectory frames, yielding positions and forces.
+        Iterate over trajectory frames, yielding Frame named tuples.
 
         Parameters
         ----------
