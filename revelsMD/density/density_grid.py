@@ -440,9 +440,9 @@ class DensityGrid:
             for frame in tqdm(
                 trajectory.iter_frames(start, stop, period), total=len(frame_indices)
             ):
-                deposit_positions = self._selection.get_positions(frame.positions)
-                deposit_forces = self._selection.get_forces(frame.forces)
-                weights = self._selection.get_weights(frame.positions)
+                deposit_positions = self._selection.get_positions(frame)
+                deposit_forces = self._selection.get_forces(frame)
+                weights = self._selection.get_weights(frame)
                 self.deposit(deposit_positions, deposit_forces, weights, kernel=kernel)
         else:
             # Block accumulation with lambda statistics
@@ -540,9 +540,9 @@ class DensityGrid:
             block_count = 0
 
             for frame in block:
-                deposit_positions = self._selection.get_positions(frame.positions)
-                deposit_forces = self._selection.get_forces(frame.forces)
-                weights = self._selection.get_weights(frame.positions)
+                deposit_positions = self._selection.get_positions(frame)
+                deposit_forces = self._selection.get_forces(frame)
+                weights = self._selection.get_weights(frame)
 
                 self._deposit_to_arrays(
                     block_force_x, block_force_y, block_force_z, block_counter,

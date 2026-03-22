@@ -992,7 +992,8 @@ class TestDeposit:
 
         gs = DensityGrid(trajectory, "number", nbins=5)
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
-        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        frame = Frame(positions=positions, forces=forces)
+        gs.deposit(ss.get_positions(frame), ss.get_forces(frame), ss.get_weights(), kernel="triangular")
 
         assert np.any(gs.force_x != 0)
         assert np.any(gs.counter != 0)
@@ -1003,7 +1004,8 @@ class TestDeposit:
 
         gs = DensityGrid(trajectory, "number", nbins=5)
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
-        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        frame = Frame(positions=positions, forces=forces)
+        gs.deposit(ss.get_positions(frame), ss.get_forces(frame), ss.get_weights(), kernel="triangular")
 
         # 3 species deposited = 3 deposit calls
         assert gs.count == 3
@@ -1014,7 +1016,8 @@ class TestDeposit:
 
         gs = DensityGrid(trajectory, "number", nbins=5)
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
-        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        frame = Frame(positions=positions, forces=forces)
+        gs.deposit(ss.get_positions(frame), ss.get_forces(frame), ss.get_weights(), kernel="triangular")
 
         # Rigid deposits once per molecule group
         assert gs.count == 1
@@ -1026,7 +1029,8 @@ class TestDeposit:
 
         gs = DensityGrid(trajectory, "charge", nbins=5)
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
-        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        frame = Frame(positions=positions, forces=forces)
+        gs.deposit(ss.get_positions(frame), ss.get_forces(frame), ss.get_weights(), kernel="triangular")
 
         # O has negative charge, so counter contributions are negative
         assert np.any(gs.counter != 0)
@@ -1154,7 +1158,8 @@ class TestSelectionGetWeights:
             trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True,
             density_type='polarisation', polarisation_axis=0
         )
-        result = ss.get_weights(positions)
+        frame = Frame(positions=positions, forces=np.zeros_like(positions))
+        result = ss.get_weights(frame)
 
         # COM for each molecule is at x = (16*x_O + 1*x_H1 + 1*x_H2) / 18
         # Molecule 0: COM_x = (16*0 + 1*1 + 1*(-1)) / 18 = 0
@@ -1219,7 +1224,8 @@ class TestSelectionGetForces:
         """Single species should return forces at selected indices."""
 
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False)
-        result = ss.get_forces(forces)
+        frame = Frame(positions=np.zeros_like(forces), forces=forces)
+        result = ss.get_forces(frame)
 
         expected = forces[[0, 3, 6], :]  # O atoms
         np.testing.assert_array_equal(result, expected)
@@ -1228,7 +1234,8 @@ class TestSelectionGetForces:
         """Multi-species, non-rigid should return list of force arrays."""
 
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False)
-        result = ss.get_forces(forces)
+        frame = Frame(positions=np.zeros_like(forces), forces=forces)
+        result = ss.get_forces(frame)
 
         assert isinstance(result, list)
         assert len(result) == 3
@@ -1240,7 +1247,8 @@ class TestSelectionGetForces:
         """Rigid molecule should sum forces across all atoms in molecule."""
 
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
-        result = ss.get_forces(forces)
+        frame = Frame(positions=np.zeros_like(forces), forces=forces)
+        result = ss.get_forces(frame)
 
         # Sum forces for each molecule
         # Molecule 0: [1,0,0] + [0.5,0,0] + [0.5,0,0] = [2,0,0]
@@ -1292,7 +1300,8 @@ class TestSelectionGetPositionsPeriodicBoundary:
         ss = Selection(
             trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True
         )
-        result = ss.get_positions(positions_across_boundary)
+        frame = Frame(positions=positions_across_boundary, forces=np.zeros_like(positions_across_boundary))
+        result = ss.get_positions(frame)
 
         # With minimum image: H1 is at x=10.3, H2 is at x=10.5 relative to O
         # COM_x = (16*9.5 + 1*10.3 + 1*10.5) / 18 = (152 + 10.3 + 10.5) / 18 = 172.8 / 18 = 9.6
@@ -1311,7 +1320,8 @@ class TestSelectionGetPositionsPeriodicBoundary:
             trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True,
             density_type='polarisation', polarisation_axis=0
         )
-        result = ss.get_weights(positions_across_boundary)
+        frame = Frame(positions=positions_across_boundary, forces=np.zeros_like(positions_across_boundary))
+        result = ss.get_weights(frame)
 
         # The molecule is symmetric around COM in y and z, but asymmetric in x
         # H1 is at x=10.3 (0.7 from COM at 9.6), H2 is at x=10.5 (0.9 from COM)
@@ -1376,7 +1386,8 @@ class TestSelectionTriclinic:
             [9.8, 4.5, 4.0],   # H1 (index 1) - near right edge in x
             [9.9, 4.5, 4.0],   # H2 (index 2) - near right edge in x
         ], dtype=float)
-        result = ss.get_positions(positions)
+        frame = Frame(positions=positions, forces=np.zeros_like(positions))
+        result = ss.get_positions(frame)
         # H1 and H2 are across the boundary from O
         # With correct MIC they should be unwrapped near x=0.5
         # COM should be near the O atom
@@ -1396,7 +1407,8 @@ class TestSelectionTriclinic:
             [5.5, 4.5, 4.0],   # H1
             [4.5, 4.5, 4.0],   # H2
         ], dtype=float)
-        result = ss.get_weights(positions)
+        frame = Frame(positions=positions, forces=np.zeros_like(positions))
+        result = ss.get_weights(frame)
         # Symmetric molecule, dipole_x should be near zero
         assert abs(result[0]) < 0.1, \
             f"Symmetric molecule dipole x={result[0]} should be near zero"
@@ -1412,7 +1424,8 @@ class TestSelectionExtract:
         forces = np.zeros((9, 3))
 
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
-        result = ss.extract(positions, forces)
+        frame = Frame(positions=positions, forces=forces)
+        result = ss.extract(frame)
 
         assert isinstance(result, tuple)
         assert len(result) == 3
@@ -1447,7 +1460,8 @@ class TestSelectionGetPositions:
         """Single species should return positions at selected indices."""
 
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False)
-        result = ss.get_positions(positions)
+        frame = Frame(positions=positions, forces=np.zeros_like(positions))
+        result = ss.get_positions(frame)
 
         expected = positions[[0, 3, 6], :]  # O atoms
         np.testing.assert_array_equal(result, expected)
@@ -1456,7 +1470,8 @@ class TestSelectionGetPositions:
         """Multi-species, non-rigid should return list of position arrays."""
 
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False)
-        result = ss.get_positions(positions)
+        frame = Frame(positions=positions, forces=np.zeros_like(positions))
+        result = ss.get_positions(frame)
 
         assert isinstance(result, list)
         assert len(result) == 3
@@ -1468,7 +1483,8 @@ class TestSelectionGetPositions:
         """Rigid molecule with COM should return mass-weighted center positions."""
 
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
-        result = ss.get_positions(positions)
+        frame = Frame(positions=positions, forces=np.zeros_like(positions))
+        result = ss.get_positions(frame)
 
         # COM for each molecule (masses: O=16, H1=1, H2=1, total=18)
         # Molecule 0: (16*0 + 1*0.5 + 1*(-0.5)) / 18 = 0/18 = 0.0
@@ -1483,7 +1499,8 @@ class TestSelectionGetPositions:
 
         # centre_location=1 means use H1 positions
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=1, rigid=True)
-        result = ss.get_positions(positions)
+        frame = Frame(positions=positions, forces=np.zeros_like(positions))
+        result = ss.get_positions(frame)
 
         expected = positions[[1, 4, 7], :]  # H1 atoms
         np.testing.assert_array_equal(result, expected)

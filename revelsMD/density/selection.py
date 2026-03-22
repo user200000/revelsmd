@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from revelsMD.cell import apply_minimum_image
+from revelsMD.frame_sources import Frame
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
 
@@ -114,14 +115,14 @@ class Selection:
             if needs_masses:
                 self.masses = trajectory.get_masses(atom_names)
 
-    def get_positions(self, positions: np.ndarray) -> np.ndarray | list[np.ndarray]:
+    def get_positions(self, frame: Frame) -> np.ndarray | list[np.ndarray]:
         """
         Extract deposit positions from a frame based on selection configuration.
 
         Parameters
         ----------
-        positions : (N, 3) np.ndarray
-            Full frame positions for all atoms.
+        frame : Frame
+            Frame containing positions and forces for all atoms.
 
         Returns
         -------
@@ -132,14 +133,14 @@ class Selection:
             - Rigid, specific atom: (M, 3) array of that atom's positions
         """
         if self.single_species:
-            return positions[self.indices, :]
+            return frame.positions[self.indices, :]
 
         if not self.rigid:
-            return [positions[idx, :] for idx in self.indices]
+            return [frame.positions[idx, :] for idx in self.indices]
 
         if self.centre_location is True:
-            return self._compute_com(positions)
-        return positions[self.indices[self.centre_location], :]
+            return self._compute_com(frame.positions)
+        return frame.positions[self.indices[self.centre_location], :]
 
     def _compute_com(self, positions: np.ndarray) -> np.ndarray:
         """
@@ -175,14 +176,14 @@ class Selection:
 
         return mass_cumulant / mass_tot[:, np.newaxis]
 
-    def get_forces(self, forces: np.ndarray) -> np.ndarray | list[np.ndarray]:
+    def get_forces(self, frame: Frame) -> np.ndarray | list[np.ndarray]:
         """
         Extract deposit forces from a frame based on selection configuration.
 
         Parameters
         ----------
-        forces : (N, 3) np.ndarray
-            Full frame forces for all atoms.
+        frame : Frame
+            Frame containing positions and forces for all atoms.
 
         Returns
         -------
@@ -192,21 +193,20 @@ class Selection:
             - Rigid: (M, 3) array of summed forces per molecule
         """
         if self.single_species:
-            return forces[self.indices, :]
+            return frame.forces[self.indices, :]
 
         if not self.rigid:
-            return [forces[idx, :] for idx in self.indices]
+            return [frame.forces[idx, :] for idx in self.indices]
 
         # Sum forces across molecule
-        result = forces[self.indices[0], :].copy()
+        result = frame.forces[self.indices[0], :].copy()
         for species_idx in range(1, len(self.indices)):
-            result = result + forces[self.indices[species_idx], :]
+            result = result + frame.forces[self.indices[species_idx], :]
         return result
 
     def extract(
         self,
-        positions: np.ndarray,
-        forces: np.ndarray,
+        frame: Frame,
     ) -> tuple[
         np.ndarray | list[np.ndarray],
         np.ndarray | list[np.ndarray],
@@ -217,10 +217,8 @@ class Selection:
 
         Parameters
         ----------
-        positions : (N, 3) np.ndarray
-            Full frame positions for all atoms.
-        forces : (N, 3) np.ndarray
-            Full frame forces for all atoms.
+        frame : Frame
+            Frame containing positions and forces for all atoms.
 
         Returns
         -------
@@ -228,20 +226,20 @@ class Selection:
             Ready for passing to grid.deposit().
         """
         return (
-            self.get_positions(positions),
-            self.get_forces(forces),
-            self.get_weights(positions),
+            self.get_positions(frame),
+            self.get_forces(frame),
+            self.get_weights(frame),
         )
 
 
-    def get_weights(self, positions: np.ndarray | None = None) -> float | np.ndarray | list[np.ndarray]:
+    def get_weights(self, frame: Frame | None = None) -> float | np.ndarray | list[np.ndarray]:
         """
         Get deposit weights based on density type.
 
         Parameters
         ----------
-        positions : (N, 3) np.ndarray, optional
-            Full frame positions. Required for polarisation density.
+        frame : Frame, optional
+            Frame containing positions and forces. Required for polarisation density.
 
         Returns
         -------
@@ -263,9 +261,9 @@ class Selection:
                 return total_charge
 
             case 'polarisation':
-                if positions is None:
-                    raise ValueError("positions required for polarisation density")
-                return self._compute_dipole_projection(positions)
+                if frame is None:
+                    raise ValueError("frame required for polarisation density")
+                return self._compute_dipole_projection(frame.positions)
 
             case _:
                 raise ValueError(f"Unknown density_type: {self.density_type!r}")
