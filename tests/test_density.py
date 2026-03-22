@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from revelsMD.density import DensityGrid, Selection
+from revelsMD.frame_sources import Frame
 
 
 # ---------------------------------------------------------------------------
@@ -415,10 +416,10 @@ class _MultiFrameTrajectory:
         if stop is None:
             stop = self.frames
         for i in range(start, stop, stride):
-            yield self._positions[i], self._forces[i]
+            yield Frame(self._positions[i], self._forces[i])
 
     def get_frame(self, index):
-        return self._positions[index], self._forces[index]
+        return Frame(self._positions[index], self._forces[index])
 
 
 class TestAccumulateComputeLambda:
@@ -942,7 +943,7 @@ class IterableMockTrajectory(MockTrajectory):
 
     def iter_frames(self, start, stop, period):
         for i in range(start, stop or self.frames, period):
-            yield self._positions[i], self._forces[i]
+            yield Frame(self._positions[i], self._forces[i])
 
 
 # ---------------------------------------------------------------------------
@@ -1691,10 +1692,10 @@ class TestComputeDensity:
 
             def iter_frames(self, start, stop, period):
                 for i in range(start, stop or self.frames, period):
-                    yield self._positions[i], self._forces[i]
+                    yield Frame(self._positions[i], self._forces[i])
 
             def get_frame(self, idx):
-                return self._positions[idx], self._forces[idx]
+                return Frame(self._positions[idx], self._forces[idx])
 
         return IterableMockTrajectoryWithGetFrame()
 
@@ -1759,7 +1760,7 @@ class TestLambdaEdgeCases:
                 # Return identical positions for all frames to create zero variance
                 positions = np.array([[2.0, 5.0, 5.0], [8.0, 5.0, 5.0]])
                 forces = np.array([[0.1, 0.0, 0.0], [-0.1, 0.0, 0.0]])
-                return positions, forces
+                return Frame(positions, forces)
 
             def iter_frames(self, start, stop, period):
                 for i in range(start, stop or self.frames, period):
