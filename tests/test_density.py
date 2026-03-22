@@ -4,7 +4,6 @@ import warnings
 
 import numpy as np
 import pytest
-from ase import Atoms
 
 from revelsMD.density import DensityGrid, Selection
 
@@ -370,8 +369,7 @@ def test_full_number_density_pipeline(tmp_path, ts):
     assert gs.rho_force.shape == (gs.nbinsx, gs.nbinsy, gs.nbinsz)
 
     cube_file = tmp_path / "density.cube"
-    atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-    gs.write_to_cube(atoms, gs.rho_force, cube_file)
+    gs.write_to_cube("force", cube_file)
     assert cube_file.exists()
 
 
@@ -1789,26 +1787,7 @@ class TestWriteToCube:
         gs.accumulate(ts, atom_names="H", rigid=False)
 
         cube_file = tmp_path / "test.cube"
-        atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-        gs.write_to_cube(atoms, gs.rho_force, cube_file)
-
-        assert cube_file.exists()
-
-    def test_write_to_cube_with_pymatgen_structure(self, tmp_path, ts):
-        """write_to_cube handles pymatgen Structure input."""
-        from pymatgen.core import Structure, Lattice
-
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        structure = Structure(
-            Lattice.cubic(10.0),
-            ["H", "H"],
-            [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]
-        )
-
-        cube_file = tmp_path / "test_pymatgen.cube"
-        gs.write_to_cube(structure, gs.rho_force, cube_file)
+        gs.write_to_cube("force", cube_file)
 
         assert cube_file.exists()
 
@@ -1817,10 +1796,67 @@ class TestWriteToCube:
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
-        atoms = Atoms("H2", positions=[[0, 0, 0], [0, 0, 1]])
-
         with pytest.raises((OSError, FileNotFoundError)):
-            gs.write_to_cube(atoms, gs.rho_force, "/nonexistent/path/test.cube")
+            gs.write_to_cube("force", "/nonexistent/path/test.cube")
+
+    def test_write_to_cube_unknown_density_raises(self, ts):
+        """write_to_cube raises ValueError for unrecognised density name."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with pytest.raises(ValueError, match="Unknown density"):
+            gs.write_to_cube("nonsense", "test.cube")
+
+    def test_write_to_cube_before_accumulate_raises(self, ts):
+        """write_to_cube raises RuntimeError if density not yet computed."""
+        gs = DensityGrid(ts, "number", nbins=4)
+
+        with pytest.raises(RuntimeError, match="not been computed"):
+            gs.write_to_cube("force", "test.cube")
+
+    def test_write_to_cube_hybrid_without_threshold_raises(self, ts):
+        """write_to_cube raises ValueError if hybrid requested without threshold."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with pytest.raises(ValueError, match="threshold is required"):
+            gs.write_to_cube("hybrid", "test.cube")
+
+    def test_write_to_cube_threshold_on_non_hybrid_raises(self, ts):
+        """write_to_cube raises ValueError if threshold passed for non-hybrid density."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with pytest.raises(ValueError, match="only valid for 'hybrid'"):
+            gs.write_to_cube("force", "test.cube", threshold=0.01)
+
+    def test_write_to_cube_hybrid_with_threshold(self, tmp_path, ts):
+        """write_to_cube writes hybrid density when threshold is provided."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        cube_file = tmp_path / "hybrid.cube"
+        gs.write_to_cube("hybrid", cube_file, threshold=0.01)
+
+        assert cube_file.exists()
+
+    def test_write_to_cube_count(self, tmp_path, ts):
+        """write_to_cube writes counting density."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        cube_file = tmp_path / "count.cube"
+        gs.write_to_cube("count", cube_file)
+
+        assert cube_file.exists()
+
+    def test_write_to_cube_lambda_without_compute_raises(self, ts):
+        """write_to_cube raises RuntimeError with helpful message for lambda."""
+        gs = DensityGrid(ts, "number", nbins=4)
+        gs.accumulate(ts, atom_names="H", rigid=False)
+
+        with pytest.raises(RuntimeError, match="compute_lambda=True"):
+            gs.write_to_cube("lambda", "test.cube")
 
 
 # ---------------------------------------------------------------------------

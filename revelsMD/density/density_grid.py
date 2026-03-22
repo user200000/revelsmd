@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
 import scipy.fft
 from tqdm import tqdm
-from ase import Atoms
 
-from ase.io.cube import write_cube
-from pymatgen.core import Structure
-from pymatgen.io.ase import AseAtomsAdaptor
 
 from revelsMD.backends import get_fft_workers
 from revelsMD.frame_sources import BlockSource, contiguous_blocks, interleaved_blocks
@@ -850,44 +848,73 @@ class DensityGrid:
 
     def write_to_cube(
         self,
-        structure: Structure | Atoms,
-        grid: np.ndarray,
-        filename: str,
+        density: str,
+        filename: str | Path,
+        *,
+        threshold: float | None = None,
     ) -> None:
-        """
-        Write a 3D density grid to a Gaussian `.cube` file.
+        """Write a density grid to a Gaussian ``.cube`` file.
+
+        Uses ``self.cell_matrix`` for the cell geometry.  No atomic
+        positions are written -- the purpose of this method is density
+        output, not atomic structure.
 
         Parameters
         ----------
-        structure : pymatgen.Structure or ase.Atoms
-            Input structure used to define the cell geometry. Pymatgen structures
-            are automatically converted to ASE Atoms.
-        grid : np.ndarray
-            3D grid data to write (shape: nbinsx x nbinsy x nbinsz).
-        filename : str
-            Output filename.
+        density : str
+            Name of the density to write.  One of ``"force"``,
+            ``"count"``, ``"lambda"``, or ``"hybrid"``.
+        filename : str or Path
+            Output file path.
+        threshold : float, optional
+            Required when *density* is ``"hybrid"``.  Passed to
+            :meth:`rho_hybrid`.
 
-        Notes
-        -----
-        - Atom deletion occurs **after** conversion from pymatgen to ASE,
-          preserving your original intent.
+        Raises
+        ------
+        ValueError
+            If *density* is not recognised, ``"hybrid"`` is requested
+            without *threshold*, or *threshold* is passed for a
+            non-hybrid density.
+        RuntimeError
+            If the requested density has not been computed yet.
         """
-        # Convert from pymatgen if needed; otherwise assume ASE Atoms
-        if isinstance(structure, Structure):
-            atoms = AseAtomsAdaptor.get_atoms(structure)
-        else:
-            atoms = structure
+        match density:
+            case "force":
+                if threshold is not None:
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                grid = self.rho_force
+            case "count":
+                if threshold is not None:
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                grid = self.rho_count
+            case "lambda":
+                if threshold is not None:
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                grid = self.rho_lambda
+            case "hybrid":
+                if threshold is None:
+                    raise ValueError("threshold is required when density is 'hybrid'.")
+                grid = self.rho_hybrid(threshold)
+            case _:
+                raise ValueError(
+                    f"Unknown density {density!r}. "
+                    f"Expected one of {sorted(['count', 'force', 'hybrid', 'lambda'])}."
+                )
 
-        # Optional removal (e.g., to drop solute atoms from density writeout)
-        if hasattr(self, "_selection") and hasattr(self._selection, "indices") and self._selection.indices is not None:
-            try:
-                del atoms[np.array(self._selection.indices)]
-            except Exception:
-                # If selection is a list of arrays (multi-species), do nothing silently
-                pass
+        if grid is None:
+            hint = (
+                "Call accumulate() with compute_lambda=True."
+                if density == "lambda"
+                else "Call accumulate() first."
+            )
+            raise RuntimeError(
+                f"{density} density has not been computed yet. {hint}"
+            )
 
-        with open(filename, "w") as f:
-            write_cube(f, atoms, data=grid)
+        from revelsMD.density.writers.cube import write_cube
+
+        write_cube(filename, grid, self.cell_matrix)
 
 def compute_density(
     trajectory: Trajectory,
