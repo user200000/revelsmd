@@ -12,15 +12,23 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
 if TYPE_CHECKING:
     from revelsMD.trajectories._base import Trajectory
 
-#: A single trajectory frame: (positions, forces).
-Frame = tuple[np.ndarray, np.ndarray]
+class Frame(NamedTuple):
+    """A single trajectory frame with named field access.
+
+    Behaves as a regular tuple for backward compatibility
+    (unpacking, indexing), while also supporting attribute access
+    via ``frame.positions`` and ``frame.forces``.
+    """
+
+    positions: np.ndarray
+    forces: np.ndarray
 
 #: An iterator of blocks, where each block is an iterator of frames.
 BlockSource = Iterator[Iterator[Frame]]

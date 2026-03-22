@@ -161,3 +161,39 @@ class TestInterleavedBlocks:
         traj = _FakeTrajectory(3)
         blocks = _frame_ids(interleaved_blocks(traj, range(3), sections=5))
         assert blocks == [[0], [1], [2]]
+
+
+# ---------------------------------------------------------------------------
+# Frame NamedTuple
+# ---------------------------------------------------------------------------
+
+class TestFrame:
+    """Tests for the Frame NamedTuple."""
+
+    def test_named_field_access(self):
+        """Frame supports .positions and .forces attribute access."""
+        from revelsMD.frame_sources import Frame
+        pos = np.array([[1.0, 2.0, 3.0]])
+        frc = np.array([[0.1, 0.2, 0.3]])
+        frame = Frame(positions=pos, forces=frc)
+        np.testing.assert_array_equal(frame.positions, pos)
+        np.testing.assert_array_equal(frame.forces, frc)
+
+    def test_tuple_unpacking_still_works(self):
+        """Frame remains unpackable as (positions, forces) for backward compat."""
+        from revelsMD.frame_sources import Frame
+        pos = np.array([[1.0, 2.0, 3.0]])
+        frc = np.array([[0.1, 0.2, 0.3]])
+        frame = Frame(positions=pos, forces=frc)
+        p, f = frame
+        np.testing.assert_array_equal(p, pos)
+        np.testing.assert_array_equal(f, frc)
+
+    def test_indexing_still_works(self):
+        """Frame[0] is positions, Frame[1] is forces."""
+        from revelsMD.frame_sources import Frame
+        pos = np.array([[1.0, 2.0, 3.0]])
+        frc = np.array([[0.1, 0.2, 0.3]])
+        frame = Frame(positions=pos, forces=frc)
+        np.testing.assert_array_equal(frame[0], pos)
+        np.testing.assert_array_equal(frame[1], frc)
