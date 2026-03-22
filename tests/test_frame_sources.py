@@ -197,3 +197,19 @@ class TestFrame:
         frame = Frame(positions=pos, forces=frc)
         np.testing.assert_array_equal(frame[0], pos)
         np.testing.assert_array_equal(frame[1], frc)
+
+    def test_iter_frames_returns_frame_instances(self, ts):
+        """iter_frames should yield Frame instances with named access."""
+        from revelsMD.frame_sources import Frame
+        for frame in ts.iter_frames():
+            assert isinstance(frame, Frame)
+            assert frame.positions is not None
+            assert frame.forces is not None
+
+    def test_get_frame_returns_frame_instance(self, ts):
+        """get_frame should return a Frame instance with named access."""
+        from revelsMD.frame_sources import Frame
+        frame = ts.get_frame(0)
+        assert isinstance(frame, Frame)
+        assert frame.positions.shape == (2, 3)
+        assert frame.forces.shape == (2, 3)
