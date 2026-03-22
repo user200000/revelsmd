@@ -115,14 +115,14 @@ class Selection:
             if needs_masses:
                 self.masses = trajectory.get_masses(atom_names)
 
-    def get_positions(self, frame: Frame) -> np.ndarray | list[np.ndarray]:
+    def get_positions(self, positions: np.ndarray) -> np.ndarray | list[np.ndarray]:
         """
         Extract deposit positions from a frame based on selection configuration.
 
         Parameters
         ----------
-        frame : Frame
-            Frame containing positions and forces for all atoms.
+        positions : (N, 3) np.ndarray
+            Full frame positions for all atoms.
 
         Returns
         -------
@@ -133,14 +133,14 @@ class Selection:
             - Rigid, specific atom: (M, 3) array of that atom's positions
         """
         if self.single_species:
-            return frame.positions[self.indices, :]
+            return positions[self.indices, :]
 
         if not self.rigid:
-            return [frame.positions[idx, :] for idx in self.indices]
+            return [positions[idx, :] for idx in self.indices]
 
         if self.centre_location is True:
-            return self._compute_com(frame.positions)
-        return frame.positions[self.indices[self.centre_location], :]
+            return self._compute_com(positions)
+        return positions[self.indices[self.centre_location], :]
 
     def _compute_com(self, positions: np.ndarray) -> np.ndarray:
         """
@@ -176,14 +176,14 @@ class Selection:
 
         return mass_cumulant / mass_tot[:, np.newaxis]
 
-    def get_forces(self, frame: Frame) -> np.ndarray | list[np.ndarray]:
+    def get_forces(self, forces: np.ndarray) -> np.ndarray | list[np.ndarray]:
         """
         Extract deposit forces from a frame based on selection configuration.
 
         Parameters
         ----------
-        frame : Frame
-            Frame containing positions and forces for all atoms.
+        forces : (N, 3) np.ndarray
+            Full frame forces for all atoms.
 
         Returns
         -------
@@ -193,15 +193,15 @@ class Selection:
             - Rigid: (M, 3) array of summed forces per molecule
         """
         if self.single_species:
-            return frame.forces[self.indices, :]
+            return forces[self.indices, :]
 
         if not self.rigid:
-            return [frame.forces[idx, :] for idx in self.indices]
+            return [forces[idx, :] for idx in self.indices]
 
         # Sum forces across molecule
-        result = frame.forces[self.indices[0], :].copy()
+        result = forces[self.indices[0], :].copy()
         for species_idx in range(1, len(self.indices)):
-            result = result + frame.forces[self.indices[species_idx], :]
+            result = result + forces[self.indices[species_idx], :]
         return result
 
     def extract(
@@ -226,20 +226,20 @@ class Selection:
             Ready for passing to grid.deposit().
         """
         return (
-            self.get_positions(frame),
-            self.get_forces(frame),
-            self.get_weights(frame),
+            self.get_positions(frame.positions),
+            self.get_forces(frame.forces),
+            self.get_weights(frame.positions),
         )
 
 
-    def get_weights(self, frame: Frame | None = None) -> float | np.ndarray | list[np.ndarray]:
+    def get_weights(self, positions: np.ndarray | None = None) -> float | np.ndarray | list[np.ndarray]:
         """
         Get deposit weights based on density type.
 
         Parameters
         ----------
-        frame : Frame, optional
-            Frame containing positions and forces. Required for polarisation density.
+        positions : (N, 3) np.ndarray, optional
+            Full frame positions. Required for polarisation density.
 
         Returns
         -------
@@ -261,9 +261,9 @@ class Selection:
                 return total_charge
 
             case 'polarisation':
-                if frame is None:
-                    raise ValueError("frame required for polarisation density")
-                return self._compute_dipole_projection(frame.positions)
+                if positions is None:
+                    raise ValueError("positions required for polarisation density")
+                return self._compute_dipole_projection(positions)
 
             case _:
                 raise ValueError(f"Unknown density_type: {self.density_type!r}")
