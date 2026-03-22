@@ -168,8 +168,8 @@ def main():
     # The density of contributions is dg/dr (before cumsum)
     # Let's look at what the histogram of actual distances looks like
     actual_distances = []
-    for positions, forces in trajectory.iter_frames():
-        r_vec = positions[1] - positions[0]
+    for frame in trajectory.iter_frames():
+        r_vec = frame.positions[1] - frame.positions[0]
         r = np.linalg.norm(r_vec)
         actual_distances.append(r)
     actual_distances = np.array(actual_distances)
