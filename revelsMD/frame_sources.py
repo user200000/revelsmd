@@ -1,0 +1,105 @@
+"""Frame source functions for grouping trajectory frames into blocks.
+
+This module provides the layer between trajectory loaders and analysis code.
+Trajectory loaders read frames from disk; frame sources group those frames
+into blocks for statistical analysis (e.g. Welford variance estimation).
+
+Both functions yield the same interface: an iterator of blocks, where each
+block is an iterator of (positions, forces) tuples.
+"""
+
+from __future__ import annotations
+
+import itertools
+from collections.abc import Iterator, Sequence
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from revelsMD.trajectories._base import Trajectory
+
+#: A single trajectory frame: (positions, forces).
+Frame = tuple[np.ndarray, np.ndarray]
+
+#: An iterator of blocks, where each block is an iterator of frames.
+BlockSource = Iterator[Iterator[Frame]]
+
+
+def contiguous_blocks(
+    frame_iterator: Iterator[Frame],
+    block_size: int,
+) -> BlockSource:
+    """Yield contiguous blocks of frames from a sequential stream.
+
+    Each block contains up to ``block_size`` frames drawn from the
+    underlying iterator. The final block may contain fewer frames if the
+    stream is not evenly divisible.
+
+    Parameters
+    ----------
+    frame_iterator : iterator of (positions, forces)
+        Sequential frame stream, e.g. from ``trajectory.iter_frames()``.
+    block_size : int
+        Maximum number of frames per block. Must be >= 1.
+
+    Yields
+    ------
+    iterator of (positions, forces)
+        One block of frames.
+    """
+    if block_size < 1:
+        raise ValueError("block_size must be >= 1")
+
+    it = iter(frame_iterator)
+    # Materialise each batch so that unconsumed inner iterators
+    # cannot silently lose frames from the shared stream.
+    while batch := list(itertools.islice(it, block_size)):
+        yield iter(batch)
+
+
+def interleaved_blocks(
+    trajectory: Trajectory,
+    frame_indices: Sequence[int],
+    sections: int,
+) -> BlockSource:
+    """Yield blocks of frames using an interleaved index pattern.
+
+    Section *k* receives frames at indices ``frame_indices[k::sections]``.
+    This requires random access via ``trajectory.get_frame()``.
+
+    Parameters
+    ----------
+    trajectory : Trajectory
+        Trajectory object with a ``get_frame(index)`` method.
+    frame_indices : range or sequence of int
+        Frame indices to distribute across sections (supports slicing).
+    sections : int
+        Number of interleaved sections. Must be >= 1.
+
+    Yields
+    ------
+    iterator of (positions, forces)
+        One block of frames. Each block is an independent generator;
+        blocks do not share iteration state.
+
+    Raises
+    ------
+    ValueError
+        If the trajectory does not support random frame access.
+    """
+    if sections < 1:
+        raise ValueError("sections must be >= 1")
+
+    if not callable(getattr(trajectory, "get_frame", None)):
+        raise ValueError(
+            "Interleaved blocking requires a trajectory that supports "
+            "random frame access (get_frame). Use blocking='contiguous' "
+            "for sequential-only backends."
+        )
+
+    for k in range(sections):
+        section_indices = frame_indices[k::sections]
+        if len(section_indices) == 0:
+            continue  # defensive: callers should not request sections > frames
+        yield (trajectory.get_frame(i) for i in section_indices)

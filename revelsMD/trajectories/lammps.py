@@ -247,8 +247,6 @@ class LammpsTrajectory(Trajectory):
         """Return atom indices for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         return self.mdanalysis_universe.select_atoms(f'type {atype}').ids - 1
 
-    get_indicies = get_indices
-
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for a given LAMMPS atom type (as string, e.g. '1', '2')."""
         try:
@@ -297,17 +295,18 @@ class LammpsTrajectory(Trajectory):
                     frame_idx += frames_to_skip
 
     def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Return positions and forces for a specific frame by index.
+        """Return positions and forces for a specific frame by index.
 
         LAMMPS dump files are sequential, so random access requires caching
         all frames in memory on first call. Subsequent calls use the cache.
 
+        This is only needed for interleaved blocking. Contiguous blocking
+        (the default) streams frames via ``iter_frames()`` and does not
+        trigger the cache.
+
         Warning
         -------
         This can cause significant memory usage for large trajectories.
-        See issue #44 for a proposed move to sequential block processing
-        which would allow streaming for all trajectory types.
         """
         # Lazy-load cache on first random access
         if not hasattr(self, '_frame_cache'):

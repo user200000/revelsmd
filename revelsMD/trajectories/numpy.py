@@ -30,7 +30,7 @@ class NumpyTrajectory(Trajectory):
         All three must be provided together.
         Mutually exclusive with ``cell_matrix``.
     species_list : list of str, optional
-        Atom names corresponding to each atom index.  If ``None``,
+        Atom names corresponding to each atom index. If ``None``,
         ``get_indices`` and related methods will not be available.
     temperature : float
         Simulation temperature in Kelvin.
@@ -150,8 +150,6 @@ class NumpyTrajectory(Trajectory):
         if len(inds) == 0:
             raise ValueError(f"Species '{atype}' not found in species list.")
         return inds
-
-    get_indicies = get_indices
 
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for atoms of a given species."""

@@ -98,8 +98,6 @@ class MDATrajectory(Trajectory):
         """
         return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').ids)
 
-    get_indicies = get_indices  # backward compatibility alias
-
     def get_charges(self, atype: str) -> np.ndarray:
         """
         Return atomic charges for atoms of a given name.

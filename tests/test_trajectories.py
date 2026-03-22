@@ -11,7 +11,7 @@ from revelsMD.trajectories import (
     VaspTrajectory,
     DataUnavailableError,
 )
-from revelsMD.trajectories._base import Trajectory, compute_beta
+from revelsMD.trajectories._base import Trajectory, compute_beta, normalize_bounds
 
 
 # -----------------------------------------------------------------------------
@@ -67,8 +67,6 @@ def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_univers
     assert np.allclose(state.get_charges("H"), [0.1, 0.2, 0.3])
     assert np.allclose(state.get_masses("H"), [12.0, 1.0, 16.0])
 
-    # backward compatibility
-    assert np.all(state.get_indicies("H") == np.array([1, 2, 3]))
 
 
 @patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("fail"))
@@ -115,8 +113,6 @@ def test_numpy_state_valid_and_accessors():
     assert state.frames == 5
     assert np.allclose(state.get_indices("H"), [1, 2])
 
-    # backward alias
-    assert np.allclose(state.get_indicies("O"), [0])
 
 
 def test_numpy_state_species_not_found():
@@ -1367,3 +1363,48 @@ class TestNumpyTrajectoryCellMatrix:
         )
         with pytest.raises(ValueError, match="[Ss]pecies list"):
             traj.get_indices("A")
+
+
+# -----------------------------------------------------------------------------
+# normalize_bounds
+# -----------------------------------------------------------------------------
+class TestNormalizeBounds:
+    """Tests for the module-level normalize_bounds function."""
+
+    def test_defaults_stop_to_n_frames(self):
+        assert normalize_bounds(10, 0, None, 1) == (0, 10, 1)
+
+    def test_negative_start(self):
+        assert normalize_bounds(10, -3, None, 1) == (7, 10, 1)
+
+    def test_negative_stop(self):
+        assert normalize_bounds(10, 0, -2, 1) == (0, 8, 1)
+
+    def test_negative_start_and_stop(self):
+        assert normalize_bounds(10, -5, -1, 1) == (5, 9, 1)
+
+    def test_start_clamped_to_n_frames(self):
+        assert normalize_bounds(10, 15, None, 1) == (10, 10, 1)
+
+    def test_stop_clamped_to_n_frames(self):
+        assert normalize_bounds(10, 0, 20, 1) == (0, 10, 1)
+
+    def test_large_negative_start_clamped_to_zero(self):
+        assert normalize_bounds(10, -100, None, 1) == (0, 10, 1)
+
+    def test_large_negative_stop_clamped_to_zero(self):
+        assert normalize_bounds(10, 0, -100, 1) == (0, 0, 1)
+
+    def test_stride_passed_through(self):
+        assert normalize_bounds(10, 0, None, 3) == (0, 10, 3)
+
+    def test_zero_stride_raises(self):
+        with pytest.raises(ValueError, match="stride must be >= 1"):
+            normalize_bounds(10, 0, None, 0)
+
+    def test_negative_stride_raises(self):
+        with pytest.raises(ValueError, match="stride must be >= 1"):
+            normalize_bounds(10, 0, None, -1)
+
+    def test_zero_frames(self):
+        assert normalize_bounds(0, 0, None, 1) == (0, 0, 1)

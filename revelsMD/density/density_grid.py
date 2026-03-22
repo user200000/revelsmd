@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
+from typing import Literal
 
 import numpy as np
 import scipy.fft
 from tqdm import tqdm
 from ase import Atoms
+
 from ase.io.cube import write_cube
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from revelsMD.trajectories._base import Trajectory
 from revelsMD.backends import get_fft_workers
+from revelsMD.frame_sources import BlockSource, contiguous_blocks, interleaved_blocks
+from revelsMD.trajectories._base import Trajectory, normalize_bounds
 from revelsMD.cell import (
     cartesian_to_fractional,
     cells_are_compatible,
@@ -215,59 +217,6 @@ class DensityGrid:
         homeX, homeY, homeZ = frac[:, 0], frac[:, 1], frac[:, 2]
         return homeX, homeY, homeZ
 
-    def _process_frame(
-        self,
-        positions: np.ndarray,
-        forces: np.ndarray,
-        weight: float | np.ndarray = 1.0,
-        kernel: str = "triangular",
-    ) -> None:
-        """
-        Deposit a single set of positions/forces to the grid.
-
-        Parameters
-        ----------
-        positions : (N, 3) np.ndarray
-            Positions in Cartesian coordinates.
-        forces : (N, 3) np.ndarray
-            Forces corresponding to `positions`.
-        weight : float or np.ndarray, optional
-            Scalar or per-particle weight (number/charge/polarisation projection).
-        kernel : {'triangular', 'box'}
-            Assignment kernel.
-        """
-        self.count += 1
-
-        # Bring positions to the primary image
-        homeX, homeY, homeZ = self._wrap_to_grid(positions)
-
-        # Component forces (always Cartesian)
-        fox = forces[:, 0]
-        foy = forces[:, 1]
-        foz = forces[:, 2]
-
-        # Map to voxel indices (np.digitize returns 1..len(bins)-1)
-        x = np.clip(np.digitize(homeX, self.binsx), 1, self.nbinsx)
-        y = np.clip(np.digitize(homeY, self.binsy), 1, self.nbinsy)
-        z = np.clip(np.digitize(homeZ, self.binsz), 1, self.nbinsz)
-
-        if kernel.lower() == "triangular":
-            _triangular_allocation(
-                self.force_x, self.force_y, self.force_z, self.counter,
-                x, y, z, homeX, homeY, homeZ,
-                fox, foy, foz, weight,
-                self.lx, self.ly, self.lz,
-                self.nbinsx, self.nbinsy, self.nbinsz,
-            )
-        elif kernel.lower() == "box":
-            _box_allocation(
-                self.force_x, self.force_y, self.force_z, self.counter,
-                x - 1, y - 1, z - 1,
-                fox, foy, foz, weight,
-            )
-        else:
-            raise ValueError(f"Unsupported kernel: {kernel!r}")
-
     def deposit(
         self,
         positions: np.ndarray | list[np.ndarray],
@@ -291,22 +240,16 @@ class DensityGrid:
         kernel : {'triangular', 'box'}
             Deposition kernel (default: 'triangular').
         """
+        self._deposit_to_arrays(
+            self.force_x, self.force_y, self.force_z, self.counter,
+            positions, forces, weights, kernel,
+        )
+        # Increment count: once per array for single species, once per
+        # sub-array for multi-species (list of arrays).
         if isinstance(positions, list):
-            if not isinstance(forces, list):
-                raise TypeError("positions and forces must both be lists or both be arrays")
-            weight_seq: Sequence[float | np.ndarray]
-            if isinstance(weights, list):
-                weight_seq = weights
-            else:
-                weight_seq = [weights] * len(positions)
-            for pos, frc, wgt in zip(positions, forces, weight_seq):
-                self._process_frame(pos, frc, weight=wgt, kernel=kernel)
+            self.count += len(positions)
         else:
-            if isinstance(forces, list):
-                raise TypeError("positions and forces must both be lists or both be arrays")
-            if isinstance(weights, list):
-                raise TypeError("weights cannot be a list when positions is a single array")
-            self._process_frame(positions, forces, weight=weights, kernel=kernel)
+            self.count += 1
 
     def accumulate(
         self,
@@ -320,6 +263,8 @@ class DensityGrid:
         stop: int | None = None,
         period: int = 1,
         compute_lambda: bool = False,
+        blocking: Literal["contiguous", "interleaved"] = "contiguous",
+        block_size: int | None = None,
         sections: int | None = None,
     ) -> None:
         """
@@ -354,12 +299,31 @@ class DensityGrid:
             accumulation using Welford's algorithm. The variance-minimised density
             will be available via grid.rho_lambda. Default is False (faster, no
             lambda overhead).
+        blocking : {'contiguous', 'interleaved'}, optional
+            How frames are grouped into blocks for lambda estimation
+            (default: 'contiguous'). Only used when compute_lambda=True.
+
+            - ``'contiguous'``: each block is a sequential slice of frames.
+              Works with all trajectory backends (streaming, no random access
+              required). Block size is controlled by ``block_size``.
+            - ``'interleaved'``: section *k* gets every *k*-th frame
+              (e.g. frames [0,2,4,...] and [1,3,5,...] for 2 sections).
+              Requires a trajectory backend that supports random frame access
+              via ``get_frame()``. Number of sections is controlled by
+              ``sections``.
+        block_size : int or None, optional
+            Number of frames per block for contiguous blocking. Only used when
+            blocking='contiguous' and compute_lambda=True. If None, defaults
+            to one frame per block (i.e. each frame is its own block).
+            The final block may contain fewer frames if the total is not
+            evenly divisible.
         sections : int or None, optional
-            Number of sections for lambda estimation. Only used when
-            compute_lambda=True. If None, defaults to one section per frame
-            (one section per frame). At least 2 sections
-            are required across all ``accumulate()`` calls for variance
-            estimation; accessing ``rho_lambda`` with fewer raises ValueError.
+            Number of interleaved sections for lambda estimation. Only used
+            when blocking='interleaved' and compute_lambda=True. If None,
+            defaults to one section per frame.
+            At least 2 blocks/sections are required across all
+            ``accumulate()`` calls for variance estimation; accessing
+            ``rho_lambda`` with fewer raises ValueError.
 
         Notes
         -----
@@ -396,33 +360,53 @@ class DensityGrid:
         else:
             raise ValueError("`atom_names` must be a string or list of strings.")
 
-        # Validate frame bounds
+        # Validate frame bounds — reject out-of-range indices that are
+        # almost certainly caller errors.  normalize_bounds (below) handles
+        # the *representation* (negative indices, None stop) but not
+        # *validity*; it will silently clamp out-of-range values, which
+        # would hide mistakes at this user-facing boundary.
         if start > trajectory.frames:
             raise ValueError("First frame index exceeds frames in trajectory.")
+        if start < -trajectory.frames:
+            raise ValueError(
+                f"Negative start index ({start}) exceeds trajectory length "
+                f"({trajectory.frames})."
+            )
         self.start = start
 
         if stop is not None and stop > trajectory.frames:
             raise ValueError("Final frame index exceeds frames in trajectory.")
+        if stop is not None and stop < -trajectory.frames:
+            raise ValueError(
+                f"Negative stop index ({stop}) exceeds trajectory length "
+                f"({trajectory.frames})."
+            )
         self.stop = stop
 
-        # Calculate to_run for progress bar - normalize bounds for range()
-        norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
-        if stop is None:
-            norm_stop = trajectory.frames
-        elif stop < 0:
-            norm_stop = max(0, trajectory.frames + stop)
-        else:
-            norm_stop = stop
-        to_run = range(int(norm_start), int(norm_stop), period)
-        if len(to_run) == 0:
-            raise ValueError("Final frame occurs before first frame in trajectory.")
+        # Normalise the *representation* of validated bounds (negative
+        # indices → positive, None stop → trajectory.frames) so that
+        # frame_indices matches what iter_frames will produce.
+        norm_start, norm_stop, _ = normalize_bounds(
+            trajectory.frames, start, stop, period
+        )
+        frame_indices = range(int(norm_start), int(norm_stop), period)
+        if len(frame_indices) == 0:
+            raise ValueError(
+                f"No frames selected: start={start}, stop={stop}, "
+                f"period={period} yields an empty range."
+            )
         self.period = period
         self.kernel = kernel
-        self.to_run = to_run
 
         # Validate centre_location
         if not isinstance(centre_location, (bool, int)):
             raise ValueError("centre_location must be True (COM) or int (specific atom index).")
+
+        # Validate blocking parameter
+        if blocking not in ("contiguous", "interleaved"):
+            raise ValueError(
+                f"blocking must be 'contiguous' or 'interleaved', got {blocking!r}"
+            )
 
         # Validate polarisation constraints
         if self.density_type == "polarisation":
@@ -454,22 +438,61 @@ class DensityGrid:
             self._welford = None
 
         if not compute_lambda:
-            # Simple accumulation (existing behaviour, fast path)
-            self._accumulate_simple(trajectory, start, stop, period)
+            # Simple accumulation — stream frames directly, no block overhead.
+            for positions, forces in tqdm(
+                trajectory.iter_frames(start, stop, period), total=len(frame_indices)
+            ):
+                deposit_positions = self._selection.get_positions(positions)
+                deposit_forces = self._selection.get_forces(forces)
+                weights = self._selection.get_weights(positions)
+                self.deposit(deposit_positions, deposit_forces, weights, kernel=kernel)
         else:
-            # Sectioned accumulation with lambda statistics
-            if sections is not None and sections <= 0:
-                raise ValueError("sections must be a positive integer")
-            # Default to one section per frame
-            effective_sections = sections if sections is not None else len(self.to_run)
-            if effective_sections > len(self.to_run):
-                raise ValueError(
-                    f"sections ({effective_sections}) exceeds the number of frames "
-                    f"to process ({len(self.to_run)})"
+            # Block accumulation with lambda statistics
+            if blocking == "contiguous" and sections is not None:
+                warnings.warn(
+                    "sections is ignored with blocking='contiguous'. "
+                    "Use block_size to control contiguous block size, or "
+                    "blocking='interleaved' to use sections.",
+                    UserWarning,
+                    stacklevel=2,
                 )
-            self._accumulate_with_sections(trajectory, effective_sections)
+            if blocking == "interleaved" and block_size is not None:
+                warnings.warn(
+                    "block_size is ignored with blocking='interleaved'. "
+                    "Use sections to control the number of interleaved groups, "
+                    "or blocking='contiguous' to use block_size.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if blocking == "interleaved":
+                effective_sections = sections if sections is not None else len(frame_indices)
+                if effective_sections <= 0:
+                    raise ValueError("sections must be a positive integer")
+                # Requesting more sections than frames is almost certainly a
+                # user error — fail fast rather than silently producing fewer
+                # blocks than requested.  (interleaved_blocks itself skips
+                # empty sections defensively, but that is an internal safety
+                # net, not a public contract.)
+                if effective_sections > len(frame_indices):
+                    raise ValueError(
+                        f"sections ({effective_sections}) exceeds the number of "
+                        f"frames to process ({len(frame_indices)})"
+                    )
+                blocks = interleaved_blocks(trajectory, frame_indices, effective_sections)
+                n_blocks = effective_sections
+            else:
+                effective_block_size = block_size if block_size is not None else 1
+                if effective_block_size <= 0:
+                    raise ValueError("block_size must be a positive integer")
+                blocks = contiguous_blocks(
+                    trajectory.iter_frames(start, stop, period),
+                    effective_block_size,
+                )
+                n_blocks = -(-len(frame_indices) // effective_block_size)  # ceiling division
 
-        self.frames_processed += len(self.to_run)
+            self._accumulate_blocks(blocks, kernel, n_blocks=n_blocks)
+
+        self.frames_processed += len(frame_indices)
 
     def _invalidate_derived_state(self) -> None:
         """Clear cached densities and lambda weights.
@@ -482,30 +505,21 @@ class DensityGrid:
         self._rho_lambda = None
         self._lambda_weights = None
 
-    def _accumulate_simple(
+    def _accumulate_blocks(
         self,
-        trajectory: Trajectory,
-        start: int,
-        stop: int | None,
-        period: int,
+        blocks: BlockSource,
+        kernel: str,
+        n_blocks: int | None = None,
     ) -> None:
-        """Accumulate without collecting lambda statistics (fast path)."""
-        for positions, forces in tqdm(
-            trajectory.iter_frames(start, stop, period), total=len(self.to_run)
-        ):
-            deposit_positions = self._selection.get_positions(positions)
-            deposit_forces = self._selection.get_forces(forces)
-            weights = self._selection.get_weights(positions)
-            self.deposit(deposit_positions, deposit_forces, weights, kernel=self.kernel)
+        """Accumulate blocks of frames while collecting lambda statistics.
 
-    def _accumulate_with_sections(
-        self,
-        trajectory: Trajectory,
-        sections: int,
-    ) -> None:
-        """Accumulate while collecting lambda statistics via Welford's algorithm.
-
-        Uses self.to_run (set by accumulate()) for frame indices.
+        Parameters
+        ----------
+        blocks : BlockSource
+            Iterator of blocks, where each block is an iterator of
+            (positions, forces) tuples.
+        kernel : str
+            Deposition kernel name.
         """
         # Initialise Welford accumulator if first call with compute_lambda
         if self._welford is None:
@@ -513,70 +527,61 @@ class DensityGrid:
                 shape=(self.nbinsx, self.nbinsy, self.nbinsz)
             )
 
-        # self.to_run is a range, which supports slicing without materialising
-        # all indices into a list. This avoids memory overhead for large trajectories.
-        frame_indices = self.to_run
+        # Preallocate block buffers once, reused each iteration via .fill(0).
+        block_force_x = np.zeros_like(self.force_x)
+        block_force_y = np.zeros_like(self.force_y)
+        block_force_z = np.zeros_like(self.force_z)
+        block_counter = np.zeros_like(self.counter)
 
-        # Preallocate section buffers once, reused each iteration via .fill(0).
-        # This avoids O(sections) allocations which can cause significant memory
-        # churn for large grids (e.g., 100^3 grid = 32MB per allocation cycle).
-        section_force_x = np.zeros_like(self.force_x)
-        section_force_y = np.zeros_like(self.force_y)
-        section_force_z = np.zeros_like(self.force_z)
-        section_counter = np.zeros_like(self.counter)
+        for block in tqdm(blocks, total=n_blocks, desc="Accumulating blocks"):
+            # Reset block accumulators
+            block_force_x.fill(0)
+            block_force_y.fill(0)
+            block_force_z.fill(0)
+            block_counter.fill(0)
+            block_count = 0
 
-        # Process each section with interleaved sampling
-        for k in tqdm(range(sections), desc="Accumulating sections"):
-            # Compute interleaved frame indices for this section
-            # E.g., with 10 frames and 2 sections: section 0 gets [0,2,4,6,8], section 1 gets [1,3,5,7,9]
-            section_frame_indices = frame_indices[k::sections]
-
-            if len(section_frame_indices) == 0:
-                continue
-
-            # Reset section accumulators
-            section_force_x.fill(0)
-            section_force_y.fill(0)
-            section_force_z.fill(0)
-            section_counter.fill(0)
-            section_count = 0
-
-            # Process frames in this section
-            for frame_idx in section_frame_indices:
-                positions, forces = trajectory.get_frame(frame_idx)
+            for positions, forces in block:
                 deposit_positions = self._selection.get_positions(positions)
                 deposit_forces = self._selection.get_forces(forces)
                 weights = self._selection.get_weights(positions)
 
-                # Deposit to section accumulators
                 self._deposit_to_arrays(
-                    section_force_x, section_force_y, section_force_z, section_counter,
-                    deposit_positions, deposit_forces, weights, self.kernel
+                    block_force_x, block_force_y, block_force_z, block_counter,
+                    deposit_positions, deposit_forces, weights, kernel,
                 )
 
-                # Keep section_count semantics consistent with _process_frame/deposit:
-                # increment once per deposited array, not once per frame.
+                # Count semantics: increment once per deposited array,
+                # not once per frame (consistent with deposit()).
                 if isinstance(deposit_positions, list):
-                    section_count += len(deposit_positions)
+                    block_count += len(deposit_positions)
                 else:
-                    section_count += 1
+                    block_count += 1
 
-            # Add section data to main accumulators (for rho_force/rho_count)
-            self.force_x += section_force_x
-            self.force_y += section_force_y
-            self.force_z += section_force_z
-            self.counter += section_counter
-            self.count += section_count
+            if block_count == 0:
+                warnings.warn(
+                    "Empty block encountered during accumulation — "
+                    "this block contributes nothing to the variance estimate.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                continue
 
-            # Compute section densities for Welford update
-            section_rho_force, section_rho_count = self._compute_densities_from_arrays(
-                section_force_x, section_force_y, section_force_z,
-                section_counter, section_count
+            # Add block data to main accumulators
+            self.force_x += block_force_x
+            self.force_y += block_force_y
+            self.force_z += block_force_z
+            self.counter += block_counter
+            self.count += block_count
+
+            # Compute block densities for Welford update
+            block_rho_force, block_rho_count = self._compute_densities_from_arrays(
+                block_force_x, block_force_y, block_force_z,
+                block_counter, block_count
             )
-            section_delta = section_rho_force - section_rho_count
+            block_delta = block_rho_force - block_rho_count
 
-            # Update Welford statistics
-            self._welford.update(section_delta, section_rho_force)
+            self._welford.update(block_delta, block_rho_force, weight=block_count)
 
     def _deposit_to_arrays(
         self,
@@ -593,7 +598,17 @@ class DensityGrid:
         if isinstance(positions, list):
             if not isinstance(forces, list):
                 raise TypeError("positions and forces must both be lists or both be arrays")
+            if len(positions) != len(forces):
+                raise ValueError(
+                    f"positions and forces must have the same length, "
+                    f"got {len(positions)} and {len(forces)}"
+                )
             if isinstance(weights, list):
+                if len(weights) != len(positions):
+                    raise ValueError(
+                        f"weights must have the same length as positions, "
+                        f"got {len(weights)} and {len(positions)}"
+                    )
                 for pos, frc, wgt in zip(positions, forces, weights):
                     self._deposit_single_to_arrays(
                         force_x, force_y, force_z, counter, pos, frc, wgt, kernel
@@ -749,7 +764,15 @@ class DensityGrid:
 
     def _finalise_lambda(self) -> None:
         """Compute final lambda weights and density from Welford statistics."""
-        if self._welford is None or not self._welford.has_data:
+        if self._welford is None:
+            return
+        if not self._welford.has_data:
+            warnings.warn(
+                "compute_lambda was requested but the Welford accumulator "
+                "has no data — rho_lambda will be None.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return
 
         if self._rho_lambda is not None:
@@ -759,25 +782,30 @@ class DensityGrid:
         expected_rho_force = self.rho_force
         expected_rho_count = self.rho_count
 
-        # These can't be None here - we've accumulated data (count > 0)
-        # and the properties trigger computation if needed
-        assert expected_rho_force is not None
-        assert expected_rho_count is not None
+        if expected_rho_force is None or expected_rho_count is None:
+            raise RuntimeError(
+                "rho_force/rho_count unexpectedly None after accumulation"
+            )
 
         if self._welford.count < 2:
             raise ValueError(
-                f"Cannot compute lambda with fewer than 2 sections (have {self._welford.count}). "
-                "Use sections >= 2 or accumulate from additional trajectories."
+                f"Cannot compute lambda with fewer than 2 blocks (have {self._welford.count}). "
+                "Use a smaller block_size (contiguous) or more sections (interleaved), "
+                "or accumulate from additional trajectories."
             )
 
         # Finalise Welford statistics
         var_buffer, cov_buffer_force = self._welford.finalise()
 
-        # Compute lambda weights: lambda = 1 - Cov(delta, rho_force) / Var(delta)
+        # lambda_raw = Cov(delta, rho_force) / Var(delta).
+        # _lambda_weights = 1 - lambda_raw.
+        # combine_estimators computes:
+        #   rho_lambda = rho_count * lambda_raw + rho_force * (1 - lambda_raw)
+        # i.e. rho_count * (1 - _lambda_weights) + rho_force * _lambda_weights
+        # (see Coles et al., J. Phys. Chem. B 2021).
         lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
         self._lambda_weights = 1.0 - lambda_raw
 
-        # Compute variance-minimised density
         self._rho_lambda = combine_estimators(
             expected_rho_count,
             expected_rho_force,
@@ -875,6 +903,8 @@ def compute_density(
     stop: int | None = None,
     period: int = 1,
     compute_lambda: bool = False,
+    blocking: Literal["contiguous", "interleaved"] = "contiguous",
+    block_size: int | None = None,
     sections: int | None = None,
 ) -> DensityGrid:
     """
@@ -913,9 +943,16 @@ def compute_density(
         If True, collect variance statistics for lambda estimation during
         accumulation. The variance-minimised density will be available via
         grid.rho_lambda. Default is False (faster, no lambda overhead).
+    blocking : {'contiguous', 'interleaved'}, optional
+        How frames are grouped into blocks (default: 'contiguous').
+        See :meth:`DensityGrid.accumulate` for details.
+    block_size : int or None, optional
+        Number of frames per block for contiguous blocking.
+        See :meth:`DensityGrid.accumulate` for details.
     sections : int or None, optional
-        Number of sections for lambda estimation. Only used when
-        compute_lambda=True. If None, defaults to one section per frame.
+        Number of interleaved sections for lambda estimation.
+        See :meth:`DensityGrid.accumulate` for details.
+
     Returns
     -------
     DensityGrid
@@ -961,6 +998,8 @@ def compute_density(
         stop=stop,
         period=period,
         compute_lambda=compute_lambda,
+        blocking=blocking,
+        block_size=block_size,
         sections=sections,
     )
     # Densities are computed on demand when rho_force/rho_count/rho_lambda

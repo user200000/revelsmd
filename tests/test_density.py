@@ -167,40 +167,19 @@ def test_build_kvectors_3d_triclinic():
 
 
 # ---------------------------------------------------------------------------
-# DensityGrid._process_frame: Box & Triangular kernels
+# DensityGrid.deposit: invalid kernel and triclinic cells
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("kernel", ["box", "triangular"])
-def test_process_frame_kernels(ts, kernel):
-    """_process_frame deposits positions/forces to grid using specified kernel."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    pos = np.array([[1.0, 2.0, 3.0]])
-    frc = np.array([[0.5, 0.0, 0.0]])
-    gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
-    assert np.any(gs.force_x != 0)
-    assert np.any(gs.counter != 0)
-
-
-def test_process_frame_increments_count(ts):
-    """_process_frame increments the frame count."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    assert gs.count == 0
-    gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]))
-    assert gs.count == 1
-    gs._process_frame(np.array([[2.0, 3.0, 4.0]]), np.array([[0.0, 0.5, 0.0]]))
-    assert gs.count == 2
-
-
-def test_process_frame_invalid_kernel(ts):
-    """_process_frame raises ValueError for unknown kernel."""
+def test_deposit_invalid_kernel(ts):
+    """deposit raises ValueError for unknown kernel."""
     gs = DensityGrid(ts, "number", nbins=4)
     with pytest.raises(ValueError, match="Unsupported kernel"):
-        gs._process_frame(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), kernel="invalid")
+        gs.deposit(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), weights=1.0, kernel="invalid")
 
 
 @pytest.mark.parametrize("kernel", ["box", "triangular"])
-def test_process_frame_triclinic_deposits(kernel):
-    """_process_frame should deposit to grid for triclinic cells."""
+def test_deposit_triclinic(kernel):
+    """deposit should deposit to grid for triclinic cells."""
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
     cell = np.array([
@@ -216,15 +195,14 @@ def test_process_frame_triclinic_deposits(kernel):
         temperature=300.0, units="real",
     )
     gs = DensityGrid(traj, density_type="number", nbins=4)
-    # Position at (5, 4.5, 4) should be inside the cell
     pos = np.array([[5.0, 4.5, 4.0]])
     frc = np.array([[0.5, 0.0, 0.0]])
-    gs._process_frame(pos, frc, weight=1.0, kernel=kernel)
+    gs.deposit(pos, frc, weights=1.0, kernel=kernel)
     assert np.any(gs.force_x != 0)
     assert np.any(gs.counter != 0)
 
 
-def test_process_frame_triclinic_boundary_particles():
+def test_deposit_triclinic_boundary_particles():
     """Particles at fractional coordinate boundaries should not crash."""
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
@@ -241,11 +219,9 @@ def test_process_frame_triclinic_boundary_particles():
         temperature=300.0, units="real",
     )
     gs = DensityGrid(traj, density_type="number", nbins=4)
-    # Origin and near-edge positions in Cartesian
     pos = np.array([[0.0, 0.0, 0.0], [9.99, 8.99, 7.99]])
     frc = np.array([[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]])
-    gs._process_frame(pos, frc, weight=1.0, kernel="triangular")
-    # Should not crash and should deposit something
+    gs.deposit(pos, frc, weights=1.0, kernel="triangular")
     assert np.any(gs.counter != 0)
 
 
@@ -404,54 +380,55 @@ def test_full_number_density_pipeline(tmp_path, ts):
 # ---------------------------------------------------------------------------
 
 
+class _MultiFrameTrajectory:
+    """Trajectory mock with 10 frames, 3 atoms each, for lambda tests."""
+
+    def __init__(self):
+        self.box_x = self.box_y = self.box_z = 10.0
+        self.cell_matrix = np.diag([10.0, 10.0, 10.0])
+        self.units = 'real'
+        self.temperature = 300.0
+        from revelsMD.trajectories._base import compute_beta
+        self.beta = compute_beta(self.units, self.temperature)
+        self.frames = 10
+
+        np.random.seed(42)
+        self._positions = [
+            np.random.rand(3, 3) * 10 for _ in range(self.frames)
+        ]
+        self._forces = [
+            np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
+        ]
+
+        self._ids = {"H": np.array([0, 1, 2])}
+        self._charges = {"H": np.array([0.1, 0.1, 0.1])}
+        self._masses = {"H": np.array([1.0, 1.0, 1.0])}
+
+    def get_indices(self, atype):
+        return self._ids[atype]
+
+    def get_charges(self, atype):
+        return self._charges[atype]
+
+    def get_masses(self, atype):
+        return self._masses[atype]
+
+    def iter_frames(self, start=0, stop=None, stride=1):
+        if stop is None:
+            stop = self.frames
+        for i in range(start, stop, stride):
+            yield self._positions[i], self._forces[i]
+
+    def get_frame(self, index):
+        return self._positions[index], self._forces[index]
+
+
 class TestAccumulateComputeLambda:
     """Tests for accumulate() with compute_lambda parameter."""
 
     @pytest.fixture
     def multi_frame_trajectory(self):
-        """Create a trajectory with enough frames for sectioned lambda estimation."""
-        class MultiFrameTrajectory:
-            def __init__(self):
-                self.box_x = self.box_y = self.box_z = 10.0
-                self.cell_matrix = np.diag([10.0, 10.0, 10.0])
-                self.units = 'real'
-                self.temperature = 300.0
-                from revelsMD.trajectories._base import compute_beta
-                self.beta = compute_beta(self.units, self.temperature)
-                self.frames = 10
-
-                # 3 atoms per frame, 10 frames
-                np.random.seed(42)
-                self._positions = [
-                    np.random.rand(3, 3) * 10 for _ in range(self.frames)
-                ]
-                self._forces = [
-                    np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
-                ]
-
-                self._ids = {"H": np.array([0, 1, 2])}
-                self._charges = {"H": np.array([0.1, 0.1, 0.1])}
-                self._masses = {"H": np.array([1.0, 1.0, 1.0])}
-
-            def get_indices(self, atype):
-                return self._ids[atype]
-
-            def get_charges(self, atype):
-                return self._charges[atype]
-
-            def get_masses(self, atype):
-                return self._masses[atype]
-
-            def iter_frames(self, start=0, stop=None, stride=1):
-                if stop is None:
-                    stop = self.frames
-                for i in range(start, stop, stride):
-                    yield self._positions[i], self._forces[i]
-
-            def get_frame(self, index):
-                return self._positions[index], self._forces[index]
-
-        return MultiFrameTrajectory()
+        return _MultiFrameTrajectory()
 
     def test_accumulate_without_compute_lambda_no_welford(self, multi_frame_trajectory):
         """accumulate() without compute_lambda does not create Welford accumulator."""
@@ -469,20 +446,20 @@ class TestAccumulateComputeLambda:
         assert gs._welford is not None
         assert gs._welford.has_data
 
-    def test_accumulate_compute_lambda_default_sections(self, multi_frame_trajectory):
-        """accumulate() with compute_lambda=True defaults to one section per frame."""
+    def test_accumulate_compute_lambda_default_block_size(self, multi_frame_trajectory):
+        """accumulate() with compute_lambda=True defaults to one frame per block."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
         gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
 
-        # Default is one section per frame (10 frames = 10 sections)
+        # Default block_size=1, so 10 frames = 10 blocks
         assert gs._welford.count == 10
 
-    def test_accumulate_compute_lambda_custom_sections(self, multi_frame_trajectory):
-        """accumulate() with compute_lambda=True accepts custom sections."""
+    def test_accumulate_compute_lambda_custom_block_size(self, multi_frame_trajectory):
+        """accumulate() with compute_lambda=True accepts custom block_size."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, sections=5
+            compute_lambda=True, block_size=2
         )
 
         assert gs._welford.count == 5
@@ -516,18 +493,34 @@ class TestAccumulateComputeLambda:
         # Should have non-trivial values (after finalisation)
         assert np.any(gs.rho_force != 0)
 
+    def test_compute_lambda_same_rho_as_simple(self, multi_frame_trajectory):
+        """compute_lambda=True produces the same rho_force/rho_count as False."""
+        gs_simple = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_simple.accumulate(
+            multi_frame_trajectory, atom_names="H", compute_lambda=False,
+        )
+
+        gs_lambda = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_lambda.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, block_size=2,
+        )
+
+        np.testing.assert_allclose(gs_lambda.rho_force, gs_simple.rho_force)
+        np.testing.assert_allclose(gs_lambda.rho_count, gs_simple.rho_count)
+
     def test_multiple_accumulate_calls_update_welford(self, multi_frame_trajectory):
         """Multiple accumulate() calls with compute_lambda continue building stats."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
 
-        # First accumulation
+        # First accumulation (5 frames, block_size=2 -> 3 blocks)
         gs.accumulate(multi_frame_trajectory, atom_names="H",
-                     compute_lambda=True, sections=3, start=0, stop=5)
+                     compute_lambda=True, block_size=2, start=0, stop=5)
         first_count = gs._welford.count
 
         # Second accumulation
         gs.accumulate(multi_frame_trajectory, atom_names="H",
-                     compute_lambda=True, sections=3, start=5, stop=10)
+                     compute_lambda=True, block_size=2, start=5, stop=10)
         second_count = gs._welford.count
 
         # Welford count should increase
@@ -559,17 +552,17 @@ class TestAccumulateComputeLambda:
         """Lambda statistics accumulate across multiple accumulate() calls."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
 
-        # First accumulation with 5 sections
+        # First accumulation (5 frames, block_size=1 -> 5 blocks)
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, sections=5, start=0, stop=5
+            compute_lambda=True, block_size=1, start=0, stop=5
         )
         assert gs._welford.count == 5
 
-        # Second accumulation adds more sections
+        # Second accumulation adds more blocks
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, sections=5, start=5, stop=10
+            compute_lambda=True, block_size=1, start=5, stop=10
         )
         assert gs._welford.count == 10  # Combined from both calls
 
@@ -623,51 +616,260 @@ class TestAccumulateComputeLambda:
             )
         assert gs._welford is None
 
-    def test_rho_lambda_raises_with_insufficient_sections(self, multi_frame_trajectory):
-        """Accessing rho_lambda with < 2 sections raises ValueError."""
+    def test_rho_lambda_raises_with_insufficient_blocks(self, multi_frame_trajectory):
+        """Accessing rho_lambda with < 2 blocks raises ValueError."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        # 1 frame with block_size=1 -> 1 block
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, sections=1, start=0, stop=1
+            compute_lambda=True, block_size=1, start=0, stop=1
         )
 
-        with pytest.raises(ValueError, match="fewer than 2 sections"):
+        with pytest.raises(ValueError, match="fewer than 2 blocks"):
             _ = gs.rho_lambda
 
-    def test_rho_lambda_works_with_one_section_per_trajectory(
+    def test_rho_lambda_works_with_one_block_per_trajectory(
         self, multi_frame_trajectory
     ):
-        """sections=1 works if accumulated across multiple trajectories."""
+        """One block per call works if accumulated across multiple calls."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
 
-        # First trajectory with sections=1
+        # First call: 5 frames as one block
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, sections=1, start=0, stop=5
+            compute_lambda=True, block_size=5, start=0, stop=5
         )
         assert gs._welford.count == 1
 
-        # Second trajectory with sections=1
+        # Second call: 5 frames as one block
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, sections=1, start=5, stop=10
+            compute_lambda=True, block_size=5, start=5, stop=10
         )
-        assert gs._welford.count == 2  # Now have 2 total sections
+        assert gs._welford.count == 2  # Now have 2 total blocks
 
         # Lambda now works
         rho = gs.rho_lambda
         assert rho is not None
 
-    def test_sections_exceeds_frames_raises_error(self, multi_frame_trajectory):
-        """Requesting more sections than frames should raise ValueError."""
+    def test_block_size_exceeds_frames_gives_one_block(self, multi_frame_trajectory):
+        """block_size larger than frame count produces a single block."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
 
-        # multi_frame_trajectory has 10 frames, request 20 sections
-        with pytest.raises(ValueError, match="sections.*exceeds.*frames"):
+        # multi_frame_trajectory has 10 frames, block_size=20 -> 1 block
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, block_size=20
+        )
+        assert gs._welford.count == 1
+
+
+class TestBlockingParameter:
+    """Tests for the blocking parameter on accumulate()."""
+
+    @pytest.fixture
+    def multi_frame_trajectory(self):
+        return _MultiFrameTrajectory()
+
+    def test_contiguous_is_default(self, multi_frame_trajectory):
+        """Default blocking is contiguous."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, block_size=2,
+        )
+
+        assert gs._welford is not None
+        assert gs._welford.count == 5
+
+    def test_interleaved_blocking(self, multi_frame_trajectory):
+        """Interleaved blocking uses get_frame() with interleaved indices."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=5, blocking="interleaved",
+        )
+
+        assert gs._welford is not None
+        assert gs._welford.count == 5
+
+    def test_contiguous_and_interleaved_same_total_density(self, multi_frame_trajectory):
+        """Both blocking strategies produce the same total rho_force/rho_count."""
+        gs_contig = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_contig.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, block_size=5, blocking="contiguous",
+        )
+
+        gs_interleaved = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_interleaved.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=2, blocking="interleaved",
+        )
+
+        # Total accumulators should be identical (same frames deposited)
+        np.testing.assert_allclose(gs_contig.rho_force, gs_interleaved.rho_force)
+        np.testing.assert_allclose(gs_contig.rho_count, gs_interleaved.rho_count)
+
+    def test_contiguous_and_interleaved_different_lambda(self, multi_frame_trajectory):
+        """Different blocking strategies produce different variance estimates."""
+        gs_contig = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_contig.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, block_size=5, blocking="contiguous",
+        )
+
+        gs_interleaved = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_interleaved.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, sections=2, blocking="interleaved",
+        )
+
+        # Lambda weights differ because the block composition is different
+        assert not np.allclose(gs_contig.lambda_weights, gs_interleaved.lambda_weights)
+
+    def test_contiguous_does_not_use_get_frame(self, multi_frame_trajectory):
+        """Contiguous blocking should only use iter_frames, not get_frame."""
+        calls = []
+        orig_get_frame = multi_frame_trajectory.get_frame
+
+        def tracking_get_frame(index):
+            calls.append(index)
+            return orig_get_frame(index)
+
+        multi_frame_trajectory.get_frame = tracking_get_frame
+
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, block_size=5, blocking="contiguous",
+        )
+
+        assert len(calls) == 0
+
+    def test_invalid_blocking_raises(self, multi_frame_trajectory):
+        """Invalid blocking value raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.raises(ValueError, match="blocking must be"):
             gs.accumulate(
                 multi_frame_trajectory, atom_names="H",
-                compute_lambda=True, sections=20
+                compute_lambda=True, block_size=5, blocking="random",
             )
+
+    def test_blocking_ignored_without_compute_lambda(self, multi_frame_trajectory):
+        """blocking parameter is ignored when compute_lambda=False."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        # Should not raise even with interleaved when compute_lambda=False
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            blocking="interleaved",
+        )
+        assert gs._welford is None
+
+    def test_interleaved_raises_without_get_frame(self, multi_frame_trajectory):
+        """Interleaved blocking raises if trajectory lacks get_frame()."""
+
+        class SequentialOnly:
+            """Wraps trajectory but without get_frame."""
+            def __init__(self, traj):
+                self.box_x = traj.box_x
+                self.box_y = traj.box_y
+                self.box_z = traj.box_z
+                self.cell_matrix = traj.cell_matrix
+                self.units = traj.units
+                self.temperature = traj.temperature
+                self.beta = traj.beta
+                self.frames = traj.frames
+                self.get_indices = traj.get_indices
+                self.get_charges = traj.get_charges
+                self.get_masses = traj.get_masses
+                self.iter_frames = traj.iter_frames
+
+        seq_traj = SequentialOnly(multi_frame_trajectory)
+
+        gs = DensityGrid(seq_traj, "number", nbins=4)
+        with pytest.raises(ValueError, match="random frame access"):
+            gs.accumulate(
+                seq_traj, atom_names="H",
+                compute_lambda=True, sections=2, blocking="interleaved",
+            )
+
+    def test_remainder_block_included_with_lower_weight(self, multi_frame_trajectory):
+        """Remainder block contributes to Welford with proportional weight."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        # 10 frames, block_size=3 -> 3+3+3+1 = 4 blocks
+        gs.accumulate(
+            multi_frame_trajectory, atom_names="H",
+            compute_lambda=True, block_size=3, blocking="contiguous",
+        )
+        assert gs._welford.count == 4
+        # Weighted: 3+3+3+1 = 10
+        assert gs._welford.sum_weights == 10
+        assert gs.frames_processed == 10
+
+    def test_block_size_zero_raises(self, multi_frame_trajectory):
+        """block_size=0 raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.raises(ValueError, match="block_size must be"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, block_size=0,
+            )
+
+    def test_sections_zero_raises(self, multi_frame_trajectory):
+        """sections=0 raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.raises(ValueError, match="sections must be"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, sections=0, blocking="interleaved",
+            )
+
+    def test_sections_exceeds_frames_raises(self, multi_frame_trajectory):
+        """sections exceeding frame count raises ValueError."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.raises(ValueError, match="sections.*exceeds"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, sections=20, blocking="interleaved",
+            )
+
+    def test_sections_with_contiguous_warns(self, multi_frame_trajectory):
+        """Passing sections with contiguous blocking warns."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.warns(UserWarning, match="sections is ignored"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, block_size=2, sections=5,
+            )
+
+    def test_block_size_with_interleaved_warns(self, multi_frame_trajectory):
+        """Passing block_size with interleaved blocking warns."""
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        with pytest.warns(UserWarning, match="block_size is ignored"):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, block_size=2, sections=5,
+                blocking="interleaved",
+            )
+
+    def test_compute_density_passes_blocking(self, multi_frame_trajectory):
+        """compute_density() passes blocking parameter through to accumulate()."""
+        from revelsMD.density import compute_density
+
+        grid_c = compute_density(
+            multi_frame_trajectory, "H", nbins=4,
+            compute_lambda=True, block_size=5, blocking="contiguous",
+        )
+        grid_i = compute_density(
+            multi_frame_trajectory, "H", nbins=4,
+            compute_lambda=True, sections=2, blocking="interleaved",
+        )
+
+        # Both should have valid lambda, but different weights
+        assert grid_c.rho_lambda is not None
+        assert grid_i.rho_lambda is not None
+        assert not np.allclose(grid_c.lambda_weights, grid_i.lambda_weights)
 
 
 # ---------------------------------------------------------------------------
@@ -804,7 +1006,7 @@ class TestDeposit:
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
         gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
-        # 3 species deposited = 3 calls to _process_frame
+        # 3 species deposited = 3 deposit calls
         assert gs.count == 3
         assert np.any(gs.counter != 0)
 
@@ -1322,7 +1524,7 @@ class TestTriclinicFFT:
         )
         gs = DensityGrid(traj, density_type="number", nbins=nbins)
         for i in range(n_frames):
-            gs._process_frame(positions[i], forces[i], weight=1.0)
+            gs.deposit(positions[i], forces[i], weights=1.0)
 
         # Force-based density should be flat (all perturbation is zero)
         rho_force, rho_count, _, _ = gs._fft_force_to_density(
@@ -1372,7 +1574,7 @@ class TestTriclinicFFT:
         )
         gs = DensityGrid(traj, density_type="number", nbins=nbins)
         for i in range(n_frames):
-            gs._process_frame(positions[i], forces[i], weight=1.0)
+            gs.deposit(positions[i], forces[i], weights=1.0)
 
         rho_force, rho_count, del_rho_k, _ = gs._fft_force_to_density(
             gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
@@ -1507,7 +1709,7 @@ class TestComputeDensity:
             atom_names='O',
             nbins=5,
             compute_lambda=True,
-            sections=2,
+            block_size=2,
         )
 
         assert grid.rho_lambda is not None
@@ -1567,7 +1769,7 @@ class TestLambdaEdgeCases:
 
         traj = MinimalTrajectory()
         gs = DensityGrid(traj, "number", nbins=3)
-        gs.accumulate(traj, atom_names="H", compute_lambda=True, sections=2)
+        gs.accumulate(traj, atom_names="H", compute_lambda=True, block_size=1)
 
         # The key assertion: no NaN or Inf values
         assert np.all(np.isfinite(gs.lambda_weights)), "lambda_weights contains NaN/Inf"
@@ -1677,7 +1879,7 @@ class TestComputeOnDemand:
     def test_rho_lambda_uses_cached_densities(self, ts):
         """rho_lambda finalisation should use cached rho_force if available."""
         gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", compute_lambda=True, sections=2)
+        gs.accumulate(ts, atom_names="H", compute_lambda=True, block_size=1)
 
         # Access rho_force first (caches it)
         rho_force_cached = gs.rho_force
