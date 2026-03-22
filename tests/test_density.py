@@ -1170,6 +1170,15 @@ class TestSelectionGetWeights:
         expected = np.array([0.0, 0.0, 0.0])
         np.testing.assert_allclose(result, expected, atol=1e-10)
 
+    def test_polarisation_without_frame_raises(self, trajectory):
+        """Polarisation density should raise if no frame is provided."""
+        ss = Selection(
+            trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True,
+            density_type='polarisation', polarisation_axis=0
+        )
+        with pytest.raises(ValueError, match="frame required for polarisation density"):
+            ss.get_weights()
+
 
 class TestSelectionValidation:
     """Tests for Selection input validation."""

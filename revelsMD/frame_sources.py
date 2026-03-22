@@ -5,7 +5,7 @@ Trajectory loaders read frames from disk; frame sources group those frames
 into blocks for statistical analysis (e.g. Welford variance estimation).
 
 Both functions yield the same interface: an iterator of blocks, where each
-block is an iterator of (positions, forces) tuples.
+block is an iterator of Frame named tuples.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 class Frame(NamedTuple):
     """A single trajectory frame with named field access.
 
+    Both arrays have shape (n_atoms, 3) with matching n_atoms.
     Behaves as a regular tuple for backward compatibility
     (unpacking, indexing), while also supporting attribute access
     via ``frame.positions`` and ``frame.forces``.
@@ -46,14 +47,14 @@ def contiguous_blocks(
 
     Parameters
     ----------
-    frame_iterator : iterator of (positions, forces)
+    frame_iterator : iterator of Frame
         Sequential frame stream, e.g. from ``trajectory.iter_frames()``.
     block_size : int
         Maximum number of frames per block. Must be >= 1.
 
     Yields
     ------
-    iterator of (positions, forces)
+    iterator of Frame
         One block of frames.
     """
     if block_size < 1:
@@ -87,7 +88,7 @@ def interleaved_blocks(
 
     Yields
     ------
-    iterator of (positions, forces)
+    iterator of Frame
         One block of frames. Each block is an independent generator;
         blocks do not share iteration state.
 

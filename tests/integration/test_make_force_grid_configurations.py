@@ -37,12 +37,14 @@ class TSMock:
         return self._masses.get(name, np.array([]))
 
     def iter_frames(self, start, stop, period):
+        from revelsMD.frame_sources import Frame
         stop = stop if stop is not None else self.frames
         for i in range(start, stop, period):
-            yield self.positions[i], self.forces[i]
+            yield Frame(self.positions[i], self.forces[i])
 
     def get_frame(self, idx):
-        return self.positions[idx], self.forces[idx]
+        from revelsMD.frame_sources import Frame
+        return Frame(self.positions[idx], self.forces[idx])
 
 
 class TestMakeForceGridConfigurations:

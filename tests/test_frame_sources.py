@@ -11,8 +11,9 @@ from revelsMD.frame_sources import contiguous_blocks, interleaved_blocks
 # ---------------------------------------------------------------------------
 
 def _make_frames(n):
-    """Return a list of (positions, forces) tuples with identifiable data."""
-    return [(np.array([[i]]), np.array([[i]])) for i in range(n)]
+    """Return a list of Frame instances with identifiable data."""
+    from revelsMD.frame_sources import Frame
+    return [Frame(np.array([[i]]), np.array([[i]])) for i in range(n)]
 
 
 def _frame_ids(blocks):
