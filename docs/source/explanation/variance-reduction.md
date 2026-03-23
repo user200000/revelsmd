@@ -22,7 +22,7 @@ Differentiating with respect to $\lambda$ and setting to zero gives the optimal 
 
 $$\lambda^* = \frac{\operatorname{Cov}(\delta, B)}{\operatorname{Var}(\delta)}$$
 
-where $\delta = B - A$. This result is due to Coles et al. (2021), following the zero-variance principle of Assaraf and Caffarel (1999).
+where $\delta = B - A$.
 
 ## Position-dependent weights
 
