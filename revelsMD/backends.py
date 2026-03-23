@@ -29,7 +29,7 @@ AVAILABLE_BACKENDS = frozenset({'numpy', 'numba'})
 DEFAULT_BACKEND = 'numba'
 
 FFT_WORKERS_ENV_VAR = 'REVELSMD_FFT_WORKERS'
-DEFAULT_FFT_WORKERS = 1
+DEFAULT_FFT_WORKERS = -1
 
 
 def _resolve_backend() -> str:
