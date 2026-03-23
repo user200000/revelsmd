@@ -213,6 +213,33 @@ class TestCombineEstimators:
         np.testing.assert_allclose(result, expected)
 
 
+def test_welford_inplace_matches_reference():
+    """In-place Welford update must produce identical results to naive version."""
+    rng = np.random.default_rng(42)
+    shape = (20, 20, 20)
+    n_blocks = 10
+
+    deltas = [rng.standard_normal(shape) for _ in range(n_blocks)]
+    rho_forces = [rng.standard_normal(shape) for _ in range(n_blocks)]
+    weights = rng.integers(1, 10, size=n_blocks).astype(float)
+
+    acc = WelfordAccumulator3D(shape)
+    for delta, rho_force, w in zip(deltas, rho_forces, weights):
+        acc.update(delta, rho_force, weight=w)
+
+    variance, covariance = acc.finalise()
+
+    # Compare against manual numpy computation
+    total_w = weights.sum()
+    mean_delta = sum(w * d for w, d in zip(weights, deltas)) / total_w
+    mean_force = sum(w * f for w, f in zip(weights, rho_forces)) / total_w
+    var_expected = sum(w * (d - mean_delta)**2 for w, d in zip(weights, deltas)) / total_w
+    cov_expected = sum(w * (d - mean_delta) * (f - mean_force) for w, d, f in zip(weights, deltas, rho_forces)) / total_w
+
+    np.testing.assert_allclose(variance, var_expected, rtol=1e-10)
+    np.testing.assert_allclose(covariance, cov_expected, rtol=1e-10)
+
+
 class TestIntegration:
     """Integration tests combining both functions."""
 

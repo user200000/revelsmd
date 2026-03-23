@@ -55,6 +55,11 @@ class WelfordAccumulator3D:
         self._M2_delta: NDArray[np.floating] = np.zeros(shape)
         self._C_delta_force: NDArray[np.floating] = np.zeros(shape)
 
+        # Scratch buffers for in-place update (avoids temporary allocations)
+        self._scratch_a: NDArray[np.floating] = np.empty(shape)
+        self._scratch_b: NDArray[np.floating] = np.empty(shape)
+        self._scratch_c: NDArray[np.floating] = np.empty(shape)
+
     def update(
         self,
         delta: NDArray[np.floating],
@@ -79,19 +84,31 @@ class WelfordAccumulator3D:
             raise ValueError(f"weight must be positive, got {weight}")
         self.count += 1
         self.sum_weights += weight
+        ratio = weight / self.sum_weights
+        sa, sb, sc = self._scratch_a, self._scratch_b, self._scratch_c
 
-        # Weighted Welford update for delta mean and variance
-        d_delta = delta - self._mean_delta
-        self._mean_delta += d_delta * (weight / self.sum_weights)
-        d_delta2 = delta - self._mean_delta  # uses updated mean
-        self._M2_delta += weight * d_delta * d_delta2
+        # d_delta = delta - mean_delta  (keep in sa for covariance later)
+        np.subtract(delta, self._mean_delta, out=sa)
+        # mean_delta += d_delta * ratio
+        np.multiply(sa, ratio, out=sb)
+        self._mean_delta += sb
+        # d_delta2 = delta - mean_delta  (updated mean)
+        np.subtract(delta, self._mean_delta, out=sb)
+        # M2_delta += weight * d_delta * d_delta2
+        np.multiply(sa, sb, out=sc)
+        sc *= weight
+        self._M2_delta += sc
 
-        # Update _mean_rho_force
-        d_force = rho_force - self._mean_rho_force
-        self._mean_rho_force += d_force * (weight / self.sum_weights)
-
-        # Covariance update: w * d_delta * (rho_force - mean_rho_force_new)
-        self._C_delta_force += weight * d_delta * (rho_force - self._mean_rho_force)
+        # d_force = rho_force - mean_rho_force
+        np.subtract(rho_force, self._mean_rho_force, out=sb)
+        # mean_rho_force += d_force * ratio
+        np.multiply(sb, ratio, out=sc)
+        self._mean_rho_force += sc
+        # C_delta_force += weight * d_delta * (rho_force - mean_rho_force_new)
+        np.subtract(rho_force, self._mean_rho_force, out=sb)
+        np.multiply(sa, sb, out=sc)
+        sc *= weight
+        self._C_delta_force += sc
 
     def finalise(
         self,
