@@ -360,5 +360,17 @@ class VaspTrajectory(Trajectory):
             yield Frame(self.positions[i], self.forces[i])
 
     def get_frame(self, index: int) -> Frame:
-        """Return positions and forces for a specific frame by index."""
+        """Return positions and forces for a specific frame by index.
+
+        Parameters
+        ----------
+        index : int
+            Frame index to retrieve.
+
+        Returns
+        -------
+        Frame
+            A dataclass with ``positions`` and ``forces`` arrays,
+            each of shape ``(n_atoms, 3)``.
+        """
         return Frame(self.positions[index], self.forces[index])

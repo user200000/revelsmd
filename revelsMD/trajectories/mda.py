@@ -142,6 +142,18 @@ class MDATrajectory(Trajectory):
             yield Frame(ts.positions.copy(), ts.forces.copy())
 
     def get_frame(self, index: int) -> Frame:
-        """Return positions and forces for a specific frame by index."""
+        """Return positions and forces for a specific frame by index.
+
+        Parameters
+        ----------
+        index : int
+            Frame index to retrieve.
+
+        Returns
+        -------
+        Frame
+            A dataclass with ``positions`` and ``forces`` arrays,
+            each of shape ``(n_atoms, 3)``.
+        """
         ts = self.mdanalysis_universe.trajectory[index]
         return Frame(ts.positions.copy(), ts.forces.copy())

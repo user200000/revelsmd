@@ -25,7 +25,29 @@ if TYPE_CHECKING:
 class Frame:
     """A single trajectory frame with named field access.
 
-    Both arrays have shape (n_atoms, 3) with matching n_atoms.
+    Both arrays must have shape ``(n_atoms, 3)`` with matching ``n_atoms``.
+
+    Parameters
+    ----------
+    positions : np.ndarray, shape (n_atoms, 3)
+        Atomic positions in Cartesian coordinates.
+    forces : np.ndarray, shape (n_atoms, 3)
+        Atomic forces in Cartesian coordinates.
+
+    Attributes
+    ----------
+    positions : np.ndarray, shape (n_atoms, 3)
+        Atomic positions in Cartesian coordinates.
+    forces : np.ndarray, shape (n_atoms, 3)
+        Atomic forces in Cartesian coordinates.
+
+    Raises
+    ------
+    TypeError
+        If either field is not a numpy array.
+    ValueError
+        If either array does not have shape ``(n_atoms, 3)``, or if the
+        atom counts differ between ``positions`` and ``forces``.
     """
 
     positions: np.ndarray

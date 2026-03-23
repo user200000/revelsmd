@@ -302,14 +302,41 @@ class Trajectory(ABC):
 
     @abstractmethod
     def get_indices(self, atype: str) -> np.ndarray:
-        """Return atom indices for a given species or type."""
+        """Return atom indices for a given species or type.
+
+        Parameters
+        ----------
+        atype : str
+            Atom species or type name (format is backend-specific).
+
+        Returns
+        -------
+        np.ndarray
+            Array of integer atom indices corresponding to the given species
+            or type.
+        """
         ...
 
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for atoms of a given species or type.
 
         Subclasses should override this method if charge data is available.
-        The default implementation raises DataUnavailableError.
+        The default implementation raises ``DataUnavailableError``.
+
+        Parameters
+        ----------
+        atype : str
+            Atom species or type name (format is backend-specific).
+
+        Returns
+        -------
+        np.ndarray
+            Array of atomic charges for the selected atoms.
+
+        Raises
+        ------
+        DataUnavailableError
+            If charge data is not available for this trajectory backend.
         """
         raise DataUnavailableError("Charge data not available for this trajectory type.")
 
@@ -317,7 +344,22 @@ class Trajectory(ABC):
         """Return atomic masses for atoms of a given species or type.
 
         Subclasses should override this method if mass data is available.
-        The default implementation raises DataUnavailableError.
+        The default implementation raises ``DataUnavailableError``.
+
+        Parameters
+        ----------
+        atype : str
+            Atom species or type name (format is backend-specific).
+
+        Returns
+        -------
+        np.ndarray
+            Array of atomic masses for the selected atoms.
+
+        Raises
+        ------
+        DataUnavailableError
+            If mass data is not available for this trajectory backend.
         """
         raise DataUnavailableError("Mass data not available for this trajectory type.")
 
