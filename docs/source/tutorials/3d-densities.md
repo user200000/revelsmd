@@ -1,18 +1,18 @@
-# Computing 3D densities
+# 3D densities
 
-This tutorial computes a 3D number density for a binary Lennard-Jones fluid
-using the example data in `examples/example_2_LJ_3D/`.
+This tutorial computes a 3D lithium density for Li6PS5I using VASP
+trajectory data. The example file `Li6PS5I_run1_vasprun.xml` is available
+in the `examples/` directory of the
+[repository](https://github.com/user200000/revelsmd).
 
 ## Load the trajectory
 
 ```python
-from revelsMD.trajectories import LammpsTrajectory
+from revelsMD.trajectories import VaspTrajectory
 
-traj = LammpsTrajectory(
-    'examples/example_2_LJ_3D/dump.nh.lammps',
-    'examples/example_2_LJ_3D/data.fin.nh.data',
-    temperature=1.35,
-    units='lj',
+traj = VaspTrajectory(
+    'examples/Li6PS5I_run1_vasprun.xml',
+    temperature=500.0,
 )
 ```
 
@@ -24,45 +24,61 @@ returns a `DensityGrid` in one call:
 ```python
 from revelsMD.density import compute_density
 
-grid = compute_density(traj, '1', density_type='number', nbins=30)
+grid = compute_density(
+    traj,
+    'Li',
+    density_type='number',
+    nbins=200,
+    compute_lambda=True,
+)
 ```
 
-Species are identified by LAMMPS atom type number, passed as a string.
-`nbins=30` sets a uniform 30x30x30 voxel grid. `density_type='number'` is the
-default and can be omitted; the alternatives are `'charge'` and
-`'polarisation'`.
+Species are identified by name. `nbins=200` sets a uniform 200x200x200
+voxel grid. `compute_lambda=True` enables the variance-minimised estimator.
 
 ## Access the results
 
 ```python
-rho_force = grid.rho_force  # force-based density
-rho_count = grid.rho_count  # counting (histogram) density
+rho_count  = grid.rho_count   # counting (histogram) density
+rho_force  = grid.rho_force   # force-based density
+rho_lambda = grid.rho_lambda  # variance-minimised density
 ```
 
-Both are three-dimensional NumPy arrays of shape `(nbinsx, nbinsy, nbinsz)`.
-They are computed lazily on first access.
+All three are 3D NumPy arrays of shape `(nbinsx, nbinsy, nbinsz)`,
+computed lazily on first access.
 
 ## Visualise a 2D slice
 
 ```python
 import matplotlib.pyplot as plt
 
-mid_z = grid.nbinsz // 2
+z_frac = 0.375
+z_idx = int(z_frac * grid.nbinsz)
 
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
-axes[0].imshow(grid.rho_force[:, :, mid_z].T, origin='lower')
-axes[0].set_title('Force-based')
-
-axes[1].imshow(grid.rho_count[:, :, mid_z].T, origin='lower')
-axes[1].set_title('Count-based')
+for ax, rho, title in zip(
+    axes,
+    [grid.rho_count, grid.rho_force, grid.rho_lambda],
+    ['Count', 'Force', 'Lambda'],
+):
+    ax.imshow(rho[:, :, z_idx].T, origin='lower')
+    ax.set_title(title)
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 plt.tight_layout()
 plt.show()
 ```
 
-The `.T` transpose is needed because `imshow` treats the first axis as rows.
-`origin='lower'` places the origin at the bottom-left.
+```{image} /_static/images/tutorial_density.png
+:alt: Comparison of count, force, and lambda density estimates for Li in Li6PS5I
+:width: 100%
+```
+
+The count density is noisy; the force-based density resolves the Li cage
+structure with far less variance; the lambda estimate combines both for
+the optimal result.
 
 ## Hybrid density
 
@@ -75,8 +91,7 @@ rho = grid.rho_hybrid(threshold=0.5)
 ```
 
 Voxels with `rho_count >= threshold` use the force-based value; voxels below
-the threshold use the counting value. The threshold is in the same units as
-`rho_count`.
+the threshold use the counting value.
 
 ## Using DensityGrid directly
 
@@ -86,8 +101,12 @@ construction and accumulation, use `DensityGrid`:
 ```python
 from revelsMD.density import DensityGrid
 
-grid = DensityGrid(traj, density_type='number', nbins=(40, 40, 20))
-grid.accumulate(traj, atom_names='1', start=10)
+grid = DensityGrid(traj, density_type='number', nbins=(200, 200, 200))
+grid.accumulate(
+    traj,
+    atom_names='Li',
+    compute_lambda=True,
+)
 ```
 
 Per-axis bin counts are set with a `(nbinsx, nbinsy, nbinsz)` tuple.
@@ -102,11 +121,11 @@ grid.lx, grid.ly, grid.lz             # fractional voxel sizes (1/nbins)
 grid.count                             # number of accumulated frames
 ```
 
-## Key parameters
+## Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `atom_names` | required | LAMMPS atom type(s) to include |
+| `atom_names` | required | Species to include |
 | `density_type` | `'number'` | `'number'`, `'charge'`, or `'polarisation'` |
 | `nbins` | `100` | Voxels per axis; int or `(nx, ny, nz)` tuple |
 | `kernel` | `'triangular'` | Deposition kernel: `'triangular'` or `'box'` |
@@ -116,6 +135,5 @@ grid.count                             # number of accumulated frames
 
 ## Lambda and hybrid estimators
 
-For variance-minimised densities, see [lambda and hybrid estimators](../how-to/lambda-weighting.md).
-The `rho_lambda` property is available after passing `compute_lambda=True` to
-`compute_density` or `accumulate()`.
+For more on variance-minimised densities, see
+[lambda and hybrid estimators](../how-to/lambda-weighting.md).

@@ -8,4 +8,5 @@ tqdm
 lxml
 MDAnalysis>=2.8.0
 myst-parser
+cmcrameri
 revelsMD

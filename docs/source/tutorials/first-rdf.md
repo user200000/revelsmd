@@ -1,4 +1,4 @@
-# Computing your first RDF
+# Radial distribution functions
 
 This tutorial computes a radial distribution function for a Lennard-Jones fluid
 using the example data in `examples/example_1_LJ/`.
@@ -13,6 +13,7 @@ traj = LammpsTrajectory(
     'examples/example_1_LJ/data.fin.nh.data',
     temperature=1.35,
     units='lj',
+    atom_style="id resid type q x y z ix iy iz",
 )
 ```
 
@@ -20,7 +21,7 @@ traj = LammpsTrajectory(
 For LJ reduced units, this is the reduced temperature T*.
 
 The topology file (`data.fin.nh.data`) is required: it supplies atom types
-and box geometry. The default `atom_style='full'` matches this example.
+and box geometry. `atom_style` describes the column layout in the data file.
 
 ## Compute the RDF
 
@@ -66,23 +67,14 @@ ax.legend()
 plt.show()
 ```
 
-The force-based estimator resolves pair structure at much lower sampling than
-the histogram. With coarse bins (`delr=0.01`, the default) the difference is
-modest; it becomes striking at fine bin spacings.
-
-## Fine bins: where the variance reduction matters
-
-```python
-rdf_fine = compute_rdf(traj, '1', '1', delr=0.005, integration='lambda')
-
-fig, ax = plt.subplots()
-ax.plot(rdf_fine.r, rdf_fine.g_count, label='histogram')
-ax.plot(rdf_fine.r, rdf_fine.g_force, label='force-based (lambda)')
-ax.set_xlabel('r')
-ax.set_ylabel('g(r)')
-ax.legend()
-plt.show()
+```{image} /_static/images/tutorial_rdf.png
+:alt: Comparison of histogram and force-based g(r) for a Lennard-Jones fluid
+:width: 60%
 ```
+
+The force-based estimator resolves pair structure with far less noise than
+the histogram. This is a single frame with fine bins (`delr=0.005`) — the
+histogram is barely usable while the force-based curve is smooth.
 
 ## Using the RDF class directly
 
@@ -129,7 +121,7 @@ rdf.accumulate(traj, stop=100)
 
 These have the same meaning as Python slice indices.
 
-## Key parameters
+## Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
