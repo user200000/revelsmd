@@ -20,7 +20,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
-    'myst_nb',
+    'myst_parser',
 ]
 
 intersphinx_mapping = {
@@ -42,6 +42,7 @@ autodoc_typehints = 'description'
 autosummary_generate = True
 autodoc_member_order = 'bysource'
 exclude_patterns = ['_build', '**.ipynb_checkpoints', 'Thumbs.db', '.DS_Store']
-nbsphinx_execute = 'never'
-source_suffix = ['.rst', '.ipynb', '.md']
-nb_execution_mode = "off"
+source_suffix = ['.rst', '.md']
+myst_enable_extensions = [
+    "dollarmath",
+]
