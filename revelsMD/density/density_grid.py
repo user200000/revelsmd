@@ -823,7 +823,7 @@ class DensityGrid:
 
     def _build_kvectors_3d(self) -> tuple[np.ndarray, np.ndarray]:
         """
-        Build full 3D k-vector arrays for general (triclinic) cells.
+        Build 3D k-vector arrays in rfft layout for general (triclinic) cells.
 
         The k-vector at Miller indices (m1, m2, m3) is:
             k = 2 * pi * inv(M)^T @ [m1, m2, m3]^T
