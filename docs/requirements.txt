@@ -7,6 +7,5 @@ scipy>=1.15
 tqdm
 lxml
 MDAnalysis>=2.8.0
-recommonmark
+myst-parser
 revelsMD
-myst_nb
