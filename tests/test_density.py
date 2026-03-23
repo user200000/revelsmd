@@ -1974,6 +1974,8 @@ class TestFFTForceToDensity:
         np.testing.assert_array_equal(rho_count, 0.0)
         np.testing.assert_array_equal(del_rho_n, 0.0)
         assert np.issubdtype(del_rho_k.dtype, np.complexfloating)
+        rfft_shape = (grid.nbinsx, grid.nbinsy, grid.nbinsz // 2 + 1)
+        assert del_rho_k.shape == rfft_shape
 
     def test_zero_forces_gives_mean_rho_count(self, grid):
         """With zero forces, rho_force should equal mean(rho_count) everywhere."""

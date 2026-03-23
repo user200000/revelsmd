@@ -98,6 +98,9 @@ class TestRDFPipelineExample1:
         # r should be monotonically increasing
         assert np.all(np.diff(rdf.r) > 0), "r values should be increasing"
 
+        # Lambda estimator should produce non-trivial weights somewhere
+        assert np.any(rdf.lam > 0.1), "Lambda weights should not be all near zero"
+
         # g_lambda should have similar structure to regular g(r)
         assert np.max(rdf.g) > 1.0, "Lambda-combined g(r) should have peaks"
 
