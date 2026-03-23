@@ -73,9 +73,7 @@ An optional third stage combines the force-based and counting-based estimates us
 
 Force sampling methods date to a 2013 paper by Borgis, Assaraf, Rotenberg, and Vuilleumier, which established how forces can be used to compute 3D densities and RDFs with reduced variance. After a period of limited follow-on work, the field expanded to cover polarisation densities, constrained molecules, and ion mobilities in nanoslits. The lambda combination approach — which RevelsMD also implements — emerged from work on linear combinations of estimators published in 2021.
 
-Parallel developments by groups working in Buffalo and Bayreuth provide additional theoretical support for the reduced-variance approach. A 2020 review covers this wider history in detail.
-
-RevelsMD is the first publicly available code to implement this family of methods.
+A 2020 review by Rotenberg covers the wider history of force sampling methods in detail.
 
 ## References
 
