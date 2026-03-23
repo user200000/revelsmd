@@ -35,6 +35,11 @@ def is_orthorhombic(
     atol : float, optional
         Absolute tolerance for off-diagonal elements (default:
         ``ORTHORHOMBIC_TOLERANCE``).
+
+    Returns
+    -------
+    bool
+        ``True`` if the cell is orthorhombic or cubic, ``False`` otherwise.
     """
     off_diagonal = cell_matrix[~np.eye(3, dtype=bool)]
     return bool(np.all(np.abs(off_diagonal) < atol))
@@ -176,5 +181,11 @@ def cells_are_compatible(
         Cell matrices to compare.
     atol : float, optional
         Absolute tolerance for element-wise comparison (default: 1e-6).
+
+    Returns
+    -------
+    bool
+        ``True`` if the two cell matrices agree to within *atol*,
+        ``False`` otherwise.
     """
     return bool(np.allclose(cell_a, cell_b, atol=atol, rtol=0))

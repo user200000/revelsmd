@@ -153,14 +153,46 @@ class NumpyTrajectory(Trajectory):
         return inds
 
     def get_charges(self, atype: str) -> np.ndarray:
-        """Return atomic charges for atoms of a given species."""
+        """Return atomic charges for atoms of a given species.
+
+        Parameters
+        ----------
+        atype : str
+            Atom species name to select (e.g. ``'O'``, ``'H'``).
+
+        Returns
+        -------
+        np.ndarray
+            Array of atomic charges for the selected atoms.
+
+        Raises
+        ------
+        DataUnavailableError
+            If no ``charge_list`` was provided at construction.
+        """
         if not hasattr(self, 'charge_list'):
             raise DataUnavailableError("Charge data not available for this trajectory.")
         indices = self.get_indices(atype)
         return self.charge_list[indices]
 
     def get_masses(self, atype: str) -> np.ndarray:
-        """Return atomic masses for atoms of a given species."""
+        """Return atomic masses for atoms of a given species.
+
+        Parameters
+        ----------
+        atype : str
+            Atom species name to select (e.g. ``'O'``, ``'H'``).
+
+        Returns
+        -------
+        np.ndarray
+            Array of atomic masses for the selected atoms.
+
+        Raises
+        ------
+        DataUnavailableError
+            If no ``mass_list`` was provided at construction.
+        """
         if not hasattr(self, 'mass_list'):
             raise DataUnavailableError("Mass data not available for this trajectory.")
         indices = self.get_indices(atype)
@@ -177,5 +209,17 @@ class NumpyTrajectory(Trajectory):
             yield Frame(self.positions[i], self.forces[i])
 
     def get_frame(self, index: int) -> Frame:
-        """Return positions and forces for a specific frame by index."""
+        """Return positions and forces for a specific frame by index.
+
+        Parameters
+        ----------
+        index : int
+            Frame index to retrieve.
+
+        Returns
+        -------
+        Frame
+            A dataclass with ``positions`` and ``forces`` arrays,
+            each of shape ``(n_atoms, 3)``.
+        """
         return Frame(self.positions[index], self.forces[index])
