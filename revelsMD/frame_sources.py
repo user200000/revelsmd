@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from revelsMD.trajectories._base import Trajectory
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class Frame:
     """A single trajectory frame with named field access.
 
