@@ -33,6 +33,11 @@ class Frame:
 
     def __post_init__(self):
         for name, arr in (("positions", self.positions), ("forces", self.forces)):
+            if not isinstance(arr, np.ndarray):
+                raise TypeError(
+                    f"{name} must be a numpy array, "
+                    f"got {type(arr).__name__}"
+                )
             if arr.ndim != 2 or arr.shape[1] != 3:
                 raise ValueError(
                     f"{name} must have shape (n_atoms, 3), "

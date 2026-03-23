@@ -513,7 +513,7 @@ class DensityGrid:
         ----------
         blocks : BlockSource
             Iterator of blocks, where each block is an iterator of
-            Frame named tuples.
+            Frame instances.
         kernel : str
             Deposition kernel name.
         """

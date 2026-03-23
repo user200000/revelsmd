@@ -328,7 +328,7 @@ class Trajectory(ABC):
         stride: int = 1
     ) -> Iterator[Frame]:
         """
-        Iterate over trajectory frames, yielding Frame named tuples.
+        Iterate over trajectory frames, yielding Frame instances.
 
         Parameters
         ----------
@@ -343,7 +343,7 @@ class Trajectory(ABC):
         Yields
         ------
         Frame
-            A named tuple with ``positions`` and ``forces`` arrays,
+            A dataclass with ``positions`` and ``forces`` arrays,
             each of shape (n_atoms, 3).
         """
         start, stop, stride = self._normalize_bounds(start, stop, stride)
@@ -376,7 +376,7 @@ class Trajectory(ABC):
         Returns
         -------
         Frame
-            A named tuple with ``positions`` and ``forces`` arrays,
+            A dataclass with ``positions`` and ``forces`` arrays,
             each of shape (n_atoms, 3).
         """
         ...
