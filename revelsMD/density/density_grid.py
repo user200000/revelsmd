@@ -827,14 +827,14 @@ class DensityGrid:
 
         Returns
         -------
-        k_vectors : np.ndarray, shape (nbinsx, nbinsy, nbinsz, 3)
-            Cartesian k-vectors at each reciprocal grid point.
-        ksquared : np.ndarray, shape (nbinsx, nbinsy, nbinsz)
-            |k|^2 at each reciprocal grid point.
+        k_vectors : np.ndarray, shape (nbinsx, nbinsy, nbinsz // 2 + 1, 3)
+            Cartesian k-vectors at each reciprocal grid point (rfft layout).
+        ksquared : np.ndarray, shape (nbinsx, nbinsy, nbinsz // 2 + 1)
+            |k|^2 at each reciprocal grid point (rfft layout).
         """
         m1 = np.fft.fftfreq(self.nbinsx, d=1.0 / self.nbinsx)
         m2 = np.fft.fftfreq(self.nbinsy, d=1.0 / self.nbinsy)
-        m3 = np.fft.fftfreq(self.nbinsz, d=1.0 / self.nbinsz)
+        m3 = np.fft.rfftfreq(self.nbinsz, d=1.0 / self.nbinsz)
         M1, M2, M3 = np.meshgrid(m1, m2, m3, indexing='ij')
         m_stack = np.stack([M1, M2, M3], axis=-1)
         M_inv_T = self.cell_inverse.T
