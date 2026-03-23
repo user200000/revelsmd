@@ -705,9 +705,8 @@ class DensityGrid:
             rfft_shape = (self.nbinsx, self.nbinsy, self.nbinsz // 2 + 1)
             return zeros, zeros, np.zeros(rfft_shape, dtype=complex), zeros
 
-        # Counting density
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rho_count = counter * (1.0 / (self.voxel_volume * count))
+        # Counting density (count > 0 guaranteed by early return above)
+        rho_count = counter * (1.0 / (self.voxel_volume * count))
 
         # FFT of normalised forces — rfftn exploits real input symmetry
         workers = get_fft_workers()
