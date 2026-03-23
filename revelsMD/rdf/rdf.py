@@ -133,32 +133,68 @@ class RDF:
 
     @property
     def r(self) -> np.ndarray | None:
-        """Bin centres."""
+        """Bin centres.
+
+        Returns
+        -------
+        np.ndarray or None
+            1D array of bin centre values in the same units as the trajectory
+            positions, or None before get_rdf() is called.
+        """
         return self._r
 
     @property
     def g(self) -> np.ndarray | None:
-        """g(r) values."""
+        """g(r) values.
+
+        Returns
+        -------
+        np.ndarray or None
+            1D array of radial distribution function values, or None before
+            get_rdf() is called.
+        """
         return self._g
 
     @property
     def lam(self) -> np.ndarray | None:
-        """Lambda(r): the Eq. 3 weight of Coles et al. (2021) applied to the
+        """Lambda(r) values (only available after get_rdf(integration='lambda')).
+
+        This is the Eq. 3 weight of Coles et al. (2021) applied to the
         forward estimator g_0 (E_1 in the paper's notation; the backward
-        estimator g_inf is E_0 and carries weight 1 - lambda). Only
-        available after get_rdf(integration='lambda'). Degenerate bins with
-        Var(Delta) = 0 report lambda = 0, i.e. the backward estimator.
+        estimator g_inf is E_0 and carries weight 1 - lambda). Degenerate
+        bins with Var(Delta) = 0 report lambda = 0, i.e. the backward
+        estimator.
+
+        Returns
+        -------
+        np.ndarray or None
+            1D array of per-bin lambda weights, or None if
+            integration='lambda' was not used.
         """
         return self._lam
 
     @property
     def g_count(self) -> np.ndarray | None:
-        """Histogram-based g(r) using triangular deposition (available after get_rdf)."""
+        """Histogram-based g(r) using triangular deposition (available after get_rdf).
+
+        Returns
+        -------
+        np.ndarray or None
+            1D array of counting-based g(r) values, or None before
+            get_rdf() is called.
+        """
         return self._g_count
 
     @property
     def g_force(self) -> np.ndarray | None:
-        """Force-based g(r), alias for g (available after get_rdf)."""
+        """Force-based g(r), alias for g (available after get_rdf).
+
+        Returns
+        -------
+        np.ndarray or None
+            1D array of force-based g(r) values, or None before
+            get_rdf() is called.
+        """
         return self._g
 
     def deposit(self, frame: Frame) -> None:
@@ -205,6 +241,11 @@ class RDF:
             Stop frame index (default: None for all frames).
         period : int
             Frame stride (default: 1).
+
+        Raises
+        ------
+        ValueError
+            If frame indices are out of range or the selected range is empty.
         """
         # Validate frame bounds
         if start > trajectory.frames:
@@ -260,6 +301,13 @@ class RDF:
             - 'forward': integrate from r=0, g(0)=0
             - 'backward': integrate from r=inf, g(inf)=1
             - 'lambda': variance-minimised combination
+
+        Raises
+        ------
+        RuntimeError
+            If called before accumulate() or deposit().
+        ValueError
+            If integration is not one of the recognised options.
         """
         if self.progress == 'initialized':
             raise RuntimeError("Call accumulate() or deposit() before get_rdf().")
