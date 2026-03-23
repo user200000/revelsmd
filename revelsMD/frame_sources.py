@@ -5,31 +5,45 @@ Trajectory loaders read frames from disk; frame sources group those frames
 into blocks for statistical analysis (e.g. Welford variance estimation).
 
 Both functions yield the same interface: an iterator of blocks, where each
-block is an iterator of Frame named tuples.
+block is an iterator of Frame instances.
 """
 
 from __future__ import annotations
 
 import itertools
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, NamedTuple
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 if TYPE_CHECKING:
     from revelsMD.trajectories._base import Trajectory
 
-class Frame(NamedTuple):
+
+@dataclass(frozen=True, slots=True)
+class Frame:
     """A single trajectory frame with named field access.
 
     Both arrays have shape (n_atoms, 3) with matching n_atoms.
-    Behaves as a regular tuple for backward compatibility
-    (unpacking, indexing), while also supporting attribute access
-    via ``frame.positions`` and ``frame.forces``.
     """
 
     positions: np.ndarray
     forces: np.ndarray
+
+    def __post_init__(self):
+        for name, arr in (("positions", self.positions), ("forces", self.forces)):
+            if arr.ndim != 2 or arr.shape[1] != 3:
+                raise ValueError(
+                    f"{name} must have shape (n_atoms, 3), "
+                    f"got {arr.shape}"
+                )
+        if self.positions.shape[0] != self.forces.shape[0]:
+            raise ValueError(
+                f"Mismatched atom counts: positions has "
+                f"{self.positions.shape[0]}, "
+                f"forces has {self.forces.shape[0]}"
+            )
 
 #: An iterator of blocks, where each block is an iterator of frames.
 BlockSource = Iterator[Iterator[Frame]]
