@@ -129,7 +129,14 @@ class DensityGrid:
 
     @property
     def rho_count(self) -> np.ndarray | None:
-        """Counting-based density. Computed on first access after accumulate()."""
+        """Counting-based density. Computed on first access after accumulate().
+
+        Returns
+        -------
+        np.ndarray or None
+            3D array of counting-based density (shape: nbinsx, nbinsy, nbinsz),
+            or None if no frames have been accumulated.
+        """
         if self.count == 0:
             return None  # No data accumulated yet
         if self._rho_count is None:
@@ -138,7 +145,14 @@ class DensityGrid:
 
     @property
     def rho_force(self) -> np.ndarray | None:
-        """Force-based density via FFT. Computed on first access after accumulate()."""
+        """Force-based density via FFT. Computed on first access after accumulate().
+
+        Returns
+        -------
+        np.ndarray or None
+            3D array of force-based density (shape: nbinsx, nbinsy, nbinsz),
+            or None if no frames have been accumulated.
+        """
         if self.count == 0:
             return None  # No data accumulated yet
         if self._rho_force is None:
@@ -147,14 +161,28 @@ class DensityGrid:
 
     @property
     def rho_lambda(self) -> np.ndarray | None:
-        """Variance-minimised density (available after accumulate with compute_lambda)."""
+        """Variance-minimised density (available after accumulate with compute_lambda).
+
+        Returns
+        -------
+        np.ndarray or None
+            3D array of variance-minimised density (shape: nbinsx, nbinsy, nbinsz),
+            or None if compute_lambda was not used.
+        """
         if self._rho_lambda is None and self._welford is not None:
             self._finalise_lambda()
         return self._rho_lambda
 
     @property
     def lambda_weights(self) -> np.ndarray | None:
-        """Per-voxel lambda weights (available after accumulate with compute_lambda)."""
+        """Per-voxel lambda weights (available after accumulate with compute_lambda).
+
+        Returns
+        -------
+        np.ndarray or None
+            3D array of per-voxel lambda weights (shape: nbinsx, nbinsy, nbinsz),
+            or None if compute_lambda was not used.
+        """
         if self._lambda_weights is None and self._welford is not None:
             self._finalise_lambda()
         return self._lambda_weights
