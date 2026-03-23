@@ -13,9 +13,3 @@ git switch -c my-feature main
 ```
 
 Avoid committing directly to `main`.
-
-## Commit style
-
-- Use British spellings in commit messages and pull request descriptions (e.g. "initialise", "behaviour", "recognise").
-- Do not use Unicode characters such as subscripts or superscripts in commit messages or PR descriptions. Use plain ASCII equivalents instead (e.g. write `H2O`, not `H₂O`).
-- Keep the first line of a commit message short and descriptive. Use the imperative mood ("Add support for ...", "Fix incorrect ...").

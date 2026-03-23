@@ -1,4 +1,4 @@
-# Working with different trajectory formats
+# Trajectory formats
 
 RevelsMD provides dedicated trajectory classes for LAMMPS, VASP, and MDAnalysis-compatible
 formats, plus a `NumpyTrajectory` for raw arrays. All backends expose the same interface,
