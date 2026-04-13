@@ -6,6 +6,7 @@ import numpy as np
 from tqdm import tqdm
 
 from revelsMD.cell import inscribed_sphere_radius
+from revelsMD.frame_sources import Frame
 from revelsMD.rdf.rdf_helpers import get_backend_functions
 from revelsMD.statistics import compute_lambda_weights, combine_estimators
 
@@ -155,7 +156,7 @@ class RDF:
         """Force-based g(r), alias for g (available after get_rdf)."""
         return self._g
 
-    def deposit(self, positions: np.ndarray, forces: np.ndarray) -> None:
+    def deposit(self, frame: Frame) -> None:
         """
         Deposit a single frame's contribution to the RDF accumulator.
 
@@ -163,13 +164,11 @@ class RDF:
 
         Parameters
         ----------
-        positions : (N, 3) np.ndarray
-            Atomic positions for this frame.
-        forces : (N, 3) np.ndarray
-            Atomic forces for this frame.
+        frame : Frame
+            Trajectory frame with positions and forces.
         """
         # Compute and accumulate
-        force_result, count_result = self._single_frame(positions, forces)
+        force_result, count_result = self._single_frame(frame)
         self._accumulated += force_result
         self._counts += count_result
         self._frame_data.append(force_result)
@@ -216,22 +215,22 @@ class RDF:
             raise ValueError("Final frame occurs before first frame in trajectory.")
 
         # Process frames using deposit
-        for positions, forces in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
-            self.deposit(positions, forces)
+        for frame in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
+            self.deposit(frame)
 
     def _single_frame(
-        self, positions: np.ndarray, forces: np.ndarray
+        self, frame: Frame
     ) -> tuple[np.ndarray, np.ndarray]:
         """Compute single-frame RDF contribution (forces and counts)."""
-        pos_a = positions[self._indices[0], :]
-        force_a = forces[self._indices[0], :]
+        pos_a = frame.positions[self._indices[0], :]
+        force_a = frame.forces[self._indices[0], :]
 
         if self._like_species:
             pos_b = pos_a
             force_b = force_a
         else:
-            pos_b = positions[self._indices[1], :]
-            force_b = forces[self._indices[1], :]
+            pos_b = frame.positions[self._indices[1], :]
+            force_b = frame.forces[self._indices[1], :]
 
         r_flat, dot_flat = self._compute_pairwise(
             pos_a, pos_b, force_a, force_b,

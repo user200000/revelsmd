@@ -5,13 +5,14 @@ Trajectory loaders read frames from disk; frame sources group those frames
 into blocks for statistical analysis (e.g. Welford variance estimation).
 
 Both functions yield the same interface: an iterator of blocks, where each
-block is an iterator of (positions, forces) tuples.
+block is an iterator of Frame instances.
 """
 
 from __future__ import annotations
 
 import itertools
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -19,8 +20,35 @@ import numpy as np
 if TYPE_CHECKING:
     from revelsMD.trajectories._base import Trajectory
 
-#: A single trajectory frame: (positions, forces).
-Frame = tuple[np.ndarray, np.ndarray]
+
+@dataclass(frozen=True, slots=True, eq=False)
+class Frame:
+    """A single trajectory frame with named field access.
+
+    Both arrays have shape (n_atoms, 3) with matching n_atoms.
+    """
+
+    positions: np.ndarray
+    forces: np.ndarray
+
+    def __post_init__(self):
+        for name, arr in (("positions", self.positions), ("forces", self.forces)):
+            if not isinstance(arr, np.ndarray):
+                raise TypeError(
+                    f"{name} must be a numpy array, "
+                    f"got {type(arr).__name__}"
+                )
+            if arr.ndim != 2 or arr.shape[1] != 3:
+                raise ValueError(
+                    f"{name} must have shape (n_atoms, 3), "
+                    f"got {arr.shape}"
+                )
+        if self.positions.shape[0] != self.forces.shape[0]:
+            raise ValueError(
+                f"Mismatched atom counts: positions has "
+                f"{self.positions.shape[0]}, "
+                f"forces has {self.forces.shape[0]}"
+            )
 
 #: An iterator of blocks, where each block is an iterator of frames.
 BlockSource = Iterator[Iterator[Frame]]
@@ -38,14 +66,14 @@ def contiguous_blocks(
 
     Parameters
     ----------
-    frame_iterator : iterator of (positions, forces)
+    frame_iterator : iterator of Frame
         Sequential frame stream, e.g. from ``trajectory.iter_frames()``.
     block_size : int
         Maximum number of frames per block. Must be >= 1.
 
     Yields
     ------
-    iterator of (positions, forces)
+    iterator of Frame
         One block of frames.
     """
     if block_size < 1:
@@ -79,7 +107,7 @@ def interleaved_blocks(
 
     Yields
     ------
-    iterator of (positions, forces)
+    iterator of Frame
         One block of frames. Each block is an independent generator;
         blocks do not share iteration state.
 

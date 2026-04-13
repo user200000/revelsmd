@@ -367,9 +367,9 @@ def test_numpy_iter_frames_yields_all_frames():
     frames = list(state.iter_frames())
     assert len(frames) == n_frames
 
-    for i, (pos, frc) in enumerate(frames):
-        np.testing.assert_array_equal(pos, positions[i])
-        np.testing.assert_array_equal(frc, forces[i])
+    for i, frame in enumerate(frames):
+        np.testing.assert_array_equal(frame.positions, positions[i])
+        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 def test_numpy_iter_frames_with_start_stop_stride():
@@ -386,8 +386,8 @@ def test_numpy_iter_frames_with_start_stop_stride():
     assert len(frames) == 3
 
     expected_indices = [2, 4, 6]
-    for idx, (pos, _) in zip(expected_indices, frames):
-        np.testing.assert_array_equal(pos, positions[idx])
+    for idx, frame in zip(expected_indices, frames):
+        np.testing.assert_array_equal(frame.positions, positions[idx])
 
 
 # -----------------------------------------------------------------------------
@@ -414,9 +414,9 @@ def test_vasp_iter_frames_yields_all_frames(mock_vasprun):
     frames_list = list(state.iter_frames())
     assert len(frames_list) == n_frames
 
-    for i, (pos, frc) in enumerate(frames_list):
-        np.testing.assert_array_equal(pos, positions[i])
-        np.testing.assert_array_equal(frc, forces[i])
+    for i, frame in enumerate(frames_list):
+        np.testing.assert_array_equal(frame.positions, positions[i])
+        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 @patch("revelsMD.trajectories.vasp.Vasprun")
@@ -442,8 +442,8 @@ def test_vasp_iter_frames_with_start_stop_stride(mock_vasprun):
     assert len(frames_list) == 3
 
     expected_indices = [2, 4, 6]
-    for idx, (pos, _) in zip(expected_indices, frames_list):
-        np.testing.assert_array_equal(pos, positions[idx])
+    for idx, frame in zip(expected_indices, frames_list):
+        np.testing.assert_array_equal(frame.positions, positions[idx])
 
 
 # -----------------------------------------------------------------------------
@@ -491,9 +491,9 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
                 frames_list = list(state.iter_frames())
                 assert len(frames_list) == n_frames
 
-                for i, (pos, frc) in enumerate(frames_list):
-                    np.testing.assert_array_equal(pos, positions[i])
-                    np.testing.assert_array_equal(frc, forces[i])
+                for i, frame in enumerate(frames_list):
+                    np.testing.assert_array_equal(frame.positions, positions[i])
+                    np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 @patch("revelsMD.trajectories.mda.MD.Universe")
@@ -576,9 +576,9 @@ def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
     frames_list = list(state.iter_frames())
     assert len(frames_list) == n_frames
 
-    for i, (pos, frc) in enumerate(frames_list):
-        np.testing.assert_array_equal(pos, positions[i])
-        np.testing.assert_array_equal(frc, forces[i])
+    for i, frame in enumerate(frames_list):
+        np.testing.assert_array_equal(frame.positions, positions[i])
+        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 # -----------------------------------------------------------------------------
@@ -594,9 +594,9 @@ def test_numpy_get_frame_returns_correct_data():
     state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
     for i in range(n_frames):
-        pos, frc = state.get_frame(i)
-        np.testing.assert_array_equal(pos, positions[i])
-        np.testing.assert_array_equal(frc, forces[i])
+        frame = state.get_frame(i)
+        np.testing.assert_array_equal(frame.positions, positions[i])
+        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 def test_numpy_get_frame_random_access():
@@ -610,8 +610,8 @@ def test_numpy_get_frame_random_access():
 
     # Access frames in non-sequential order
     for i in [7, 2, 9, 0, 5]:
-        pos, frc = state.get_frame(i)
-        np.testing.assert_array_equal(pos, positions[i])
+        frame = state.get_frame(i)
+        np.testing.assert_array_equal(frame.positions, positions[i])
 
 
 # -----------------------------------------------------------------------------
@@ -636,9 +636,9 @@ def test_vasp_get_frame_returns_correct_data(mock_vasprun):
     state = VaspTrajectory("vasprun.xml", temperature=300.0)
 
     for i in range(n_frames):
-        pos, frc = state.get_frame(i)
-        np.testing.assert_array_equal(pos, positions[i])
-        np.testing.assert_array_equal(frc, forces[i])
+        frame = state.get_frame(i)
+        np.testing.assert_array_equal(frame.positions, positions[i])
+        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 # -----------------------------------------------------------------------------
@@ -671,9 +671,9 @@ def test_mda_get_frame_returns_correct_data(mock_universe):
     state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
 
     for i in range(n_frames):
-        pos, frc = state.get_frame(i)
-        np.testing.assert_array_equal(pos, positions[i])
-        np.testing.assert_array_equal(frc, forces[i])
+        frame = state.get_frame(i)
+        np.testing.assert_array_equal(frame.positions, positions[i])
+        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 # -----------------------------------------------------------------------------
@@ -711,9 +711,9 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
                     state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
                     for i in range(n_frames):
-                        pos, frc = state.get_frame(i)
-                        np.testing.assert_array_equal(pos, positions[i])
-                        np.testing.assert_array_equal(frc, forces[i])
+                        frame = state.get_frame(i)
+                        np.testing.assert_array_equal(frame.positions, positions[i])
+                        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 @patch("revelsMD.trajectories.mda.MD.Universe")
@@ -749,9 +749,9 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
 
                     # Random access in any order
                     for i in [7, 2, 9, 0, 5]:
-                        pos, frc = state.get_frame(i)
-                        np.testing.assert_array_equal(pos, positions[i])
-                        np.testing.assert_array_equal(frc, forces[i])
+                        frame = state.get_frame(i)
+                        np.testing.assert_array_equal(frame.positions, positions[i])
+                        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 # -----------------------------------------------------------------------------
@@ -873,8 +873,8 @@ class TestIterFramesNegativeIndices:
         frames = list(state.iter_frames(stop=-1))
         assert len(frames) == 4
 
-        for i, (pos, _) in enumerate(frames):
-            np.testing.assert_array_equal(pos, positions[i])
+        for i, frame in enumerate(frames):
+            np.testing.assert_array_equal(frame.positions, positions[i])
 
     def test_numpy_negative_start(self):
         """start=-3 should start 3 frames from the end."""
@@ -890,8 +890,8 @@ class TestIterFramesNegativeIndices:
         assert len(frames) == 3
 
         expected_indices = [7, 8, 9]
-        for i, (pos, _) in enumerate(frames):
-            np.testing.assert_array_equal(pos, positions[expected_indices[i]])
+        for i, frame in enumerate(frames):
+            np.testing.assert_array_equal(frame.positions, positions[expected_indices[i]])
 
     def test_numpy_negative_start_and_stop(self):
         """Both negative start and stop should work together."""
@@ -907,8 +907,8 @@ class TestIterFramesNegativeIndices:
         assert len(frames) == 3
 
         expected_indices = [5, 6, 7]
-        for i, (pos, _) in enumerate(frames):
-            np.testing.assert_array_equal(pos, positions[expected_indices[i]])
+        for i, frame in enumerate(frames):
+            np.testing.assert_array_equal(frame.positions, positions[expected_indices[i]])
 
     def test_numpy_stop_none_means_all_frames(self):
         """stop=None should iterate through all frames."""

@@ -11,6 +11,7 @@ import MDAnalysis as MD  # type: ignore[import-untyped]
 from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-untyped]
 import numpy as np
 
+from revelsMD.frame_sources import Frame
 from ._base import Trajectory
 
 
@@ -135,12 +136,12 @@ class MDATrajectory(Trajectory):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[Frame]:
         """Iterate using MDAnalysis trajectory slicing."""
         for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
-            yield ts.positions.copy(), ts.forces.copy()
+            yield Frame(ts.positions.copy(), ts.forces.copy())
 
-    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> Frame:
         """Return positions and forces for a specific frame by index."""
         ts = self.mdanalysis_universe.trajectory[index]
-        return ts.positions.copy(), ts.forces.copy()
+        return Frame(ts.positions.copy(), ts.forces.copy())

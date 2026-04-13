@@ -437,12 +437,10 @@ class DensityGrid:
 
         if not compute_lambda:
             # Simple accumulation — stream frames directly, no block overhead.
-            for positions, forces in tqdm(
+            for frame in tqdm(
                 trajectory.iter_frames(start, stop, period), total=len(frame_indices)
             ):
-                deposit_positions = self._selection.get_positions(positions)
-                deposit_forces = self._selection.get_forces(forces)
-                weights = self._selection.get_weights(positions)
+                deposit_positions, deposit_forces, weights = self._selection.extract(frame)
                 self.deposit(deposit_positions, deposit_forces, weights, kernel=kernel)
         else:
             # Block accumulation with lambda statistics
@@ -515,7 +513,7 @@ class DensityGrid:
         ----------
         blocks : BlockSource
             Iterator of blocks, where each block is an iterator of
-            (positions, forces) tuples.
+            Frame instances.
         kernel : str
             Deposition kernel name.
         """
@@ -539,10 +537,8 @@ class DensityGrid:
             block_counter.fill(0)
             block_count = 0
 
-            for positions, forces in block:
-                deposit_positions = self._selection.get_positions(positions)
-                deposit_forces = self._selection.get_forces(forces)
-                weights = self._selection.get_weights(positions)
+            for frame in block:
+                deposit_positions, deposit_forces, weights = self._selection.extract(frame)
 
                 self._deposit_to_arrays(
                     block_force_x, block_force_y, block_force_z, block_counter,

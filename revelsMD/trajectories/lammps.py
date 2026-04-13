@@ -12,6 +12,7 @@ from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
 from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-untyped]
 import numpy as np
 
+from revelsMD.frame_sources import Frame
 from ._base import Trajectory, DataUnavailableError
 
 
@@ -266,7 +267,7 @@ class LammpsTrajectory(Trajectory):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[Frame]:
         """Parse LAMMPS dump file sequentially for positions and forces."""
         needed_quantities = ["x", "y", "z", "fx", "fy", "fz"]
         strngdex = define_strngdex(needed_quantities, self.dic)
@@ -285,7 +286,7 @@ class LammpsTrajectory(Trajectory):
                 data = get_a_frame(f, self.num_ats, self.header_length, strngdex)
                 positions = data[:, :3]
                 forces = data[:, 3:]
-                yield positions, forces
+                yield Frame(positions, forces)
 
                 # Skip (stride - 1) frames before the next read
                 frames_to_skip = stride - 1
@@ -294,7 +295,7 @@ class LammpsTrajectory(Trajectory):
                     frame_skip(f, self.num_ats, frames_to_skip, self.header_length)
                     frame_idx += frames_to_skip
 
-    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> Frame:
         """Return positions and forces for a specific frame by index.
 
         LAMMPS dump files are sequential, so random access requires caching
@@ -312,5 +313,4 @@ class LammpsTrajectory(Trajectory):
         if not hasattr(self, '_frame_cache'):
             self._frame_cache = list(self.iter_frames())
 
-        positions, forces = self._frame_cache[index]
-        return positions, forces
+        return self._frame_cache[index]

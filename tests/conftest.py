@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from revelsMD.frame_sources import Frame
 from revelsMD.trajectories._base import compute_beta
 
 
@@ -46,10 +47,10 @@ class TSMock:
         if stop is None:
             stop = self.frames
         for i in range(start, stop, stride):
-            yield self.positions[i], self.forces[i]
+            yield Frame(self.positions[i], self.forces[i])
 
     def get_frame(self, index):
-        return self.positions[index], self.forces[index]
+        return Frame(self.positions[index], self.forces[index])
 
 
 @pytest.fixture

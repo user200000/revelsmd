@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from revelsMD.density import DensityGrid, Selection
+from revelsMD.frame_sources import Frame
 
 
 class TSMock:
@@ -39,10 +40,10 @@ class TSMock:
     def iter_frames(self, start, stop, period):
         stop = stop if stop is not None else self.frames
         for i in range(start, stop, period):
-            yield self.positions[i], self.forces[i]
+            yield Frame(self.positions[i], self.forces[i])
 
     def get_frame(self, idx):
-        return self.positions[idx], self.forces[idx]
+        return Frame(self.positions[idx], self.forces[idx])
 
 
 class TestMakeForceGridConfigurations:

@@ -9,6 +9,7 @@ from typing import Iterator
 
 import numpy as np
 
+from revelsMD.frame_sources import Frame
 from ._base import Trajectory, DataUnavailableError
 
 
@@ -170,11 +171,11 @@ class NumpyTrajectory(Trajectory):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[Frame]:
         """Iterate over in-memory position/force arrays."""
         for i in range(start, stop, stride):
-            yield self.positions[i], self.forces[i]
+            yield Frame(self.positions[i], self.forces[i])
 
-    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> Frame:
         """Return positions and forces for a specific frame by index."""
-        return self.positions[index], self.forces[index]
+        return Frame(self.positions[index], self.forces[index])

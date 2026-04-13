@@ -11,8 +11,9 @@ from revelsMD.frame_sources import contiguous_blocks, interleaved_blocks
 # ---------------------------------------------------------------------------
 
 def _make_frames(n):
-    """Return a list of (positions, forces) tuples with identifiable data."""
-    return [(np.array([[i]]), np.array([[i]])) for i in range(n)]
+    """Return a list of Frame instances with identifiable data."""
+    from revelsMD.frame_sources import Frame
+    return [Frame(np.array([[i, 0, 0]], dtype=float), np.array([[i, 0, 0]], dtype=float)) for i in range(n)]
 
 
 def _frame_ids(blocks):
@@ -22,7 +23,7 @@ def _frame_ids(blocks):
     """
     result = []
     for block in blocks:
-        ids = [int(pos[0, 0]) for pos, _forces in block]
+        ids = [int(frame.positions[0, 0]) for frame in block]
         result.append(ids)
     return result
 
@@ -98,7 +99,7 @@ class TestContiguousBlocks:
         # Get first block but don't consume it
         first_block = next(block_iter)
         # Consuming should give the right frames
-        assert [int(p[0, 0]) for p, _f in first_block] == [0, 1, 2]
+        assert [int(frame.positions[0, 0]) for frame in first_block] == [0, 1, 2]
 
 
 # ---------------------------------------------------------------------------
@@ -161,3 +162,51 @@ class TestInterleavedBlocks:
         traj = _FakeTrajectory(3)
         blocks = _frame_ids(interleaved_blocks(traj, range(3), sections=5))
         assert blocks == [[0], [1], [2]]
+
+
+# ---------------------------------------------------------------------------
+# Frame dataclass
+# ---------------------------------------------------------------------------
+
+class TestFrame:
+    """Tests for the Frame dataclass."""
+
+    def test_named_field_access(self):
+        """Frame supports .positions and .forces attribute access."""
+        from revelsMD.frame_sources import Frame
+        pos = np.array([[1.0, 2.0, 3.0]])
+        frc = np.array([[0.1, 0.2, 0.3]])
+        frame = Frame(positions=pos, forces=frc)
+        np.testing.assert_array_equal(frame.positions, pos)
+        np.testing.assert_array_equal(frame.forces, frc)
+
+    def test_mismatched_atom_counts_raises(self):
+        """Frame rejects positions and forces with different atom counts."""
+        from revelsMD.frame_sources import Frame
+        positions = np.array([[1.0, 2.0, 3.0]])
+        forces = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
+        with pytest.raises(ValueError, match="Mismatched atom counts"):
+            Frame(positions=positions, forces=forces)
+
+    def test_wrong_shape_raises(self):
+        """Frame rejects arrays that are not (n_atoms, 3)."""
+        from revelsMD.frame_sources import Frame
+        with pytest.raises(ValueError, match="must have shape"):
+            Frame(positions=np.array([1.0, 2.0, 3.0]),
+                  forces=np.array([0.1, 0.2, 0.3]))
+
+    def test_iter_frames_returns_frame_instances(self, ts):
+        """iter_frames should yield Frame instances with named access."""
+        from revelsMD.frame_sources import Frame
+        for frame in ts.iter_frames():
+            assert isinstance(frame, Frame)
+            assert frame.positions is not None
+            assert frame.forces is not None
+
+    def test_get_frame_returns_frame_instance(self, ts):
+        """get_frame should return a Frame instance with named access."""
+        from revelsMD.frame_sources import Frame
+        frame = ts.get_frame(0)
+        assert isinstance(frame, Frame)
+        assert frame.positions.shape == (2, 3)
+        assert frame.forces.shape == (2, 3)

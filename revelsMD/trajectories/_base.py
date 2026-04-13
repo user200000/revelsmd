@@ -12,6 +12,7 @@ import numpy as np
 import scipy.constants as constants
 
 from revelsMD.cell import is_orthorhombic as _is_orthorhombic_cell
+from revelsMD.frame_sources import Frame
 
 
 def normalize_bounds(
@@ -325,9 +326,9 @@ class Trajectory(ABC):
         start: int = 0,
         stop: int | None = None,
         stride: int = 1
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[Frame]:
         """
-        Iterate over trajectory frames, yielding positions and forces.
+        Iterate over trajectory frames, yielding Frame instances.
 
         Parameters
         ----------
@@ -341,10 +342,9 @@ class Trajectory(ABC):
 
         Yields
         ------
-        positions : np.ndarray
-            Atomic positions for the current frame, shape (n_atoms, 3).
-        forces : np.ndarray
-            Atomic forces for the current frame, shape (n_atoms, 3).
+        Frame
+            A dataclass with ``positions`` and ``forces`` arrays,
+            each of shape (n_atoms, 3).
         """
         start, stop, stride = self._normalize_bounds(start, stop, stride)
         return self._iter_frames_impl(start, stop, stride)
@@ -355,7 +355,7 @@ class Trajectory(ABC):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    ) -> Iterator[Frame]:
         """
         Internal implementation of frame iteration.
 
@@ -364,7 +364,7 @@ class Trajectory(ABC):
         ...
 
     @abstractmethod
-    def get_frame(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+    def get_frame(self, index: int) -> Frame:
         """
         Return positions and forces for a specific frame by index.
 
@@ -375,9 +375,8 @@ class Trajectory(ABC):
 
         Returns
         -------
-        positions : np.ndarray
-            Atomic positions for the frame, shape (n_atoms, 3).
-        forces : np.ndarray
-            Atomic forces for the frame, shape (n_atoms, 3).
+        Frame
+            A dataclass with ``positions`` and ``forces`` arrays,
+            each of shape (n_atoms, 3).
         """
         ...

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from revelsMD.density import DensityGrid, Selection
+from revelsMD.frame_sources import Frame
 
 
 # ---------------------------------------------------------------------------
@@ -415,10 +416,10 @@ class _MultiFrameTrajectory:
         if stop is None:
             stop = self.frames
         for i in range(start, stop, stride):
-            yield self._positions[i], self._forces[i]
+            yield Frame(self._positions[i], self._forces[i])
 
     def get_frame(self, index):
-        return self._positions[index], self._forces[index]
+        return Frame(self._positions[index], self._forces[index])
 
 
 class TestAccumulateComputeLambda:
@@ -942,7 +943,7 @@ class IterableMockTrajectory(MockTrajectory):
 
     def iter_frames(self, start, stop, period):
         for i in range(start, stop or self.frames, period):
-            yield self._positions[i], self._forces[i]
+            yield Frame(self._positions[i], self._forces[i])
 
 
 # ---------------------------------------------------------------------------
@@ -1163,6 +1164,15 @@ class TestSelectionGetWeights:
         # Similarly for molecules 1 and 2
         expected = np.array([0.0, 0.0, 0.0])
         np.testing.assert_allclose(result, expected, atol=1e-10)
+
+    def test_polarisation_without_positions_raises(self, trajectory):
+        """Polarisation density should raise if no positions are provided."""
+        ss = Selection(
+            trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True,
+            density_type='polarisation', polarisation_axis=0
+        )
+        with pytest.raises(ValueError, match="positions required for polarisation density"):
+            ss.get_weights()
 
 
 class TestSelectionValidation:
@@ -1411,7 +1421,8 @@ class TestSelectionExtract:
         forces = np.zeros((9, 3))
 
         ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
-        result = ss.extract(positions, forces)
+        frame = Frame(positions=positions, forces=forces)
+        result = ss.extract(frame)
 
         assert isinstance(result, tuple)
         assert len(result) == 3
@@ -1691,10 +1702,10 @@ class TestComputeDensity:
 
             def iter_frames(self, start, stop, period):
                 for i in range(start, stop or self.frames, period):
-                    yield self._positions[i], self._forces[i]
+                    yield Frame(self._positions[i], self._forces[i])
 
             def get_frame(self, idx):
-                return self._positions[idx], self._forces[idx]
+                return Frame(self._positions[idx], self._forces[idx])
 
         return IterableMockTrajectoryWithGetFrame()
 
@@ -1759,7 +1770,7 @@ class TestLambdaEdgeCases:
                 # Return identical positions for all frames to create zero variance
                 positions = np.array([[2.0, 5.0, 5.0], [8.0, 5.0, 5.0]])
                 forces = np.array([[0.1, 0.0, 0.0], [-0.1, 0.0, 0.0]])
-                return positions, forces
+                return Frame(positions, forces)
 
             def iter_frames(self, start, stop, period):
                 for i in range(start, stop or self.frames, period):

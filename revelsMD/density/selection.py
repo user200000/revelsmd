@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from revelsMD.cell import apply_minimum_image
+from revelsMD.frame_sources import Frame
 from revelsMD.trajectories._base import Trajectory
 from revelsMD.density.constants import validate_density_type
 
@@ -205,8 +206,7 @@ class Selection:
 
     def extract(
         self,
-        positions: np.ndarray,
-        forces: np.ndarray,
+        frame: Frame,
     ) -> tuple[
         np.ndarray | list[np.ndarray],
         np.ndarray | list[np.ndarray],
@@ -217,10 +217,8 @@ class Selection:
 
         Parameters
         ----------
-        positions : (N, 3) np.ndarray
-            Full frame positions for all atoms.
-        forces : (N, 3) np.ndarray
-            Full frame forces for all atoms.
+        frame : Frame
+            Frame containing positions and forces for all atoms.
 
         Returns
         -------
@@ -228,9 +226,9 @@ class Selection:
             Ready for passing to grid.deposit().
         """
         return (
-            self.get_positions(positions),
-            self.get_forces(forces),
-            self.get_weights(positions),
+            self.get_positions(frame.positions),
+            self.get_forces(frame.forces),
+            self.get_weights(frame.positions),
         )
 
 
