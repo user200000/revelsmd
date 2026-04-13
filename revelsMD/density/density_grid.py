@@ -701,7 +701,6 @@ class DensityGrid:
             Density perturbation in real space.
         """
         if count == 0:
-            zeros = np.zeros_like(force_x)
             rfft_shape = (self.nbinsx, self.nbinsy, self.nbinsz // 2 + 1)
             return (
                 np.zeros_like(force_x),
