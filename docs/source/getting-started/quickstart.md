@@ -64,7 +64,7 @@ The grid carries three estimators and a hybrid selector:
 grid.rho_count             # histogram density
 grid.rho_force             # force-sampled density
 grid.rho_lambda            # lambda-weighted density
-grid.rho_hybrid(0.1)       # lambda where lambda < threshold, force elsewhere
+grid.rho_hybrid(0.1)       # force where count >= threshold, count elsewhere
 ```
 
 Export to a Gaussian cube file for visualisation in VESTA or similar:

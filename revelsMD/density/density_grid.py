@@ -40,7 +40,7 @@ class DensityGrid:
     Parameters
     ----------
     trajectory : Trajectory
-        Trajectory-state object providing `box_x`, `box_y`, `box_z`, and `units`.
+        Trajectory-state object providing `cell_matrix` and `units`.
     density_type : {'number', 'charge', 'polarisation'}
         Type of density to be constructed (controls the estimator weighting).
     nbins : int or tuple of int

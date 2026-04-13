@@ -10,7 +10,7 @@ export REVELSMD_FFT_WORKERS=4    # use 4 threads
 export REVELSMD_FFT_WORKERS=-1   # use all available cores
 ```
 
-The default is `1` (single-threaded). Set this variable before importing
+The default is `-1` (all available cores). Set this variable before importing
 `revelsMD`:
 
 ```python

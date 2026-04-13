@@ -38,21 +38,21 @@ $$\rho_\lambda(\mathbf{r}) = (1 - \lambda(\mathbf{r}))\, \rho_\text{count}(\math
 
 ## Estimating variance and covariance
 
-Computing $\lambda^*$ requires estimates of $\operatorname{Var}(\delta)$ and $\operatorname{Cov}(\delta, B)$ from the trajectory data itself. RevelsMD obtains these by dividing trajectory frames into $N$ interleaved blocks. Each block yields an independent pair of estimates $A_i$ and $B_i$, and the statistics are computed from the spread across blocks:
+Computing $\lambda^*$ requires estimates of $\operatorname{Var}(\delta)$ and $\operatorname{Cov}(\delta, B)$ from the trajectory data itself. RevelsMD obtains these by dividing trajectory frames into $N$ blocks. Both contiguous blocking (the default) and interleaved blocking are supported. Each block yields an independent pair of estimates $A_i$ and $B_i$, and the statistics are computed from the spread across blocks:
 
 $$\operatorname{Var}(\delta) \approx \frac{1}{N} \sum_{i=1}^N (\delta_i - \bar{\delta})^2$$
 
 $$\operatorname{Cov}(\delta, B) \approx \frac{1}{N} \sum_{i=1}^N (\delta_i - \bar{\delta})(B_i - \bar{B})$$
 
-Blocks are interleaved rather than consecutive to avoid systematic bias from slow drift.
+By default blocks are contiguous (consecutive frames), controlled by the `block_size` parameter. Interleaved blocking, controlled by the `sections` parameter, is also available and can reduce bias from slow drift. See the [block averaging explanation](block-averaging.md) for further details.
 
 ### The Welford accumulator
 
 For 3D density fields, where storing all block densities would be prohibitive, RevelsMD uses an online algorithm (`WelfordAccumulator3D` in `revelsMD/statistics.py`) that updates the running mean, variance, and covariance in a single pass as each block is processed. Each block can be weighted by the number of frames it contains, so blocks of unequal size are handled correctly.
 
-### The `sections` parameter
+### Block parameters
 
-The `sections` parameter (passed to `compute_density` or `accumulate`) controls the number of interleaved blocks. More sections yield more accurate variance estimates but reduce the number of frames per block; fewer sections give cruder variance estimates but more frames per block. Typical values are 5 to 20, and the number should be much smaller than the total number of trajectory frames.
+For contiguous blocking, the `block_size` parameter (passed to `compute_density` or `accumulate`) sets the number of frames per block. For interleaved blocking, the `sections` parameter controls the number of interleaved blocks. In either case, more blocks yield more accurate variance estimates but reduce the number of frames per block; fewer blocks give cruder variance estimates but more frames per block. Typical values for `sections` are 5 to 20, and the number should be much smaller than the total number of trajectory frames.
 
 For RDFs, lambda estimation is enabled by passing `integration='lambda'` to `compute_rdf` or `get_rdf`.
 
