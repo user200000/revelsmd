@@ -28,7 +28,7 @@ revelsMD/
         lammps.py        # LAMMPS dump reader
         mda.py           # MDAnalysis adapter
         numpy.py         # in-memory numpy trajectory
-        vasp.py          # VASP OUTCAR reader
+        vasp.py          # VASP vasprun.xml reader
 ```
 
 ## Two-level API

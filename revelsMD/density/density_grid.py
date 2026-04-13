@@ -40,7 +40,7 @@ class DensityGrid:
     Parameters
     ----------
     trajectory : Trajectory
-        Trajectory-state object providing `box_x`, `box_y`, `box_z`, and `units`.
+        Trajectory-state object providing `cell_matrix` and `units`.
     density_type : {'number', 'charge', 'polarisation'}
         Type of density to be constructed (controls the estimator weighting).
     nbins : int or tuple of int
@@ -61,8 +61,6 @@ class DensityGrid:
         Volume of a single voxel.
     count : int
         Number of processed frames (for normalization).
-    progress : {'Generated', 'Allocated', 'Lambda'}
-        Simple state flag used by getters and lambda estimator.
     """
 
     def __init__(

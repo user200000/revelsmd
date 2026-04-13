@@ -13,7 +13,7 @@ from revelsMD.density import DensityGrid
 
 positions = np.load('positions.npy')   # (frames, atoms, 3)
 forces    = np.load('forces.npy')      # (frames, atoms, 3)
-species   = ['O', 'H', 'H'] * 100
+species   = ['O', 'H1', 'H2'] * 100
 charges   = np.array([-0.82, 0.41, 0.41] * 100)
 
 traj = NumpyTrajectory(
@@ -55,7 +55,7 @@ traj = NumpyTrajectory(
 grid = DensityGrid(traj, density_type='polarisation', nbins=50)
 grid.accumulate(
     traj,
-    atom_names=['O', 'H', 'H'],   # all atoms in the rigid group
+    atom_names=['O', 'H1', 'H2'],   # all atoms in the rigid group
     rigid=True,
     centre_location=True,          # deposit at centre of mass
     polarisation_axis=2,           # 0=x, 1=y, 2=z
