@@ -177,6 +177,36 @@ def test_build_kvectors_3d_rfft_shape(ts):
     assert ksquared.shape == (10, 10, 6)
 
 
+def test_build_kvectors_3d_rfft_shape_odd(ts):
+    """rfft shape is correct for odd nbinsz."""
+    grid = DensityGrid(ts, density_type='number', nbins=(4, 4, 5))
+    k_vectors, ksquared = grid._build_kvectors_3d()
+    # 5 // 2 + 1 = 3
+    assert k_vectors.shape == (4, 4, 3, 3)
+    assert ksquared.shape == (4, 4, 3)
+
+
+def test_fft_force_to_density_odd_nbinsz(ts):
+    """FFT pipeline produces correct shapes with odd nbinsz."""
+    grid = DensityGrid(ts, density_type='number', nbins=(4, 4, 5))
+    real_shape = (4, 4, 5)
+    rfft_shape = (4, 4, 3)
+
+    force_x = np.random.default_rng(0).standard_normal(real_shape)
+    force_y = np.random.default_rng(1).standard_normal(real_shape)
+    force_z = np.random.default_rng(2).standard_normal(real_shape)
+    counter = np.ones(real_shape)
+
+    rho_force, rho_count, del_rho_k, del_rho_n = grid._fft_force_to_density(
+        force_x, force_y, force_z, counter, count=1,
+    )
+
+    assert rho_force.shape == real_shape
+    assert rho_count.shape == real_shape
+    assert del_rho_k.shape == rfft_shape
+    assert del_rho_n.shape == real_shape
+
+
 # ---------------------------------------------------------------------------
 # DensityGrid.deposit: invalid kernel and triclinic cells
 # ---------------------------------------------------------------------------

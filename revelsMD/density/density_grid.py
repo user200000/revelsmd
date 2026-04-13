@@ -703,7 +703,12 @@ class DensityGrid:
         if count == 0:
             zeros = np.zeros_like(force_x)
             rfft_shape = (self.nbinsx, self.nbinsy, self.nbinsz // 2 + 1)
-            return zeros, zeros, np.zeros(rfft_shape, dtype=complex), zeros
+            return (
+                np.zeros_like(force_x),
+                np.zeros_like(force_x),
+                np.zeros(rfft_shape, dtype=complex),
+                np.zeros_like(force_x),
+            )
 
         # Counting density (count > 0 guaranteed by early return above)
         rho_count = counter * (1.0 / (self.voxel_volume * count))
@@ -836,6 +841,10 @@ class DensityGrid:
         ksquared : np.ndarray, shape (nbinsx, nbinsy, nbinsz // 2 + 1)
             |k|^2 at each reciprocal grid point (rfft layout).
         """
+        # These k-vectors are multiplied element-wise with rfftn output
+        # in _fft_force_to_density, so the grid must match its layout:
+        # full frequencies on the first two axes, and rfftfreq on the last
+        # which gives only non-negative frequencies (0 to Nyquist).
         m1 = np.fft.fftfreq(self.nbinsx, d=1.0 / self.nbinsx)
         m2 = np.fft.fftfreq(self.nbinsy, d=1.0 / self.nbinsy)
         m3 = np.fft.rfftfreq(self.nbinsz, d=1.0 / self.nbinsz)
