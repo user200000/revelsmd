@@ -120,10 +120,10 @@ class TestGetBackend:
 class TestFFTWorkersConstants:
     """Tests for FFT workers module constants."""
 
-    def test_default_fft_workers_is_one(self):
-        """Default FFT workers should be 1 (single-threaded)."""
+    def test_default_fft_workers_uses_all_cores(self):
+        """Default FFT workers should be -1 (all available cores)."""
         from revelsMD.backends import DEFAULT_FFT_WORKERS
-        assert DEFAULT_FFT_WORKERS == 1
+        assert DEFAULT_FFT_WORKERS == -1
 
     def test_fft_workers_env_var_name(self):
         """Environment variable name should be REVELSMD_FFT_WORKERS."""
@@ -155,16 +155,16 @@ class TestGetFftWorkers:
         )
 
     def test_default_when_env_unset(self):
-        """Returns 1 when environment variable is unset."""
+        """Returns -1 (all cores) when environment variable is unset."""
         result = self._run_get_fft_workers(None)
         assert result.returncode == 0
-        assert result.stdout.strip() == '1'
+        assert result.stdout.strip() == '-1'
 
     def test_empty_string_uses_default(self):
-        """Empty string falls back to default (1)."""
+        """Empty string falls back to default (-1)."""
         result = self._run_get_fft_workers('')
         assert result.returncode == 0
-        assert result.stdout.strip() == '1'
+        assert result.stdout.strip() == '-1'
 
     def test_positive_integer(self):
         """Accepts a positive integer."""

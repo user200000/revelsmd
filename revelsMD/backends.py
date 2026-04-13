@@ -9,9 +9,9 @@ The backend can be configured via the REVELSMD_BACKEND environment variable:
 - 'numpy': Pure NumPy implementations
 
 FFT parallelism can be configured via REVELSMD_FFT_WORKERS:
-- 1: single-threaded (default)
+- -1: use all available cores (default)
+- 1: single-threaded
 - N: use N threads
-- -1: use all available cores
 
 Example
 -------
@@ -29,7 +29,7 @@ AVAILABLE_BACKENDS = frozenset({'numpy', 'numba'})
 DEFAULT_BACKEND = 'numba'
 
 FFT_WORKERS_ENV_VAR = 'REVELSMD_FFT_WORKERS'
-DEFAULT_FFT_WORKERS = 1
+DEFAULT_FFT_WORKERS = -1
 
 
 def _resolve_backend() -> str:
