@@ -13,6 +13,7 @@ and can be driven directly from NumPy arrays.
 :caption: Getting Started
 
 getting-started/installation
+getting-started/quickstart
 ```
 
 ```{toctree}
@@ -33,7 +34,9 @@ tutorials/trajectory-formats
 how-to/density-types
 how-to/lambda-weighting
 how-to/blocking
+how-to/rigid-molecules
 how-to/numpy-interface
+how-to/export-results
 how-to/performance-tuning
 ```
 
@@ -60,12 +63,3 @@ api/rdf
 api/supporting
 ```
 
-```{toctree}
-:maxdepth: 1
-:hidden:
-:caption: Contributing
-
-contributing/development-setup
-contributing/conventions
-contributing/new-trajectory-backend
-```
