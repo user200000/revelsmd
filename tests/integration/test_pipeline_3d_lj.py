@@ -124,7 +124,7 @@ class TestNumberDensityPipelineExample2:
         gs = DensityGrid(ts, 'number', nbins=30)
         gs.accumulate(
             ts, '2', kernel='triangular', rigid=False,
-            start=0, stop=10, compute_lambda=True, sections=5,
+            start=0, stop=10, compute_lambda=True,
         )
 
         assert gs.rho_lambda is not None
