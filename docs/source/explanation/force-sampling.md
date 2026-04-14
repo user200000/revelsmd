@@ -4,9 +4,9 @@ Force sampling is an alternative to histogram counting for computing radial dist
 
 RevelsMD implements force sampling for both RDFs and 3D density fields, with an optional third stage that combines force-based and counting-based estimates to minimise total variance (see [Variance Reduction and Lambda Weighting](variance-reduction.md)).
 
-## Why histograms struggle
+## Histogram convergence
 
-Histogram estimators for $g(r)$ and $\rho(\mathbf{r})$ converge as $1/\sqrt{N_\text{bin}}$, where $N_\text{bin}$ is the number of particle visits to a bin. In low-density regions — near energy barriers, in solvent-excluded volumes, or at the tails of distribution functions — bins accumulate counts slowly regardless of total trajectory length. The estimator is unbiased but high-variance, and the variance is worst precisely where the quantity of interest is often most physically significant.
+Histogram estimators for $g(r)$ and $\rho(\mathbf{r})$ converge as $1/\sqrt{N_\text{bin}}$, where $N_\text{bin}$ is the number of particle visits to a bin. In low-density regions — near energy barriers, in solvent-excluded volumes, or at the tails of distribution functions — bins accumulate counts slowly regardless of total trajectory length. The estimator is unbiased but high-variance, and the variance is largest in the regions that are often of most physical interest.
 
 ## The force-based alternative
 
@@ -65,7 +65,7 @@ RevelsMD implements force sampling as a two-stage process:
 1. **Accumulation.** Forces are binned (for RDFs) or deposited onto a voxel grid (for density fields) and summed across trajectory frames.
 2. **Conversion.** The accumulated force field is converted to $g(r)$ via numerical integration, or to $\rho(\mathbf{r})$ via FFT.
 
-An optional third stage combines the force-based and counting-based estimates using position-dependent lambda weights to minimise total variance; see [Variance Reduction and Lambda Weighting](variance-reduction.md).
+The lambda combination step is described in [Variance Reduction and Lambda Weighting](variance-reduction.md).
 
 ## Brief history
 

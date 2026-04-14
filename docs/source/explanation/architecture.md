@@ -1,8 +1,5 @@
 # Architecture overview
 
-This page is aimed at contributors. It describes how the RevelsMD package is
-structured and the key design decisions behind each component.
-
 ## Package layout
 
 ```
