@@ -44,7 +44,7 @@ $$\operatorname{Var}(\delta) \approx \frac{1}{N} \sum_{i=1}^N (\delta_i - \bar{\
 
 $$\operatorname{Cov}(\delta, B) \approx \frac{1}{N} \sum_{i=1}^N (\delta_i - \bar{\delta})(B_i - \bar{B})$$
 
-By default blocks are contiguous (consecutive frames), controlled by the `block_size` parameter. Interleaved blocking, controlled by the `sections` parameter, is also available and can reduce bias from slow drift. See the [block averaging explanation](block-averaging.md) for further details.
+By default blocks are contiguous (consecutive frames), controlled by the `block_size` parameter. Interleaved blocking, controlled by the `sections` parameter, is also available and can reduce bias from slow drift. Block strategy selection is covered in [Block Averaging](block-averaging.md).
 
 ### The Welford accumulator
 
@@ -68,7 +68,7 @@ Lambda estimation is most beneficial when:
 - The system is inhomogeneous and different regions have very different sampling quality.
 - Low-density or high-barrier regions are of particular interest.
 
-It may add unnecessary computation when trajectories are long and well-converged, or when the counting estimator alone meets accuracy requirements.
+For long, well-converged trajectories where the counting estimator already meets accuracy requirements, the extra computation is unnecessary.
 
 ## References
 

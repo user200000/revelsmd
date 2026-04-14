@@ -1,6 +1,6 @@
 # Radial distribution functions
 
-This tutorial computes a radial distribution function for a Lennard-Jones fluid
+Compute a radial distribution function for a Lennard-Jones fluid
 using the example data in `examples/example_1_LJ/`.
 
 ## Load the trajectory

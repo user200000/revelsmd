@@ -1,6 +1,6 @@
 # 3D densities
 
-This tutorial computes a 3D lithium density for Li6PS5I using VASP
+Compute a 3D lithium density for Li6PS5I using VASP
 trajectory data. The example file `Li6PS5I_run1_vasprun.xml` is available
 in the `examples/` directory of the
 [repository](https://github.com/user200000/revelsmd).
@@ -135,5 +135,4 @@ grid.count                             # number of accumulated frames
 
 ## Lambda and hybrid estimators
 
-For more on variance-minimised densities, see
-[lambda and hybrid estimators](../how-to/lambda-weighting.md).
+Lambda and hybrid estimators are covered in the [lambda weighting how-to](../how-to/lambda-weighting.md).
