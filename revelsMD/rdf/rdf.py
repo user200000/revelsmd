@@ -418,7 +418,7 @@ class RDF:
         cov_inf = np.mean((base_delta - exp_delta) * (base_inf_rdf - exp_inf_rdf), axis=0)
         combination = compute_lambda_weights(var_del, cov_inf)
 
-        per_frame_combined = combine_estimators(base_inf_rdf, base_zero_rdf, combination)
+        per_frame_combined = combine_estimators(base_zero_rdf, base_inf_rdf, combination)
         g_lambda = np.mean(per_frame_combined, axis=0)
 
         # The forward/backward alignment ([:-1] and [1:]) excludes r=0, where
