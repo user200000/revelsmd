@@ -22,19 +22,17 @@ The mean force field thus encodes the same information as the density, but estim
 
 ## RDF from forces
 
-For the radial distribution function, the relationship between $g(r)$ and the mean radial force $F_r(r)$ between particle pairs is:
+Borgis et al. (2013) showed that the force density $F(r)$ — the mean radial force between particle pairs, accumulated over all pair distances — can be integrated directly to yield $g(r)$ without passing through the potential of mean force. The key relation (Borgis et al. Eq. 9) is:
 
-$$\frac{d \ln g(r)}{dr} = -\beta F_r(r)$$
+$$\rho_b\, h_{ab}(r) = -\beta \int_r^\infty F(r')\, dr'$$
 
-where $\beta = 1/k_B T$. This first-order ODE can be integrated in either direction, yielding two complementary estimators.
+where $h_{ab} = g_{ab} - 1$ and $\rho_b$ is the bulk number density. This gives $g(r)$ by linear integration of the force density, not by exponentiating a PMF.
 
-**Forward integration** (using $g(0) = 0$ as the boundary condition):
+In practice, this can be integrated in either direction, yielding two complementary estimators (Coles et al. 2021, Eqs. 6--7):
 
-$$g_\text{fwd}(r) = \exp\!\left(-\beta \int_0^r F_r(r') \, dr'\right)$$
+**Forward integration** (using $g(0) = 0$): accumulates force contributions from all pairs separated by a distance smaller than $r$.
 
-**Backward integration** (using $g(\infty) = 1$):
-
-$$g_\text{bwd}(r) = \exp\!\left(\beta \int_r^\infty F_r(r') \, dr'\right)$$
+**Backward integration** (using $g(\infty) = 1$): accumulates from all pairs separated by a distance larger than $r$, anchored at $g = 1$ at large separations.
 
 Both are exact in principle but accumulate numerical noise in different regions: forward integration is more accurate near $r = 0$, backward integration at large $r$. The [lambda method](variance-reduction.md) finds the optimal position-dependent combination of the two.
 
@@ -71,16 +69,14 @@ An optional third stage combines the force-based and counting-based estimates us
 
 ## Brief history
 
-Force sampling methods date to a 2013 paper by Borgis, Assaraf, Rotenberg, and Vuilleumier, which established how forces can be used to compute 3D densities and RDFs with reduced variance. After a period of limited follow-on work, the field expanded to cover polarisation densities, constrained molecules, and ion mobilities in nanoslits. The lambda combination approach — which RevelsMD also implements — emerged from work on linear combinations of estimators published in 2021.
-
-A 2020 review by Rotenberg covers the wider history of force sampling methods in detail.
+Force sampling methods for RDFs and 3D densities were introduced by Borgis, Assaraf, Rotenberg, and Vuilleumier (2013). Coles, Borgis, Vuilleumier, and Rotenberg (2019) extended the approach to rigid molecules, charge densities, and polarisation densities. The lambda combination approach — which RevelsMD also implements — was introduced by Coles, Mangaud, Frenkel, and Rotenberg (2021). A review by Rotenberg (2020) covers the wider context of force sampling methods.
 
 ## References
 
 - Borgis, D., Assaraf, R., Rotenberg, B., & Vuilleumier, R. (2013). Computation of pair distribution functions and three-dimensional densities with a reduced variance principle. *Molecular Physics*, 111(22-23), 3486-3492. [doi:10.1080/00268976.2013.838316](https://doi.org/10.1080/00268976.2013.838316)
 
-- Coles, S. W., Mangaud, E., Frenkel, D., & Rotenberg, B. (2021). Reduced variance analysis of molecular dynamics simulations by linear combination of estimators. *The Journal of Chemical Physics*, 154(19), 191101. [doi:10.1063/5.0053737](https://doi.org/10.1063/5.0053737)
-
-- Coles, S. W., Park, C., Nikam, R., Kanduc, M., Dzubiella, J., & Rotenberg, B. (2020). Correlation length in concentrated electrolytes: Insights from all-atom molecular dynamics simulations. *The Journal of Physical Chemistry B*, 124(9), 1778-1786.
+- Coles, S. W., Borgis, D., Vuilleumier, R., & Rotenberg, B. (2019). Computing three-dimensional densities from force densities improves statistical efficiency. *The Journal of Chemical Physics*, 151(6), 064124. [doi:10.1063/1.5111697](https://doi.org/10.1063/1.5111697)
 
 - Rotenberg, B. (2020). Use the force! Reduced variance estimators for densities, radial distribution functions, and local mobilities in molecular simulations. *The Journal of Chemical Physics*, 153(15), 150902. [doi:10.1063/5.0029113](https://doi.org/10.1063/5.0029113)
+
+- Coles, S. W., Mangaud, E., Frenkel, D., & Rotenberg, B. (2021). Reduced variance analysis of molecular dynamics simulations by linear combination of estimators. *The Journal of Chemical Physics*, 154(19), 191101. [doi:10.1063/5.0053737](https://doi.org/10.1063/5.0053737)

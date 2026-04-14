@@ -52,7 +52,7 @@ For 3D density fields, where storing all block densities would be prohibitive, R
 
 ### Block parameters
 
-For contiguous blocking, the `block_size` parameter (passed to `compute_density` or `accumulate`) sets the number of frames per block. For interleaved blocking, the `sections` parameter controls the number of interleaved blocks. In either case, more blocks yield more accurate variance estimates but reduce the number of frames per block; fewer blocks give cruder variance estimates but more frames per block. Typical values for `sections` are 5 to 20, and the number should be much smaller than the total number of trajectory frames.
+For contiguous blocking, the `block_size` parameter (passed to `compute_density` or `accumulate`) sets the number of frames per block. For interleaved blocking, the `sections` parameter controls the number of interleaved blocks. In either case, more blocks yield more accurate variance estimates but fewer frames per block; fewer blocks give cruder variance estimates but more frames per block. At least two blocks are required.
 
 For RDFs, lambda estimation is enabled by passing `integration='lambda'` to `compute_rdf` or `get_rdf`.
 
