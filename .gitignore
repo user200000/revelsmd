@@ -17,7 +17,6 @@ coverage.xml
 
 # Test outputs (generated locally)
 tests/validation_plots/
-tests/reference_data/
 tests/test_data/
 
 # Examples (large data files)
