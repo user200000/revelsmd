@@ -122,3 +122,43 @@ def test_lambda_reproduces_exact_estimator_in_each_region():
             "it has zero variance"
         ),
     )
+
+
+def test_single_frame_degenerate_contract_returns_backward():
+    """With one frame Var(Delta) = 0: lambda == 0 and g_lambda equals the backward estimator bit-for-bit."""
+    rng = np.random.default_rng(3)
+    positions = np.zeros((1, 2, 3))
+    positions[0, 1, 0] = 0.55
+    forces = rng.normal(scale=1.0, size=(1, 2, 3))
+    trajectory = NumpyTrajectory(
+        positions, forces,
+        box_x=10.0, box_y=10.0, box_z=10.0,
+        species_list=['A', 'A'],
+        temperature=1.0, units='lj',
+    )
+    rdf = RDF(trajectory, 'A', 'A', delr=0.1, rmax=1.0)
+    rdf.accumulate(trajectory)
+
+    # get_rdf recomputes from the unmutated accumulators, so the same
+    # object can safely be re-run with a different integration; capture
+    # the lambda results first because the standard path clears lam.
+    rdf.get_rdf(integration='lambda')
+    g_lambda = rdf.g.copy()
+    lam = rdf.lam.copy()
+    rdf.get_rdf(integration='backward')
+    g_backward = rdf.g
+
+    np.testing.assert_array_equal(
+        lam, np.zeros_like(lam),
+        err_msg="degenerate input (single frame) must give lambda = 0 everywhere",
+    )
+    # The lambda output pads r = 0 with g = 0; the backward estimator
+    # reports 1 minus the full integral there. All other points must
+    # match the backward estimator exactly (no tolerance).
+    np.testing.assert_array_equal(
+        g_lambda[1:], g_backward[1:],
+        err_msg=(
+            "g_lambda must equal the backward estimator bit-for-bit under "
+            "the degenerate Var(Delta) = 0 contract"
+        ),
+    )

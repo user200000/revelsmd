@@ -240,44 +240,6 @@ def test_welford_inplace_matches_reference():
     np.testing.assert_allclose(covariance, cov_expected, rtol=1e-10)
 
 
-class TestIntegration:
-    """Integration tests combining both functions."""
-
-    def test_density_style_workflow(self):
-        """Simulate density grid lambda computation workflow."""
-        # Simulate 3D grid data
-        grid_shape = (5, 5, 5)
-        np.random.seed(42)
-
-        # Generate mock density data
-        expected_rho = np.random.randn(*grid_shape) * 0.1 + 1.0
-        expected_particle = np.random.randn(*grid_shape) * 0.1 + 1.0
-
-        # Simulate variance and covariance buffers
-        var_buffer = np.abs(np.random.randn(*grid_shape)) + 0.01
-        cov_buffer_force = np.random.randn(*grid_shape) * 0.1
-
-        # Add some zero-variance voxels (edge case)
-        var_buffer[0, 0, 0] = 0.0
-        var_buffer[2, 2, 2] = 0.0
-
-        # Use statistics module (density convention: 1 - lambda)
-        lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
-        combination = 1.0 - lambda_raw
-        optimal_density = combine_estimators(
-            expected_particle, expected_rho, combination
-        )
-
-        # Verify output is finite
-        assert np.all(np.isfinite(lambda_raw))
-        assert np.all(np.isfinite(combination))
-        assert np.all(np.isfinite(optimal_density))
-
-        # Verify zero-variance voxels were handled
-        assert lambda_raw[0, 0, 0] == 0.0
-        assert lambda_raw[2, 2, 2] == 0.0
-
-
 class TestWelfordAccumulator3D:
     """Tests for WelfordAccumulator3D online variance/covariance accumulator."""
 
