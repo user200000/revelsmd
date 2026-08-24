@@ -14,7 +14,7 @@ from pathlib import Path
 
 from revelsMD.density import DensityGrid
 from revelsMD.rdf import RDF, compute_rdf
-from .conftest import load_reference_data, assert_arrays_close
+from .conftest import assert_arrays_close
 
 
 @pytest.mark.integration

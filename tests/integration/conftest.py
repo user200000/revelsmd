@@ -3,7 +3,6 @@
 import pytest
 import numpy as np
 from pathlib import Path
-from typing import Optional
 
 
 # Path to the examples directory
@@ -58,14 +57,6 @@ def assert_arrays_close(actual, expected, rtol=1e-6, atol=1e-8, context=""):
         raise AssertionError(
             f"{context}\nMax absolute diff: {max_diff}\nMax relative diff: {max_rel}\n{e}"
         )
-
-
-def load_reference_data(subdir: str, filename: str) -> Optional[dict]:
-    """Load reference data from .npz file if it exists."""
-    ref_path = REFERENCE_DATA_DIR / subdir / filename
-    if not ref_path.exists():
-        return None
-    return dict(np.load(ref_path))
 
 
 # ---------------------------------------------------------------------------
