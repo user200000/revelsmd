@@ -15,6 +15,8 @@ than any real regression:
 - r grids: rtol 1e-10 (pure bin arithmetic)
 - g(r) and density arrays: rtol 1e-7
 - lambda-combined arrays: rtol 1e-5 (variance ratios amplify float noise)
+- all tiers except r grids additionally carry the assert_arrays_close
+  absolute floor of atol=1e-8 for near-zero values
 
 The semantic guard for the lambda combination itself is
 tests/test_rdf_lambda_invariant.py, which needs no reference data.
@@ -32,10 +34,14 @@ REFERENCE_DIR = Path(__file__).parent.parent / "reference_data"
 
 
 def load_reference(subdir: str, filename: str):
-    """Load reference data, skip test if not available."""
+    """Load reference data, failing the test if it is missing."""
     ref_path = REFERENCE_DIR / subdir / filename
     if not ref_path.exists():
-        pytest.skip(f"Reference data not available: {ref_path}")
+        pytest.fail(
+            f"Reference data missing: {ref_path} — baselines are committed "
+            f"to git; a missing file means a broken checkout or deleted "
+            f"baseline, not a skippable condition."
+        )
     return dict(np.load(ref_path, allow_pickle=True))
 
 
@@ -61,7 +67,7 @@ class TestLammpsRegression:
         # Regression check against stored data
         assert_arrays_close(
             result.r, ref['r'],
-            rtol=1e-10, context="r values"
+            rtol=1e-10, atol=0.0, context="r values"
         )
         assert_arrays_close(
             result.g, ref['g_r'],
@@ -99,7 +105,7 @@ class TestLammpsRegression:
 
         assert_arrays_close(
             result.r, ref['r'],
-            rtol=1e-10, context="r values"
+            rtol=1e-10, atol=0.0, context="r values"
         )
         assert_arrays_close(
             result.g, ref['g_r'],
@@ -281,8 +287,8 @@ class TestSyntheticRegression:
     """
     Regression tests against stored synthetic trajectory results.
 
-    These tests use deterministic random seeds, so results should be
-    bit-for-bit identical across runs.
+    Synthetic trajectories are generated from deterministic random seeds,
+    so any drift beyond the tiered tolerances indicates a real change.
     """
 
     def test_uniform_gas_rdf_regression(self, uniform_gas_trajectory):
@@ -333,7 +339,11 @@ class TestReferenceDataIntegrity:
         """LAMMPS reference files exist and are loadable."""
         ref_dir = REFERENCE_DIR / "lammps_example1"
         if not ref_dir.exists():
-            pytest.skip("LAMMPS reference data not generated")
+            pytest.fail(
+                f"Reference data missing: {ref_dir} — baselines are committed "
+                f"to git; a missing directory means a broken checkout or "
+                f"deleted baseline, not a skippable condition."
+            )
 
         expected_files = [
             "rdf_forward.npz",
@@ -352,7 +362,11 @@ class TestReferenceDataIntegrity:
         """MDA reference files exist and are loadable."""
         ref_dir = REFERENCE_DIR / "mda_example4"
         if not ref_dir.exists():
-            pytest.skip("MDA reference data not generated")
+            pytest.fail(
+                f"Reference data missing: {ref_dir} — baselines are committed "
+                f"to git; a missing directory means a broken checkout or "
+                f"deleted baseline, not a skippable condition."
+            )
 
         expected_files = [
             "rdf_lambda_ow.npz",
@@ -371,7 +385,11 @@ class TestReferenceDataIntegrity:
         """VASP reference files exist and are loadable."""
         ref_dir = REFERENCE_DIR / "vasp_example3"
         if not ref_dir.exists():
-            pytest.skip("VASP reference data not generated")
+            pytest.fail(
+                f"Reference data missing: {ref_dir} — baselines are committed "
+                f"to git; a missing directory means a broken checkout or "
+                f"deleted baseline, not a skippable condition."
+            )
 
         expected_files = [
             "rdf_lambda_f_f.npz",
@@ -388,7 +406,11 @@ class TestReferenceDataIntegrity:
         """Synthetic reference files exist and are loadable."""
         ref_dir = REFERENCE_DIR / "synthetic"
         if not ref_dir.exists():
-            pytest.skip("Synthetic reference data not generated")
+            pytest.fail(
+                f"Reference data missing: {ref_dir} — baselines are committed "
+                f"to git; a missing directory means a broken checkout or "
+                f"deleted baseline, not a skippable condition."
+            )
 
         expected_files = [
             "uniform_gas_rdf.npz",
