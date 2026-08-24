@@ -8,7 +8,7 @@ from tqdm import tqdm
 from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.frame_sources import Frame
 from revelsMD.rdf.rdf_helpers import get_backend_functions
-from revelsMD.statistics import compute_lambda_weights, combine_estimators
+from revelsMD.statistics import compute_lambda_weights
 
 
 class RDF:
@@ -143,7 +143,12 @@ class RDF:
 
     @property
     def lam(self) -> np.ndarray | None:
-        """Lambda(r) values (only available after get_rdf(integration='lambda'))."""
+        """Lambda(r): the Eq. 3 weight of Coles et al. (2021) applied to the
+        forward estimator g_0 (E_1 in the paper's notation; the backward
+        estimator g_inf is E_0 and carries weight 1 - lambda). Only
+        available after get_rdf(integration='lambda'). Degenerate bins with
+        Var(Delta) = 0 report lambda = 0, i.e. the backward estimator.
+        """
         return self._lam
 
     @property
@@ -349,37 +354,60 @@ class RDF:
         self._compute_g_count()
 
     def _compute_lambda(self) -> None:
-        """Compute lambda-corrected g(r)."""
+        """Compute the optimal linear combination of forward and backward g(r).
+
+        Implements the control-variate combination of Coles et al. (2021)
+        [J. Chem. Phys. 154, 191101], Eqs. 3-4:
+
+            E_lambda = E_0 + lambda * Delta,    Delta = E_1 - E_0
+            lambda*  = -Cov(E_0, Delta) / Var(Delta)
+
+        For the RDF the paper assigns E_0 = g_inf (backward estimator,
+        integrated down from r -> infinity) and E_1 = g_0 (forward
+        estimator, integrated up from r = 0). Note the notation collision:
+        the paper's E_0 is NOT g_0. Because E_0 appears in both the base
+        term and the covariance, this form cannot be inverted by swapping
+        argument order.
+
+        Where Var(Delta) = 0 (degenerate input, e.g. a single frame),
+        lambda = 0 and E_lambda reduces to the backward estimator g_inf.
+        """
         base_array = np.nan_to_num(np.array(self._frame_data))
         base_array *= self._prefactor * self._beta / (4 * np.pi)
 
         mean_scaled = np.nan_to_num(self._accumulated.copy())
         mean_scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
 
-        # Expectation curves
-        exp_zero_rdf = np.cumsum(mean_scaled)[:-1]
-        exp_inf_rdf = 1 - np.cumsum(mean_scaled[::-1])[::-1][1:]
-        exp_delta = exp_inf_rdf - exp_zero_rdf
+        # Expectation curves. The forward/backward alignment ([:-1] and
+        # [1:]) places both estimators on the same r grid, excluding r=0
+        # where both are trivially zero.
+        exp_forward = np.cumsum(mean_scaled)[:-1]
+        exp_backward = 1 - np.cumsum(mean_scaled[::-1])[::-1][1:]
 
-        # Per-frame curves
-        base_zero_rdf = np.cumsum(base_array, axis=1)[:, :-1]
-        base_inf_rdf = 1 - np.cumsum(base_array[:, ::-1], axis=1)[:, ::-1][:, 1:]
-        base_delta = base_inf_rdf - base_zero_rdf
+        # Per-frame estimator curves: E_1 = g_0 (forward), E_0 = g_inf
+        # (backward).
+        g_forward = np.cumsum(base_array, axis=1)[:, :-1]
+        g_backward = 1 - np.cumsum(base_array[:, ::-1], axis=1)[:, ::-1][:, 1:]
 
-        # Lambda from covariance/variance
-        var_del = np.mean((base_delta - exp_delta) ** 2, axis=0)
-        cov_inf = np.mean((base_delta - exp_delta) * (base_inf_rdf - exp_inf_rdf), axis=0)
-        combination = compute_lambda_weights(var_del, cov_inf)
+        delta = g_forward - g_backward
+        exp_delta = exp_forward - exp_backward
 
-        per_frame_combined = combine_estimators(base_inf_rdf, base_zero_rdf, combination)
+        var_delta = np.mean((delta - exp_delta) ** 2, axis=0)
+        cov_e0_delta = np.mean(
+            (delta - exp_delta) * (g_backward - exp_backward), axis=0
+        )
+        # lambda* = -Cov(E_0, Delta) / Var(Delta); the helper guards
+        # Var == 0 by returning 0.
+        lam = compute_lambda_weights(var_delta, -cov_e0_delta)
+
+        per_frame_combined = g_backward + lam * delta
         g_lambda = np.mean(per_frame_combined, axis=0)
 
-        # The forward/backward alignment ([:-1] and [1:]) excludes r=0, where
-        # both estimators are trivially zero. Pad the result so all integration
-        # methods return the same grid: bins[:-1] = [0, delr, ..., rmax].
+        # Pad the result so all integration methods return the same grid:
+        # bins[:-1] = [0, delr, ..., rmax], with g(0) = 0.
         self._r = self._bins[:-1]
         self._g = np.concatenate([[0.0], g_lambda[:-1]])
-        self._lam = np.concatenate([[0.0], combination[:-1]])
+        self._lam = np.concatenate([[0.0], lam[:-1]])
         self._compute_g_count()
 
 
