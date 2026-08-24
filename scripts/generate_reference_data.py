@@ -3,9 +3,10 @@
 Generate reference data for regression tests.
 
 This script computes RDF and density results from known-good trajectories
-and saves them as .npz files for use in regression testing. Run this script
-once to establish a baseline, then the regression tests will compare future
-results against these stored references.
+and saves them as .npz files for use in regression testing. The generated
+files under tests/reference_data/ are committed to git: regeneration is a
+reviewed change, committed together with the code change that motivated it
+and justified in the pull request -- never a local fix for a red test.
 
 Usage:
     python scripts/generate_reference_data.py
