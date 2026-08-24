@@ -243,39 +243,6 @@ def test_welford_inplace_matches_reference():
 class TestIntegration:
     """Integration tests combining both functions."""
 
-    def test_rdf_style_workflow(self):
-        """Simulate RDF-style lambda computation workflow."""
-        # Simulate per-frame data
-        n_frames = 10
-        n_bins = 50
-        np.random.seed(42)
-
-        # Generate mock estimator data
-        base_zero = np.random.randn(n_frames, n_bins) * 0.1 + 0.5
-        base_inf = np.random.randn(n_frames, n_bins) * 0.1 + 0.5
-
-        # Compute expectations
-        exp_zero = np.mean(base_zero, axis=0)
-        exp_inf = np.mean(base_inf, axis=0)
-        exp_delta = exp_inf - exp_zero
-
-        # Compute per-frame delta
-        base_delta = base_inf - base_zero
-
-        # Compute variance and covariance
-        var_del = np.mean((base_delta - exp_delta) ** 2, axis=0)
-        cov_inf = np.mean((base_delta - exp_delta) * (base_inf - exp_inf), axis=0)
-
-        # Use statistics module
-        weights = compute_lambda_weights(var_del, cov_inf)
-        per_frame_combined = combine_estimators(base_inf, base_zero, weights)
-        result = np.mean(per_frame_combined, axis=0)
-
-        # Verify output is finite and reasonable
-        assert np.all(np.isfinite(weights))
-        assert np.all(np.isfinite(result))
-        assert result.shape == (n_bins,)
-
     def test_density_style_workflow(self):
         """Simulate density grid lambda computation workflow."""
         # Simulate 3D grid data

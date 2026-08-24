@@ -162,17 +162,21 @@ def compute_lambda_weights(
     zero_variance_replacement: float = 0.0,
 ) -> NDArray[np.floating]:
     """
-    Compute optimal combination weights from variance and covariance.
+    Compute combination weights as a guarded covariance / variance ratio.
 
-    Calculates lambda = Cov(delta, rho_force) / Var(delta), with handling
-    for edge cases where variance is zero or results are non-finite.
+    Calculates lambda = covariance / variance, with handling for edge
+    cases where the variance is zero or results are non-finite. The
+    caller chooses which covariance (and sign) to pass; see
+    RDF._compute_lambda and DensityGrid._finalise_lambda for the two
+    conventions used in this package (both follow Coles et al. (2021),
+    Eqs. 3-4, with different estimator-pair assignments).
 
     Parameters
     ----------
     variance : ndarray
         Variance of the difference between estimators, Var(delta).
     covariance : ndarray
-        Covariance of delta with rho_force, Cov(delta, rho_force).
+        Covariance chosen by the caller, e.g. Cov(delta, rho_force).
     zero_variance_replacement : float, default 0.0
         Value to use for lambda where variance is zero.
 
