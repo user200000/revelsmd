@@ -7,9 +7,9 @@ Delta = E_1 - E_0 and lambda* = -Cov(E_0, Delta)/Var(Delta) is
 variance-minimising, so wherever one estimator is exact (zero variance
 across frames), the in-sample optimal combination must reproduce that
 estimator to float precision. Here E_0 = g_inf (the backward estimator)
-and E_1 = g_0 (the forward estimator). Note the naming collision with
-rdf.py's internals: base_zero_rdf there is the FORWARD estimator (E_1,
-integrated from g(0) = 0), not E_0.
+and E_1 = g_0 (the forward estimator) -- note the collision in the
+paper's notation: E_0 is NOT g_0. rdf.py's internals are named
+g_forward/g_backward (rather than zero/inf) to avoid inheriting it.
 
 This is the test a pinned-output regression cannot provide: it fails on
 any inversion of the combination (e.g. commit 40d443f) regardless of
