@@ -42,8 +42,9 @@ from revelsMD.backends import get_backend
 from revelsMD.rdf import compute_rdf
 
 # Canonical committed test data (trimmed trajectory subsets). Full-length
-# trajectories live outside the repository and are used only by
-# scripts/validate_*.py.
+# trajectories are not needed by anything in the repository; they remain
+# useful only for ad-hoc high-statistics validation during estimator
+# development.
 TEST_DATA_DIR = project_root / "tests" / "data"
 REFERENCE_DIR = project_root / "tests" / "reference_data"
 

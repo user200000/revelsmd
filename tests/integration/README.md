@@ -115,12 +115,3 @@ When using `rigid=True` mode with species that have unequal atom counts, the tri
 1. **Analytical tests**: Add to `test_analytical_reference.py` using synthetic `NumpyTrajectory` fixtures
 2. **Loader/analysis combinations**: Add to `test_loader_analysis_matrix.py`
 3. **Regression tests**: Add computation to `scripts/generate_reference_data.py`, then add test to `test_regression.py`
-
-## Validation Plots
-
-For visual inspection of results:
-```bash
-python scripts/generate_validation_plots.py
-```
-
-Output is saved to `tests/validation_plots/` (git-ignored).
