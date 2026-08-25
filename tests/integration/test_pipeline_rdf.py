@@ -121,10 +121,10 @@ class TestRDFPipelineExample1:
         """RDF calculation with frame stride works correctly."""
         ts = example1_trajectory
 
-        # Use every 5th frame with coarser resolution
+        # Use every 2nd frame with coarser resolution
         rdf = compute_rdf(
             ts, '1', '1',
-            period=5, delr=0.05, start=0, stop=25
+            period=2, delr=0.05, start=0, stop=10
         )
 
         assert rdf.r is not None

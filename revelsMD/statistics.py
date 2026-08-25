@@ -162,25 +162,34 @@ def compute_lambda_weights(
     zero_variance_replacement: float = 0.0,
 ) -> NDArray[np.floating]:
     """
-    Compute optimal combination weights from variance and covariance.
+    Compute combination weights as a guarded covariance / variance ratio.
 
-    Calculates lambda = Cov(delta, rho_force) / Var(delta), with handling
-    for edge cases where variance is zero or results are non-finite.
+    Calculates lambda = covariance / variance, with handling for edge
+    cases where the variance is zero or results are non-finite. The
+    caller chooses which covariance (and sign) to pass; see
+    RDF._compute_lambda and DensityGrid._finalise_lambda for the two
+    conventions used in this package (both follow Coles et al. (2021),
+    Eqs. 3-4, with different estimator-pair assignments).
 
     Parameters
     ----------
     variance : ndarray
         Variance of the difference between estimators, Var(delta).
     covariance : ndarray
-        Covariance of delta with rho_force, Cov(delta, rho_force).
+        Covariance chosen by the caller, e.g. Cov(delta, rho_force).
     zero_variance_replacement : float, default 0.0
         Value to use for lambda where variance is zero.
 
     Returns
     -------
     ndarray
-        Optimal combination weights, same shape as inputs. Non-finite
-        values are replaced with zero_variance_replacement.
+        The guarded ratio covariance / variance, same shape as the
+        inputs; its meaning as a combination weight depends on the
+        convention the caller chose. Where the variance is zero or the
+        ratio is non-finite, the RAW ratio is replaced with
+        zero_variance_replacement, so the default 0.0 yields an
+        effective lambda of 1 on the density path (after its
+        1 - lambda_raw complement) and 0 on the RDF path.
     """
     # Avoid division by zero: substitute 1.0 for zero variance
     variance_safe = np.where(variance == 0, 1.0, variance)

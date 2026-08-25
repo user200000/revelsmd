@@ -14,7 +14,7 @@ import numpy as np
 from pathlib import Path
 
 from revelsMD.density import DensityGrid
-from .conftest import load_reference_data, assert_arrays_close
+from .conftest import assert_arrays_close
 
 
 @pytest.mark.integration

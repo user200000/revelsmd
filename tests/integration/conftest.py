@@ -3,12 +3,12 @@
 import pytest
 import numpy as np
 from pathlib import Path
-from typing import Optional
 
 
-# Path to the examples directory
-EXAMPLES_DIR = Path(__file__).parents[2] / "examples"
-REFERENCE_DATA_DIR = Path(__file__).parent.parent / "reference_data"
+# Canonical committed test data (trimmed trajectory subsets). Full-length
+# trajectories live outside the repository and are used only by
+# scripts/validate_*.py.
+TEST_DATA_DIR = Path(__file__).parents[1] / "data"
 
 
 def pytest_configure(config):
@@ -17,10 +17,10 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
     config.addinivalue_line("markers", "analytical: tests against known analytical results")
     config.addinivalue_line("markers", "regression: regression tests against stored reference data")
-    config.addinivalue_line("markers", "requires_example1: requires Example 1 data (~12MB)")
-    config.addinivalue_line("markers", "requires_example2: requires Example 2 data (~500MB)")
-    config.addinivalue_line("markers", "requires_example4: requires Example 4 data (~1.7GB)")
-    config.addinivalue_line("markers", "requires_vasp: requires VASP vasprun.xml data")
+    config.addinivalue_line("markers", "requires_example1: uses the committed Example 1 subset in tests/data")
+    config.addinivalue_line("markers", "requires_example2: uses the committed Example 2 subset in tests/data")
+    config.addinivalue_line("markers", "requires_example4: uses the committed Example 4 subset in tests/data")
+    config.addinivalue_line("markers", "requires_vasp: uses the committed VASP subset in tests/data")
 
 
 def pytest_addoption(parser):
@@ -60,14 +60,6 @@ def assert_arrays_close(actual, expected, rtol=1e-6, atol=1e-8, context=""):
         )
 
 
-def load_reference_data(subdir: str, filename: str) -> Optional[dict]:
-    """Load reference data from .npz file if it exists."""
-    ref_path = REFERENCE_DATA_DIR / subdir / filename
-    if not ref_path.exists():
-        return None
-    return dict(np.load(ref_path))
-
-
 # ---------------------------------------------------------------------------
 # Trajectory fixtures - LAMMPS
 # ---------------------------------------------------------------------------
@@ -77,18 +69,15 @@ def example1_trajectory():
     """
     Load Example 1 LJ trajectory for RDF tests.
 
-    Example 1: Lennard-Jones fluid, ~12MB
+    Example 1: Lennard-Jones fluid (committed 10-frame subset)
     - 2880 atoms (2 types)
-    - 50 frames
+    - 10 frames
     - 14.227 cubic LJ box
     """
     from revelsMD.trajectories import LammpsTrajectory
 
-    dump_file = EXAMPLES_DIR / "example_1_LJ" / "dump.nh.lammps"
-    data_file = EXAMPLES_DIR / "example_1_LJ" / "data.fin.nh.data"
-
-    if not dump_file.exists():
-        pytest.skip("Example 1 data not available")
+    dump_file = TEST_DATA_DIR / "example_1_LJ" / "dump.nh.lammps"
+    data_file = TEST_DATA_DIR / "example_1_LJ" / "data.fin.nh.data"
 
     return LammpsTrajectory(
         str(dump_file),
@@ -104,18 +93,15 @@ def example2_trajectory():
     """
     Load Example 2 LJ trajectory for 3D density tests.
 
-    Example 2: Lennard-Jones 3D density, ~500MB
+    Example 2: Lennard-Jones 3D density (committed 10-frame subset)
     - 2880 atoms
-    - 2500 frames
+    - 10 frames
     - Frozen central particle + solvating LJ spheres
     """
     from revelsMD.trajectories import LammpsTrajectory
 
-    dump_file = EXAMPLES_DIR / "example_2_LJ_3D" / "dump.nh.lammps"
-    data_file = EXAMPLES_DIR / "example_2_LJ_3D" / "data.fin.nh.data"
-
-    if not dump_file.exists():
-        pytest.skip("Example 2 data not available")
+    dump_file = TEST_DATA_DIR / "example_2_LJ_3D" / "dump.nh.lammps"
+    data_file = TEST_DATA_DIR / "example_2_LJ_3D" / "data.fin.nh.data"
 
     return LammpsTrajectory(
         str(dump_file),
@@ -133,30 +119,17 @@ def example2_trajectory():
 @pytest.fixture(scope="module")
 def example4_trajectory():
     """
-    Load Example 4 rigid water trajectory (subset for faster tests).
-
-    Uses a 100-frame subset (~23MB) rather than the full 8000-frame
-    trajectory (~1.7GB) for reasonable test times.
+    Load Example 4 rigid water trajectory (committed 10-frame subset).
 
     Example 4: SPC/E water
     - 6339 atoms (2113 water molecules)
-    - 100 frames (subset)
+    - 10 frames
     - GROMACS trr/tpr format
     """
     from revelsMD.trajectories import MDATrajectory
 
-    # Use subset trajectory for faster tests
-    TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "example_4_subset"
-    trr_file = TEST_DATA_DIR / "prod_100frames.trr"
-    tpr_file = TEST_DATA_DIR / "prod.tpr"
-
-    # Fall back to full trajectory if subset not available
-    if not trr_file.exists():
-        trr_file = EXAMPLES_DIR / "example_4_rigid_water" / "prod.trr"
-        tpr_file = EXAMPLES_DIR / "example_4_rigid_water" / "prod.tpr"
-
-    if not trr_file.exists():
-        pytest.skip("Example 4 data not available")
+    trr_file = TEST_DATA_DIR / "example_4_water" / "prod.trr"
+    tpr_file = TEST_DATA_DIR / "example_4_water" / "prod.tpr"
 
     return MDATrajectory(str(trr_file), str(tpr_file), temperature=300.0)
 
@@ -168,21 +141,16 @@ def example4_trajectory():
 @pytest.fixture(scope="module")
 def vasp_trajectory():
     """
-    Load VASP trajectory from vasprun.xml (subset for faster tests).
+    Load VASP trajectory from vasprun.xml (committed 10-step subset).
 
-    Uses a 50-frame subset (~2.5MB) from Example 3: BaSnF4 solid electrolyte
+    Example 3: BaSnF4 solid electrolyte
     - 324 atoms (Ba, Sn, F)
-    - 50 frames (subset from 3001 total in r1)
+    - 10 calculation steps (subset from 3001 total in r1)
     - Temperature: 600K
     """
     from revelsMD.trajectories import VaspTrajectory
 
-    # Use subset trajectory for faster tests
-    TEST_DATA_DIR = Path(__file__).parent.parent / "test_data" / "example_3_vasp_subset"
-    vasprun_file = TEST_DATA_DIR / "vasprun.xml"
-
-    if not vasprun_file.exists():
-        pytest.skip("VASP test data not available")
+    vasprun_file = TEST_DATA_DIR / "example_3_vasp" / "vasprun.xml"
 
     return VaspTrajectory(str(vasprun_file), temperature=600.0)  # BaSnF4 at 600K
 
