@@ -124,8 +124,26 @@ def generate_lammps_references():
         output_dir / "rdf_forward.npz",
         r=rdf_forward.r,
         g_r=rdf_forward.g,
+        g_count=rdf_forward.g_count,
         frames_used=5,
         delr=0.02,
+        temp=1.35,
+        species='1'
+    )
+
+    # RDF forward integration with frame stride (every 2nd of 10 frames)
+    print("  Computing RDF (forward integration, strided)...")
+    rdf_strided = compute_rdf(
+        ts, '1', '1',
+        delr=0.05, integration='forward', start=0, stop=10, period=2
+    )
+    save_reference(
+        output_dir / "rdf_forward_strided.npz",
+        r=rdf_strided.r,
+        g=rdf_strided.g,
+        frames_used=5,
+        delr=0.05,
+        period=2,
         temp=1.35,
         species='1'
     )
@@ -179,7 +197,79 @@ def generate_lammps_references():
         kernel='triangular'
     )
 
+    # 3D number density with the box kernel
+    print("  Computing 3D number density (box kernel)...")
+    gs_box = DensityGrid(ts, 'number', nbins=30)
+    gs_box.accumulate(ts, '1', kernel='box', rigid=False, start=0, stop=5)
+
+    save_reference(
+        output_dir / "number_density_box.npz",
+        rho=gs_box.rho_force,
+        nbins=30,
+        frames_used=5,
+        temp=1.35,
+        species='1',
+        kernel='box'
+    )
+
     print(f"  Saved LAMMPS references to {output_dir}")
+    return None
+
+
+def generate_lammps_example2_references():
+    """Generate reference data from Example 2 LAMMPS 3D density trajectory.
+
+    Returns None on success, or a skip-reason string if input data is missing.
+    """
+    from revelsMD.trajectories import LammpsTrajectory
+    from revelsMD.density import DensityGrid
+
+    dump_file = TEST_DATA_DIR / "example_2_LJ_3D" / "dump.nh.lammps"
+    data_file = TEST_DATA_DIR / "example_2_LJ_3D" / "data.fin.nh.data"
+
+    if not dump_file.exists() or not data_file.exists():
+        reason = f"Example 2 data not available ({dump_file})"
+        print(f"Skipping LAMMPS Example 2 references: {reason}")
+        return reason
+
+    print("Loading Example 2 LAMMPS trajectory...")
+    report_input(dump_file)
+    report_input(data_file)
+    ts = LammpsTrajectory(
+        str(dump_file),
+        str(data_file),
+        units='lj',
+        atom_style="id resid type q x y z ix iy iz",
+        temperature=1.35,
+    )
+
+    output_dir = REFERENCE_DIR / "lammps_example2"
+    ensure_dir(output_dir)
+
+    # Lambda-combined number density through a real loader
+    # (block_size=2 gives 5 contiguous blocks from 10 frames)
+    print("  Computing lambda-combined number density (block_size=2)...")
+    gs = DensityGrid(ts, 'number', nbins=30)
+    gs.accumulate(
+        ts, '2', kernel='triangular', rigid=False, start=0, stop=10,
+        compute_lambda=True, blocking='contiguous', block_size=2,
+    )
+
+    save_reference(
+        output_dir / "number_density_lambda.npz",
+        rho_force=gs.rho_force,
+        rho_count=gs.rho_count,
+        rho_lambda=gs.rho_lambda,
+        lambda_weights=gs.lambda_weights,
+        lambda_block_size=2,
+        nbins=30,
+        frames_used=10,
+        temp=1.35,
+        species='2',
+        kernel='triangular'
+    )
+
+    print(f"  Saved LAMMPS Example 2 references to {output_dir}")
     return None
 
 
@@ -221,6 +311,24 @@ def generate_mda_references():
         delr=0.1,
         temp=300,
         species='Ow'
+    )
+
+    # Unlike-pair RDF (Ow-Hw1, forward). Pins the pair-enumeration path,
+    # which is loader-agnostic, so this single instance suffices.
+    print("  Computing unlike-pair RDF (Ow-Hw1, forward)...")
+    rdf_unlike = compute_rdf(
+        ts, 'Ow', 'Hw1',
+        delr=0.1, integration='forward', start=0, stop=5
+    )
+    save_reference(
+        output_dir / "rdf_forward_ow_hw1.npz",
+        r=rdf_unlike.r,
+        g=rdf_unlike.g,
+        frames_used=5,
+        delr=0.1,
+        temp=300,
+        species_a='Ow',
+        species_b='Hw1'
     )
 
     # 3D number density
@@ -431,6 +539,7 @@ def main():
 
     families = [
         ("lammps_example1", generate_lammps_references),
+        ("lammps_example2", generate_lammps_example2_references),
         ("mda_example4", generate_mda_references),
         ("vasp_example3", generate_vasp_references),
         ("synthetic", generate_synthetic_references),
