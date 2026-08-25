@@ -416,6 +416,76 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
 
 # ---------------------------------------------------------------------------
+# DensityGrid.accumulate: rigid and polarisation configurations
+# ---------------------------------------------------------------------------
+
+def test_accumulate_number_rigid_atom(ts):
+    """Rigid number density centred on a specific atom populates the grid."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.accumulate(ts, atom_names=["H", "O"], rigid=True, centre_location=0)
+    assert gs.count > 0
+    assert gs.counter.sum() > 0
+
+
+def test_accumulate_charge_rigid_atom(ts):
+    """Rigid charge density centred on a specific atom populates the grid."""
+    # Give the molecule a net charge so the charge-weighted counter is non-zero
+    ts._charges = {"H": np.array([0.1]), "O": np.array([-0.2])}
+    gs = DensityGrid(ts, "charge", nbins=4)
+    gs.accumulate(ts, atom_names=["H", "O"], rigid=True, centre_location=0)
+    assert gs.count > 0
+    assert np.any(gs.counter != 0)
+
+
+def test_accumulate_polarisation_rigid_com(ts):
+    """Rigid polarisation density at COM propagates polarisation_axis."""
+    gs = DensityGrid(ts, "polarisation", nbins=4)
+    gs.accumulate(
+        ts, atom_names=["H", "O"], rigid=True, centre_location=True,
+        polarisation_axis=0,
+    )
+    assert gs.count > 0
+    assert gs._selection.polarisation_axis == 0
+
+
+def test_accumulate_polarisation_rigid_atom(ts):
+    """Rigid polarisation density at a specific atom propagates polarisation_axis."""
+    gs = DensityGrid(ts, "polarisation", nbins=4)
+    gs.accumulate(
+        ts, atom_names=["H", "O"], rigid=True, centre_location=0,
+        polarisation_axis=1,
+    )
+    assert gs.count > 0
+    assert gs._selection.polarisation_axis == 1
+
+
+def test_accumulate_polarisation_not_rigid_raises(ts):
+    """Polarisation without rigid=True raises ValueError."""
+    gs = DensityGrid(ts, "polarisation", nbins=4)
+    with pytest.raises(ValueError, match="rigid molecules"):
+        gs.accumulate(ts, atom_names=["H", "O"], rigid=False)
+
+
+def test_accumulate_polarisation_single_species_raises(ts):
+    """Polarisation for a single species raises ValueError."""
+    gs = DensityGrid(ts, "polarisation", nbins=4)
+    with pytest.raises(ValueError, match="single atom"):
+        gs.accumulate(ts, atom_names="H", rigid=True, centre_location=True)
+
+
+def test_densitygrid_density_type_validation_called(ts, mocker):
+    """DensityGrid should call validate_density_type with the provided value."""
+    mock_validate = mocker.patch(
+        'revelsMD.density.density_grid.validate_density_type',
+        return_value='number'
+    )
+
+    DensityGrid(ts, "NUMBER", nbins=4)
+
+    mock_validate.assert_called_once_with("NUMBER")
+
+
+# ---------------------------------------------------------------------------
 # compute_lambda parameter tests
 # ---------------------------------------------------------------------------
 
