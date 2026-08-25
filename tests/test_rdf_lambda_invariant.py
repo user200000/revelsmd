@@ -33,6 +33,10 @@ from revelsMD.trajectories import NumpyTrajectory
 # deviation is dominated by that gap and is ~0.27.
 N_FRAMES = 9
 NOISE_LO, NOISE_HI = 5, 7
+NOISE_AMPLITUDES = {5: 0.40, 6: 0.25}
+assert set(NOISE_AMPLITUDES) == set(range(NOISE_LO, NOISE_HI)), (
+    "NOISE_AMPLITUDES must cover exactly the bins NOISE_LO..NOISE_HI-1"
+)
 
 
 def _make_rdf():
@@ -74,8 +78,8 @@ def test_lambda_reproduces_exact_estimator_in_each_region():
     for f in range(N_FRAMES):
         sign = (-1) ** f
         frame = base_profile.copy()
-        frame[NOISE_LO] += 0.40 * sign
-        frame[NOISE_HI - 1] += 0.25 * sign
+        for b, amp in NOISE_AMPLITUDES.items():
+            frame[b] += amp * sign
         frames.append(frame)
     _inject_synthetic_frames(rdf, frames)
 

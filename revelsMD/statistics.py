@@ -183,8 +183,13 @@ def compute_lambda_weights(
     Returns
     -------
     ndarray
-        Optimal combination weights, same shape as inputs. Non-finite
-        values are replaced with zero_variance_replacement.
+        The guarded ratio covariance / variance, same shape as the
+        inputs; its meaning as a combination weight depends on the
+        convention the caller chose. Where the variance is zero or the
+        ratio is non-finite, the RAW ratio is replaced with
+        zero_variance_replacement, so the default 0.0 yields an
+        effective lambda of 1 on the density path (after its
+        1 - lambda_raw complement) and 0 on the RDF path.
     """
     # Avoid division by zero: substitute 1.0 for zero variance
     variance_safe = np.where(variance == 0, 1.0, variance)

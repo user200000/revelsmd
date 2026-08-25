@@ -7,7 +7,6 @@ from pathlib import Path
 
 # Path to the examples directory
 EXAMPLES_DIR = Path(__file__).parents[2] / "examples"
-REFERENCE_DATA_DIR = Path(__file__).parent.parent / "reference_data"
 
 
 def pytest_configure(config):
