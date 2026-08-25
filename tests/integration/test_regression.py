@@ -24,8 +24,9 @@ dispatch.
 
 The LAMMPS, MDA and VASP tests read trimmed trajectory subsets committed
 in tests/data/, so CI runs the complete regression suite: a green CI run
-verifies every committed baseline. The full-length trajectories live
-outside the repository and are used only by scripts/validate_*.py.
+verifies every committed baseline. The full-length trajectories are not
+needed by anything in the repository; they remain useful only for ad-hoc
+high-statistics validation during estimator development.
 
 The semantic guard for the lambda combination itself is
 tests/test_rdf_lambda_invariant.py, which needs no reference data.

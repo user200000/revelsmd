@@ -6,8 +6,9 @@ from pathlib import Path
 
 
 # Canonical committed test data (trimmed trajectory subsets). Full-length
-# trajectories live outside the repository and are used only by
-# scripts/validate_*.py.
+# trajectories are not needed by anything in the repository; they remain
+# useful only for ad-hoc high-statistics validation during estimator
+# development.
 TEST_DATA_DIR = Path(__file__).parents[1] / "data"
 
 
