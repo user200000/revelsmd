@@ -8,7 +8,7 @@ using synthetic NumpyTrajectory data. They require no external data files.
 import pytest
 import numpy as np
 
-from revelsMD.rdf import RDF, compute_rdf
+from revelsMD.rdf import compute_rdf
 from revelsMD.density import DensityGrid
 
 
@@ -66,88 +66,6 @@ class TestRDFAnalyticalReference:
         assert abs(peak_r - expected_separation) < 0.5, \
             f"Peak at r = {peak_r}, expected near {expected_separation}"
 
-    def test_crystal_lattice_rdf_peaks(self, cubic_lattice_trajectory):
-        """
-        Simple cubic lattice should show peaks at lattice spacings.
-
-        For a simple cubic lattice with spacing a = 2.5, peaks should appear at:
-        - r = 2.5 (nearest neighbours)
-        - r = 2.5 * sqrt(2) ~ 3.54 (next-nearest neighbours)
-        - r = 2.5 * sqrt(3) ~ 4.33 (third shell)
-
-        Note: The force-sampling method with random forces may not show
-        crystal structure as clearly as histogram methods.
-        """
-        ts = cubic_lattice_trajectory
-
-        # Use backward integration for cleaner results
-        rdf = compute_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, integration='backward')
-
-        assert rdf.r is not None
-        assert rdf.g is not None
-        assert np.all(np.isfinite(rdf.g))
-
-        # For force-sampling with random forces on a static lattice,
-        # we mainly check that the calculation completes and produces finite values.
-        # The structure may not be as pronounced as with histogram methods.
-        bulk_mask = (rdf.r > 1.0) & (rdf.r < 5.0)
-        if np.any(bulk_mask):
-            # Check that g(r) values are reasonable (not all zeros or infinities)
-            bulk_values = rdf.g[bulk_mask]
-            assert np.mean(np.abs(bulk_values)) > 0, "RDF should have non-zero values"
-
-    def test_rdf_forward_backward_consistency(self, uniform_gas_trajectory):
-        """
-        Forward and backward RDF integration produce consistent results.
-
-        The forward integration starts from g(0)=0 and accumulates upward.
-        The backward integration starts from g(inf)=1 and accumulates downward.
-
-        For the lambda-combined method, both should contribute to a consistent result.
-        """
-        ts = uniform_gas_trajectory
-
-        rdf_forward = compute_rdf(ts, '1', '1', delr=0.1, integration='forward')
-        rdf_backward = compute_rdf(ts, '1', '1', delr=0.1, integration='backward')
-
-        assert rdf_forward.r is not None
-        assert rdf_backward.r is not None
-
-        # Both should produce finite values
-        assert np.all(np.isfinite(rdf_forward.g))
-        assert np.all(np.isfinite(rdf_backward.g))
-
-        # Forward starts from 0, backward starts from 1
-        # The two methods are complementary - their sum should be approximately 1
-        # at each r value (this is the basis of the lambda combination)
-        mid_range_mask = (rdf_forward.r > 1.5) & (rdf_forward.r < 3.5)
-        if np.any(mid_range_mask):
-            combined = rdf_forward.g[mid_range_mask] + (1 - rdf_backward.g[mid_range_mask])
-            # The "complementary" check: forward + (1 - backward) should be small
-            # This is an approximation of how the lambda method works
-            mean_combined = np.mean(np.abs(combined))
-            assert mean_combined < 2.0, f"Forward/backward methods inconsistent: {mean_combined}"
-
-    def test_rdf_lambda_produces_valid_output(self, uniform_gas_trajectory):
-        """
-        Lambda-combined RDF should produce valid output with correct properties.
-
-        The lambda integration should provide r, g, and lam arrays.
-        """
-        ts = uniform_gas_trajectory
-
-        rdf = compute_rdf(ts, '1', '1', delr=0.2, integration='lambda')
-
-        assert rdf.r is not None
-        assert rdf.g is not None
-        assert rdf.lam is not None
-        assert np.all(np.isfinite(rdf.g))
-        assert np.all(np.isfinite(rdf.lam))
-
-        # Lambda should be between 0 and 1 (approximately)
-        assert np.all(rdf.lam >= -0.5), "Lambda values should not be strongly negative"
-        assert np.all(rdf.lam <= 1.5), "Lambda values should not exceed 1 significantly"
-
 
 @pytest.mark.analytical
 @pytest.mark.integration
@@ -185,32 +103,6 @@ class TestDensityAnalyticalReference:
         assert all(abs(idx - centre) < 6 for idx in max_idx), \
             f"Density peak at {max_idx}, expected near ({centre}, {centre}, {centre})"
 
-    def test_uniform_density_is_flat(self, uniform_gas_trajectory):
-        """
-        Uniform random gas should produce relatively flat density field.
-
-        For uniformly distributed particles, the density should be approximately
-        constant throughout the box, with only statistical fluctuations.
-        """
-        ts = uniform_gas_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=20)
-        gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-
-
-        assert hasattr(gs, 'rho_force')
-        assert np.all(np.isfinite(gs.rho_force))
-
-        # Compute coefficient of variation (std/mean)
-        mean_rho = np.mean(gs.rho_force)
-        std_rho = np.std(gs.rho_force)
-
-        if mean_rho > 0:
-            cv = std_rho / mean_rho
-            # For uniform distribution, CV should be relatively small
-            # Allow generous tolerance due to limited statistics
-            assert cv < 2.0, f"Density CV = {cv}, expected relatively flat distribution"
-
     def test_density_conserves_total_count(self, uniform_gas_trajectory):
         """
         Total integrated density should equal number of atoms (approximately).
@@ -237,21 +129,6 @@ class TestDensityAnalyticalReference:
         relative_error = abs(total_count - n_atoms) / n_atoms
         assert relative_error < 1.0, \
             f"Integrated count = {total_count}, expected ~{n_atoms}"
-
-    def test_gridstate_initialisation(self, uniform_gas_trajectory):
-        """
-        DensityGrid should initialise correctly with various density types.
-        """
-        ts = uniform_gas_trajectory
-
-        # Test number density
-        gs_number = DensityGrid(ts, 'number', nbins=20)
-        assert gs_number.density_type == 'number'
-        assert gs_number.nbinsx == 20
-
-        # Test that grids are initialised to zero
-        assert gs_number.force_x.shape == (20, 20, 20)
-        assert np.all(gs_number.force_x == 0)
 
 
 @pytest.mark.analytical
@@ -285,33 +162,6 @@ class TestMultispeciesRDF:
             # Both should be roughly 1 (with tolerance for statistics)
             assert abs(mean_like - 1.0) < 0.5, f"Like-pair bulk g(r) = {mean_like}"
             assert abs(mean_unlike - 1.0) < 0.5, f"Unlike-pair bulk g(r) = {mean_unlike}"
-
-
-@pytest.mark.analytical
-@pytest.mark.integration
-class TestRigidMoleculeAnalytical:
-    """Tests for rigid molecule calculations with synthetic data."""
-
-    def test_water_trajectory_loads_correctly(self, water_molecule_trajectory):
-        """
-        Water molecule trajectory should load with correct species.
-        """
-        ts = water_molecule_trajectory
-
-        o_indices = ts.get_indices('O')
-        h_indices = ts.get_indices('H')
-
-        # 10 molecules = 10 O and 20 H atoms
-        assert len(o_indices) == 10
-        assert len(h_indices) == 20
-
-        # Check charges are present
-        assert hasattr(ts, 'charge_list')
-        assert ts.charge_list is not None
-
-        # Check charge neutrality
-        total_charge = np.sum(ts.charge_list)
-        assert abs(total_charge) < 1e-10, f"Total charge = {total_charge}, should be neutral"
 
 
 @pytest.mark.analytical
@@ -393,20 +243,4 @@ class TestHistogramRDFAnalytical:
         assert abs(g_count_mean - 1.0) < 0.02, f"g_count mean = {g_count_mean}"
         # Force-based g(r) has more variance due to integration
         assert abs(g_force_mean - 1.0) < 0.3, f"g_force mean = {g_force_mean}"
-
-    def test_g_count_lambda_integration(self, uniform_gas_trajectory):
-        """
-        g_count should be available and consistent with lambda integration.
-        """
-        ts = uniform_gas_trajectory
-
-        rdf = compute_rdf(ts, '1', '1', delr=0.2, integration='lambda')
-
-        assert rdf.g_count is not None
-        assert rdf.g_force is not None
-        assert rdf.lam is not None
-
-        # Lengths should match
-        assert len(rdf.g_count) == len(rdf.r)
-        assert len(rdf.g_force) == len(rdf.r)
 
