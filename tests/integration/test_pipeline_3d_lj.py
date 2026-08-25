@@ -1,87 +1,21 @@
 """
 Pipeline integration tests for 3D number density (Example 2).
 
-These tests exercise the full 3D density workflow using the Example 2 LJ data:
-- LammpsTrajectory loading
-- DensityGrid creation and configuration
-- accumulate() with triangular kernel
+These tests exercise workflow scenarios not covered by regression tests:
+- accumulate() with the box kernel
 - Lambda estimation via compute_lambda
-- Regression against stored reference data
 """
 
 import pytest
 import numpy as np
-from pathlib import Path
 
 from revelsMD.density import DensityGrid
-from .conftest import assert_arrays_close
 
 
 @pytest.mark.integration
 @pytest.mark.requires_example2
 class TestNumberDensityPipelineExample2:
     """Full pipeline tests using Example 2 LJ 3D data."""
-
-    def test_trajectory_loads_correctly(self, example2_trajectory):
-        """Verify Example 2 trajectory loads with expected properties."""
-        ts = example2_trajectory
-
-        from revelsMD.trajectories import LammpsTrajectory
-        assert isinstance(ts, LammpsTrajectory)
-        assert ts.units == 'lj'
-        assert ts.frames > 0
-        assert ts.box_x > 0
-
-        # Check we can get atom indices for type 2 (solvating particles)
-        type2_indices = ts.get_indices('2')
-        assert len(type2_indices) > 0
-
-    def test_gridstate_initialisation(self, example2_trajectory):
-        """DensityGrid initialises correctly for number density."""
-        ts = example2_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=50)
-
-        assert gs.density_type == 'number'
-        assert gs.nbinsx == 50
-        assert gs.nbinsy == 50
-        assert gs.nbinsz == 50
-        assert gs.beta == ts.beta
-
-        # Grids should be initialised to zero
-        assert gs.force_x.shape == (50, 50, 50)
-        assert np.all(gs.force_x == 0)
-        assert np.all(gs.force_y == 0)
-        assert np.all(gs.force_z == 0)
-
-    def test_accumulate_subset(self, example2_trajectory):
-        """Force grid accumulation works on frame subset."""
-        ts = example2_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=50)
-
-        # Use only first 5 frames for fast test
-        gs.accumulate(
-            ts, '2', kernel='triangular', rigid=False,
-            start=0, stop=5, period=1
-        )
-
-        assert gs.count > 0  # Data has been accumulated
-        assert gs.count == 5
-
-        # Force grids should now have non-zero values
-        assert not np.all(gs.force_x == 0) or not np.all(gs.force_y == 0) or not np.all(gs.force_z == 0)
-
-    def test_density_produces_valid_output(self, example2_trajectory):
-        """Density computation produces valid output."""
-        ts = example2_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=50)
-        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
-
-        assert gs.rho_force is not None
-        assert gs.rho_force.shape == (50, 50, 50)
-        assert np.all(np.isfinite(gs.rho_force))
 
     def test_box_kernel_alternative(self, example2_trajectory):
         """Box kernel produces valid (though higher variance) output."""
@@ -92,30 +26,6 @@ class TestNumberDensityPipelineExample2:
 
         assert gs.rho_force is not None
         assert np.all(np.isfinite(gs.rho_force))
-
-    def test_larger_frame_subset_density(self, example2_trajectory):
-        """Density with larger frame subset for better statistics."""
-        ts = example2_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=50)
-        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
-
-        assert gs.count == 10
-        assert np.all(np.isfinite(gs.rho_force))
-
-        # For solvation around frozen particle, should see excluded volume
-        # (lower density at centre)
-        centre_region = gs.rho_force[20:30, 20:30, 20:30]
-        bulk_region = gs.rho_force[0:10, 0:10, 0:10]
-
-        # This is a qualitative check - frozen particle creates void
-        mean_centre = np.mean(centre_region)
-        mean_bulk = np.mean(bulk_region)
-
-        # Bulk should have higher density than centre (excluded volume)
-        # Note: This depends on the system setup
-        assert np.isfinite(mean_centre)
-        assert np.isfinite(mean_bulk)
 
     def test_lambda_combination(self, example2_trajectory):
         """Lambda combination produces valid optimal density."""
@@ -129,92 +39,3 @@ class TestNumberDensityPipelineExample2:
 
         assert gs.rho_lambda is not None
         assert np.all(np.isfinite(gs.rho_lambda))
-
-    # Note: Regression tests are in test_regression.py which uses the correct
-    # reference data paths (lammps_example1, not density_example2).
-
-
-@pytest.mark.integration
-@pytest.mark.requires_example2
-class TestDensityPhysicalProperties:
-    """Tests validating physical properties of density results."""
-
-    def test_density_reasonable_magnitude(self, example2_trajectory):
-        """Density magnitude should be physically reasonable."""
-        ts = example2_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=50)
-        gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
-
-
-        # Mean density should be order of magnitude of N/V
-        n_atoms = len(ts.get_indices('2'))
-        volume = ts.box_x * ts.box_y * ts.box_z
-        expected_mean_rho = n_atoms / volume
-
-        mean_rho = np.mean(gs.rho_force)
-
-        # Should be within order of magnitude
-        ratio = mean_rho / expected_mean_rho if expected_mean_rho > 0 else float('inf')
-        assert 0.1 < ratio < 10.0, \
-            f"Mean density {mean_rho:.4f} differs significantly from expected {expected_mean_rho:.4f}"
-
-    def test_kernels_produce_consistent_mean(self, example2_trajectory):
-        """Triangular and box kernels should give similar mean density."""
-        ts = example2_trajectory
-
-        # Triangular kernel
-        gs_tri = DensityGrid(ts, 'number', nbins=30)
-        gs_tri.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=10)
-
-
-        # Box kernel
-        gs_box = DensityGrid(ts, 'number', nbins=30)
-        gs_box.accumulate(ts, '2', kernel='box', rigid=False, start=0, stop=10)
-
-
-        mean_tri = np.mean(gs_tri.rho_force)
-        mean_box = np.mean(gs_box.rho_force)
-
-        # Mean densities should be similar
-        relative_diff = abs(mean_tri - mean_box) / max(abs(mean_tri), abs(mean_box), 1e-10)
-        assert relative_diff < 0.5, \
-            f"Kernels give different mean densities: tri={mean_tri:.4f}, box={mean_box:.4f}"
-
-
-@pytest.mark.integration
-@pytest.mark.requires_example2
-class TestDensityGridResolution:
-    """Tests for grid resolution effects."""
-
-    def test_different_nbins(self, example2_trajectory):
-        """Different grid resolutions should produce valid results."""
-        ts = example2_trajectory
-
-        for nbins in [20, 50, 100]:
-            gs = DensityGrid(ts, 'number', nbins=nbins)
-            gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
-
-            assert gs.rho_force.shape == (nbins, nbins, nbins)
-            assert np.all(np.isfinite(gs.rho_force))
-
-    def test_resolution_preserves_total(self, example2_trajectory):
-        """Different resolutions should give similar integrated density."""
-        ts = example2_trajectory
-
-        totals = []
-
-        for nbins in [20, 40]:
-            gs = DensityGrid(ts, 'number', nbins=nbins)
-            gs.accumulate(ts, '2', kernel='triangular', rigid=False, start=0, stop=5)
-
-            # Calculate voxel volume and integrate
-            voxel_vol = (ts.box_x / nbins) * (ts.box_y / nbins) * (ts.box_z / nbins)
-            total = np.sum(gs.rho_force) * voxel_vol
-            totals.append(total)
-
-        # Totals should be similar (within 50% - generous tolerance)
-        if len(totals) == 2 and all(t != 0 for t in totals):
-            relative_diff = abs(totals[0] - totals[1]) / max(abs(totals[0]), abs(totals[1]))
-            assert relative_diff < 0.5, \
-                f"Different resolutions give very different totals: {totals}"

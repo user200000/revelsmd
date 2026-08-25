@@ -1859,7 +1859,7 @@ class TestLambdaEdgeCases:
         This test verifies the fix for the zero-variance edge case bug where
         division by zero could produce NaN/Inf in the output.
         """
-        from revelsMD.density import DensityGrid, Selection
+        from revelsMD.density import DensityGrid
 
         # Create a minimal trajectory with very few frames
         # This increases the chance of zero-variance voxels

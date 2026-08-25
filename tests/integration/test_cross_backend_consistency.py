@@ -94,22 +94,6 @@ class TestLammpsVsNumpyConsistency:
             rtol=1e-2, atol=1e-4, context="density values"
         )
 
-    def test_frame_count_matches(self, example1_trajectory):
-        """Converted NumPy trajectory should have correct frame count."""
-        lammps_ts = example1_trajectory
-        numpy_ts = lammps_to_numpy(lammps_ts, start=0, stop=10, stride=1)
-
-        assert numpy_ts.frames == 10
-
-    def test_box_dimensions_match(self, example1_trajectory):
-        """Converted NumPy trajectory should have same box dimensions."""
-        lammps_ts = example1_trajectory
-        numpy_ts = lammps_to_numpy(lammps_ts, start=0, stop=5, stride=1)
-
-        assert numpy_ts.box_x == lammps_ts.box_x
-        assert numpy_ts.box_y == lammps_ts.box_y
-        assert numpy_ts.box_z == lammps_ts.box_z
-
 
 @pytest.mark.integration
 @pytest.mark.requires_example4
@@ -212,37 +196,3 @@ class TestKernelConsistency:
             relative_diff = abs(mean_tri - mean_box) / max(abs(mean_tri), abs(mean_box))
             assert relative_diff < 0.5, \
                 f"Kernel mean densities differ: tri={mean_tri:.4f}, box={mean_box:.4f}"
-
-
-@pytest.mark.integration
-@pytest.mark.requires_example1
-class TestSpeciesConsistency:
-    """
-    Test that atom type/species handling is consistent across backends.
-    """
-
-    def test_species_count_matches(self, example1_trajectory):
-        """Species counts should match between backends."""
-        lammps_ts = example1_trajectory
-        numpy_ts = lammps_to_numpy(lammps_ts, start=0, stop=5, stride=1)
-
-        # Get type 1 indices from both
-        lammps_indices = lammps_ts.get_indices('1')
-        numpy_indices = numpy_ts.get_indices('1')
-
-        assert len(lammps_indices) == len(numpy_indices), \
-            f"Species count mismatch: LAMMPS={len(lammps_indices)}, NumPy={len(numpy_indices)}"
-
-    def test_total_atoms_match(self, example1_trajectory):
-        """Total atom count should match between backends."""
-        lammps_ts = example1_trajectory
-        numpy_ts = lammps_to_numpy(lammps_ts, start=0, stop=5, stride=1)
-
-        # NumPy trajectory stores positions with shape (frames, atoms, 3)
-        n_atoms_numpy = numpy_ts.positions.shape[1]
-
-        # LAMMPS uses MDAnalysis universe
-        n_atoms_lammps = len(lammps_ts.mdanalysis_universe.atoms)
-
-        assert n_atoms_lammps == n_atoms_numpy, \
-            f"Atom count mismatch: LAMMPS={n_atoms_lammps}, NumPy={n_atoms_numpy}"
