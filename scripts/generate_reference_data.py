@@ -8,8 +8,17 @@ files under tests/reference_data/ are committed to git: regeneration is a
 reviewed change, committed together with the code change that motivated it
 and justified in the pull request -- never a local fix for a red test.
 
+Every .npz embeds a `provenance` entry (a JSON string) recording the git
+commit, numpy version, revelsMD version and compute backend used to
+generate it.
+
+The script exits non-zero if any baseline family could not be generated
+because its input data is missing, so that a partial regeneration cannot
+masquerade as a complete one. Pass --allow-missing to downgrade missing
+input data to a warning (exit 0).
+
 Usage:
-    python scripts/generate_reference_data.py
+    python scripts/generate_reference_data.py [--allow-missing]
 
 Requirements:
     - Example 1 data in examples/example_1_LJ/
@@ -17,19 +26,57 @@ Requirements:
     - VASP subset in tests/test_data/example_3_vasp_subset/
 """
 
-import numpy as np
-from pathlib import Path
+import argparse
+import json
+import subprocess
 import sys
+from pathlib import Path
+
+import numpy as np
 
 # Add project root to path
 project_root = Path(__file__).parents[1]
 sys.path.insert(0, str(project_root))
 
+from revelsMD import __version__ as revelsmd_version
+from revelsMD.backends import get_backend
 from revelsMD.rdf import compute_rdf
 
 EXAMPLES_DIR = project_root / "examples"
 TEST_DATA_DIR = project_root / "tests" / "test_data"
 REFERENCE_DIR = project_root / "tests" / "reference_data"
+
+_PROVENANCE = None
+
+
+def provenance() -> np.ndarray:
+    """Build the provenance entry embedded in every reference file."""
+    global _PROVENANCE
+    if _PROVENANCE is None:
+        try:
+            commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=project_root, capture_output=True, text=True, check=True,
+            ).stdout.strip()
+        except Exception:
+            commit = "unknown"
+        _PROVENANCE = np.array(json.dumps({
+            "git_commit": commit,
+            "numpy_version": np.__version__,
+            "revelsmd_version": revelsmd_version,
+            "backend": get_backend(),
+        }))
+    return _PROVENANCE
+
+
+def save_reference(path: Path, **arrays) -> None:
+    """Save a reference .npz with the provenance entry included."""
+    np.savez(path, provenance=provenance(), **arrays)
+
+
+def report_input(path: Path) -> None:
+    """Print the resolved path of a trajectory input actually used."""
+    print(f"  Input: {Path(path).resolve()}")
 
 
 def ensure_dir(path):
@@ -38,17 +85,23 @@ def ensure_dir(path):
 
 
 def generate_lammps_references():
-    """Generate reference data from Example 1 LAMMPS trajectory."""
+    """Generate reference data from Example 1 LAMMPS trajectory.
+
+    Returns None on success, or a skip-reason string if input data is missing.
+    """
     from revelsMD.trajectories import LammpsTrajectory
 
     dump_file = EXAMPLES_DIR / "example_1_LJ" / "dump.nh.lammps"
     data_file = EXAMPLES_DIR / "example_1_LJ" / "data.fin.nh.data"
 
-    if not dump_file.exists():
-        print("Skipping LAMMPS references: Example 1 data not available")
-        return
+    if not dump_file.exists() or not data_file.exists():
+        reason = f"Example 1 data not available ({dump_file})"
+        print(f"Skipping LAMMPS references: {reason}")
+        return reason
 
     print("Loading Example 1 LAMMPS trajectory...")
+    report_input(dump_file)
+    report_input(data_file)
     ts = LammpsTrajectory(
         str(dump_file),
         str(data_file),
@@ -66,7 +119,7 @@ def generate_lammps_references():
         ts, '1', '1',
         delr=0.02, integration='forward', start=0, stop=5
     )
-    np.savez(
+    save_reference(
         output_dir / "rdf_forward.npz",
         r=rdf_forward.r,
         g_r=rdf_forward.g,
@@ -82,7 +135,7 @@ def generate_lammps_references():
         ts, '1', '1',
         delr=0.02, integration='backward', start=0, stop=5
     )
-    np.savez(
+    save_reference(
         output_dir / "rdf_backward.npz",
         r=rdf_backward.r,
         g_r=rdf_backward.g,
@@ -98,9 +151,11 @@ def generate_lammps_references():
         ts, '1', '1',
         delr=0.02, integration='lambda', start=0, stop=5
     )
-    np.savez(
+    save_reference(
         output_dir / "rdf_lambda.npz",
-        data=np.column_stack([rdf_lambda.r, rdf_lambda.g, rdf_lambda.lam]),
+        r=rdf_lambda.r,
+        g=rdf_lambda.g,
+        lam=rdf_lambda.lam,
         frames_used=5,
         delr=0.02,
         temp=1.35,
@@ -113,7 +168,7 @@ def generate_lammps_references():
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, '1', kernel='triangular', start=0, stop=5)
 
-    np.savez(
+    save_reference(
         output_dir / "number_density.npz",
         rho=gs.rho_force,
         nbins=30,
@@ -124,10 +179,14 @@ def generate_lammps_references():
     )
 
     print(f"  Saved LAMMPS references to {output_dir}")
+    return None
 
 
 def generate_mda_references():
-    """Generate reference data from Example 4 MDA/GROMACS trajectory."""
+    """Generate reference data from Example 4 MDA/GROMACS trajectory.
+
+    Returns None on success, or a skip-reason string if input data is missing.
+    """
     from revelsMD.trajectories import MDATrajectory
 
     # Use subset trajectory
@@ -137,14 +196,21 @@ def generate_mda_references():
 
     # Fall back to full trajectory
     if not trr_file.exists():
+        print(
+            f"NOTE: Example 4 subset not found at {trr_file}; "
+            f"falling back to the full trajectory."
+        )
         trr_file = EXAMPLES_DIR / "example_4_rigid_water" / "prod.trr"
         tpr_file = EXAMPLES_DIR / "example_4_rigid_water" / "prod.tpr"
 
     if not trr_file.exists():
-        print("Skipping MDA references: Example 4 data not available")
-        return
+        reason = f"Example 4 data not available ({trr_file})"
+        print(f"Skipping MDA references: {reason}")
+        return reason
 
     print("Loading Example 4 MDA trajectory...")
+    report_input(trr_file)
+    report_input(tpr_file)
     ts = MDATrajectory(str(trr_file), str(tpr_file), temperature=300)
 
     output_dir = REFERENCE_DIR / "mda_example4"
@@ -156,9 +222,11 @@ def generate_mda_references():
         ts, 'Ow', 'Ow',
         delr=0.1, integration='lambda', start=0, stop=5
     )
-    np.savez(
+    save_reference(
         output_dir / "rdf_lambda_ow.npz",
-        data=np.column_stack([rdf_lambda.r, rdf_lambda.g, rdf_lambda.lam]),
+        r=rdf_lambda.r,
+        g=rdf_lambda.g,
+        lam=rdf_lambda.lam,
         frames_used=5,
         delr=0.1,
         temp=300,
@@ -171,7 +239,7 @@ def generate_mda_references():
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, 'Ow', kernel='triangular', rigid=False, start=0, stop=5)
 
-    np.savez(
+    save_reference(
         output_dir / "number_density_ow.npz",
         rho=gs.rho_force,
         nbins=30,
@@ -188,7 +256,7 @@ def generate_mda_references():
         ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
     )
 
-    np.savez(
+    save_reference(
         output_dir / "number_density_rigid.npz",
         rho=gs_rigid.rho_force,
         nbins=30,
@@ -206,7 +274,7 @@ def generate_mda_references():
         ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
     )
 
-    np.savez(
+    save_reference(
         output_dir / "polarisation_density.npz",
         rho=gs_pol.rho_force,
         nbins=30,
@@ -217,20 +285,26 @@ def generate_mda_references():
     )
 
     print(f"  Saved MDA references to {output_dir}")
+    return None
 
 
 def generate_vasp_references():
-    """Generate reference data from VASP trajectory (BaSnF4 subset)."""
+    """Generate reference data from VASP trajectory (BaSnF4 subset).
+
+    Returns None on success, or a skip-reason string if input data is missing.
+    """
     from revelsMD.trajectories import VaspTrajectory
 
     # Use subset from Example 3 BaSnF4
     vasprun_file = TEST_DATA_DIR / "example_3_vasp_subset" / "vasprun.xml"
 
     if not vasprun_file.exists():
-        print("Skipping VASP references: example_3_vasp_subset not available")
-        return
+        reason = f"example_3_vasp_subset not available ({vasprun_file})"
+        print(f"Skipping VASP references: {reason}")
+        return reason
 
     print("Loading VASP trajectory (BaSnF4 subset)...")
+    report_input(vasprun_file)
     ts = VaspTrajectory(str(vasprun_file), temperature=600)
 
     output_dir = REFERENCE_DIR / "vasp_example3"
@@ -242,9 +316,11 @@ def generate_vasp_references():
         ts, 'F', 'F',
         delr=0.1, integration='lambda', start=0, stop=10
     )
-    np.savez(
+    save_reference(
         output_dir / "rdf_lambda_f_f.npz",
-        data=np.column_stack([rdf_lambda.r, rdf_lambda.g, rdf_lambda.lam]),
+        r=rdf_lambda.r,
+        g=rdf_lambda.g,
+        lam=rdf_lambda.lam,
         frames_used=10,
         delr=0.1,
         temp=600,
@@ -257,7 +333,7 @@ def generate_vasp_references():
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, 'F', kernel='triangular', rigid=False, start=0, stop=10)
 
-    np.savez(
+    save_reference(
         output_dir / "number_density_f.npz",
         rho=gs.rho_force,
         nbins=30,
@@ -268,10 +344,14 @@ def generate_vasp_references():
     )
 
     print(f"  Saved VASP references to {output_dir}")
+    return None
 
 
 def generate_synthetic_references():
-    """Generate reference data from synthetic NumPy trajectories."""
+    """Generate reference data from synthetic NumPy trajectories.
+
+    Returns None on success (synthetic data needs no external inputs).
+    """
     from revelsMD.trajectories import NumpyTrajectory
 
     output_dir = REFERENCE_DIR / "synthetic"
@@ -298,9 +378,11 @@ def generate_synthetic_references():
         ts, '1', '1',
         delr=0.1, integration='lambda', start=0, stop=None
     )
-    np.savez(
+    save_reference(
         output_dir / "uniform_gas_rdf.npz",
-        data=np.column_stack([rdf.r, rdf.g, rdf.lam]),
+        r=rdf.r,
+        g=rdf.g,
+        lam=rdf.lam,
         n_atoms=n_atoms,
         n_frames=n_frames,
         box=box,
@@ -313,9 +395,22 @@ def generate_synthetic_references():
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(ts, '1', kernel='triangular', rigid=False)
 
-    np.savez(
+    # Lambda-combined density on a separate grid, so the stored rho comes
+    # from exactly the same accumulation path as before (block accumulation
+    # can differ in floating-point summation order).
+    print("  Computing uniform gas lambda density (block_size=10)...")
+    gs_lambda = DensityGrid(ts, 'number', nbins=30)
+    gs_lambda.accumulate(
+        ts, '1', kernel='triangular', rigid=False,
+        compute_lambda=True, blocking='contiguous', block_size=10,
+    )
+
+    save_reference(
         output_dir / "uniform_gas_density.npz",
         rho=gs.rho_force,
+        rho_lambda=gs_lambda.rho_lambda,
+        lambda_weights=gs_lambda.lambda_weights,
+        lambda_block_size=10,
         nbins=30,
         n_atoms=n_atoms,
         n_frames=n_frames,
@@ -324,30 +419,65 @@ def generate_synthetic_references():
     )
 
     print(f"  Saved synthetic references to {output_dir}")
+    return None
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Generate regression-test reference data."
+    )
+    parser.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help="exit 0 even if some baseline families were skipped because "
+             "their input data is missing (default: exit 1)",
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
     print("Generating reference data for regression tests")
     print("=" * 60)
     print()
 
-    generate_lammps_references()
-    print()
+    families = [
+        ("lammps_example1", generate_lammps_references),
+        ("mda_example4", generate_mda_references),
+        ("vasp_example3", generate_vasp_references),
+        ("synthetic", generate_synthetic_references),
+    ]
 
-    generate_mda_references()
-    print()
-
-    generate_vasp_references()
-    print()
-
-    generate_synthetic_references()
-    print()
+    skip_reasons = {}
+    for name, generate in families:
+        skip_reasons[name] = generate()
+        print()
 
     print("=" * 60)
-    print("Reference data generation complete")
+    print("Summary")
+    print("-" * 60)
+    for name, _ in families:
+        reason = skip_reasons[name]
+        if reason is None:
+            print(f"  {name:<18} generated")
+        else:
+            print(f"  {name:<18} SKIPPED: {reason}")
+    print("-" * 60)
     print(f"Output directory: {REFERENCE_DIR}")
     print("=" * 60)
+
+    skipped = [name for name, reason in skip_reasons.items() if reason]
+    if skipped:
+        if args.allow_missing:
+            print(
+                f"WARNING: skipped families ({', '.join(skipped)}); "
+                f"exiting 0 because --allow-missing was passed."
+            )
+        else:
+            print(
+                f"ERROR: skipped families ({', '.join(skipped)}); "
+                f"the committed baselines were NOT fully regenerated. "
+                f"Pass --allow-missing to tolerate this."
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":

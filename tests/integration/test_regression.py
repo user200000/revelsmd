@@ -8,15 +8,25 @@ explain the numerical shift in the pull request. Never regenerate simply
 to make a red test pass -- that defeats the test (it is exactly how an
 inverted lambda combination was once certified by this suite).
 
-Tolerances are tiered for cross-machine robustness (FFT SIMD dispatch and
-numpy version differences), while remaining orders of magnitude tighter
-than any real regression:
+Tolerances are tiered for cross-machine robustness, while remaining
+orders of magnitude tighter than any real regression:
 
 - r grids: rtol 1e-10 (pure bin arithmetic)
 - g(r) and density arrays: rtol 1e-7
 - lambda-combined arrays: rtol 1e-5 (variance ratios amplify float noise)
 - all tiers except r grids additionally carry the assert_arrays_close
   absolute floor of atol=1e-8 for near-zero values
+
+The cross-machine risk differs by baseline type: density baselines are
+FFT-based, where SIMD dispatch can vary between CPUs; RDF arrays are
+cumsum-based, where the risk is numpy version drift rather than SIMD
+dispatch.
+
+The LAMMPS, MDA and VASP tests require local example data (gitignored;
+not present in CI) and their trajectory fixtures skip where it is
+absent, so CI exercises only the synthetic and integrity tests. A green
+CI run is therefore NOT full baseline verification -- run the suite on
+a machine with the example data before trusting a baseline change.
 
 The semantic guard for the lambda combination itself is
 tests/test_rdf_lambda_invariant.py, which needs no reference data.
@@ -121,12 +131,17 @@ class TestLammpsRegression:
             delr=0.02, start=0, stop=5, integration='lambda'
         )
 
-        # Build array in same format as old API for comparison
-        result_array = np.column_stack([result.r, result.g, result.lam])
-
         assert_arrays_close(
-            result_array, ref['data'],
-            rtol=1e-5, context="RDF lambda"
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-5, context="RDF lambda g(r)"
+        )
+        assert_arrays_close(
+            result.lam, ref['lam'],
+            rtol=1e-5, context="RDF lambda weights"
         )
 
     def test_number_density_regression(self, example1_trajectory):
@@ -167,12 +182,17 @@ class TestMDARegression:
             delr=0.1, start=0, stop=5, integration='lambda'
         )
 
-        # Build array in same format as old API for comparison
-        result_array = np.column_stack([result.r, result.g, result.lam])
-
         assert_arrays_close(
-            result_array, ref['data'],
-            rtol=1e-5, context="RDF lambda Ow-Ow"
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-5, context="RDF lambda g(r) Ow-Ow"
+        )
+        assert_arrays_close(
+            result.lam, ref['lam'],
+            rtol=1e-5, context="RDF lambda weights Ow-Ow"
         )
 
     def test_number_density_regression(self, example4_trajectory):
@@ -249,12 +269,17 @@ class TestVASPRegression:
             delr=0.1, start=0, stop=10, integration='lambda'
         )
 
-        # Build array in same format as old API for comparison
-        result_array = np.column_stack([result.r, result.g, result.lam])
-
         assert_arrays_close(
-            result_array, ref['data'],
-            rtol=1e-5, context="RDF lambda F-F"
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-5, context="RDF lambda g(r) F-F"
+        )
+        assert_arrays_close(
+            result.lam, ref['lam'],
+            rtol=1e-5, context="RDF lambda weights F-F"
         )
 
     def test_number_density_regression(self, vasp_trajectory):
@@ -300,12 +325,17 @@ class TestSyntheticRegression:
             delr=0.1, start=0, stop=None, integration='lambda'
         )
 
-        # Build array in same format as old API for comparison
-        result_array = np.column_stack([result.r, result.g, result.lam])
-
         assert_arrays_close(
-            result_array, ref['data'],
-            rtol=1e-7, context="uniform gas RDF"
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-7, context="uniform gas RDF g(r)"
+        )
+        assert_arrays_close(
+            result.lam, ref['lam'],
+            rtol=1e-5, context="uniform gas RDF lambda weights"
         )
 
     def test_uniform_gas_density_regression(self, uniform_gas_trajectory):
@@ -323,6 +353,28 @@ class TestSyntheticRegression:
         assert_arrays_close(
             gs.rho_force, ref['rho'],
             rtol=1e-7, context="uniform gas density"
+        )
+
+    def test_uniform_gas_density_lambda_regression(self, uniform_gas_trajectory):
+        """Uniform gas lambda density and weights match stored reference."""
+        ref = load_reference("synthetic", "uniform_gas_density.npz")
+
+        gs = DensityGrid(
+            uniform_gas_trajectory, 'number', nbins=30
+        )
+        gs.accumulate(
+            uniform_gas_trajectory, '1', kernel='triangular', rigid=False,
+            compute_lambda=True, blocking='contiguous',
+            block_size=int(ref['lambda_block_size']),
+        )
+
+        assert_arrays_close(
+            gs.rho_lambda, ref['rho_lambda'],
+            rtol=1e-5, context="uniform gas rho_lambda"
+        )
+        assert_arrays_close(
+            gs.lambda_weights, ref['lambda_weights'],
+            rtol=1e-5, context="uniform gas lambda weights"
         )
 
 
