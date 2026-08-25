@@ -21,9 +21,8 @@ Usage:
     python scripts/generate_reference_data.py [--allow-missing]
 
 Requirements:
-    - Example 1 data in examples/example_1_LJ/
-    - Example 4 subset in tests/test_data/example_4_subset/
-    - VASP subset in tests/test_data/example_3_vasp_subset/
+    All trajectory inputs are the trimmed subsets committed in tests/data/;
+    no external data is needed. A missing input means a broken checkout.
 """
 
 import argparse
@@ -42,8 +41,10 @@ from revelsMD import __version__ as revelsmd_version
 from revelsMD.backends import get_backend
 from revelsMD.rdf import compute_rdf
 
-EXAMPLES_DIR = project_root / "examples"
-TEST_DATA_DIR = project_root / "tests" / "test_data"
+# Canonical committed test data (trimmed trajectory subsets). Full-length
+# trajectories live outside the repository and are used only by
+# scripts/validate_*.py.
+TEST_DATA_DIR = project_root / "tests" / "data"
 REFERENCE_DIR = project_root / "tests" / "reference_data"
 
 _PROVENANCE = None
@@ -91,8 +92,8 @@ def generate_lammps_references():
     """
     from revelsMD.trajectories import LammpsTrajectory
 
-    dump_file = EXAMPLES_DIR / "example_1_LJ" / "dump.nh.lammps"
-    data_file = EXAMPLES_DIR / "example_1_LJ" / "data.fin.nh.data"
+    dump_file = TEST_DATA_DIR / "example_1_LJ" / "dump.nh.lammps"
+    data_file = TEST_DATA_DIR / "example_1_LJ" / "data.fin.nh.data"
 
     if not dump_file.exists() or not data_file.exists():
         reason = f"Example 1 data not available ({dump_file})"
@@ -189,19 +190,8 @@ def generate_mda_references():
     """
     from revelsMD.trajectories import MDATrajectory
 
-    # Use subset trajectory
-    subset_dir = TEST_DATA_DIR / "example_4_subset"
-    trr_file = subset_dir / "prod_100frames.trr"
-    tpr_file = subset_dir / "prod.tpr"
-
-    # Fall back to full trajectory
-    if not trr_file.exists():
-        print(
-            f"NOTE: Example 4 subset not found at {trr_file}; "
-            f"falling back to the full trajectory."
-        )
-        trr_file = EXAMPLES_DIR / "example_4_rigid_water" / "prod.trr"
-        tpr_file = EXAMPLES_DIR / "example_4_rigid_water" / "prod.tpr"
+    trr_file = TEST_DATA_DIR / "example_4_water" / "prod.trr"
+    tpr_file = TEST_DATA_DIR / "example_4_water" / "prod.tpr"
 
     if not trr_file.exists():
         reason = f"Example 4 data not available ({trr_file})"
@@ -296,10 +286,10 @@ def generate_vasp_references():
     from revelsMD.trajectories import VaspTrajectory
 
     # Use subset from Example 3 BaSnF4
-    vasprun_file = TEST_DATA_DIR / "example_3_vasp_subset" / "vasprun.xml"
+    vasprun_file = TEST_DATA_DIR / "example_3_vasp" / "vasprun.xml"
 
     if not vasprun_file.exists():
-        reason = f"example_3_vasp_subset not available ({vasprun_file})"
+        reason = f"example_3_vasp data not available ({vasprun_file})"
         print(f"Skipping VASP references: {reason}")
         return reason
 

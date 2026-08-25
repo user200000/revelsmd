@@ -19,6 +19,10 @@ coverage.xml
 tests/validation_plots/
 tests/test_data/
 
+# MDAnalysis trajectory offset caches (generated on load)
+**/.*_offsets.npz
+**/.*_offsets.lock
+
 # Examples (large data files)
 examples/
 

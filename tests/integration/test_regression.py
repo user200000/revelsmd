@@ -22,11 +22,10 @@ FFT-based, where SIMD dispatch can vary between CPUs; RDF arrays are
 cumsum-based, where the risk is numpy version drift rather than SIMD
 dispatch.
 
-The LAMMPS, MDA and VASP tests require local example data (gitignored;
-not present in CI) and their trajectory fixtures skip where it is
-absent, so CI exercises only the synthetic and integrity tests. A green
-CI run is therefore NOT full baseline verification -- run the suite on
-a machine with the example data before trusting a baseline change.
+The LAMMPS, MDA and VASP tests read trimmed trajectory subsets committed
+in tests/data/, so CI runs the complete regression suite: a green CI run
+verifies every committed baseline. The full-length trajectories live
+outside the repository and are used only by scripts/validate_*.py.
 
 The semantic guard for the lambda combination itself is
 tests/test_rdf_lambda_invariant.py, which needs no reference data.
