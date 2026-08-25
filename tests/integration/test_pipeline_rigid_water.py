@@ -1,16 +1,12 @@
 """
 Pipeline integration tests for rigid water molecules (Example 4).
 
-These tests exercise workflow scenarios not covered by regression tests:
-- Charge data availability
-- O-H RDF calculation
-- Charge neutrality
+These tests check charge data availability and charge neutrality, which are
+loader properties not covered by regression tests.
 """
 
 import pytest
 import numpy as np
-
-from revelsMD.rdf import compute_rdf
 
 
 @pytest.mark.integration
@@ -33,25 +29,6 @@ class TestRigidWaterPipelineExample4:
         # SPC/E: O ~ -0.8476, H ~ +0.4238
         assert np.all(ow_charges < 0), "Oxygen should have negative charge"
         assert np.all(hw1_charges > 0), "Hydrogen should have positive charge"
-
-
-@pytest.mark.integration
-@pytest.mark.requires_example4
-class TestRigidWaterRDF:
-    """RDF tests using Example 4 water trajectory."""
-
-    def test_oxygen_hydrogen_rdf(self, example4_trajectory):
-        """O-H RDF calculation for water."""
-        ts = example4_trajectory
-
-        rdf = compute_rdf(
-            ts, 'Ow', 'Hw1',
-            period=1, delr=0.1, start=0, stop=5
-        )
-
-        assert rdf is not None
-        assert np.all(np.isfinite(rdf.r))
-        assert np.all(np.isfinite(rdf.g))
 
 
 @pytest.mark.integration

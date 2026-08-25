@@ -35,7 +35,7 @@ import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.rdf import RDF, compute_rdf
+from revelsMD.rdf import compute_rdf
 from revelsMD.density import DensityGrid
 from .conftest import assert_arrays_close
 
@@ -82,6 +82,10 @@ class TestLammpsRegression:
             result.g, ref['g_r'],
             rtol=1e-7, context="g(r) forward"
         )
+        assert_arrays_close(
+            result.g_count, ref['g_count'],
+            rtol=1e-7, context="g_count histogram estimator"
+        )
 
         # Physical property checks (saves computing RDF twice)
         # g(r) should have a first peak (LJ fluid)
@@ -102,6 +106,24 @@ class TestLammpsRegression:
             bulk_gr = result.g[bulk_mask]
             mean_bulk = np.mean(bulk_gr)
             assert abs(mean_bulk - 1.0) < 0.2, f"Bulk g(r) = {mean_bulk}, expected ~1.0"
+
+    def test_rdf_forward_strided_regression(self, example1_trajectory):
+        """RDF forward integration with frame stride matches stored reference."""
+        ref = load_reference("lammps_example1", "rdf_forward_strided.npz")
+
+        result = compute_rdf(
+            example1_trajectory, '1', '1',
+            delr=0.05, integration='forward', start=0, stop=10, period=2
+        )
+
+        assert_arrays_close(
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-7, context="g(r) forward strided"
+        )
 
     def test_rdf_backward_regression(self, example1_trajectory):
         """RDF backward integration matches stored reference."""
@@ -161,6 +183,64 @@ class TestLammpsRegression:
             rtol=1e-7, context="number density"
         )
 
+    def test_number_density_box_regression(self, example1_trajectory):
+        """3D number density with the box kernel matches stored reference."""
+        ref = load_reference("lammps_example1", "number_density_box.npz")
+
+        gs = DensityGrid(
+            example1_trajectory, 'number', nbins=30
+        )
+        gs.accumulate(
+            example1_trajectory, '1', kernel='box',
+            rigid=False, start=0, stop=5
+        )
+
+        assert_arrays_close(
+            gs.rho_force, ref['rho'],
+            rtol=1e-7, context="number density box kernel"
+        )
+
+
+# ---------------------------------------------------------------------------
+# LAMMPS Example 2 Regression Tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+@pytest.mark.regression
+@pytest.mark.requires_example2
+class TestLammpsExample2Regression:
+    """Regression tests against stored LAMMPS Example 2 results."""
+
+    def test_number_density_lambda_regression(self, example2_trajectory):
+        """Lambda-combined number density matches stored reference."""
+        ref = load_reference("lammps_example2", "number_density_lambda.npz")
+
+        gs = DensityGrid(
+            example2_trajectory, 'number', nbins=30
+        )
+        gs.accumulate(
+            example2_trajectory, '2', kernel='triangular', rigid=False,
+            start=0, stop=10, compute_lambda=True, blocking='contiguous',
+            block_size=int(ref['lambda_block_size']),
+        )
+
+        assert_arrays_close(
+            gs.rho_force, ref['rho_force'],
+            rtol=1e-7, context="Example 2 rho_force"
+        )
+        assert_arrays_close(
+            gs.rho_count, ref['rho_count'],
+            rtol=1e-7, context="Example 2 rho_count"
+        )
+        assert_arrays_close(
+            gs.rho_lambda, ref['rho_lambda'],
+            rtol=1e-5, context="Example 2 rho_lambda"
+        )
+        assert_arrays_close(
+            gs.lambda_weights, ref['lambda_weights'],
+            rtol=1e-5, context="Example 2 lambda weights"
+        )
+
 
 # ---------------------------------------------------------------------------
 # MDA/GROMACS Regression Tests
@@ -192,6 +272,28 @@ class TestMDARegression:
         assert_arrays_close(
             result.lam, ref['lam'],
             rtol=1e-5, context="RDF lambda weights Ow-Ow"
+        )
+
+    def test_rdf_forward_unlike_regression(self, example4_trajectory):
+        """Unlike-pair RDF (Ow-Hw1, forward) matches stored reference.
+
+        Pins the pair-enumeration path, which is loader-agnostic, so this
+        single instance covers unlike pairs for all loaders.
+        """
+        ref = load_reference("mda_example4", "rdf_forward_ow_hw1.npz")
+
+        result = compute_rdf(
+            example4_trajectory, 'Ow', 'Hw1',
+            delr=0.1, integration='forward', start=0, stop=5
+        )
+
+        assert_arrays_close(
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-7, context="g(r) forward Ow-Hw1"
         )
 
     def test_number_density_regression(self, example4_trajectory):
@@ -398,9 +500,31 @@ class TestReferenceDataIntegrity:
 
         expected_files = [
             "rdf_forward.npz",
+            "rdf_forward_strided.npz",
             "rdf_backward.npz",
             "rdf_lambda.npz",
             "number_density.npz",
+            "number_density_box.npz",
+        ]
+
+        for filename in expected_files:
+            ref_path = ref_dir / filename
+            assert ref_path.exists(), f"Missing reference: {ref_path}"
+            data = np.load(ref_path)
+            assert len(data.files) > 0, f"Empty reference: {ref_path}"
+
+    def test_lammps_example2_references_exist(self):
+        """LAMMPS Example 2 reference files exist and are loadable."""
+        ref_dir = REFERENCE_DIR / "lammps_example2"
+        if not ref_dir.exists():
+            pytest.fail(
+                f"Reference data missing: {ref_dir} — baselines are committed "
+                f"to git; a missing directory means a broken checkout or "
+                f"deleted baseline, not a skippable condition."
+            )
+
+        expected_files = [
+            "number_density_lambda.npz",
         ]
 
         for filename in expected_files:
@@ -421,6 +545,7 @@ class TestReferenceDataIntegrity:
 
         expected_files = [
             "rdf_lambda_ow.npz",
+            "rdf_forward_ow_hw1.npz",
             "number_density_ow.npz",
             "number_density_rigid.npz",
             "polarisation_density.npz",
