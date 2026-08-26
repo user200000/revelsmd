@@ -60,7 +60,15 @@ def provenance() -> np.ndarray:
                 ["git", "rev-parse", "HEAD"],
                 cwd=project_root, capture_output=True, text=True, check=True,
             ).stdout.strip()
-        except Exception:
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=project_root, capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            if status:
+                # Mark baselines generated from uncommitted code so they
+                # remain identifiable after the fact.
+                commit += "-dirty"
+        except (OSError, subprocess.CalledProcessError):
             commit = "unknown"
         _PROVENANCE = np.array(json.dumps({
             "git_commit": commit,
