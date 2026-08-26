@@ -452,6 +452,25 @@ def generate_vasp_references():
         species='F'
     )
 
+    # Unlike-pair RDF (Ba-F, forward) through the VASP loader, pinning
+    # second-species selection (Ba) on real data alongside the
+    # loader-agnostic pair-enumeration baseline in mda_example4.
+    print("  Computing unlike-pair RDF (Ba-F, forward)...")
+    rdf_unlike = compute_rdf(
+        ts, 'Ba', 'F',
+        delr=0.1, integration='forward', start=0, stop=10
+    )
+    save_reference(
+        output_dir / "rdf_forward_ba_f.npz",
+        r=rdf_unlike.r,
+        g=rdf_unlike.g,
+        frames_used=10,
+        delr=0.1,
+        temp=600,
+        species_a='Ba',
+        species_b='F'
+    )
+
     # 3D number density for F
     print("  Computing F number density...")
     from revelsMD.density import DensityGrid

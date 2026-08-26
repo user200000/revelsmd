@@ -412,6 +412,29 @@ class TestVASPRegression:
             rtol=1e-5, context="RDF lambda weights F-F"
         )
 
+    def test_rdf_forward_unlike_regression(self, vasp_trajectory):
+        """Unlike-pair RDF (Ba-F, forward) matches stored reference.
+
+        Pins second-species selection (Ba) through the VASP loader on real
+        data, complementing the loader-agnostic pair-enumeration baseline
+        in mda_example4.
+        """
+        ref = load_reference("vasp_example3", "rdf_forward_ba_f.npz")
+
+        result = compute_rdf(
+            vasp_trajectory, 'Ba', 'F',
+            delr=0.1, integration='forward', start=0, stop=10
+        )
+
+        assert_arrays_close(
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-7, context="g(r) forward Ba-F"
+        )
+
     def test_number_density_regression(self, vasp_trajectory):
         """3D number density matches stored reference."""
         ref = load_reference("vasp_example3", "number_density_f.npz")
@@ -604,6 +627,7 @@ class TestReferenceDataIntegrity:
 
         expected_files = [
             "rdf_lambda_f_f.npz",
+            "rdf_forward_ba_f.npz",
             "number_density_f.npz",
         ]
 
