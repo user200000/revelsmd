@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Regenerate the committed trajectory subsets in tests/data/ from full sources.
+Construct trajectory subsets for tests/data/ from full-length sources.
 
-The committed subsets are the canonical test data; this script documents and
-reproduces how each was cut from its full-length source:
+The committed subsets are primary artefacts -- the fixed ground truth the
+test suite and reference baselines are built on -- and are not kept in sync
+with their sources. This script documents their original construction
+executably, and is the tool for deliberately building NEW subsets;
+replacing a committed file is a reviewed change made together with
+regenerated reference baselines (see tests/data/README.md). Construction
+recipes:
 
 - LAMMPS Example 1 and 2: first 10 frames of the dump file, split on
   "ITEM: TIMESTEP" so the subset is a byte-identical head of the source;
