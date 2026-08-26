@@ -366,11 +366,17 @@ def generate_mda_references():
         rigid=True
     )
 
-    # Rigid molecule charge density (charges come from the tpr)
-    print("  Computing rigid molecule charge density...")
+    # Single-species charge density (oxygen partial charges from the tpr).
+    # Rigid whole-molecule deposition would weight each neutral SPC/E
+    # molecule by its summed charge and pin an identically-zero field;
+    # deliberately not multi-species non-rigid either, because that path's
+    # normalisation convention (per-species averaging vs sum) is an open
+    # design question that must not be baked into a baseline before it is
+    # decided.
+    print("  Computing single-species charge density (Ow)...")
     gs_charge = DensityGrid(ts, 'charge', nbins=30)
     gs_charge.accumulate(
-        ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
+        ts, 'Ow', kernel='triangular', rigid=False, start=0, stop=5
     )
 
     save_reference(
@@ -379,9 +385,8 @@ def generate_mda_references():
         nbins=30,
         frames_used=5,
         temp=300,
-        species=['Ow', 'Hw1', 'Hw2'],
-        kernel='triangular',
-        rigid=True
+        species='Ow',
+        kernel='triangular'
     )
 
     # Polarisation density
