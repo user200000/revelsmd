@@ -80,13 +80,11 @@ class TestLammpsVsNumpyConsistency:
             start=0, stop=n_frames_to_use
         )
 
-
         gs_numpy = DensityGrid(numpy_ts, 'number', nbins=30)
         gs_numpy.accumulate(
             numpy_ts, '1', kernel='triangular', rigid=False,
             start=0, stop=n_frames_to_use
         )
-
 
         # Results should be very close (small numerical differences expected
         # due to different frame iteration methods between LAMMPS/NumPy backends)
@@ -156,7 +154,6 @@ class TestGridResolutionConsistency:
             gs = DensityGrid(ts, 'number', nbins=nbins)
             gs.accumulate(ts, '1', kernel='triangular', rigid=False)
 
-
             densities.append(np.mean(gs.rho_force))
 
         # All mean densities should be similar
@@ -183,11 +180,9 @@ class TestKernelConsistency:
         gs_tri = DensityGrid(ts, 'number', nbins=30)
         gs_tri.accumulate(ts, '1', kernel='triangular', rigid=False)
 
-
         # Box kernel
         gs_box = DensityGrid(ts, 'number', nbins=30)
         gs_box.accumulate(ts, '1', kernel='box', rigid=False)
-
 
         mean_tri = np.mean(gs_tri.rho_force)
         mean_box = np.mean(gs_box.rho_force)

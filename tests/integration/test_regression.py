@@ -489,13 +489,18 @@ class TestSyntheticRegression:
         """Uniform gas lambda density and weights match stored reference."""
         ref = load_reference("synthetic", "uniform_gas_density.npz")
 
+        # The block size is part of the pinned computation, not a free
+        # parameter: assert the baseline was generated with the expected
+        # value rather than reading it from the file under test.
+        assert int(ref['lambda_block_size']) == 10
+
         gs = DensityGrid(
             uniform_gas_trajectory, 'number', nbins=30
         )
         gs.accumulate(
             uniform_gas_trajectory, '1', kernel='triangular', rigid=False,
             compute_lambda=True, blocking='contiguous',
-            block_size=int(ref['lambda_block_size']),
+            block_size=10,
         )
 
         assert_arrays_close(
