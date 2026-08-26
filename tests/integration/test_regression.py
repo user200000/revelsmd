@@ -363,6 +363,29 @@ class TestMDARegression:
             rtol=1e-7, context="charge density Ow"
         )
 
+    def test_charge_density_total_regression(self, example4_trajectory):
+        """Multi-species non-rigid total charge density matches stored reference.
+
+        Pins the sum convention for multi-species selections: the field is
+        the total charge density of the Ow+Hw1+Hw2 selection (per-species
+        grids sum to this grid; the result depends only on which atoms are
+        selected, not on how they are partitioned into species labels).
+        """
+        ref = load_reference("mda_example4", "charge_density_total.npz")
+
+        gs = DensityGrid(
+            example4_trajectory, 'charge', nbins=30
+        )
+        gs.accumulate(
+            example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
+            rigid=False, start=0, stop=5
+        )
+
+        assert_arrays_close(
+            gs.rho_force, ref['rho'],
+            rtol=1e-7, context="total charge density Ow+Hw1+Hw2"
+        )
+
     def test_polarisation_density_regression(self, example4_trajectory):
         """Polarisation density matches stored reference."""
         ref = load_reference("mda_example4", "polarisation_density.npz")
@@ -608,6 +631,7 @@ class TestReferenceDataIntegrity:
             "number_density_ow.npz",
             "number_density_rigid.npz",
             "charge_density.npz",
+            "charge_density_total.npz",
             "polarisation_density.npz",
         ]
 

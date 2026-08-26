@@ -60,7 +60,10 @@ class DensityGrid:
     voxel_volume : float
         Volume of a single voxel.
     count : int
-        Number of processed frames (for normalization).
+        Number of frames deposited (the normalisation denominator).
+        A multi-species selection increments this once per frame, not
+        once per species, so the normalised density is the total
+        (summed) density of the selected atoms.
     progress : {'Generated', 'Allocated', 'Lambda'}
         Simple state flag used by getters and lambda estimator.
     """
@@ -246,17 +249,25 @@ class DensityGrid:
             dipole projection for polarisation.
         kernel : {'triangular', 'box'}
             Deposition kernel (default: 'triangular').
+
+        Notes
+        -----
+        ``count`` increments once per call (one frame), regardless of how
+        many species arrays are deposited. A multi-species deposit
+        therefore yields the total (summed) density of the selected atoms:
+        each species' marginal equals its single-species result, and the
+        per-species grids sum to the multi-species grid. The sum depends
+        only on the set of selected atoms, not on how that set is
+        partitioned into species labels. For ``density_type='charge'``
+        this is the total charge density of the selection.
         """
         self._deposit_to_arrays(
             self.force_x, self.force_y, self.force_z, self.counter,
             positions, forces, weights, kernel,
         )
-        # Increment count: once per array for single species, once per
-        # sub-array for multi-species (list of arrays).
-        if isinstance(positions, list):
-            self.count += len(positions)
-        else:
-            self.count += 1
+        # One frame per call, however many species arrays it carries —
+        # the normalised density is the total over the selected atoms.
+        self.count += 1
 
     def accumulate(
         self,
@@ -334,6 +345,15 @@ class DensityGrid:
 
         Notes
         -----
+        A multi-species selection with ``rigid=False`` yields the total
+        (summed) density of the selected atoms: each species' marginal
+        equals its single-species result, and the per-species grids sum
+        to the multi-species grid. The result depends only on which atoms
+        are selected, not on how they are partitioned into species labels.
+        For ``density_type='charge'`` this is the total charge density of
+        the selection (it integrates to the selection's net charge).
+        Molecule-level counting is provided by ``rigid=True``.
+
         When ``compute_lambda=True``, variance statistics accumulate across
         multiple ``accumulate()`` calls, enabling lambda estimation from
         multiple trajectories.
@@ -554,12 +574,11 @@ class DensityGrid:
                     deposit_positions, deposit_forces, weights, kernel,
                 )
 
-                # Count semantics: increment once per deposited array,
-                # not once per frame (consistent with deposit()).
-                if isinstance(deposit_positions, list):
-                    block_count += len(deposit_positions)
-                else:
-                    block_count += 1
+                # One frame per deposit, however many species arrays it
+                # carries (consistent with deposit()): block_count is the
+                # number of frames in the block, which is also the correct
+                # Welford weight below.
+                block_count += 1
 
             if block_count == 0:
                 warnings.warn(
@@ -696,7 +715,7 @@ class DensityGrid:
         counter : ndarray
             Accumulated particle counts on the grid.
         count : int
-            Total number of deposited samples (for normalisation).
+            Number of frames deposited (for normalisation).
 
         Returns
         -------
