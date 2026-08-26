@@ -11,7 +11,7 @@ verifies every committed baseline.
 |------|---------|
 | `test_regression.py` | Value-pinning tests against committed reference data (five baseline families) plus reference-data integrity checks |
 | `test_analytical_reference.py` | Tests against known mathematical results using synthetic data, including the exact harmonic-pair g(r) validation of both estimators |
-| `test_cross_backend_consistency.py` | Verifies the same data produces consistent results across trajectory backends |
+| `test_cross_backend_consistency.py` | Verifies the same data produces consistent results across trajectory backends, plus resolution-consistency (bulk density across grid sizes) and kernel-consistency (triangular vs box) checks |
 | `test_pipeline_rigid_water.py` | Loader-property tests on the real water topology (charge availability and neutrality) |
 
 The whole suite runs in well under a minute.
@@ -57,7 +57,7 @@ Baselines for the regression tests are committed in `tests/reference_data/`:
 tests/reference_data/
     lammps_example1/     # LAMMPS RDF (forward/backward/lambda/strided/g_count) and density (triangular/box) references
     lammps_example2/     # Density lambda-combination references
-    mda_example4/        # Water RDF (like and unlike pairs), rigid and polarisation density references
+    mda_example4/        # Water RDF (like and unlike pairs), number (Ow and rigid), charge and polarisation density references
     vasp_example3/       # BaSnF4 RDF and density references
     synthetic/           # Synthetic trajectory references, including rho_lambda and lambda_weights
 ```

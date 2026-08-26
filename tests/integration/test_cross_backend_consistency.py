@@ -6,9 +6,10 @@ backends produces identical (or very similar) analysis results. This helps
 ensure that the different Trajectory implementations are consistent.
 
 Tests include:
-- LAMMPS vs NumPy (same data, different loaders)
-- Forward vs backward RDF integration convergence
+- LAMMPS vs NumPy (same data, different loaders): RDF and density
+- MDA vs NumPy (same data, different loaders): RDF
 - Different grid resolutions producing consistent bulk density
+- Triangular vs box kernels producing consistent mean density
 """
 
 import pytest

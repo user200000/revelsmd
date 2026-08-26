@@ -44,13 +44,13 @@ vasp = ["pymatgen"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "analytical: tests against known analytical results",
     "regression: regression tests against stored reference data",
-    "requires_example1: requires Example 1 data (~12MB)",
-    "requires_example2: requires Example 2 data (~500MB)",
-    "requires_example4: requires Example 4 data (~1.7GB)",
+    "requires_example1: uses the committed Example 1 subset in tests/data",
+    "requires_example2: uses the committed Example 2 subset in tests/data",
+    "requires_example4: uses the committed Example 4 subset in tests/data",
+    "requires_vasp: uses the committed VASP subset in tests/data",
 ]
 filterwarnings = [
     "ignore:Reader has no dt information:UserWarning:MDAnalysis.*:",

@@ -14,7 +14,6 @@ TEST_DATA_DIR = Path(__file__).parents[1] / "data"
 
 def pytest_configure(config):
     """Register custom markers."""
-    config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
     config.addinivalue_line("markers", "analytical: tests against known analytical results")
     config.addinivalue_line("markers", "regression: regression tests against stored reference data")
@@ -22,27 +21,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "requires_example2: uses the committed Example 2 subset in tests/data")
     config.addinivalue_line("markers", "requires_example4: uses the committed Example 4 subset in tests/data")
     config.addinivalue_line("markers", "requires_vasp: uses the committed VASP subset in tests/data")
-
-
-def pytest_addoption(parser):
-    """Add custom command-line options."""
-    parser.addoption(
-        "--run-slow",
-        action="store_true",
-        default=False,
-        help="run slow tests",
-    )
-
-
-def pytest_collection_modifyitems(config, items):
-    """Skip slow tests unless --run-slow is passed."""
-    if config.getoption("--run-slow"):
-        return
-
-    skip_slow = pytest.mark.skip(reason="need --run-slow option to run")
-    for item in items:
-        if "slow" in item.keywords:
-            item.add_marker(skip_slow)
 
 
 # ---------------------------------------------------------------------------
