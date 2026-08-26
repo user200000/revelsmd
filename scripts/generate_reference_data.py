@@ -124,7 +124,7 @@ def generate_lammps_references():
     save_reference(
         output_dir / "rdf_forward.npz",
         r=rdf_forward.r,
-        g_r=rdf_forward.g,
+        g=rdf_forward.g,
         g_count=rdf_forward.g_count,
         frames_used=5,
         delr=0.02,
@@ -158,7 +158,7 @@ def generate_lammps_references():
     save_reference(
         output_dir / "rdf_backward.npz",
         r=rdf_backward.r,
-        g_r=rdf_backward.g,
+        g=rdf_backward.g,
         frames_used=5,
         delr=0.02,
         temp=1.35,
@@ -284,7 +284,7 @@ def generate_mda_references():
     trr_file = TEST_DATA_DIR / "example_4_water" / "prod.trr"
     tpr_file = TEST_DATA_DIR / "example_4_water" / "prod.tpr"
 
-    if not trr_file.exists():
+    if not trr_file.exists() or not tpr_file.exists():
         reason = f"Example 4 data not available ({trr_file})"
         print(f"Skipping MDA references: {reason}")
         return reason
@@ -358,6 +358,24 @@ def generate_mda_references():
     save_reference(
         output_dir / "number_density_rigid.npz",
         rho=gs_rigid.rho_force,
+        nbins=30,
+        frames_used=5,
+        temp=300,
+        species=['Ow', 'Hw1', 'Hw2'],
+        kernel='triangular',
+        rigid=True
+    )
+
+    # Rigid molecule charge density (charges come from the tpr)
+    print("  Computing rigid molecule charge density...")
+    gs_charge = DensityGrid(ts, 'charge', nbins=30)
+    gs_charge.accumulate(
+        ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=True, start=0, stop=5
+    )
+
+    save_reference(
+        output_dir / "charge_density.npz",
+        rho=gs_charge.rho_force,
         nbins=30,
         frames_used=5,
         temp=300,

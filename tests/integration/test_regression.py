@@ -80,7 +80,7 @@ class TestLammpsRegression:
             rtol=1e-10, atol=0.0, context="r values"
         )
         assert_arrays_close(
-            result.g, ref['g_r'],
+            result.g, ref['g'],
             rtol=1e-7, context="g(r) forward"
         )
         assert_arrays_close(
@@ -140,7 +140,7 @@ class TestLammpsRegression:
             rtol=1e-10, atol=0.0, context="r values"
         )
         assert_arrays_close(
-            result.g, ref['g_r'],
+            result.g, ref['g'],
             rtol=1e-7, context="g(r) backward"
         )
 
@@ -216,13 +216,18 @@ class TestLammpsExample2Regression:
         """Lambda-combined number density matches stored reference."""
         ref = load_reference("lammps_example2", "number_density_lambda.npz")
 
+        # The block size is part of the pinned computation, not a free
+        # parameter: assert the baseline was generated with the expected
+        # value rather than reading it from the file under test.
+        assert int(ref['lambda_block_size']) == 2
+
         gs = DensityGrid(
             example2_trajectory, 'number', nbins=30
         )
         gs.accumulate(
             example2_trajectory, '2', kernel='triangular', rigid=False,
             start=0, stop=10, compute_lambda=True, blocking='contiguous',
-            block_size=int(ref['lambda_block_size']),
+            block_size=2,
         )
 
         assert_arrays_close(
@@ -331,6 +336,23 @@ class TestMDARegression:
         assert_arrays_close(
             gs.rho_force, ref['rho'],
             rtol=1e-7, context="rigid number density"
+        )
+
+    def test_charge_density_regression(self, example4_trajectory):
+        """Rigid molecule charge density matches stored reference."""
+        ref = load_reference("mda_example4", "charge_density.npz")
+
+        gs = DensityGrid(
+            example4_trajectory, 'charge', nbins=30
+        )
+        gs.accumulate(
+            example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
+            rigid=True, start=0, stop=5
+        )
+
+        assert_arrays_close(
+            gs.rho_force, ref['rho'],
+            rtol=1e-7, context="rigid charge density"
         )
 
     def test_polarisation_density_regression(self, example4_trajectory):
@@ -549,6 +571,7 @@ class TestReferenceDataIntegrity:
             "rdf_forward_ow_hw1.npz",
             "number_density_ow.npz",
             "number_density_rigid.npz",
+            "charge_density.npz",
             "polarisation_density.npz",
         ]
 
