@@ -26,8 +26,8 @@ classifiers = [
 dependencies = [
     "lxml",
     "MDAnalysis >=2.4.2",
-    "numba",
-    "numpy",
+    "numba >=0.61",
+    "numpy >=2.2",
     "scipy >=1.9.3",
     "tqdm",
 ]
