@@ -339,20 +339,26 @@ class TestMDARegression:
         )
 
     def test_charge_density_regression(self, example4_trajectory):
-        """Rigid molecule charge density matches stored reference."""
+        """Single-species (Ow) charge density matches stored reference.
+
+        Deposits oxygen partial charges non-rigidly so the pinned field is
+        non-zero. A rigid whole-molecule charge density of neutral SPC/E
+        water is identically zero (that invariant is asserted in
+        test_pipeline_rigid_water.py) and would pin nothing.
+        """
         ref = load_reference("mda_example4", "charge_density.npz")
 
         gs = DensityGrid(
             example4_trajectory, 'charge', nbins=30
         )
         gs.accumulate(
-            example4_trajectory, ['Ow', 'Hw1', 'Hw2'], kernel='triangular',
-            rigid=True, start=0, stop=5
+            example4_trajectory, 'Ow', kernel='triangular',
+            rigid=False, start=0, stop=5
         )
 
         assert_arrays_close(
             gs.rho_force, ref['rho'],
-            rtol=1e-7, context="rigid charge density"
+            rtol=1e-7, context="charge density Ow"
         )
 
     def test_polarisation_density_regression(self, example4_trajectory):
