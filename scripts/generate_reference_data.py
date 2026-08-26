@@ -285,7 +285,10 @@ def generate_mda_references():
     tpr_file = TEST_DATA_DIR / "example_4_water" / "prod.tpr"
 
     if not trr_file.exists() or not tpr_file.exists():
-        reason = f"Example 4 data not available ({trr_file})"
+        missing = ", ".join(
+            str(path) for path in (trr_file, tpr_file) if not path.exists()
+        )
+        reason = f"Example 4 data not available ({missing})"
         print(f"Skipping MDA references: {reason}")
         return reason
 
