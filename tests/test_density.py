@@ -420,21 +420,27 @@ def test_full_number_density_pipeline(tmp_path, ts):
 # ---------------------------------------------------------------------------
 
 def test_accumulate_number_rigid_atom(ts):
-    """Rigid number density centred on a specific atom populates the grid."""
+    """Rigid number density deposits exactly one unit weight per molecule per frame."""
     gs = DensityGrid(ts, "number", nbins=4)
     gs.accumulate(ts, atom_names=["H", "O"], rigid=True, centre_location=0)
-    assert gs.count > 0
-    assert gs.counter.sum() > 0
+    # One deposit call per frame
+    assert gs.count == ts.frames
+    # Trilinear kernel weights sum to 1 per deposit, so the counter total
+    # equals frames x molecules exactly (2 frames x 1 molecule here).
+    assert gs.counter.sum() == pytest.approx(2.0, abs=1e-12)
 
 
 def test_accumulate_charge_rigid_atom(ts):
-    """Rigid charge density centred on a specific atom populates the grid."""
+    """Rigid charge density deposits the molecular net charge per molecule per frame."""
     # Give the molecule a net charge so the charge-weighted counter is non-zero
     ts._charges = {"H": np.array([0.1]), "O": np.array([-0.2])}
     gs = DensityGrid(ts, "charge", nbins=4)
     gs.accumulate(ts, atom_names=["H", "O"], rigid=True, centre_location=0)
-    assert gs.count > 0
-    assert np.any(gs.counter != 0)
+    assert gs.count == ts.frames
+    # The deposit weight for a rigid molecule is its summed charge
+    # (0.1 - 0.2 = -0.1), so the counter total equals
+    # frames x sum(molecular net charges) = 2 x (-0.1).
+    assert gs.counter.sum() == pytest.approx(-0.2, abs=1e-12)
 
 
 def test_accumulate_polarisation_rigid_com(ts):
@@ -473,16 +479,10 @@ def test_accumulate_polarisation_single_species_raises(ts):
         gs.accumulate(ts, atom_names="H", rigid=True, centre_location=True)
 
 
-def test_densitygrid_density_type_validation_called(ts, mocker):
-    """DensityGrid should call validate_density_type with the provided value."""
-    mock_validate = mocker.patch(
-        'revelsMD.density.density_grid.validate_density_type',
-        return_value='number'
-    )
-
-    DensityGrid(ts, "NUMBER", nbins=4)
-
-    mock_validate.assert_called_once_with("NUMBER")
+def test_densitygrid_invalid_density_type_raises(ts):
+    """Constructing a DensityGrid with an invalid density_type raises ValueError."""
+    with pytest.raises(ValueError, match="density_type must be one of"):
+        DensityGrid(ts, "not_a_density", nbins=4)
 
 
 # ---------------------------------------------------------------------------
