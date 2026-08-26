@@ -14,10 +14,10 @@ recipes:
   "ITEM: TIMESTEP" so the subset is a byte-identical head of the source;
   the LAMMPS data file is copied verbatim.
 - Water (Example 4): first 10 TRR frames rewritten via MDAnalysis
-  (positions, velocities and forces preserved); the tpr is copied verbatim.
+  (positions and forces verified against the source); the tpr is copied
+  verbatim.
 - VASP (Example 3, BaSnF4): the vasprun.xml header, the first 10
-  <calculation> blocks (re-serialised with single-newline separators), and
-  the closing finalpos/footer.
+  <calculation> blocks, and the closing finalpos/footer.
 
 The default source paths point at the full-length datasets, which are NOT in
 the repository: `examples/` and `tests/test_data/` are local-only gitignored
@@ -25,19 +25,28 @@ symlinks (or directories) holding the original full trajectories. Anyone
 without them can still trust the committed subsets via the sha256 checksums
 recorded in tests/data/README.md.
 
-Each written file is verified: text formats are byte-compared against the
-head of their source (or copied verbatim and byte-compared in full), and the
+Every file is written to a temporary path, verified, and only then moved
+atomically over the target; a failed verification deletes the temporary
+file and leaves any existing target untouched. Verification: text formats
+are byte-compared against the head of their source (or copied verbatim and
+byte-compared in full), the VASP subset is compared block-by-block against
+the parsed source (agnostic to the whitespace between <calculation>
+blocks, so a file written by this script verifies against itself), and the
 rewritten TRR is reloaded and its positions/forces compared against the
 source frames.
 
+Existing target files are never overwritten unless --force is passed;
+without it they are reported and skipped.
+
 Usage:
-    python scripts/create_test_subsets.py [--n-frames 10]
+    python scripts/create_test_subsets.py [--force] [--n-frames 10]
         [--example1-dir PATH] [--example2-dir PATH]
         [--vasp-xml PATH] [--water-dir PATH]
 """
 
 import argparse
 import hashlib
+import os
 import re
 import shutil
 import sys
@@ -61,16 +70,56 @@ def report(path: Path) -> None:
     print(f"    sha256: {sha256(path)}")
 
 
-def copy_verbatim(src: Path, dst: Path) -> None:
-    """Copy a file unchanged and verify the copy byte-identically."""
+def temp_path(dst: Path) -> Path:
+    """Temporary sibling path for dst (same filesystem, keeps the suffix).
+
+    The suffix is preserved because format-sniffing writers/readers
+    (MDAnalysis) select the file format from it.
+    """
+    return dst.with_name(f"{dst.stem}.tmp-{os.getpid()}{dst.suffix}")
+
+
+def write_verified(dst: Path, force: bool, write, verify) -> str:
+    """Write dst via a temporary file, verifying before the atomic replace.
+
+    ``write(tmp)`` produces the candidate file at the temporary path and
+    ``verify(tmp)`` raises on any mismatch. Only a verified candidate is
+    moved over dst (atomically, same filesystem); on any failure the
+    temporary file is removed and an existing dst is left untouched.
+
+    Returns "written", or "skipped" when dst exists and force is False.
+    """
+    if dst.exists() and not force:
+        print(f"  {dst}: exists, skipping (use --force)")
+        return "skipped"
     dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dst)
-    if dst.read_bytes() != src.read_bytes():
-        raise RuntimeError(f"Verbatim copy differs from source: {dst}")
+    tmp = temp_path(dst)
+    try:
+        write(tmp)
+        verify(tmp)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, dst)
     report(dst)
+    return "written"
 
 
-def create_lammps_subset(src_dir: Path, dst_dir: Path, n_frames: int) -> None:
+def copy_verbatim(src: Path, dst: Path, force: bool) -> str:
+    """Copy a file unchanged, verifying the copy byte-identically."""
+
+    def verify(tmp: Path) -> None:
+        if tmp.read_bytes() != src.read_bytes():
+            raise RuntimeError(f"Verbatim copy differs from source: {dst}")
+
+    return write_verified(
+        dst, force, lambda tmp: shutil.copyfile(src, tmp), verify
+    )
+
+
+def create_lammps_subset(
+    src_dir: Path, dst_dir: Path, n_frames: int, force: bool
+) -> list[str]:
     """Cut the first n_frames of a LAMMPS dump; copy the data file verbatim.
 
     Frames are delimited by "ITEM: TIMESTEP" lines, so the subset is a
@@ -78,77 +127,103 @@ def create_lammps_subset(src_dir: Path, dst_dir: Path, n_frames: int) -> None:
     """
     src_dump = src_dir / "dump.nh.lammps"
     dst_dump = dst_dir / "dump.nh.lammps"
-    dst_dir.mkdir(parents=True, exist_ok=True)
 
-    marker = b"ITEM: TIMESTEP"
-    boundaries = []
-    offset = 0
-    with open(src_dump, "rb") as f:
-        for line in f:
-            if line.startswith(marker):
-                boundaries.append(offset)
-                if len(boundaries) > n_frames:
-                    break
-            offset += len(line)
-    if len(boundaries) < n_frames:
-        raise RuntimeError(
-            f"{src_dump} holds only {len(boundaries)} frames; "
-            f"{n_frames} requested."
+    def write(tmp: Path) -> None:
+        marker = b"ITEM: TIMESTEP"
+        boundaries = []
+        offset = 0
+        with open(src_dump, "rb") as f:
+            for line in f:
+                if line.startswith(marker):
+                    boundaries.append(offset)
+                    if len(boundaries) > n_frames:
+                        break
+                offset += len(line)
+        if len(boundaries) < n_frames:
+            raise RuntimeError(
+                f"{src_dump} holds only {len(boundaries)} frames; "
+                f"{n_frames} requested."
+            )
+        # End of frame n_frames: the start of frame n_frames+1, or EOF.
+        end = (
+            boundaries[n_frames]
+            if len(boundaries) > n_frames
+            else src_dump.stat().st_size
         )
-    # End of frame n_frames: the start of frame n_frames+1, or EOF.
-    end = boundaries[n_frames] if len(boundaries) > n_frames else src_dump.stat().st_size
+        with open(src_dump, "rb") as f:
+            tmp.write_bytes(f.read(end))
 
-    with open(src_dump, "rb") as f:
-        head = f.read(end)
-    dst_dump.write_bytes(head)
+    def verify(tmp: Path) -> None:
+        # The subset must be a byte-identical head of the source.
+        subset = tmp.read_bytes()
+        with open(src_dump, "rb") as f:
+            if f.read(len(subset)) != subset:
+                raise RuntimeError(
+                    f"Subset is not a byte-identical head: {dst_dump}"
+                )
 
-    # Verify: the subset must be a byte-identical head of the source.
-    with open(src_dump, "rb") as f:
-        if f.read(end) != dst_dump.read_bytes():
-            raise RuntimeError(f"Subset is not a byte-identical head: {dst_dump}")
-    report(dst_dump)
+    return [
+        write_verified(dst_dump, force, write, verify),
+        copy_verbatim(
+            src_dir / "data.fin.nh.data", dst_dir / "data.fin.nh.data", force
+        ),
+    ]
 
-    copy_verbatim(src_dir / "data.fin.nh.data", dst_dir / "data.fin.nh.data")
 
-
-def create_vasp_subset(src_xml: Path, dst_xml: Path, n_frames: int) -> None:
-    """Extract the header, first n_frames <calculation> blocks, and footer."""
-    content = src_xml.read_text()
+def _parse_vasp(content: str) -> tuple[str, list[str], str]:
+    """Split a vasprun.xml into header, <calculation> blocks, and footer."""
     first_calc = content.find("<calculation>")
     if first_calc == -1:
-        raise RuntimeError(f"No <calculation> blocks found in {src_xml}")
-    header = content[:first_calc]
-
+        raise RuntimeError("No <calculation> blocks found")
     calcs = re.findall(r"<calculation>.*?</calculation>", content, re.DOTALL)
+    last_calc_end = content.rfind("</calculation>") + len("</calculation>")
+    return content[:first_calc], calcs, content[last_calc_end:]
+
+
+def create_vasp_subset(
+    src_xml: Path, dst_xml: Path, n_frames: int, force: bool
+) -> list[str]:
+    """Extract the header, first n_frames <calculation> blocks, and footer."""
+    content = src_xml.read_text()
+    try:
+        header, calcs, footer = _parse_vasp(content)
+    except RuntimeError as exc:
+        raise RuntimeError(f"{exc} in {src_xml}") from None
     if len(calcs) < n_frames:
         raise RuntimeError(
             f"{src_xml} holds only {len(calcs)} calculation blocks; "
             f"{n_frames} requested."
         )
 
-    last_calc_end = content.rfind("</calculation>") + len("</calculation>")
-    footer = content[last_calc_end:]
-
-    subset = header + "".join(c + "\n" for c in calcs[:n_frames]) + "\n" + footer
-    dst_xml.parent.mkdir(parents=True, exist_ok=True)
-    dst_xml.write_text(subset)
-
-    # Verify: header plus calculation blocks must byte-match the head of the
-    # source. In the source, blocks are separated by "\n " (the space is part
-    # of the next block's indentation, stripped by the regex); the subset
-    # re-serialises them with plain newlines, so the comparison reinstates
-    # the source separator.
-    source_head = header + "\n ".join(calcs[:n_frames])
-    if not content.startswith(source_head):
-        raise RuntimeError(
-            f"Extracted calculation region does not byte-match the head of {src_xml}"
+    def write(tmp: Path) -> None:
+        subset = (
+            header + "".join(c + "\n" for c in calcs[:n_frames]) + "\n" + footer
         )
-    if dst_xml.read_text() != subset:
-        raise RuntimeError(f"Written subset does not match extraction: {dst_xml}")
-    report(dst_xml)
+        tmp.write_text(subset)
+
+    def verify(tmp: Path) -> None:
+        # Compare the parsed structure, not raw bytes: the whitespace
+        # separating <calculation> blocks differs between an original
+        # vasprun.xml ("\n " continuation indentation) and a file written
+        # by this script (plain newlines), and carries no content. This
+        # keeps verification meaningful whichever kind of source is used.
+        sub_header, sub_calcs, sub_footer = _parse_vasp(tmp.read_text())
+        if sub_header != header:
+            raise RuntimeError(f"Header does not match {src_xml}")
+        if sub_calcs != calcs[:n_frames]:
+            raise RuntimeError(
+                f"Calculation blocks do not match the first {n_frames} "
+                f"blocks of {src_xml}"
+            )
+        if sub_footer.strip() != footer.strip():
+            raise RuntimeError(f"Footer does not match {src_xml}")
+
+    return [write_verified(dst_xml, force, write, verify)]
 
 
-def create_water_subset(src_dir: Path, dst_dir: Path, n_frames: int) -> None:
+def create_water_subset(
+    src_dir: Path, dst_dir: Path, n_frames: int, force: bool
+) -> list[str]:
     """Rewrite the first n_frames TRR frames via MDAnalysis; copy the tpr."""
     import MDAnalysis as mda
 
@@ -156,36 +231,63 @@ def create_water_subset(src_dir: Path, dst_dir: Path, n_frames: int) -> None:
     src_trr = src_dir / "prod_100frames.trr"
     dst_tpr = dst_dir / "prod.tpr"
     dst_trr = dst_dir / "prod.trr"
-    dst_dir.mkdir(parents=True, exist_ok=True)
 
-    copy_verbatim(src_tpr, dst_tpr)
+    statuses = [copy_verbatim(src_tpr, dst_tpr, force)]
 
     universe = mda.Universe(str(src_tpr), str(src_trr))
-    with mda.Writer(str(dst_trr), n_atoms=len(universe.atoms)) as writer:
-        for i, _ in enumerate(universe.trajectory):
-            if i >= n_frames:
-                break
-            writer.write(universe.atoms)
 
-    # Verify: reload the written file and compare positions and forces
-    # against the source frames (TRR round-trips these exactly).
-    check = mda.Universe(str(dst_tpr), str(dst_trr))
-    if len(check.trajectory) != n_frames:
-        raise RuntimeError(
-            f"{dst_trr} holds {len(check.trajectory)} frames, expected {n_frames}"
-        )
-    for i, _ in enumerate(check.trajectory):
-        universe.trajectory[i]
-        if not np.array_equal(check.atoms.positions, universe.atoms.positions):
-            raise RuntimeError(f"Positions differ at frame {i} in {dst_trr}")
-        if not np.array_equal(check.atoms.forces, universe.atoms.forces):
-            raise RuntimeError(f"Forces differ at frame {i} in {dst_trr}")
-    report(dst_trr)
+    def write(tmp: Path) -> None:
+        with mda.Writer(str(tmp), n_atoms=len(universe.atoms)) as writer:
+            for i, _ in enumerate(universe.trajectory):
+                if i >= n_frames:
+                    break
+                writer.write(universe.atoms)
+
+    def verify(tmp: Path) -> None:
+        # Reload the written file and compare positions and forces against
+        # the source frames (TRR round-trips these exactly). The source tpr
+        # supplies the topology so verification does not depend on whether
+        # the tpr copy above was skipped.
+        check = mda.Universe(str(src_tpr), str(tmp))
+        if len(check.trajectory) != n_frames:
+            raise RuntimeError(
+                f"{dst_trr} holds {len(check.trajectory)} frames, "
+                f"expected {n_frames}"
+            )
+        for i, _ in enumerate(check.trajectory):
+            universe.trajectory[i]
+            if not np.array_equal(
+                check.atoms.positions, universe.atoms.positions
+            ):
+                raise RuntimeError(f"Positions differ at frame {i} in {dst_trr}")
+            if not np.array_equal(check.atoms.forces, universe.atoms.forces):
+                raise RuntimeError(f"Forces differ at frame {i} in {dst_trr}")
+
+    tmp_trr = temp_path(dst_trr)
+    try:
+        statuses.append(write_verified(dst_trr, force, write, verify))
+    finally:
+        # MDAnalysis caches frame offsets for the temporary TRR in hidden
+        # sibling files; remove them so no per-pid junk accumulates.
+        for suffix in ("_offsets.npz", "_offsets.lock"):
+            (tmp_trr.parent / f".{tmp_trr.name}{suffix}").unlink(
+                missing_ok=True
+            )
+    return statuses
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Regenerate the committed trajectory subsets in tests/data/."
+        description=(
+            "Construct trajectory subsets in tests/data/ from full-length "
+            "sources. The committed subsets are primary artefacts; replacing "
+            "one is a deliberate, reviewed change (see tests/data/README.md), "
+            "so existing files are skipped unless --force is passed."
+        )
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="replace existing target files (default: report and skip them)",
     )
     parser.add_argument(
         "--n-frames", type=int, default=10,
@@ -216,33 +318,44 @@ def main() -> None:
     datasets = [
         ("example_1_LJ",
          lambda: create_lammps_subset(
-             args.example1_dir, OUTPUT_DIR / "example_1_LJ", args.n_frames)),
+             args.example1_dir, OUTPUT_DIR / "example_1_LJ", args.n_frames,
+             args.force)),
         ("example_2_LJ_3D",
          lambda: create_lammps_subset(
-             args.example2_dir, OUTPUT_DIR / "example_2_LJ_3D", args.n_frames)),
+             args.example2_dir, OUTPUT_DIR / "example_2_LJ_3D", args.n_frames,
+             args.force)),
         ("example_3_vasp",
          lambda: create_vasp_subset(
              args.vasp_xml, OUTPUT_DIR / "example_3_vasp" / "vasprun.xml",
-             args.n_frames)),
+             args.n_frames, args.force)),
         ("example_4_water",
          lambda: create_water_subset(
-             args.water_dir, OUTPUT_DIR / "example_4_water", args.n_frames)),
+             args.water_dir, OUTPUT_DIR / "example_4_water", args.n_frames,
+             args.force)),
     ]
 
     failures = []
+    written = 0
+    skipped = 0
     for name, build in datasets:
         print(f"{name}:")
         try:
-            build()
-        except (OSError, RuntimeError) as exc:
+            statuses = build()
+        except Exception as exc:
             failures.append(name)
-            print(f"  FAILED: {exc}")
+            print(f"  FAILED: {type(exc).__name__}: {exc}")
+        else:
+            written += statuses.count("written")
+            skipped += statuses.count("skipped")
         print()
 
     if failures:
         print(f"ERROR: failed datasets: {', '.join(failures)}")
         sys.exit(1)
-    print(f"All subsets written to {OUTPUT_DIR} and verified.")
+    print(
+        f"Done: {written} file(s) written and verified, "
+        f"{skipped} existing file(s) skipped, in {OUTPUT_DIR}."
+    )
 
 
 if __name__ == "__main__":
