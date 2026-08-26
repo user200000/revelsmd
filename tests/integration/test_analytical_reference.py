@@ -7,6 +7,7 @@ using synthetic NumpyTrajectory data. They require no external data files.
 
 import pytest
 import numpy as np
+from scipy.integrate import trapezoid
 
 from revelsMD.rdf import compute_rdf
 from revelsMD.density import DensityGrid
@@ -27,9 +28,12 @@ from revelsMD.density import DensityGrid
 # Parameters chosen so the distribution (width sigma = 1/sqrt(beta k)
 # = 0.2 around r0 = 2.5) sits comfortably inside the minimum-image
 # range (rmax = 5.0) and the peak spans several bins at delr = 0.05.
-HARMONIC_K = 25.0
+# beta is deliberately not 1: the force estimator scales as beta^1, so
+# a non-unit beta makes any misplaced beta power in the estimator
+# visible as an overall scale error (~2.5x here).
+HARMONIC_K = 62.5
 HARMONIC_R0 = 2.5
-HARMONIC_BETA = 1.0
+HARMONIC_BETA = 0.4
 HARMONIC_BOX = 10.0
 HARMONIC_DELR = 0.05
 HARMONIC_N_FRAMES = 5000
@@ -63,7 +67,7 @@ def _sample_harmonic_separations(rng, n):
 def _harmonic_analytic_g(r_vals):
     """Exact g(r) for the two-particle harmonic system, normalised numerically."""
     grid = np.linspace(0.0, HARMONIC_BOX / 2, 200001)
-    z = np.trapezoid(4.0 * np.pi * _harmonic_radial_weight(grid), grid)
+    z = trapezoid(4.0 * np.pi * _harmonic_radial_weight(grid), grid)
     u = 0.5 * HARMONIC_K * (r_vals - HARMONIC_R0) ** 2
     return HARMONIC_BOX**3 * np.exp(-HARMONIC_BETA * u) / z
 
@@ -94,6 +98,7 @@ def harmonic_pair_rdf():
     forces[:, 1, :] = f_b
     forces[:, 0, :] = -f_b
 
+    # kB = 1 in lj units, so trajectory.beta == HARMONIC_BETA exactly.
     ts = NumpyTrajectory(
         positions, forces,
         HARMONIC_BOX, HARMONIC_BOX, HARMONIC_BOX,
@@ -148,7 +153,6 @@ class TestRDFAnalyticalReference:
         """
         ts = two_atom_trajectory
 
-        # Use fine binning to resolve the peak
         rdf = compute_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, integration='forward')
 
         assert rdf.r is not None
@@ -183,10 +187,6 @@ class TestDensityAnalyticalReference:
         gs.accumulate(ts, '1', kernel='triangular', rigid=False)
 
         assert gs.count > 0  # Data has been accumulated
-        # Note: count may be frames-1 due to stop=-1 handling in API
-        assert gs.count > 0
-
-
 
         assert hasattr(gs, 'rho_force')
         assert gs.rho_force.shape == (20, 20, 20)
@@ -203,30 +203,31 @@ class TestDensityAnalyticalReference:
 
     def test_density_conserves_total_count(self, uniform_gas_trajectory):
         """
-        Total integrated density should equal number of atoms (approximately).
+        Total integrated density equals the number of atoms near-exactly.
 
-        The integral of the number density over the box volume should give
-        the total number of particles.
+        Both estimators conserve the particle count by construction: the
+        counting estimator because trilinear deposit weights sum to 1 per
+        particle, and the force estimator because its k = 0 mode is pinned
+        to the mean counting density. Only float rounding remains
+        (measured ~7e-16 relative for this fixture).
         """
         ts = uniform_gas_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
         gs.accumulate(ts, '1', kernel='triangular', rigid=False)
 
-
         # Calculate voxel volume
         voxel_vol = (ts.box_x / 20) * (ts.box_y / 20) * (ts.box_z / 20)
 
-        # Integrate density
-        total_count = np.sum(gs.rho_force) * voxel_vol
-
-        # Should be approximately equal to number of atoms
         n_atoms = len(ts.get_indices('1'))
 
-        # Allow significant tolerance due to FFT normalisation and boundary effects
-        relative_error = abs(total_count - n_atoms) / n_atoms
-        assert relative_error < 1.0, \
-            f"Integrated count = {total_count}, expected ~{n_atoms}"
+        total_count = np.sum(gs.rho_count) * voxel_vol
+        assert abs(total_count - n_atoms) / n_atoms < 1e-12, \
+            f"Integrated rho_count = {total_count}, expected {n_atoms}"
+
+        total_force = np.sum(gs.rho_force) * voxel_vol
+        assert abs(total_force - n_atoms) / n_atoms < 1e-12, \
+            f"Integrated rho_force = {total_force}, expected {n_atoms}"
 
 
 @pytest.mark.analytical
@@ -386,7 +387,10 @@ class TestHarmonicPotentialRDF:
         assert max_dev < 0.12, \
             f"Force g(r) deviates from analytic curve by {max_dev:.3f} of peak height"
 
-        # The tail beyond the sampled support must stay flat at the anchor
+    def test_force_rdf_tail_stays_at_anchor(self, harmonic_pair_rdf):
+        """Backward g(r) remains at its anchor value beyond the sampled support."""
+        rdf = harmonic_pair_rdf['rdf']
+
         tail = rdf.r > HARMONIC_R_HI + 0.2
         assert np.any(tail)
         assert np.max(np.abs(rdf.g_force[tail] - 1.0)) < 1e-10, \
