@@ -124,7 +124,8 @@ def vasp_trajectory():
 
     Example 3: BaSnF4 solid electrolyte
     - 324 atoms (Ba, Sn, F)
-    - 10 calculation steps (subset from 3001 total in r1)
+    - 10 calculation steps (committed subset; see tests/data/README.md
+      for provenance)
     - Temperature: 600K
     """
     from revelsMD.trajectories import VaspTrajectory

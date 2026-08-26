@@ -513,6 +513,13 @@ def test_accumulate_polarisation_single_species_raises(ts):
         gs.accumulate(ts, atom_names="H", rigid=True, centre_location=True)
 
 
+def test_accumulate_invalid_centre_location_raises(ts):
+    """accumulate() rejects an invalid centre_location at the public API."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    with pytest.raises(ValueError, match="centre_location"):
+        gs.accumulate(ts, atom_names=["H", "O"], rigid=True, centre_location="invalid")
+
+
 def test_densitygrid_invalid_density_type_raises(ts):
     """Constructing a DensityGrid with an invalid density_type raises ValueError."""
     with pytest.raises(ValueError, match="density_type must be one of"):

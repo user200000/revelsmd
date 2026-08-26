@@ -52,7 +52,7 @@ def load_reference(subdir: str, filename: str):
             f"to git; a missing file means a broken checkout or deleted "
             f"baseline, not a skippable condition."
         )
-    return dict(np.load(ref_path, allow_pickle=True))
+    return dict(np.load(ref_path))
 
 
 # ---------------------------------------------------------------------------
