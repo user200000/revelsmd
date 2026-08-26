@@ -4,14 +4,20 @@ Trimmed trajectory subsets used by the integration and regression test
 suites. These files are the canonical test data: everything in the
 repository (tests, reference-data generation) reads from here.
 
-All subsets are regenerated from their full-length sources by
+These committed files are primary artefacts, not derived caches. They are
+the fixed ground truth the test suite and reference baselines are built
+on, and they do not track their original sources: if a full-length source
+trajectory ever changes, the committed subsets deliberately stay as they
+are. The sha256 checksums below pin their integrity — verify with
+`shasum -a 256` if in doubt.
 
-    python scripts/create_test_subsets.py
-
-which also verifies each written file against its source. The full-length
-sources are NOT in the repository: `examples/` and `tests/test_data/` are
-local-only gitignored symlinks (or directories). The sha256 checksums below
-let anyone verify the committed files without access to the sources.
+The sections below record how each subset was originally constructed.
+`scripts/create_test_subsets.py` documents that construction executably
+and is the tool for deliberately building NEW subsets (more frames, a new
+system) — replacing a committed file is a reviewed change, made together
+with regenerated reference baselines and a PR explanation, never a routine
+"sync". The full-length sources are NOT in the repository: `examples/` and
+`tests/test_data/` are local-only gitignored paths.
 
 ## example_1_LJ
 
@@ -21,7 +27,7 @@ Lennard-Jones fluid, 2880 atoms (2304 of type 1, 576 of type 2), 10 frames.
 - `dump.nh.lammps`: first 10 frames, split on `ITEM: TIMESTEP`
   (byte-identical head of the source dump)
 - `data.fin.nh.data`: verbatim copy
-- Regenerate: `python scripts/create_test_subsets.py`
+- Construction command: `python scripts/create_test_subsets.py`
   (or `--example1-dir PATH` to point at a different source)
 
 | File | sha256 |
@@ -38,7 +44,7 @@ spheres), 2880 atoms, 10 frames.
 - `dump.nh.lammps`: first 10 frames, split on `ITEM: TIMESTEP`
   (byte-identical head of the source dump)
 - `data.fin.nh.data`: verbatim copy
-- Regenerate: `python scripts/create_test_subsets.py`
+- Construction command: `python scripts/create_test_subsets.py`
   (or `--example2-dir PATH`)
 
 | File | sha256 |
@@ -55,7 +61,7 @@ BaSnF4 solid electrolyte AIMD (VASP), 324 atoms (54 Ba, 54 Sn, 216 F),
   blocks, ~134 MB)
 - `vasprun.xml`: XML header, first 10 `<calculation>` blocks (re-serialised
   with single-newline separators), and the closing finalpos/footer
-- Regenerate: `python scripts/create_test_subsets.py`
+- Construction command: `python scripts/create_test_subsets.py`
   (or `--vasp-xml PATH`)
 
 | File | sha256 |
@@ -72,7 +78,7 @@ SPC/E rigid water (GROMACS), 6339 atoms (2113 molecules), 10 frames at
 - `prod.trr`: first 10 frames rewritten via MDAnalysis (positions,
   velocities and forces preserved; verified by reload-and-compare)
 - `prod.tpr`: verbatim copy
-- Regenerate: `python scripts/create_test_subsets.py`
+- Construction command: `python scripts/create_test_subsets.py`
   (or `--water-dir PATH`)
 
 | File | sha256 |
