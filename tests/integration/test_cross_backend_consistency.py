@@ -31,7 +31,7 @@ class TestLammpsVsNumpyConsistency:
     then verify that RDF and density calculations produce the same output.
     """
 
-    def test_rdf_identical(self, example1_trajectory):
+    def test_rdf_consistent(self, example1_trajectory):
         """Same trajectory via LAMMPS and NumPy gives a consistent RDF."""
         lammps_ts = example1_trajectory
 
@@ -65,7 +65,7 @@ class TestLammpsVsNumpyConsistency:
             rtol=1e-3, atol=1e-3, context="g(r) values"
         )
 
-    def test_density_identical(self, example1_trajectory):
+    def test_density_consistent(self, example1_trajectory):
         """Same trajectory via LAMMPS and NumPy gives a consistent density."""
         lammps_ts = example1_trajectory
 
@@ -102,7 +102,7 @@ class TestMDAVsNumpyConsistency:
     tolerance.
     """
 
-    def test_rdf_identical(self, example4_trajectory):
+    def test_rdf_consistent(self, example4_trajectory):
         """Same trajectory via MDA and NumPy gives a consistent RDF."""
         mda_ts = example4_trajectory
 

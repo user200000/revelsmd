@@ -11,8 +11,10 @@ verifies every committed baseline.
 |------|---------|
 | `test_regression.py` | Value-pinning tests against committed reference data (five baseline families) plus reference-data integrity checks |
 | `test_analytical_reference.py` | Tests against known mathematical results using synthetic data, including the exact harmonic-pair g(r) validation of both estimators |
-| `test_cross_backend_consistency.py` | Verifies the same data produces consistent results across trajectory backends, plus resolution-consistency (bulk density across grid sizes) and kernel-consistency (triangular vs box) checks |
+| `test_cross_backend_consistency.py` | Verifies the same data produces consistent results across trajectory backends, plus resolution and kernel checks that pin the mean density to the analytic N/V at machine precision (rtol 1e-12) across grid sizes and both kernels |
 | `test_pipeline_rigid_water.py` | Loader-property tests on the real water topology (charge availability and neutrality) |
+| `test_species_selection.py` | Per-species selection counts and disjointness on the real LAMMPS and VASP subsets |
+| `test_data_integrity.py` | Verifies the committed subsets in `tests/data/` match the sha256 table in `tests/data/README.md` |
 
 The whole suite runs in well under a minute.
 

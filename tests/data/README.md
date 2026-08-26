@@ -74,9 +74,11 @@ SPC/E rigid water (GROMACS), 6339 atoms (2113 molecules), 10 frames at
 300 K.
 
 - Source: `tests/test_data/example_4_subset/` (prod_100frames.trr, itself
-  cut from the full `examples/example_4_rigid_water/prod.trr`)
-- `prod.trr`: first 10 frames rewritten via MDAnalysis (positions,
-  velocities and forces preserved; verified by reload-and-compare)
+  cut from the full `examples/example_4_rigid_water/prod.trr`; how that
+  intermediate 100-frame cut was made is not recorded, so the provenance
+  chain ends at that local file)
+- `prod.trr`: first 10 frames rewritten via MDAnalysis (positions and
+  forces verified by reload-and-compare)
 - `prod.tpr`: verbatim copy
 - Construction command: `python scripts/create_test_subsets.py`
   (or `--water-dir PATH`)
