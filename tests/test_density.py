@@ -477,6 +477,35 @@ def test_accumulate_charge_multi_species_not_rigid(ts):
     assert gs.counter.sum() == pytest.approx(-0.2, abs=1e-12)
 
 
+def test_accumulate_number_multi_species_not_rigid_blocked(ts):
+    """Multi-species non-rigid number density through the blocked lambda path.
+
+    Routes the same multi-species selection through _accumulate_blocks
+    (compute_lambda=True, block_size=1 over the fixture's 2 frames gives
+    2 contiguous blocks, satisfying the >= 2 blocks requirement) and pins
+    the raw accumulation mechanics only, deliberately not the normalised
+    rho: the normalisation convention for multi-species non-rigid
+    densities (per-species average vs sum) is an open design question.
+    """
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.accumulate(
+        ts, atom_names=["H", "O"], rigid=False,
+        compute_lambda=True, block_size=1,
+    )
+    # Current convention: count increments once per species array per frame,
+    # so count equals frames x n_species.
+    assert gs.count == ts.frames * 2
+    # Trilinear kernel weights sum to 1 per atom, so the counter total equals
+    # frames x (n_H + n_O) = 2 x (1 + 1) exactly.
+    assert gs.counter.sum() == pytest.approx(4.0, abs=1e-12)
+    # The lambda machinery actually ran: a finite variance-minimised density
+    # and grid-shaped weights exist.
+    assert gs.rho_lambda is not None
+    assert np.all(np.isfinite(gs.rho_lambda))
+    assert gs.lambda_weights is not None
+    assert gs.lambda_weights.shape == (4, 4, 4)
+
+
 def test_accumulate_polarisation_rigid_com(ts):
     """Rigid polarisation density at COM propagates polarisation_axis."""
     gs = DensityGrid(ts, "polarisation", nbins=4)

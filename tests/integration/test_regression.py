@@ -32,6 +32,8 @@ The semantic guard for the lambda combination itself is
 tests/test_rdf_lambda_invariant.py, which needs no reference data.
 """
 
+import json
+
 import pytest
 import numpy as np
 from pathlib import Path
@@ -657,3 +659,28 @@ class TestReferenceDataIntegrity:
             assert ref_path.exists(), f"Missing reference: {ref_path}"
             data = np.load(ref_path)
             assert len(data.files) > 0, f"Empty reference: {ref_path}"
+
+    def test_provenance_commits_are_clean(self):
+        """No committed baseline was generated from an uncommitted tree.
+
+        Every reference .npz embeds a provenance JSON recording the git
+        commit of the generating tree; generate_reference_data.py appends
+        "-dirty" when that tree had uncommitted changes. A committed
+        baseline carrying a dirty provenance cannot be reproduced from any
+        commit, so regeneration must happen from a clean tree.
+        """
+        npz_files = sorted(REFERENCE_DIR.rglob("*.npz"))
+        assert npz_files, f"No reference files found under {REFERENCE_DIR}"
+        dirty = []
+        for ref_path in npz_files:
+            data = np.load(ref_path)
+            assert "provenance" in data.files, (
+                f"Missing provenance entry: {ref_path}"
+            )
+            provenance = json.loads(str(data["provenance"]))
+            if provenance["git_commit"].endswith("-dirty"):
+                dirty.append(str(ref_path))
+        assert not dirty, (
+            "Baselines generated from an uncommitted tree (regenerate from "
+            f"a clean tree): {dirty}"
+        )
