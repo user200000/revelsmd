@@ -64,8 +64,6 @@ class DensityGrid:
         A multi-species selection increments this once per frame, not
         once per species, so the normalised density is the total
         (summed) density of the selected atoms.
-    progress : {'Generated', 'Allocated', 'Lambda'}
-        Simple state flag used by getters and lambda estimator.
     """
 
     def __init__(
@@ -186,6 +184,9 @@ class DensityGrid:
             Density threshold (in the same units as ``rho_count``).
             Voxels with ``rho_count >= threshold`` use the force estimate;
             voxels below the threshold use the counting estimate.
+            For multi-species selections ``rho_count`` is the total
+            (summed) density, so a threshold expressed per species must
+            be multiplied by the number of species.
 
         Returns
         -------
@@ -259,13 +260,9 @@ class DensityGrid:
         Notes
         -----
         ``count`` increments once per call (one frame), regardless of how
-        many species arrays are deposited. A multi-species deposit
-        therefore yields the total (summed) density of the selected atoms:
-        each species' marginal equals its single-species result, and the
-        per-species grids sum to the multi-species grid. The sum depends
-        only on the set of selected atoms, not on how that set is
-        partitioned into species labels. For ``density_type='charge'``
-        this is the total charge density of the selection.
+        many species arrays are deposited, so a multi-species deposit
+        yields the total (summed) density of the selected atoms — see the
+        Notes of :meth:`accumulate` for the convention and its scope.
         """
         self._deposit_to_arrays(
             self.force_x, self.force_y, self.force_z, self.counter,
@@ -352,13 +349,15 @@ class DensityGrid:
         Notes
         -----
         A multi-species selection with ``rigid=False`` yields the total
-        (summed) density of the selected atoms: each species' marginal
-        equals its single-species result, and the per-species grids sum
-        to the multi-species grid. The result depends only on which atoms
+        (summed) density of the selected atoms: per-species grids sum to
+        the multi-species grid, so the result depends only on which atoms
         are selected, not on how they are partitioned into species labels.
-        For ``density_type='charge'`` this is the total charge density of
-        the selection (it integrates to the selection's net charge).
-        Molecule-level counting is provided by ``rigid=True``.
+        This additivity is exact for ``rho_count`` and ``rho_force``; it
+        does not hold for ``rho_lambda`` or ``rho_hybrid``, which are
+        nonlinear in the accumulated fields. For ``density_type='charge'``
+        the summed field is the total charge density of the selection (it
+        integrates to the selection's net charge). Molecule-level counting
+        is provided by ``rigid=True``.
 
         When ``compute_lambda=True``, variance statistics accumulate across
         multiple ``accumulate()`` calls, enabling lambda estimation from
