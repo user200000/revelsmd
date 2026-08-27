@@ -300,12 +300,12 @@ def test_deposit_broadcasts_scalar_weight(ts):
     gs = DensityGrid(ts, "number", nbins=4)
     pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
     frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
-    gs.deposit(pos_list, frc_list, weights=1.0, kernel="triangular")
+    gs.deposit(pos_list, frc_list, weights=0.5, kernel="triangular")
 
-    # Both depositions should have been made (trilinear weights sum to 1
-    # per atom); count is one frame under the sum convention.
+    # The non-unit scalar weight must reach BOTH arrays: two atoms at
+    # weight 0.5 each deposit a counter total of exactly 1.0.
     assert gs.count == 1
-    assert gs.counter.sum() == pytest.approx(2.0, abs=1e-12)
+    assert gs.counter.sum() == pytest.approx(1.0, abs=1e-12)
 
 
 def test_deposit_rejects_list_weights_with_single_positions(ts):
@@ -509,15 +509,7 @@ def test_accumulate_number_multi_species_not_rigid_blocked(ts):
     assert gs.lambda_weights.shape == (4, 4, 4)
 
 
-def test_multi_species_density_is_sum_of_single_species_densities():
-    """Multi-species density equals the sum of the single-species densities.
-
-    This is the compositional property that fixes the sum convention: the
-    per-species grids sum to the multi-species grid, and each species'
-    marginal equals its single-species result. The previous per-species
-    average lacked this property — it depended on how the selected atoms
-    were partitioned into species labels, which is not an observable.
-    """
+def _two_species_trajectory():
     from revelsMD.trajectories import NumpyTrajectory
 
     rng = np.random.default_rng(7)
@@ -526,15 +518,31 @@ def test_multi_species_density_is_sum_of_single_species_densities():
     positions = rng.uniform(0, box, (n_frames, n_a + n_b, 3))
     forces = rng.normal(0.0, 1.0, (n_frames, n_a + n_b, 3))
     species = ["A"] * n_a + ["B"] * n_b
+    charges = np.array([0.3] * n_a + [-0.18] * n_b)
 
-    ts = NumpyTrajectory(
+    return NumpyTrajectory(
         positions, forces, box, box, box, species,
-        temperature=300.0, units="real",
+        temperature=300.0, units="real", charge_list=charges,
     )
+
+
+@pytest.mark.parametrize("density_type", ["number", "charge"])
+def test_multi_species_density_is_sum_of_single_species_densities(density_type):
+    """Multi-species density equals the sum of the single-species densities.
+
+    This is the compositional property that fixes the sum convention: the
+    per-species grids sum to the multi-species grid, and each species'
+    marginal equals its single-species result — for charge as well as
+    number density, since both follow the same normalisation rule. The
+    previous per-species average lacked this property: it depended on how
+    the selected atoms were partitioned into species labels, which is not
+    an observable.
+    """
+    ts = _two_species_trajectory()
 
     grids = {}
     for key, names in (("A", "A"), ("B", "B"), ("AB", ["A", "B"])):
-        gs = DensityGrid(ts, "number", nbins=6)
+        gs = DensityGrid(ts, density_type, nbins=6)
         gs.accumulate(ts, atom_names=names, rigid=False)
         grids[key] = gs
 
@@ -543,6 +551,30 @@ def test_multi_species_density_is_sum_of_single_species_densities():
         combined = getattr(grids["AB"], field)
         np.testing.assert_allclose(
             combined, summed, rtol=1e-12, atol=1e-13, err_msg=field
+        )
+
+
+def test_multi_species_split_accumulate_matches_single_call():
+    """Two accumulate() calls over disjoint frame ranges equal one full call.
+
+    Pins split-trajectory semantics for multi-species selections: frame
+    counting and deposition must compose across calls under the sum
+    convention.
+    """
+    ts = _two_species_trajectory()
+
+    gs_full = DensityGrid(ts, "number", nbins=6)
+    gs_full.accumulate(ts, atom_names=["A", "B"], rigid=False)
+
+    gs_split = DensityGrid(ts, "number", nbins=6)
+    gs_split.accumulate(ts, atom_names=["A", "B"], rigid=False, start=0, stop=2)
+    gs_split.accumulate(ts, atom_names=["A", "B"], rigid=False, start=2, stop=4)
+
+    assert gs_split.count == gs_full.count == 4
+    for field in ("rho_count", "rho_force"):
+        np.testing.assert_allclose(
+            getattr(gs_split, field), getattr(gs_full, field),
+            rtol=1e-12, atol=1e-13, err_msg=field,
         )
 
 
@@ -620,9 +652,23 @@ class _MultiFrameTrajectory:
             np.random.randn(3, 3) * 0.1 for _ in range(self.frames)
         ]
 
-        self._ids = {"H": np.array([0, 1, 2])}
-        self._charges = {"H": np.array([0.1, 0.1, 0.1])}
-        self._masses = {"H": np.array([1.0, 1.0, 1.0])}
+        # "Hsub" and "Osub" partition the same three atoms selected by "H",
+        # for tests of the multi-species (list) accumulation paths.
+        self._ids = {
+            "H": np.array([0, 1, 2]),
+            "Hsub": np.array([0, 1]),
+            "Osub": np.array([2]),
+        }
+        self._charges = {
+            "H": np.array([0.1, 0.1, 0.1]),
+            "Hsub": np.array([0.1, 0.1]),
+            "Osub": np.array([0.1]),
+        }
+        self._masses = {
+            "H": np.array([1.0, 1.0, 1.0]),
+            "Hsub": np.array([1.0, 1.0]),
+            "Osub": np.array([1.0]),
+        }
 
     def get_indices(self, atype):
         return self._ids[atype]
@@ -728,6 +774,42 @@ class TestAccumulateComputeLambda:
 
         np.testing.assert_allclose(gs_lambda.rho_force, gs_simple.rho_force)
         np.testing.assert_allclose(gs_lambda.rho_count, gs_simple.rho_count)
+
+    def test_compute_lambda_same_rho_as_simple_multi_species(
+        self, multi_frame_trajectory
+    ):
+        """Blocked multi-species accumulation reproduces the simple path's rho fields.
+
+        Guards the multi-species branch of _accumulate_blocks: an edit that
+        rescaled the per-block rho without the matching Welford weight (or
+        vice versa) would break the blocked-vs-simple equality here while
+        every count-based assertion stayed green.
+        """
+        gs_simple = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_simple.accumulate(
+            multi_frame_trajectory, atom_names=["Hsub", "Osub"],
+            compute_lambda=False,
+        )
+
+        gs_lambda = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_lambda.accumulate(
+            multi_frame_trajectory, atom_names=["Hsub", "Osub"],
+            compute_lambda=True, block_size=2,
+        )
+
+        np.testing.assert_allclose(gs_lambda.rho_force, gs_simple.rho_force)
+        np.testing.assert_allclose(gs_lambda.rho_count, gs_simple.rho_count)
+        assert np.all(np.isfinite(gs_lambda.rho_lambda))
+
+        # "Hsub" + "Osub" partition exactly the atoms of "H": under the
+        # labelling-invariant sum convention the multi-species fields must
+        # equal the single-species result over the same atom set.
+        gs_single = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs_single.accumulate(
+            multi_frame_trajectory, atom_names="H", compute_lambda=False,
+        )
+        np.testing.assert_allclose(gs_simple.rho_count, gs_single.rho_count)
+        np.testing.assert_allclose(gs_simple.rho_force, gs_single.rho_force)
 
     def test_multiple_accumulate_calls_update_welford(self, multi_frame_trajectory):
         """Multiple accumulate() calls with compute_lambda continue building stats."""
@@ -1224,12 +1306,16 @@ class TestDeposit:
 
         gs = DensityGrid(trajectory, "number", nbins=5)
         ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
-        gs.deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
+        species_positions = ss.get_positions(positions)
+        gs.deposit(species_positions, ss.get_forces(forces), ss.get_weights(), kernel="triangular")
 
         # One frame deposited, however many species arrays it carried
-        # (sum convention: the density is the total over selected atoms)
+        # (sum convention: the density is the total over selected atoms).
+        # Trilinear weights sum to 1 per atom, so the counter total equals
+        # the number of selected atoms exactly.
+        n_selected = sum(len(p) for p in species_positions)
         assert gs.count == 1
-        assert np.any(gs.counter != 0)
+        assert gs.counter.sum() == pytest.approx(float(n_selected), abs=1e-12)
 
     def test_deposit_rigid_com_number_density(self, trajectory, positions, forces):
         """deposit with rigid molecule at COM populates grid."""

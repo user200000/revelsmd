@@ -410,7 +410,10 @@ def generate_mda_references():
     )
     rho_total = gs_charge_total.rho_force
     max_abs_rho = float(np.max(np.abs(rho_total)))
-    if max_abs_rho == 0.0:
+    # Scale-relative guard: the physical field is O(1) in these units, so
+    # anything below 1e-10 indicates a degenerate (effectively zero) field,
+    # not just an exactly-zero one.
+    if max_abs_rho < 1e-10:
         raise RuntimeError(
             "Total charge density baseline is identically zero — "
             "refusing to pin a degenerate field."
