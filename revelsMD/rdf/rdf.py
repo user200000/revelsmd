@@ -166,6 +166,8 @@ class RDF:
         Deposit a single frame's contribution to the RDF accumulator.
 
         Low-level method for user-controlled iteration. Mirrors DensityGrid.deposit().
+        Each call deposits exactly one frame; depositing the same frame
+        twice double-counts it.
 
         Parameters
         ----------
