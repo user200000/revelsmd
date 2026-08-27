@@ -237,6 +237,12 @@ class DensityGrid:
         """
         Deposit positions/forces to the grid using weights.
 
+        Each call deposits exactly one frame: all of a frame's species
+        arrays must be passed together in a single call as a list.
+        Calling once per species counts each call as a separate frame
+        and under-normalises the resulting density by the number of
+        species (see issue #66 for the planned structural fix).
+
         Parameters
         ----------
         positions : np.ndarray or list of np.ndarray
