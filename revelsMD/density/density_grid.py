@@ -864,14 +864,15 @@ class DensityGrid:
 
         The k-vector at Miller indices (m1, m2, m3) is defined by the
         property a_i . k = 2*pi*m_i for every lattice vector a_i (rows of
-        the cell matrix M); in column form, k = 2*pi * inv(M) @ m.
+        the cell matrix M). Solving that linear system (M @ k = 2*pi*m)
+        gives the column form k = 2*pi * inv(M) @ m.
 
-        Note the covariant/contravariant trap: positions transform as
-        r = s @ M (row form), and reciprocal vectors transform with the
-        TRANSPOSE of that map -- which in COLUMN form is inv(M) with no
-        extra transpose. Writing inv(M)^T here (to "match" the position
-        idiom) is exactly the historical bug; the defining property above
-        is the contract, and tests assert it directly.
+        That property -- not any positional idiom -- is the contract, and
+        the tests assert it directly. In particular do NOT reach for
+        inv(M)^T here by analogy with the position map r = s @ M:
+        2*pi*inv(M)^T @ m satisfies the property only when inv(M) is
+        symmetric (orthorhombic cells), and was exactly the historical
+        bug -- it distorts every non-zero mode in a tilted cell.
 
         Returns
         -------
