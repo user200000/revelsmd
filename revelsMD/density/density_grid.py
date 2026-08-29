@@ -862,17 +862,10 @@ class DensityGrid:
         """
         Build 3D k-vector arrays in rfft layout for general (triclinic) cells.
 
-        The k-vector at Miller indices (m1, m2, m3) is defined by the
-        property a_i . k = 2*pi*m_i for every lattice vector a_i (rows of
-        the cell matrix M). Solving that linear system (M @ k = 2*pi*m)
-        gives the column form k = 2*pi * inv(M) @ m.
-
-        That property -- not any positional idiom -- is the contract, and
-        the tests assert it directly. In particular do NOT reach for
-        inv(M)^T here by analogy with the position map r = s @ M:
-        2*pi*inv(M)^T @ m satisfies the property only when inv(M) is
-        symmetric (orthorhombic cells), and was exactly the historical
-        bug -- it distorts every non-zero mode in a tilted cell.
+        The k-vector at Miller indices (m1, m2, m3) is defined by
+        a_i . k = 2*pi*m_i for every lattice vector a_i (rows of the cell
+        matrix M). Solving M @ k = 2*pi*m gives the column form used
+        here, k = 2*pi * inv(M) @ m.
 
         Returns
         -------
