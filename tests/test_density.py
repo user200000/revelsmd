@@ -1925,13 +1925,14 @@ class TestCrossRepresentationEquivalence:
     A single k-vector code path serves every cell (k = 2*pi * inv(M) @ m;
     there is no separate orthorhombic branch). The conventional (diagonal)
     cell is nonetheless the trusted reference: for a diagonal M, inv(M) is
-    symmetric, so the reciprocal formula is transpose-invariant -- the
-    historical inv(M)^T bug leaves the conventional coefficient unchanged
-    while shifting the primitive one, so agreement transfers trust to the
-    triclinic path. Comparison is at the solve level (no atom deposition):
-    trilinear kernels are separable in each cell's OWN fractional axes, so
-    a deposited-atoms comparison could never be exact (kernel mismatch is
-    percent-level -- the same order as the historical bug).
+    symmetric, so the reciprocal formula is transpose-invariant -- a
+    transposed formula (inv(M)^T) leaves the conventional coefficient
+    unchanged while shifting the primitive one, so agreement transfers
+    trust to the triclinic path. Comparison is at the solve level (no
+    atom deposition): trilinear kernels are separable in each cell's OWN
+    fractional axes, so a deposited-atoms comparison could never be exact
+    (kernel mismatch is percent-level -- the same order as the effect
+    under test).
     Hexagonal-to-orthorhombic index map: A1 = a1, A2 = a1 + 2*a2, A3 = a3,
     hence m_c = (m_p1, m_p1 + 2*m_p2, m_p3).
     """
