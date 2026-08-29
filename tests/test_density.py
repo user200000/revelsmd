@@ -135,13 +135,20 @@ def test_build_kvectors_3d_orthorhombic_separability():
 
 
 def test_build_kvectors_3d_triclinic():
-    """For a triclinic cell, verify k-vectors match 2*pi * inv(M)^T @ m."""
+    """k-vectors satisfy the defining property a_i . k(m) = 2*pi*m_i.
+
+    The property is convention-independent (it cannot inherit a transposed
+    formula from the implementation): each lattice vector dotted with the
+    reciprocal vector of Miller indices m must give 2*pi times the
+    corresponding index. Uses a FULLY triclinic cell so no accidental
+    symmetry hides a transpose (M @ inv(M)^T != I here).
+    """
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
     cell = np.array([
         [10.0, 0.0, 0.0],
         [3.0, 9.0, 0.0],
-        [0.0, 0.0, 8.0],
+        [1.0, 2.0, 8.0],
     ])
     nbins = 4
     traj = NumpyTrajectory(
@@ -153,19 +160,28 @@ def test_build_kvectors_3d_triclinic():
     )
     gs = DensityGrid(traj, density_type="number", nbins=nbins)
 
-    k_vectors, _ = gs._build_kvectors_3d()
+    k_vectors, ksquared = gs._build_kvectors_3d()
 
-    # Expected: k = 2*pi * inv(M)^T @ [m1, m2, m3]^T
-    M_inv_T = np.linalg.inv(cell).T
     miller_xy = np.fft.fftfreq(nbins, d=1.0 / nbins)
     miller_z = np.fft.rfftfreq(nbins, d=1.0 / nbins)
+    M_inv = np.linalg.inv(cell)
     for i, m1 in enumerate(miller_xy):
         for j, m2 in enumerate(miller_xy):
             for k_idx, m3 in enumerate(miller_z):
-                expected = 2 * np.pi * M_inv_T @ np.array([m1, m2, m3])
+                m = np.array([m1, m2, m3])
+                k = k_vectors[i, j, k_idx]
+                # Defining property: a_i . k = 2*pi*m_i for every row of M.
                 np.testing.assert_allclose(
-                    k_vectors[i, j, k_idx], expected, atol=1e-12,
+                    cell @ k, 2 * np.pi * m, atol=1e-12,
+                    err_msg=f"defining property violated at m={m}",
                 )
+                # Column-form formula, equivalent to the property.
+                np.testing.assert_allclose(
+                    k, 2 * np.pi * (M_inv @ m), atol=1e-12,
+                )
+    np.testing.assert_allclose(
+        ksquared, np.sum(k_vectors ** 2, axis=-1), atol=1e-15,
+    )
 
 
 def test_build_kvectors_3d_rfft_shape(ts):
