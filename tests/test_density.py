@@ -416,6 +416,146 @@ def test_full_number_density_pipeline(tmp_path, ts):
 
 
 # ---------------------------------------------------------------------------
+# DensityGrid.accumulate: rigid and polarisation configurations
+# ---------------------------------------------------------------------------
+
+def test_accumulate_number_rigid_atom(ts):
+    """Rigid number density deposits exactly one unit weight per molecule per frame."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.accumulate(ts, atom_names=["H", "O"], rigid=True, centre_location=0)
+    # One deposit call per frame
+    assert gs.count == ts.frames
+    # Trilinear kernel weights sum to 1 per deposit, so the counter total
+    # equals frames x molecules exactly (2 frames x 1 molecule here).
+    assert gs.counter.sum() == pytest.approx(2.0, abs=1e-12)
+
+
+def test_accumulate_charge_rigid_atom(ts):
+    """Rigid charge density deposits the molecular net charge per molecule per frame."""
+    # Give the molecule a net charge so the charge-weighted counter is non-zero
+    ts._charges = {"H": np.array([0.1]), "O": np.array([-0.2])}
+    gs = DensityGrid(ts, "charge", nbins=4)
+    gs.accumulate(ts, atom_names=["H", "O"], rigid=True, centre_location=0)
+    assert gs.count == ts.frames
+    # The deposit weight for a rigid molecule is its summed charge
+    # (0.1 - 0.2 = -0.1), so the counter total equals
+    # frames x sum(molecular net charges) = 2 x (-0.1).
+    assert gs.counter.sum() == pytest.approx(-0.2, abs=1e-12)
+
+
+def test_accumulate_number_multi_species_not_rigid(ts):
+    """Multi-species non-rigid number density deposits every atom of every species.
+
+    These tests pin the raw accumulation mechanics only, deliberately not the
+    normalised rho: the normalisation convention for multi-species non-rigid
+    densities (per-species average vs sum) is an open design question.
+    """
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.accumulate(ts, atom_names=["H", "O"], rigid=False)
+    # Current convention: count increments once per species array per frame,
+    # so count equals frames x n_species.
+    assert gs.count == ts.frames * 2
+    # Trilinear kernel weights sum to 1 per atom, so the counter total equals
+    # frames x (n_H + n_O) = 2 x (1 + 1) exactly.
+    assert gs.counter.sum() == pytest.approx(4.0, abs=1e-12)
+
+
+def test_accumulate_charge_multi_species_not_rigid(ts):
+    """Multi-species non-rigid charge density deposits per-species charges.
+
+    Pins raw accumulation mechanics only (see the number-density variant for
+    why the normalised rho is deliberately not asserted).
+    """
+    # Override charges so the weighted sum does not degenerate to zero
+    # (the fixture's defaults, 0.1 and -0.1, cancel exactly).
+    ts._charges = {"H": np.array([0.1]), "O": np.array([-0.2])}
+    gs = DensityGrid(ts, "charge", nbins=4)
+    gs.accumulate(ts, atom_names=["H", "O"], rigid=False)
+    assert gs.count == ts.frames * 2
+    # The counter accumulates charge-weighted trilinear weights, so its total
+    # equals frames x (n_H*q_H + n_O*q_O) = 2 x (0.1 - 0.2) exactly.
+    assert gs.counter.sum() == pytest.approx(-0.2, abs=1e-12)
+
+
+def test_accumulate_number_multi_species_not_rigid_blocked(ts):
+    """Multi-species non-rigid number density through the blocked lambda path.
+
+    Routes the same multi-species selection through _accumulate_blocks
+    (compute_lambda=True, block_size=1 over the fixture's 2 frames gives
+    2 contiguous blocks, satisfying the >= 2 blocks requirement) and pins
+    the raw accumulation mechanics only, deliberately not the normalised
+    rho: the normalisation convention for multi-species non-rigid
+    densities (per-species average vs sum) is an open design question.
+    """
+    gs = DensityGrid(ts, "number", nbins=4)
+    gs.accumulate(
+        ts, atom_names=["H", "O"], rigid=False,
+        compute_lambda=True, block_size=1,
+    )
+    # Current convention: count increments once per species array per frame,
+    # so count equals frames x n_species.
+    assert gs.count == ts.frames * 2
+    # Trilinear kernel weights sum to 1 per atom, so the counter total equals
+    # frames x (n_H + n_O) = 2 x (1 + 1) exactly.
+    assert gs.counter.sum() == pytest.approx(4.0, abs=1e-12)
+    # The lambda machinery actually ran: a finite variance-minimised density
+    # and grid-shaped weights exist.
+    assert gs.rho_lambda is not None
+    assert np.all(np.isfinite(gs.rho_lambda))
+    assert gs.lambda_weights is not None
+    assert gs.lambda_weights.shape == (4, 4, 4)
+
+
+def test_accumulate_polarisation_rigid_com(ts):
+    """Rigid polarisation density at COM propagates polarisation_axis."""
+    gs = DensityGrid(ts, "polarisation", nbins=4)
+    gs.accumulate(
+        ts, atom_names=["H", "O"], rigid=True, centre_location=True,
+        polarisation_axis=0,
+    )
+    assert gs.count > 0
+    assert gs._selection.polarisation_axis == 0
+
+
+def test_accumulate_polarisation_rigid_atom(ts):
+    """Rigid polarisation density at a specific atom propagates polarisation_axis."""
+    gs = DensityGrid(ts, "polarisation", nbins=4)
+    gs.accumulate(
+        ts, atom_names=["H", "O"], rigid=True, centre_location=0,
+        polarisation_axis=1,
+    )
+    assert gs.count > 0
+    assert gs._selection.polarisation_axis == 1
+
+
+def test_accumulate_polarisation_not_rigid_raises(ts):
+    """Polarisation without rigid=True raises ValueError."""
+    gs = DensityGrid(ts, "polarisation", nbins=4)
+    with pytest.raises(ValueError, match="rigid molecules"):
+        gs.accumulate(ts, atom_names=["H", "O"], rigid=False)
+
+
+def test_accumulate_polarisation_single_species_raises(ts):
+    """Polarisation for a single species raises ValueError."""
+    gs = DensityGrid(ts, "polarisation", nbins=4)
+    with pytest.raises(ValueError, match="single atom"):
+        gs.accumulate(ts, atom_names="H", rigid=True, centre_location=True)
+
+
+def test_accumulate_invalid_centre_location_raises(ts):
+    """accumulate() rejects an invalid centre_location at the public API."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    with pytest.raises(ValueError, match="centre_location"):
+        gs.accumulate(ts, atom_names=["H", "O"], rigid=True, centre_location="invalid")
+
+
+def test_densitygrid_invalid_density_type_raises(ts):
+    """Constructing a DensityGrid with an invalid density_type raises ValueError."""
+    with pytest.raises(ValueError, match="density_type must be one of"):
+        DensityGrid(ts, "not_a_density", nbins=4)
+
+
+# ---------------------------------------------------------------------------
 # compute_lambda parameter tests
 # ---------------------------------------------------------------------------
 
@@ -1789,7 +1929,7 @@ class TestLambdaEdgeCases:
         This test verifies the fix for the zero-variance edge case bug where
         division by zero could produce NaN/Inf in the output.
         """
-        from revelsMD.density import DensityGrid, Selection
+        from revelsMD.density import DensityGrid
 
         # Create a minimal trajectory with very few frames
         # This increases the chance of zero-variance voxels

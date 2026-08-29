@@ -24,18 +24,21 @@ dispatch.
 
 The LAMMPS, MDA and VASP tests read trimmed trajectory subsets committed
 in tests/data/, so CI runs the complete regression suite: a green CI run
-verifies every committed baseline. The full-length trajectories live
-outside the repository and are used only by scripts/validate_*.py.
+verifies every committed baseline. The full-length trajectories are not
+needed by anything in the repository; they remain useful only for ad-hoc
+high-statistics validation during estimator development.
 
 The semantic guard for the lambda combination itself is
 tests/test_rdf_lambda_invariant.py, which needs no reference data.
 """
 
+import json
+
 import pytest
 import numpy as np
 from pathlib import Path
 
-from revelsMD.rdf import RDF, compute_rdf
+from revelsMD.rdf import compute_rdf
 from revelsMD.density import DensityGrid
 from .conftest import assert_arrays_close
 
@@ -51,7 +54,7 @@ def load_reference(subdir: str, filename: str):
             f"to git; a missing file means a broken checkout or deleted "
             f"baseline, not a skippable condition."
         )
-    return dict(np.load(ref_path, allow_pickle=True))
+    return dict(np.load(ref_path))
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +82,12 @@ class TestLammpsRegression:
             rtol=1e-10, atol=0.0, context="r values"
         )
         assert_arrays_close(
-            result.g, ref['g_r'],
+            result.g, ref['g'],
             rtol=1e-7, context="g(r) forward"
+        )
+        assert_arrays_close(
+            result.g_count, ref['g_count'],
+            rtol=1e-7, context="g_count histogram estimator"
         )
 
         # Physical property checks (saves computing RDF twice)
@@ -103,6 +110,24 @@ class TestLammpsRegression:
             mean_bulk = np.mean(bulk_gr)
             assert abs(mean_bulk - 1.0) < 0.2, f"Bulk g(r) = {mean_bulk}, expected ~1.0"
 
+    def test_rdf_forward_strided_regression(self, example1_trajectory):
+        """RDF forward integration with frame stride matches stored reference."""
+        ref = load_reference("lammps_example1", "rdf_forward_strided.npz")
+
+        result = compute_rdf(
+            example1_trajectory, '1', '1',
+            delr=0.05, integration='forward', start=0, stop=10, period=2
+        )
+
+        assert_arrays_close(
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-7, context="g(r) forward strided"
+        )
+
     def test_rdf_backward_regression(self, example1_trajectory):
         """RDF backward integration matches stored reference."""
         ref = load_reference("lammps_example1", "rdf_backward.npz")
@@ -117,7 +142,7 @@ class TestLammpsRegression:
             rtol=1e-10, atol=0.0, context="r values"
         )
         assert_arrays_close(
-            result.g, ref['g_r'],
+            result.g, ref['g'],
             rtol=1e-7, context="g(r) backward"
         )
 
@@ -161,6 +186,69 @@ class TestLammpsRegression:
             rtol=1e-7, context="number density"
         )
 
+    def test_number_density_box_regression(self, example1_trajectory):
+        """3D number density with the box kernel matches stored reference."""
+        ref = load_reference("lammps_example1", "number_density_box.npz")
+
+        gs = DensityGrid(
+            example1_trajectory, 'number', nbins=30
+        )
+        gs.accumulate(
+            example1_trajectory, '1', kernel='box',
+            rigid=False, start=0, stop=5
+        )
+
+        assert_arrays_close(
+            gs.rho_force, ref['rho'],
+            rtol=1e-7, context="number density box kernel"
+        )
+
+
+# ---------------------------------------------------------------------------
+# LAMMPS Example 2 Regression Tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+@pytest.mark.regression
+@pytest.mark.requires_example2
+class TestLammpsExample2Regression:
+    """Regression tests against stored LAMMPS Example 2 results."""
+
+    def test_number_density_lambda_regression(self, example2_trajectory):
+        """Lambda-combined number density matches stored reference."""
+        ref = load_reference("lammps_example2", "number_density_lambda.npz")
+
+        # The block size is part of the pinned computation, not a free
+        # parameter: assert the baseline was generated with the expected
+        # value rather than reading it from the file under test.
+        assert int(ref['lambda_block_size']) == 2
+
+        gs = DensityGrid(
+            example2_trajectory, 'number', nbins=30
+        )
+        gs.accumulate(
+            example2_trajectory, '2', kernel='triangular', rigid=False,
+            start=0, stop=10, compute_lambda=True, blocking='contiguous',
+            block_size=2,
+        )
+
+        assert_arrays_close(
+            gs.rho_force, ref['rho_force'],
+            rtol=1e-7, context="Example 2 rho_force"
+        )
+        assert_arrays_close(
+            gs.rho_count, ref['rho_count'],
+            rtol=1e-7, context="Example 2 rho_count"
+        )
+        assert_arrays_close(
+            gs.rho_lambda, ref['rho_lambda'],
+            rtol=1e-5, context="Example 2 rho_lambda"
+        )
+        assert_arrays_close(
+            gs.lambda_weights, ref['lambda_weights'],
+            rtol=1e-5, context="Example 2 lambda weights"
+        )
+
 
 # ---------------------------------------------------------------------------
 # MDA/GROMACS Regression Tests
@@ -192,6 +280,28 @@ class TestMDARegression:
         assert_arrays_close(
             result.lam, ref['lam'],
             rtol=1e-5, context="RDF lambda weights Ow-Ow"
+        )
+
+    def test_rdf_forward_unlike_regression(self, example4_trajectory):
+        """Unlike-pair RDF (Ow-Hw1, forward) matches stored reference.
+
+        Pins the pair-enumeration path, which is loader-agnostic, so this
+        single instance covers unlike pairs for all loaders.
+        """
+        ref = load_reference("mda_example4", "rdf_forward_ow_hw1.npz")
+
+        result = compute_rdf(
+            example4_trajectory, 'Ow', 'Hw1',
+            delr=0.1, integration='forward', start=0, stop=5
+        )
+
+        assert_arrays_close(
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-7, context="g(r) forward Ow-Hw1"
         )
 
     def test_number_density_regression(self, example4_trajectory):
@@ -228,6 +338,29 @@ class TestMDARegression:
         assert_arrays_close(
             gs.rho_force, ref['rho'],
             rtol=1e-7, context="rigid number density"
+        )
+
+    def test_charge_density_regression(self, example4_trajectory):
+        """Single-species (Ow) charge density matches stored reference.
+
+        Deposits oxygen partial charges non-rigidly so the pinned field is
+        non-zero. A rigid whole-molecule charge density of neutral SPC/E
+        water is identically zero (that invariant is asserted in
+        test_pipeline_rigid_water.py) and would pin nothing.
+        """
+        ref = load_reference("mda_example4", "charge_density.npz")
+
+        gs = DensityGrid(
+            example4_trajectory, 'charge', nbins=30
+        )
+        gs.accumulate(
+            example4_trajectory, 'Ow', kernel='triangular',
+            rigid=False, start=0, stop=5
+        )
+
+        assert_arrays_close(
+            gs.rho_force, ref['rho'],
+            rtol=1e-7, context="charge density Ow"
         )
 
     def test_polarisation_density_regression(self, example4_trajectory):
@@ -279,6 +412,29 @@ class TestVASPRegression:
         assert_arrays_close(
             result.lam, ref['lam'],
             rtol=1e-5, context="RDF lambda weights F-F"
+        )
+
+    def test_rdf_forward_unlike_regression(self, vasp_trajectory):
+        """Unlike-pair RDF (Ba-F, forward) matches stored reference.
+
+        Pins second-species selection (Ba) through the VASP loader on real
+        data, complementing the loader-agnostic pair-enumeration baseline
+        in mda_example4.
+        """
+        ref = load_reference("vasp_example3", "rdf_forward_ba_f.npz")
+
+        result = compute_rdf(
+            vasp_trajectory, 'Ba', 'F',
+            delr=0.1, integration='forward', start=0, stop=10
+        )
+
+        assert_arrays_close(
+            result.r, ref['r'],
+            rtol=1e-10, atol=0.0, context="r values"
+        )
+        assert_arrays_close(
+            result.g, ref['g'],
+            rtol=1e-7, context="g(r) forward Ba-F"
         )
 
     def test_number_density_regression(self, vasp_trajectory):
@@ -358,13 +514,18 @@ class TestSyntheticRegression:
         """Uniform gas lambda density and weights match stored reference."""
         ref = load_reference("synthetic", "uniform_gas_density.npz")
 
+        # The block size is part of the pinned computation, not a free
+        # parameter: assert the baseline was generated with the expected
+        # value rather than reading it from the file under test.
+        assert int(ref['lambda_block_size']) == 10
+
         gs = DensityGrid(
             uniform_gas_trajectory, 'number', nbins=30
         )
         gs.accumulate(
             uniform_gas_trajectory, '1', kernel='triangular', rigid=False,
             compute_lambda=True, blocking='contiguous',
-            block_size=int(ref['lambda_block_size']),
+            block_size=10,
         )
 
         assert_arrays_close(
@@ -398,9 +559,31 @@ class TestReferenceDataIntegrity:
 
         expected_files = [
             "rdf_forward.npz",
+            "rdf_forward_strided.npz",
             "rdf_backward.npz",
             "rdf_lambda.npz",
             "number_density.npz",
+            "number_density_box.npz",
+        ]
+
+        for filename in expected_files:
+            ref_path = ref_dir / filename
+            assert ref_path.exists(), f"Missing reference: {ref_path}"
+            data = np.load(ref_path)
+            assert len(data.files) > 0, f"Empty reference: {ref_path}"
+
+    def test_lammps_example2_references_exist(self):
+        """LAMMPS Example 2 reference files exist and are loadable."""
+        ref_dir = REFERENCE_DIR / "lammps_example2"
+        if not ref_dir.exists():
+            pytest.fail(
+                f"Reference data missing: {ref_dir} — baselines are committed "
+                f"to git; a missing directory means a broken checkout or "
+                f"deleted baseline, not a skippable condition."
+            )
+
+        expected_files = [
+            "number_density_lambda.npz",
         ]
 
         for filename in expected_files:
@@ -421,8 +604,10 @@ class TestReferenceDataIntegrity:
 
         expected_files = [
             "rdf_lambda_ow.npz",
+            "rdf_forward_ow_hw1.npz",
             "number_density_ow.npz",
             "number_density_rigid.npz",
+            "charge_density.npz",
             "polarisation_density.npz",
         ]
 
@@ -444,6 +629,7 @@ class TestReferenceDataIntegrity:
 
         expected_files = [
             "rdf_lambda_f_f.npz",
+            "rdf_forward_ba_f.npz",
             "number_density_f.npz",
         ]
 
@@ -473,3 +659,28 @@ class TestReferenceDataIntegrity:
             assert ref_path.exists(), f"Missing reference: {ref_path}"
             data = np.load(ref_path)
             assert len(data.files) > 0, f"Empty reference: {ref_path}"
+
+    def test_provenance_commits_are_clean(self):
+        """No committed baseline was generated from an uncommitted tree.
+
+        Every reference .npz embeds a provenance JSON recording the git
+        commit of the generating tree; generate_reference_data.py appends
+        "-dirty" when that tree had uncommitted changes. A committed
+        baseline carrying a dirty provenance cannot be reproduced from any
+        commit, so regeneration must happen from a clean tree.
+        """
+        npz_files = sorted(REFERENCE_DIR.rglob("*.npz"))
+        assert npz_files, f"No reference files found under {REFERENCE_DIR}"
+        dirty = []
+        for ref_path in npz_files:
+            data = np.load(ref_path)
+            assert "provenance" in data.files, (
+                f"Missing provenance entry: {ref_path}"
+            )
+            provenance = json.loads(str(data["provenance"]))
+            if provenance["git_commit"].endswith("-dirty"):
+                dirty.append(str(ref_path))
+        assert not dirty, (
+            "Baselines generated from an uncommitted tree (regenerate from "
+            f"a clean tree): {dirty}"
+        )

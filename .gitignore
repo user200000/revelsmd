@@ -16,7 +16,6 @@ coverage.xml
 **/.DS_Store
 
 # Test outputs (generated locally)
-tests/validation_plots/
 tests/test_data/
 
 # MDAnalysis trajectory offset caches (generated on load)

@@ -55,7 +55,7 @@ def _make_rdf():
 def _inject_synthetic_frames(rdf, scaled_frames):
     """Install per-frame per-bin sums, pre-dividing out the physical scale
     so that _compute_lambda's prefactor*beta/(4*pi) multiplication
-    reproduces `scaled_frames` exactly."""
+    reproduces `scaled_frames` to floating-point round-trip precision."""
     scale = rdf._prefactor * rdf._beta / (4 * np.pi)
     raw_frames = [frame / scale for frame in scaled_frames]
     rdf._frame_data = raw_frames
