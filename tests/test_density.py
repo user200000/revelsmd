@@ -140,10 +140,9 @@ def test_build_kvectors_3d_triclinic():
     The property is convention-independent (it cannot inherit a transposed
     formula from the implementation): each lattice vector dotted with the
     reciprocal vector of Miller indices m must give 2*pi times the
-    corresponding index. Uses a FULLY triclinic cell whose third row
-    couples all three axes, so the transpose bug shifts every component
-    of the affected modes (a merely non-symmetric cell would already
-    expose it, but full coupling makes the failure unambiguous).
+    corresponding index. Uses a fully triclinic cell whose third row
+    couples all three axes, so any deviation from the property shows in
+    every component rather than hiding in a subspace.
     """
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
@@ -1838,8 +1837,8 @@ class TestTriclinicSingleModeOracle:
     obtained by CENTRAL FINITE DIFFERENCES of the field in Cartesian
     space, so the oracle shares no reciprocal-space linear algebra with
     the implementation (only the verified position map r = s @ M /
-    s = r @ inv(M) from cell.py's convention). Restoring the historical
-    transpose makes these fail by percent-level, mode-dependent amounts
+    s = r @ inv(M) from cell.py's convention). A transposed k-vector
+    (inv(M)^T) makes these fail by percent-level, mode-dependent amounts
     (of order 1-10 per cent for these parameters -- the exact figures
     depend on AMP/NBINS/FD_STEP and are only indicative), far above the
     ~1e-6 tolerance.
