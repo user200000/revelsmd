@@ -1913,6 +1913,95 @@ class TestTriclinicSingleModeOracle:
         np.testing.assert_allclose(rho_count, 1.0, atol=1e-12)
 
 
+class TestCrossRepresentationEquivalence:
+    """The same physical field solved in a triclinic primitive cell and in
+    its orthorhombic conventional cell must give the same Fourier
+    coefficient for the same physical mode.
+
+    A single k-vector code path serves every cell (k = 2*pi * inv(M) @ m;
+    there is no separate orthorhombic branch). The conventional (diagonal)
+    cell is nonetheless the trusted reference: for a diagonal M, inv(M) is
+    symmetric, so the reciprocal formula is transpose-invariant -- the
+    historical inv(M)^T bug leaves the conventional coefficient unchanged
+    while shifting the primitive one, so agreement transfers trust to the
+    triclinic path. Comparison is at the solve level (no atom deposition):
+    trilinear kernels are separable in each cell's OWN fractional axes, so
+    a deposited-atoms comparison could never be exact (kernel mismatch is
+    percent-level -- the same order as the historical bug).
+    Hexagonal-to-orthorhombic index map: A1 = a1, A2 = a1 + 2*a2, A3 = a3,
+    hence m_c = (m_p1, m_p1 + 2*m_p2, m_p3).
+    """
+
+    A = 6.0
+    C = 8.0
+
+    def _grids(self):
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+        root3 = np.sqrt(3.0)
+        M_p = np.array([
+            [self.A, 0.0, 0.0],
+            [-self.A / 2, self.A * root3 / 2, 0.0],
+            [0.0, 0.0, self.C],
+        ])
+        M_c = np.diag([self.A, self.A * root3, self.C])
+
+        def make(cell):
+            traj = NumpyTrajectory(
+                positions=np.zeros((2, 3, 3)),
+                forces=np.zeros((2, 3, 3)),
+                cell_matrix=cell,
+                species_list=["A", "A", "A"],
+                temperature=300.0, units="real",
+            )
+            return DensityGrid(traj, density_type="number", nbins=8), traj
+
+        return (M_p, *make(M_p)), (M_c, *make(M_c))
+
+    def test_same_mode_same_coefficient(self):
+        """Triclinic and orthorhombic representations agree on the mode
+        coefficient of one shared physical field."""
+        (M_p, gs_p, traj_p), (M_c, gs_c, traj_c) = self._grids()
+        n = 8
+        F0, phase = 0.07, 0.3
+
+        # One physical wavevector, from the defining property in the
+        # PRIMITIVE basis; its conventional Miller indices follow the
+        # index map.
+        m_p = np.array([1.0, 1.0, 0.0])
+        k = np.linalg.solve(M_p, 2 * np.pi * m_p)
+        m_c = np.array([m_p[0], m_p[0] + 2 * m_p[1], m_p[2]])
+        np.testing.assert_allclose(M_c @ k, 2 * np.pi * m_c, atol=1e-12)
+
+        e_hat = np.array([1.0, 0.5, 0.2])
+        e_hat /= np.linalg.norm(e_hat)
+
+        def solve_on(cell, gs, traj):
+            f = np.arange(n) / n
+            S = np.stack(np.meshgrid(f, f, f, indexing="ij"), axis=-1)
+            R = S @ cell
+            field = F0 * np.cos(R @ k + phase)
+            G = field[..., None] * e_hat
+            count = 1
+            voxel_volume = abs(np.linalg.det(cell)) / n ** 3
+            counter = np.full((n, n, n), voxel_volume * count)
+            _, _, _, del_rho_n = gs._fft_force_to_density(
+                G[..., 0] * voxel_volume, G[..., 1] * voxel_volume,
+                G[..., 2] * voxel_volume, counter, count,
+            )
+            return del_rho_n
+
+        delta_p = solve_on(M_p, gs_p, traj_p)
+        delta_c = solve_on(M_c, gs_c, traj_c)
+
+        # Extract each representation's coefficient of the SAME physical
+        # mode at its own index; both cells share the origin, so the
+        # complex coefficients must match exactly.
+        c_p = np.fft.fftn(delta_p)[1, 1, 0] / n ** 3
+        c_c = np.fft.fftn(delta_c)[1, 3, 0] / n ** 3
+        assert abs(c_p) > 1e-6, "mode coefficient unexpectedly zero"
+        np.testing.assert_allclose(c_p, c_c, rtol=1e-10)
+
+
 class TestTriclinicFFT:
     """Tests for the Borgis density formula with triclinic cells."""
 
