@@ -600,6 +600,39 @@ def generate_synthetic_references():
         seed=42
     )
 
+    # Triclinic force density (pinned POST k-vector fix; no pre-fix
+    # triclinic baseline could exist -- it would have pinned the bug).
+    print("  Computing triclinic density...")
+    np.random.seed(77)
+    tri_cell = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [1.0, 2.0, 8.0],
+    ])
+    n_atoms_tri = 300
+    n_frames_tri = 20
+    frac = np.random.rand(n_frames_tri, n_atoms_tri, 3)
+    tri_positions = np.einsum('fai,ij->faj', frac, tri_cell)
+    tri_forces = np.random.randn(n_frames_tri, n_atoms_tri, 3) * 0.1
+    ts_tri = NumpyTrajectory(
+        tri_positions, tri_forces,
+        cell_matrix=tri_cell,
+        species_list=['1'] * n_atoms_tri,
+        units='lj', temperature=1.0,
+    )
+    gs_tri = DensityGrid(ts_tri, 'number', nbins=16)
+    gs_tri.accumulate(ts_tri, '1', kernel='triangular')
+    save_reference(
+        output_dir / "triclinic_density.npz",
+        rho_force=gs_tri.rho_force,
+        rho_count=gs_tri.rho_count,
+        cell=tri_cell,
+        n_atoms=n_atoms_tri,
+        n_frames=n_frames_tri,
+        nbins=16,
+        seed=77,
+    )
+
     print(f"  Saved synthetic references to {output_dir}")
     return None
 
