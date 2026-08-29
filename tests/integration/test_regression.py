@@ -560,6 +560,38 @@ class TestSyntheticRegression:
             rtol=1e-5, context="uniform gas lambda weights"
         )
 
+    def test_triclinic_density_regression(self):
+        """Triclinic force/count densities match the committed post-fix baseline.
+
+        Also a full-pipeline convention guard: pinned from the fixed code,
+        so restoring the historical transpose fails this regression.
+        """
+        ref = load_reference("synthetic", "triclinic_density.npz")
+
+        np.random.seed(77)
+        tri_cell = np.asarray(ref['cell'])
+        n_atoms = int(ref['n_atoms'])
+        n_frames = int(ref['n_frames'])
+        frac = np.random.rand(n_frames, n_atoms, 3)
+        positions = np.einsum('fai,ij->faj', frac, tri_cell)
+        forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
+
+        from revelsMD.trajectories import NumpyTrajectory
+        from revelsMD.density import DensityGrid
+        ts = NumpyTrajectory(
+            positions, forces,
+            cell_matrix=tri_cell,
+            species_list=['1'] * n_atoms,
+            units='lj', temperature=1.0,
+        )
+        gs = DensityGrid(ts, 'number', nbins=int(ref['nbins']))
+        gs.accumulate(ts, '1', kernel='triangular')
+
+        assert_arrays_close(gs.rho_force, ref['rho_force'],
+                            rtol=1e-7, context="triclinic rho_force")
+        assert_arrays_close(gs.rho_count, ref['rho_count'],
+                            rtol=1e-7, context="triclinic rho_count")
+
 
 # ---------------------------------------------------------------------------
 # Meta-tests for reference data integrity
@@ -676,6 +708,7 @@ class TestReferenceDataIntegrity:
         expected_files = [
             "uniform_gas_rdf.npz",
             "uniform_gas_density.npz",
+            "triclinic_density.npz",
         ]
 
         for filename in expected_files:
