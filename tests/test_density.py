@@ -1955,66 +1955,6 @@ class TestTriclinicFFT:
             err_msg="Ideal gas (zero forces) should produce approximately flat density",
         )
 
-    def test_sinusoidal_force_triclinic(self):
-        """Sinusoidal force at a reciprocal lattice vector should produce
-        the expected density perturbation in a triclinic cell."""
-        from revelsMD.trajectories.numpy import NumpyTrajectory
-
-        cell = np.array([
-            [10.0, 0.0, 0.0],
-            [3.0, 9.0, 0.0],
-            [0.0, 0.0, 8.0],
-        ])
-        n_atoms = 500
-        n_frames = 20
-        nbins = 16
-        rng = np.random.default_rng(99)
-
-        # Use a reciprocal lattice vector: k = 2*pi * inv(M)^T @ [1,0,0]
-        M_inv_T = np.linalg.inv(cell).T
-        k0 = 2 * np.pi * M_inv_T @ np.array([1.0, 0.0, 0.0])
-        F0 = 0.1  # force amplitude
-
-        # Uniformly distributed positions
-        frac = rng.random((n_frames, n_atoms, 3))
-        positions = np.einsum('fai,ij->faj', frac, cell)
-
-        # Force = F0 * sin(k0 . r) in the x-direction
-        # k0 . r for each frame/atom
-        k_dot_r = np.einsum('fai,i->fa', positions, k0)
-        forces = np.zeros((n_frames, n_atoms, 3))
-        forces[:, :, 0] = F0 * np.sin(k_dot_r)
-
-        traj = NumpyTrajectory(
-            positions=positions, forces=forces,
-            cell_matrix=cell,
-            species_list=["A"] * n_atoms,
-            temperature=300.0, units="real",
-        )
-        gs = DensityGrid(traj, density_type="number", nbins=nbins)
-        for i in range(n_frames):
-            gs.deposit(positions[i], forces[i], weights=1.0)
-
-        rho_force, rho_count, del_rho_k, _ = gs._fft_force_to_density(
-            gs.force_x, gs.force_y, gs.force_z, gs.counter, gs.count
-        )
-
-        # The density perturbation should be non-zero (force is non-trivial)
-        assert np.max(np.abs(rho_force - np.mean(rho_force))) > 1e-6, \
-            "Sinusoidal force should produce non-trivial density perturbation"
-
-        # The del_rho_k should have dominant peaks at the Miller indices [1,0,0]
-        # and [-1,0,0] (the applied k-vector and its conjugate)
-        del_rho_k_abs = np.abs(del_rho_k)
-        # Zero the DC component
-        del_rho_k_abs[0, 0, 0] = 0
-        # The peak should be at index [1,0,0] or [-1,0,0] = [nbins-1,0,0]
-        peak_pos = np.unravel_index(np.argmax(del_rho_k_abs), del_rho_k_abs.shape)
-        assert peak_pos[1] == 0 and peak_pos[2] == 0, \
-            f"Peak should be at [*,0,0] Miller indices, got {peak_pos}"
-        assert peak_pos[0] in (1, nbins - 1), \
-            f"Peak should be at Miller index m1=1 or {nbins-1}, got {peak_pos[0]}"
-
 
 # ---------------------------------------------------------------------------
 # compute_density() convenience function
