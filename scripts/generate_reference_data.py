@@ -379,11 +379,9 @@ def generate_mda_references():
 
     # Single-species charge density (oxygen partial charges from the tpr).
     # Rigid whole-molecule deposition would weight each neutral SPC/E
-    # molecule by its summed charge and pin an identically-zero field;
-    # deliberately not multi-species non-rigid either, because that path's
-    # normalisation convention (per-species averaging vs sum) is an open
-    # design question that must not be baked into a baseline before it is
-    # decided.
+    # molecule by its summed charge and pin an identically-zero field.
+    # The multi-species non-rigid TOTAL charge density is pinned
+    # separately below.
     print("  Computing single-species charge density (Ow)...")
     gs_charge = DensityGrid(ts, 'charge', nbins=30)
     gs_charge.accumulate(
@@ -397,6 +395,38 @@ def generate_mda_references():
         frames_used=5,
         temp=300,
         species='Ow',
+        kernel='triangular'
+    )
+
+    # Multi-species non-rigid TOTAL charge density. Multi-species
+    # selections are normalised as the sum over the selected atoms, so
+    # this pins the total charge density of the whole water molecule's
+    # partial charges (locally structured even though SPC/E is neutral).
+    print("  Computing total charge density (Ow, Hw1, Hw2)...")
+    gs_charge_total = DensityGrid(ts, 'charge', nbins=30)
+    gs_charge_total.accumulate(
+        ts, ['Ow', 'Hw1', 'Hw2'], kernel='triangular', rigid=False,
+        start=0, stop=5
+    )
+    rho_total = gs_charge_total.rho_force
+    max_abs_rho = float(np.max(np.abs(rho_total)))
+    # Scale-relative guard: the physical field is O(1) in these units, so
+    # anything below 1e-10 indicates a degenerate (effectively zero) field,
+    # not just an exactly-zero one.
+    if max_abs_rho < 1e-10:
+        raise RuntimeError(
+            "Total charge density baseline is identically zero — "
+            "refusing to pin a degenerate field."
+        )
+    print(f"    max|rho| = {max_abs_rho:.6e}")
+
+    save_reference(
+        output_dir / "charge_density_total.npz",
+        rho=rho_total,
+        nbins=30,
+        frames_used=5,
+        temp=300,
+        species=['Ow', 'Hw1', 'Hw2'],
         kernel='triangular'
     )
 
