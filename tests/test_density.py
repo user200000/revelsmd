@@ -1827,6 +1827,92 @@ class TestSelectionGetPositions:
 # Triclinic FFT validation tests
 # ---------------------------------------------------------------------------
 
+class TestTriclinicSingleModeOracle:
+    """Convention-free single-mode verification of the triclinic FFT solve.
+
+    The test density is defined in FRACTIONAL coordinates,
+    rho(s) = 1 + A*cos(2*pi * m . s) -- cell-periodic by construction,
+    with no reciprocal vector ever built. The matching force density is
+    obtained by CENTRAL FINITE DIFFERENCES of the field in Cartesian
+    space, so the oracle shares no reciprocal-space linear algebra with
+    the implementation (only the verified position map r = s @ M /
+    s = r @ inv(M) from cell.py's convention). Restoring the historical
+    transpose makes these fail at 1.3-8.8 per cent per mode.
+    """
+
+    CELL = np.array([
+        [10.0, 0.0, 0.0],
+        [3.0, 9.0, 0.0],
+        [1.0, 2.0, 8.0],
+    ])
+    AMP = 0.05
+    NBINS = 16
+    FD_STEP = 1e-4
+
+    def _grid(self):
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+        traj = NumpyTrajectory(
+            positions=np.zeros((2, 3, 3)),
+            forces=np.zeros((2, 3, 3)),
+            cell_matrix=self.CELL,
+            species_list=["A", "A", "A"],
+            temperature=300.0, units="real",
+        )
+        return DensityGrid(traj, density_type="number", nbins=self.NBINS), traj
+
+    @pytest.mark.parametrize(
+        "miller", [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (2, -1, 1)]
+    )
+    def test_single_mode_recovered(self, miller):
+        """The FFT solve reproduces a single fractional-space mode."""
+        gs, traj = self._grid()
+        n = self.NBINS
+        beta = traj.beta
+        m_vec = np.array(miller, dtype=float)
+        M_inv = np.linalg.inv(self.CELL)
+
+        def rho_frac(s):
+            # s: (..., 3) fractional coordinates; periodic by construction.
+            return 1.0 + self.AMP * np.cos(2 * np.pi * (s @ m_vec))
+
+        # Voxel sample points: fractional i/n on each axis (the FFT's own
+        # sampling), converted to Cartesian with the verified position map.
+        f = np.arange(n) / n
+        S = np.stack(np.meshgrid(f, f, f, indexing="ij"), axis=-1)
+        R = S @ self.CELL
+
+        # Force density by central differences in Cartesian space:
+        # F_a(r) = d(rho)/d(r_a) / beta, evaluated with the position map
+        # only (never a reciprocal vector).
+        h = self.FD_STEP
+        G = np.zeros(S.shape)
+        for axis in range(3):
+            e = np.zeros(3)
+            e[axis] = h
+            s_plus = (R + e) @ M_inv
+            s_minus = (R - e) @ M_inv
+            G[..., axis] = (rho_frac(s_plus) - rho_frac(s_minus)) / (2 * h * beta)
+
+        # Feed the solver: force grids hold SUMS of deposited forces; the
+        # solve divides by (count * voxel_volume). Use count = 1.
+        count = 1
+        voxel_volume = abs(np.linalg.det(self.CELL)) / n ** 3
+        fx = G[..., 0] * voxel_volume * count
+        fy = G[..., 1] * voxel_volume * count
+        fz = G[..., 2] * voxel_volume * count
+        # Uniform counter so rho_count is exactly 1 everywhere.
+        counter = np.full((n, n, n), voxel_volume * count)
+
+        rho_force, rho_count, _, del_rho_n = gs._fft_force_to_density(
+            fx, fy, fz, counter, count
+        )
+
+        expected_delta = self.AMP * np.cos(2 * np.pi * (S @ m_vec))
+        max_dev = np.max(np.abs(del_rho_n - expected_delta))
+        assert max_dev < 1e-6, f"max deviation {max_dev:.3e} at m={miller}"
+        np.testing.assert_allclose(rho_count, 1.0, atol=1e-12)
+
+
 class TestTriclinicFFT:
     """Tests for the Borgis density formula with triclinic cells."""
 
