@@ -101,8 +101,9 @@ g_lam = rdf.g_force.copy()
 lam   = rdf.lam      # lambda weights; available only after integration='lambda'
 ```
 
-The `lam` array shows where the estimator blends between forward (lam = 0)
-and backward (lam = 1) integration.
+The `lam` array shows where the estimator blends between backward (lam = 0)
+and forward (lam = 1) integration. Its first entry, at r = 0, is padding and
+is always 0.
 
 ## Frame selection
 

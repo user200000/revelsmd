@@ -17,7 +17,7 @@ dump 1 all custom 100 trajectory.dump id type x y z fx fy fz
 from revelsMD.trajectories import LammpsTrajectory
 
 traj = LammpsTrajectory(
-    'examples/example_1_LJ/dump.nh',
+    'examples/example_1_LJ/dump.nh.lammps',
     'examples/example_1_LJ/data.fin.nh.data',
     temperature=1.35,
     units='lj',

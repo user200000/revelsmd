@@ -71,7 +71,8 @@ print(grid.rho_force)   # polarisation density along z
 A non-rigid selection of several species, e.g. `atom_names=['H1', 'H2']`,
 gives the total density of the selected atoms: the sum of the single-species
 densities, not their average. Accumulating each species into its own grid
-and adding the grids reproduces the multi-species grid. For
+and adding the grids reproduces the multi-species counting and force
+densities (the lambda and hybrid estimators are not additive). For
 `density_type='charge'` this is the total charge density of the selection,
 which integrates to its net charge.
 
