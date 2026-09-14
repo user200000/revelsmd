@@ -19,14 +19,14 @@ from revelsMD.trajectories import LammpsTrajectory
 traj = LammpsTrajectory(
     'examples/example_1_LJ/dump.nh',
     'examples/example_1_LJ/data.fin.nh.data',
-    temperature=0.75,
+    temperature=1.35,
     units='lj',
-    atom_style='full',
+    atom_style='id resid type q x y z ix iy iz',
 )
 
 print(traj.frames)        # number of frames
 print(traj.cell_matrix)   # 3x3 lattice matrix, rows are lattice vectors
-print(traj.temperature)   # 0.75
+print(traj.temperature)   # 1.35
 print(traj.beta)          # 1 / (kB * T) in the chosen unit system
 ```
 
