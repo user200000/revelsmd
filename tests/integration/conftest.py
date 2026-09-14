@@ -6,14 +6,14 @@ from pathlib import Path
 
 
 # Canonical committed test data (trimmed trajectory subsets). Full-length
-# trajectories live outside the repository and are used only by
-# scripts/validate_*.py.
+# trajectories are not needed by anything in the repository; they remain
+# useful only for ad-hoc high-statistics validation during estimator
+# development.
 TEST_DATA_DIR = Path(__file__).parents[1] / "data"
 
 
 def pytest_configure(config):
     """Register custom markers."""
-    config.addinivalue_line("markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')")
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
     config.addinivalue_line("markers", "analytical: tests against known analytical results")
     config.addinivalue_line("markers", "regression: regression tests against stored reference data")
@@ -21,27 +21,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "requires_example2: uses the committed Example 2 subset in tests/data")
     config.addinivalue_line("markers", "requires_example4: uses the committed Example 4 subset in tests/data")
     config.addinivalue_line("markers", "requires_vasp: uses the committed VASP subset in tests/data")
-
-
-def pytest_addoption(parser):
-    """Add custom command-line options."""
-    parser.addoption(
-        "--run-slow",
-        action="store_true",
-        default=False,
-        help="run slow tests",
-    )
-
-
-def pytest_collection_modifyitems(config, items):
-    """Skip slow tests unless --run-slow is passed."""
-    if config.getoption("--run-slow"):
-        return
-
-    skip_slow = pytest.mark.skip(reason="need --run-slow option to run")
-    for item in items:
-        if "slow" in item.keywords:
-            item.add_marker(skip_slow)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +124,8 @@ def vasp_trajectory():
 
     Example 3: BaSnF4 solid electrolyte
     - 324 atoms (Ba, Sn, F)
-    - 10 calculation steps (subset from 3001 total in r1)
+    - 10 calculation steps (committed subset; see tests/data/README.md
+      for provenance)
     - Temperature: 600K
     """
     from revelsMD.trajectories import VaspTrajectory
@@ -237,97 +217,6 @@ def single_atom_trajectory():
 
     return NumpyTrajectory(
         positions, forces, box, box, box, species, temperature=1.0, units='lj'
-    )
-
-
-@pytest.fixture
-def cubic_lattice_trajectory():
-    """
-    Generate simple cubic lattice trajectory.
-
-    4x4x4 = 64 atoms on a simple cubic lattice with spacing 2.5
-    in a 10x10x10 box. g(r) should show peaks at r = 2.5, 3.54 (sqrt(2)*2.5), etc.
-    """
-    from revelsMD.trajectories import NumpyTrajectory
-
-    n_frames = 5
-    box = 10.0
-    spacing = 2.5
-    n_per_dim = 4
-
-    # Generate lattice positions
-    lattice_positions = []
-    for i in range(n_per_dim):
-        for j in range(n_per_dim):
-            for k in range(n_per_dim):
-                lattice_positions.append([i * spacing, j * spacing, k * spacing])
-
-    lattice_positions = np.array(lattice_positions)
-    n_atoms = len(lattice_positions)
-
-    positions = np.zeros((n_frames, n_atoms, 3))
-    for frame in range(n_frames):
-        positions[frame] = lattice_positions
-
-    # Random forces for force-sampling method
-    np.random.seed(45)
-    forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
-    species = ['1'] * n_atoms
-
-    return NumpyTrajectory(
-        positions, forces, box, box, box, species, temperature=1.0, units='lj'
-    )
-
-
-@pytest.fixture
-def water_molecule_trajectory():
-    """
-    Generate trajectory with rigid water molecules for testing dipole/polarisation.
-
-    Creates 10 water molecules with known geometry and charges.
-    """
-    from revelsMD.trajectories import NumpyTrajectory
-
-    n_frames = 5
-    n_molecules = 10
-    box = 15.0
-
-    # Water geometry (approximate SPC/E)
-    # O at origin, H1 at (0.816, 0.577, 0), H2 at (-0.816, 0.577, 0)
-    h_distance = 1.0  # O-H distance
-    h_angle = 109.47 * np.pi / 180  # H-O-H angle
-
-    # Build molecular positions
-    n_atoms = n_molecules * 3  # O, H, H per molecule
-    positions = np.zeros((n_frames, n_atoms, 3))
-    forces = np.zeros((n_frames, n_atoms, 3))
-
-    np.random.seed(42)
-    mol_centres = np.random.uniform(2, box - 2, (n_molecules, 3))
-
-    for mol_idx in range(n_molecules):
-        o_idx = mol_idx * 3
-        h1_idx = mol_idx * 3 + 1
-        h2_idx = mol_idx * 3 + 2
-
-        centre = mol_centres[mol_idx]
-
-        for frame in range(n_frames):
-            # O at centre
-            positions[frame, o_idx] = centre
-            # H atoms
-            positions[frame, h1_idx] = centre + [h_distance * np.sin(h_angle / 2), h_distance * np.cos(h_angle / 2), 0]
-            positions[frame, h2_idx] = centre + [-h_distance * np.sin(h_angle / 2), h_distance * np.cos(h_angle / 2), 0]
-
-    species = ['O', 'H', 'H'] * n_molecules
-
-    # SPC/E charges: O = -0.8476, H = +0.4238
-    charges = np.array([-0.8476, 0.4238, 0.4238] * n_molecules)
-    masses = np.array([15.999, 1.008, 1.008] * n_molecules)
-
-    return NumpyTrajectory(
-        positions, forces, box, box, box, species,
-        temperature=300.0, units='real', charge_list=charges, mass_list=masses
     )
 
 

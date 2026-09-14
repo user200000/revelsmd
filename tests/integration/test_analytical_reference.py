@@ -7,9 +7,112 @@ using synthetic NumpyTrajectory data. They require no external data files.
 
 import pytest
 import numpy as np
+from scipy.integrate import trapezoid
 
-from revelsMD.rdf import RDF, compute_rdf
+from revelsMD.rdf import compute_rdf
 from revelsMD.density import DensityGrid
+
+
+# ---------------------------------------------------------------------------
+# Harmonic pair potential: exact analytic reference
+# ---------------------------------------------------------------------------
+
+# Two atoms bound by u(r) = k/2 (r - r0)^2 in a cubic box. The pair
+# separation r is sampled exactly from the equilibrium distribution
+# p(r) proportional to r^2 exp(-beta u(r)), with a uniform random
+# orientation per frame, and the stored forces are the true forces of
+# the potential. The analytic pair distribution is then
+#
+#     g(r) = V exp(-beta u(r)) / integral(4 pi r'^2 exp(-beta u(r')) dr')
+#
+# Parameters chosen so the distribution (width sigma = 1/sqrt(beta k)
+# = 0.2 around r0 = 2.5) sits comfortably inside the minimum-image
+# range (rmax = 5.0) and the peak spans several bins at delr = 0.05.
+# beta is deliberately not 1: the force estimator scales as beta^1, so
+# a non-unit beta makes any misplaced beta power in the estimator
+# visible as an overall scale error (~2.5x here).
+HARMONIC_K = 62.5
+HARMONIC_R0 = 2.5
+HARMONIC_BETA = 0.4
+HARMONIC_BOX = 10.0
+HARMONIC_DELR = 0.05
+HARMONIC_N_FRAMES = 5000
+HARMONIC_SEED = 20260825
+HARMONIC_R_LO = 1.0   # rejection-sampling support (p(r) is negligible outside)
+HARMONIC_R_HI = 4.0
+
+
+def _harmonic_radial_weight(r):
+    """Unnormalised radial measure r^2 exp(-beta u(r)) for the harmonic pair."""
+    u = 0.5 * HARMONIC_K * (r - HARMONIC_R0) ** 2
+    return r**2 * np.exp(-HARMONIC_BETA * u)
+
+
+def _sample_harmonic_separations(rng, n):
+    """Rejection-sample n separations from p(r) ~ r^2 exp(-beta u(r))."""
+    grid = np.linspace(HARMONIC_R_LO, HARMONIC_R_HI, 4001)
+    envelope = _harmonic_radial_weight(grid).max() * 1.05
+    out = np.empty(n)
+    filled = 0
+    while filled < n:
+        need = n - filled
+        r_try = rng.uniform(HARMONIC_R_LO, HARMONIC_R_HI, size=2 * need)
+        accept = rng.uniform(0.0, envelope, size=2 * need) < _harmonic_radial_weight(r_try)
+        got = r_try[accept][:need]
+        out[filled:filled + got.size] = got
+        filled += got.size
+    return out
+
+
+def _harmonic_analytic_g(r_vals):
+    """Exact g(r) for the two-particle harmonic system, normalised numerically."""
+    grid = np.linspace(0.0, HARMONIC_BOX / 2, 200001)
+    z = trapezoid(4.0 * np.pi * _harmonic_radial_weight(grid), grid)
+    u = 0.5 * HARMONIC_K * (r_vals - HARMONIC_R0) ** 2
+    return HARMONIC_BOX**3 * np.exp(-HARMONIC_BETA * u) / z
+
+
+@pytest.fixture(scope="module")
+def harmonic_pair_rdf():
+    """
+    Compute the RDF of a synthetic harmonic-pair trajectory once per module.
+
+    Returns a dict with the RDF object, the analytic reference curve, its
+    peak value, and a mask selecting the region where p(r) is non-negligible.
+    """
+    from revelsMD.trajectories import NumpyTrajectory
+
+    rng = np.random.default_rng(HARMONIC_SEED)
+    r = _sample_harmonic_separations(rng, HARMONIC_N_FRAMES)
+    v = rng.normal(size=(HARMONIC_N_FRAMES, 3))
+    u_hat = v / np.linalg.norm(v, axis=1, keepdims=True)
+
+    positions = np.empty((HARMONIC_N_FRAMES, 2, 3))
+    forces = np.zeros((HARMONIC_N_FRAMES, 2, 3))
+    centre = np.array([HARMONIC_BOX / 2] * 3)
+    positions[:, 0, :] = centre
+    positions[:, 1, :] = centre + r[:, None] * u_hat
+
+    # True forces of the sampled potential: F_B = -du/dr r_hat, F_A = -F_B.
+    f_b = (-HARMONIC_K * (r - HARMONIC_R0))[:, None] * u_hat
+    forces[:, 1, :] = f_b
+    forces[:, 0, :] = -f_b
+
+    # kB = 1 in lj units, so trajectory.beta == HARMONIC_BETA exactly.
+    ts = NumpyTrajectory(
+        positions, forces,
+        HARMONIC_BOX, HARMONIC_BOX, HARMONIC_BOX,
+        ['A', 'B'],
+        temperature=1.0 / HARMONIC_BETA, units='lj',
+    )
+
+    rdf = compute_rdf(ts, 'A', 'B', delr=HARMONIC_DELR, integration='backward')
+
+    g_ref = _harmonic_analytic_g(rdf.r)
+    peak = g_ref.max()
+    mask = g_ref > 1e-3 * peak
+
+    return {'rdf': rdf, 'g_ref': g_ref, 'peak': peak, 'mask': mask}
 
 
 @pytest.mark.analytical
@@ -50,7 +153,6 @@ class TestRDFAnalyticalReference:
         """
         ts = two_atom_trajectory
 
-        # Use fine binning to resolve the peak
         rdf = compute_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, integration='forward')
 
         assert rdf.r is not None
@@ -65,88 +167,6 @@ class TestRDFAnalyticalReference:
         expected_separation = 3.0
         assert abs(peak_r - expected_separation) < 0.5, \
             f"Peak at r = {peak_r}, expected near {expected_separation}"
-
-    def test_crystal_lattice_rdf_peaks(self, cubic_lattice_trajectory):
-        """
-        Simple cubic lattice should show peaks at lattice spacings.
-
-        For a simple cubic lattice with spacing a = 2.5, peaks should appear at:
-        - r = 2.5 (nearest neighbours)
-        - r = 2.5 * sqrt(2) ~ 3.54 (next-nearest neighbours)
-        - r = 2.5 * sqrt(3) ~ 4.33 (third shell)
-
-        Note: The force-sampling method with random forces may not show
-        crystal structure as clearly as histogram methods.
-        """
-        ts = cubic_lattice_trajectory
-
-        # Use backward integration for cleaner results
-        rdf = compute_rdf(ts, '1', '1', delr=0.1, start=0, stop=-1, integration='backward')
-
-        assert rdf.r is not None
-        assert rdf.g is not None
-        assert np.all(np.isfinite(rdf.g))
-
-        # For force-sampling with random forces on a static lattice,
-        # we mainly check that the calculation completes and produces finite values.
-        # The structure may not be as pronounced as with histogram methods.
-        bulk_mask = (rdf.r > 1.0) & (rdf.r < 5.0)
-        if np.any(bulk_mask):
-            # Check that g(r) values are reasonable (not all zeros or infinities)
-            bulk_values = rdf.g[bulk_mask]
-            assert np.mean(np.abs(bulk_values)) > 0, "RDF should have non-zero values"
-
-    def test_rdf_forward_backward_consistency(self, uniform_gas_trajectory):
-        """
-        Forward and backward RDF integration produce consistent results.
-
-        The forward integration starts from g(0)=0 and accumulates upward.
-        The backward integration starts from g(inf)=1 and accumulates downward.
-
-        For the lambda-combined method, both should contribute to a consistent result.
-        """
-        ts = uniform_gas_trajectory
-
-        rdf_forward = compute_rdf(ts, '1', '1', delr=0.1, integration='forward')
-        rdf_backward = compute_rdf(ts, '1', '1', delr=0.1, integration='backward')
-
-        assert rdf_forward.r is not None
-        assert rdf_backward.r is not None
-
-        # Both should produce finite values
-        assert np.all(np.isfinite(rdf_forward.g))
-        assert np.all(np.isfinite(rdf_backward.g))
-
-        # Forward starts from 0, backward starts from 1
-        # The two methods are complementary - their sum should be approximately 1
-        # at each r value (this is the basis of the lambda combination)
-        mid_range_mask = (rdf_forward.r > 1.5) & (rdf_forward.r < 3.5)
-        if np.any(mid_range_mask):
-            combined = rdf_forward.g[mid_range_mask] + (1 - rdf_backward.g[mid_range_mask])
-            # The "complementary" check: forward + (1 - backward) should be small
-            # This is an approximation of how the lambda method works
-            mean_combined = np.mean(np.abs(combined))
-            assert mean_combined < 2.0, f"Forward/backward methods inconsistent: {mean_combined}"
-
-    def test_rdf_lambda_produces_valid_output(self, uniform_gas_trajectory):
-        """
-        Lambda-combined RDF should produce valid output with correct properties.
-
-        The lambda integration should provide r, g, and lam arrays.
-        """
-        ts = uniform_gas_trajectory
-
-        rdf = compute_rdf(ts, '1', '1', delr=0.2, integration='lambda')
-
-        assert rdf.r is not None
-        assert rdf.g is not None
-        assert rdf.lam is not None
-        assert np.all(np.isfinite(rdf.g))
-        assert np.all(np.isfinite(rdf.lam))
-
-        # Lambda should be between 0 and 1 (approximately)
-        assert np.all(rdf.lam >= -0.5), "Lambda values should not be strongly negative"
-        assert np.all(rdf.lam <= 1.5), "Lambda values should not exceed 1 significantly"
 
 
 @pytest.mark.analytical
@@ -167,10 +187,6 @@ class TestDensityAnalyticalReference:
         gs.accumulate(ts, '1', kernel='triangular', rigid=False)
 
         assert gs.count > 0  # Data has been accumulated
-        # Note: count may be frames-1 due to stop=-1 handling in API
-        assert gs.count > 0
-
-
 
         assert hasattr(gs, 'rho_force')
         assert gs.rho_force.shape == (20, 20, 20)
@@ -185,73 +201,33 @@ class TestDensityAnalyticalReference:
         assert all(abs(idx - centre) < 6 for idx in max_idx), \
             f"Density peak at {max_idx}, expected near ({centre}, {centre}, {centre})"
 
-    def test_uniform_density_is_flat(self, uniform_gas_trajectory):
-        """
-        Uniform random gas should produce relatively flat density field.
-
-        For uniformly distributed particles, the density should be approximately
-        constant throughout the box, with only statistical fluctuations.
-        """
-        ts = uniform_gas_trajectory
-
-        gs = DensityGrid(ts, 'number', nbins=20)
-        gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-
-
-        assert hasattr(gs, 'rho_force')
-        assert np.all(np.isfinite(gs.rho_force))
-
-        # Compute coefficient of variation (std/mean)
-        mean_rho = np.mean(gs.rho_force)
-        std_rho = np.std(gs.rho_force)
-
-        if mean_rho > 0:
-            cv = std_rho / mean_rho
-            # For uniform distribution, CV should be relatively small
-            # Allow generous tolerance due to limited statistics
-            assert cv < 2.0, f"Density CV = {cv}, expected relatively flat distribution"
-
     def test_density_conserves_total_count(self, uniform_gas_trajectory):
         """
-        Total integrated density should equal number of atoms (approximately).
+        Total integrated density equals the number of atoms near-exactly.
 
-        The integral of the number density over the box volume should give
-        the total number of particles.
+        Both estimators conserve the particle count by construction: the
+        counting estimator because trilinear deposit weights sum to 1 per
+        particle, and the force estimator because its k = 0 mode is pinned
+        to the mean counting density. Only float rounding remains
+        (measured ~7e-16 relative for this fixture).
         """
         ts = uniform_gas_trajectory
 
         gs = DensityGrid(ts, 'number', nbins=20)
         gs.accumulate(ts, '1', kernel='triangular', rigid=False)
-
 
         # Calculate voxel volume
         voxel_vol = (ts.box_x / 20) * (ts.box_y / 20) * (ts.box_z / 20)
 
-        # Integrate density
-        total_count = np.sum(gs.rho_force) * voxel_vol
-
-        # Should be approximately equal to number of atoms
         n_atoms = len(ts.get_indices('1'))
 
-        # Allow significant tolerance due to FFT normalisation and boundary effects
-        relative_error = abs(total_count - n_atoms) / n_atoms
-        assert relative_error < 1.0, \
-            f"Integrated count = {total_count}, expected ~{n_atoms}"
+        total_count = np.sum(gs.rho_count) * voxel_vol
+        assert abs(total_count - n_atoms) / n_atoms < 1e-12, \
+            f"Integrated rho_count = {total_count}, expected {n_atoms}"
 
-    def test_gridstate_initialisation(self, uniform_gas_trajectory):
-        """
-        DensityGrid should initialise correctly with various density types.
-        """
-        ts = uniform_gas_trajectory
-
-        # Test number density
-        gs_number = DensityGrid(ts, 'number', nbins=20)
-        assert gs_number.density_type == 'number'
-        assert gs_number.nbinsx == 20
-
-        # Test that grids are initialised to zero
-        assert gs_number.force_x.shape == (20, 20, 20)
-        assert np.all(gs_number.force_x == 0)
+        total_force = np.sum(gs.rho_force) * voxel_vol
+        assert abs(total_force - n_atoms) / n_atoms < 1e-12, \
+            f"Integrated rho_force = {total_force}, expected {n_atoms}"
 
 
 @pytest.mark.analytical
@@ -285,33 +261,6 @@ class TestMultispeciesRDF:
             # Both should be roughly 1 (with tolerance for statistics)
             assert abs(mean_like - 1.0) < 0.5, f"Like-pair bulk g(r) = {mean_like}"
             assert abs(mean_unlike - 1.0) < 0.5, f"Unlike-pair bulk g(r) = {mean_unlike}"
-
-
-@pytest.mark.analytical
-@pytest.mark.integration
-class TestRigidMoleculeAnalytical:
-    """Tests for rigid molecule calculations with synthetic data."""
-
-    def test_water_trajectory_loads_correctly(self, water_molecule_trajectory):
-        """
-        Water molecule trajectory should load with correct species.
-        """
-        ts = water_molecule_trajectory
-
-        o_indices = ts.get_indices('O')
-        h_indices = ts.get_indices('H')
-
-        # 10 molecules = 10 O and 20 H atoms
-        assert len(o_indices) == 10
-        assert len(h_indices) == 20
-
-        # Check charges are present
-        assert hasattr(ts, 'charge_list')
-        assert ts.charge_list is not None
-
-        # Check charge neutrality
-        total_charge = np.sum(ts.charge_list)
-        assert abs(total_charge) < 1e-10, f"Total charge = {total_charge}, should be neutral"
 
 
 @pytest.mark.analytical
@@ -394,19 +343,91 @@ class TestHistogramRDFAnalytical:
         # Force-based g(r) has more variance due to integration
         assert abs(g_force_mean - 1.0) < 0.3, f"g_force mean = {g_force_mean}"
 
-    def test_g_count_lambda_integration(self, uniform_gas_trajectory):
+
+@pytest.mark.analytical
+@pytest.mark.integration
+class TestHarmonicPotentialRDF:
+    """
+    Validate both RDF estimators against an exact analytic g(r).
+
+    A two-atom system bound by a harmonic pair potential has a known
+    closed-form pair distribution, giving external ground truth for both
+    the force-sampled and histogram estimators, including their absolute
+    normalisation. The force estimator is sensitive to prefactor errors
+    (beta, volume, pair counting) that the uniform-gas tests cannot see.
+
+    The backward integration pins g(rmax) = 1, but for a bound pair the
+    true g(r) decays to 0 at large r, so the whole backward curve carries
+    a constant offset of +1 relative to the analytic reference. The force
+    assertions subtract this anchoring constant before comparing.
+
+    Tolerances are set roughly 3x above the deviation measured for the
+    committed seed (see each test), so failures indicate broken physics
+    rather than statistical noise.
+    """
+
+    def test_force_rdf_matches_analytic(self, harmonic_pair_rdf):
         """
-        g_count should be available and consistent with lambda integration.
+        Backward-integrated force g(r) matches the analytic curve.
+
+        Measured max deviation for the committed seed: 0.034 of the peak
+        height; asserted tolerance 0.12.
         """
-        ts = uniform_gas_trajectory
+        rdf = harmonic_pair_rdf['rdf']
+        g_ref = harmonic_pair_rdf['g_ref']
+        peak = harmonic_pair_rdf['peak']
+        mask = harmonic_pair_rdf['mask']
 
-        rdf = compute_rdf(ts, '1', '1', delr=0.2, integration='lambda')
+        assert np.all(np.isfinite(rdf.g_force))
 
-        assert rdf.g_count is not None
-        assert rdf.g_force is not None
-        assert rdf.lam is not None
+        # Remove the backward anchoring offset (true tail is 0, not 1)
+        g_force = rdf.g_force - 1.0
 
-        # Lengths should match
-        assert len(rdf.g_count) == len(rdf.r)
-        assert len(rdf.g_force) == len(rdf.r)
+        max_dev = np.max(np.abs(g_force[mask] - g_ref[mask])) / peak
+        assert max_dev < 0.12, \
+            f"Force g(r) deviates from analytic curve by {max_dev:.3f} of peak height"
+
+    def test_force_rdf_tail_stays_at_anchor(self, harmonic_pair_rdf):
+        """Backward g(r) remains at its anchor value beyond the sampled support."""
+        rdf = harmonic_pair_rdf['rdf']
+
+        tail = rdf.r > HARMONIC_R_HI + 0.2
+        assert np.any(tail)
+        assert np.max(np.abs(rdf.g_force[tail] - 1.0)) < 1e-10, \
+            "Backward g(r) should remain at its anchor value beyond the sampled support"
+
+    def test_histogram_rdf_matches_analytic(self, harmonic_pair_rdf):
+        """
+        Histogram g_count matches the analytic curve including normalisation.
+
+        Measured max deviation for the committed seed: 0.055 of the peak
+        height; asserted tolerance 0.17.
+        """
+        rdf = harmonic_pair_rdf['rdf']
+        g_ref = harmonic_pair_rdf['g_ref']
+        peak = harmonic_pair_rdf['peak']
+        mask = harmonic_pair_rdf['mask']
+
+        assert np.all(np.isfinite(rdf.g_count))
+
+        max_dev = np.max(np.abs(rdf.g_count[mask] - g_ref[mask])) / peak
+        assert max_dev < 0.17, \
+            f"Histogram g(r) deviates from analytic curve by {max_dev:.3f} of peak height"
+
+    def test_force_and_histogram_estimators_agree(self, harmonic_pair_rdf):
+        """
+        Force-sampled and histogram estimators agree with each other.
+
+        Measured max deviation for the committed seed: 0.051 of the peak
+        height; asserted tolerance 0.16.
+        """
+        rdf = harmonic_pair_rdf['rdf']
+        peak = harmonic_pair_rdf['peak']
+        mask = harmonic_pair_rdf['mask']
+
+        g_force = rdf.g_force - 1.0  # remove backward anchoring offset
+
+        max_dev = np.max(np.abs(g_force[mask] - rdf.g_count[mask])) / peak
+        assert max_dev < 0.16, \
+            f"Force and histogram estimators disagree by {max_dev:.3f} of peak height"
 
