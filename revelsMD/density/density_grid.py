@@ -862,9 +862,10 @@ class DensityGrid:
         """
         Build 3D k-vector arrays in rfft layout for general (triclinic) cells.
 
-        The k-vector at Miller indices (m1, m2, m3) is:
-            k = 2 * pi * inv(M)^T @ [m1, m2, m3]^T
-        where M is the cell matrix with rows = lattice vectors.
+        The k-vector at Miller indices (m1, m2, m3) is defined by
+        a_i . k = 2*pi*m_i for every lattice vector a_i (rows of the cell
+        matrix M). Solving M @ k = 2*pi*m gives the column form used
+        here, k = 2*pi * inv(M) @ m.
 
         Returns
         -------
@@ -882,8 +883,9 @@ class DensityGrid:
         m3 = np.fft.rfftfreq(self.nbinsz, d=1.0 / self.nbinsz)
         M1, M2, M3 = np.meshgrid(m1, m2, m3, indexing='ij')
         m_stack = np.stack([M1, M2, M3], axis=-1)
-        M_inv_T = self.cell_inverse.T
-        k_vectors = 2 * np.pi * np.einsum('ab,ijkb->ijka', M_inv_T, m_stack)
+        k_vectors = 2 * np.pi * np.einsum(
+            'ab,ijkb->ijka', self.cell_inverse, m_stack
+        )
         ksquared = np.sum(k_vectors ** 2, axis=-1)
         return k_vectors, ksquared
 
