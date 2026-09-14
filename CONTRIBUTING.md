@@ -20,7 +20,6 @@ pip install -e ".[test,docs]"
 
 ```bash
 pytest                        # full suite
-pytest -m "not slow"          # skip slow tests
 ```
 
 **Building the documentation:**
