@@ -92,8 +92,11 @@ multi-trajectory accumulation) without duplicating normalisation or bookkeeping.
 
 `DensityGrid.deposit(positions, forces, weights, kernel)` operates below
 `Selection`, accepting raw numpy arrays (or lists of arrays for multi-species).
-`accumulate()` builds a `Selection` from `atom_names` and calls
-`Selection.extract(frame)` to produce inputs for each `deposit()` call.
+Each call deposits exactly one frame: for a multi-species selection, every
+array in the lists belongs to that same frame, and `count` advances by one
+per call rather than per array. `accumulate()` builds a `Selection` from
+`atom_names` and calls `Selection.extract(frame)` to produce inputs for each
+`deposit()` call.
 
 This keeps `deposit()` general enough to call with pre-processed data, without
 requiring a trajectory.
