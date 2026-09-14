@@ -1,12 +1,12 @@
 # Trajectory formats
 
-RevelsMD provides dedicated trajectory classes for LAMMPS, VASP, and MDAnalysis-compatible
-formats, plus a `NumpyTrajectory` for raw arrays. All backends expose the same interface,
-so analysis code is independent of the file format used.
+RevelsMD provides trajectory classes for LAMMPS, VASP, and MDAnalysis-compatible
+formats, plus `NumpyTrajectory` for raw arrays. All backends expose the same interface,
+so analysis code is format-independent.
 
 ## LAMMPS
 
-`LammpsTrajectory` reads LAMMPS custom dump files. It requires both a dump file and a
+`LammpsTrajectory` reads LAMMPS custom dump files, requiring both a dump file and a
 topology (data) file. The dump must contain positions and forces:
 
 ```
@@ -30,7 +30,7 @@ print(traj.temperature)   # 0.75
 print(traj.beta)          # 1 / (kB * T) in the chosen unit system
 ```
 
-Multiple dump files from consecutive runs can be concatenated by passing a list:
+Concatenate multiple dump files by passing a list:
 
 ```python
 traj = LammpsTrajectory(
@@ -41,7 +41,7 @@ traj = LammpsTrajectory(
 )
 ```
 
-Atoms are identified by their LAMMPS type number, passed as a string:
+Atoms are identified by LAMMPS type number, as a string:
 
 ```python
 indices = traj.get_indices('1')  # atoms of type 1
@@ -49,8 +49,8 @@ indices = traj.get_indices('1')  # atoms of type 1
 
 ## VASP
 
-`VaspTrajectory` reads `vasprun.xml` output from VASP MD runs. No additional configuration
-is needed beyond a standard NVT or NVE run:
+`VaspTrajectory` reads `vasprun.xml` from VASP MD runs. No configuration is needed
+beyond a standard NVT or NVE run:
 
 ```python
 from revelsMD.trajectories import VaspTrajectory
@@ -64,8 +64,8 @@ print(traj.frames)
 print(traj.cell_matrix)
 ```
 
-The default unit system is `'metal'` (eV). Multiple `vasprun.xml` files from sequential
-restarts can be concatenated:
+The default unit system is `'metal'` (eV). Concatenate multiple `vasprun.xml` files
+from sequential restarts:
 
 ```python
 traj = VaspTrajectory(
@@ -88,8 +88,8 @@ pip install revelsMD[vasp]
 
 ## MDAnalysis
 
-`MDATrajectory` supports any trajectory format understood by MDAnalysis: GROMACS (`.xtc`,
-`.trr`), AMBER (`.nc`, `.mdcrd`), CHARMM/NAMD (`.dcd`), and many others.
+`MDATrajectory` supports any format MDAnalysis can read: GROMACS (`.xtc`, `.trr`),
+AMBER (`.nc`, `.mdcrd`), CHARMM/NAMD (`.dcd`), and others.
 
 ```python
 from revelsMD.trajectories import MDATrajectory
@@ -104,8 +104,8 @@ print(traj.frames)
 print(traj.cell_matrix)
 ```
 
-The default unit system is `'mda'` (kJ/mol). Atoms are selected by the name defined in
-the topology:
+The default unit system is `'mda'` (kJ/mol). Atoms are selected by name from the
+topology:
 
 ```python
 indices = traj.get_indices('OW')  # oxygen atoms in SPC/E water
@@ -113,8 +113,8 @@ indices = traj.get_indices('OW')  # oxygen atoms in SPC/E water
 
 ## NumPy arrays
 
-`NumpyTrajectory` wraps positions and forces already in memory. Both arrays must have
-shape `(frames, atoms, 3)`:
+`NumpyTrajectory` wraps in-memory position and force arrays, both of shape
+`(frames, atoms, 3)`:
 
 ```python
 import numpy as np
@@ -138,7 +138,7 @@ traj = NumpyTrajectory(
 )
 ```
 
-For a triclinic cell, pass a 3x3 `cell_matrix` instead. Each row is a lattice vector:
+For a triclinic cell, pass a 3x3 `cell_matrix` instead (rows are lattice vectors):
 
 ```python
 cell = np.array([
@@ -156,8 +156,8 @@ traj = NumpyTrajectory(
 )
 ```
 
-`box_x/box_y/box_z` and `cell_matrix` are mutually exclusive. Charge and mass arrays
-can be supplied as optional keyword arguments:
+`box_x/box_y/box_z` and `cell_matrix` are mutually exclusive. Charges and masses
+can be supplied as keyword arguments:
 
 ```python
 charges = np.tile([-0.82, 0.41, 0.41], n_atoms // 3)
@@ -176,7 +176,7 @@ traj = NumpyTrajectory(
 
 ## The common interface
 
-Every trajectory backend exposes the same attributes and methods.
+Every backend exposes the same attributes and methods.
 
 ### Attributes
 
@@ -193,9 +193,8 @@ elements. For triclinic cells, use `traj.cell_matrix` directly.
 
 ### Iterating over frames
 
-`iter_frames()` streams frames one at a time without loading the whole trajectory into
-memory. It accepts optional `start`, `stop`, and `stride` arguments following Python
-slice semantics:
+`iter_frames()` streams frames without loading the whole trajectory into memory. It
+accepts `start`, `stop`, and `stride` following Python slice semantics:
 
 ```python
 # All frames
@@ -208,7 +207,7 @@ for frame in traj.iter_frames(start=100, stride=2):
     process(frame)
 ```
 
-`Frame` is a frozen dataclass. Access positions and forces by attribute name:
+`Frame` is a frozen dataclass:
 
 ```python
 frame = next(iter(traj.iter_frames()))
@@ -222,7 +221,7 @@ x, y, z = positions[0]
 
 ## Unit systems
 
-The unit system controls how `beta` is computed from the simulation temperature.
+The unit system controls how `beta` is computed from temperature.
 
 | Value | Energy units | Typical use |
 |-------|-------------|-------------|
@@ -232,12 +231,12 @@ The unit system controls how `beta` is computed from the simulation temperature.
 | `'lj'` | epsilon (reduced) | Lennard-Jones simulations |
 
 Each backend sets a sensible default: `LammpsTrajectory` defaults to `'real'`,
-`VaspTrajectory` to `'metal'`, and `MDATrajectory` to `'mda'`. Override with the `units`
-keyword argument when needed.
+`VaspTrajectory` to `'metal'`, and `MDATrajectory` to `'mda'`. Override with `units`
+when needed.
 
 ## Species conventions
 
-The string passed to `get_indices()` follows the convention of the source simulation:
+The string passed to `get_indices()` follows the source simulation's convention:
 
 - **LAMMPS**: type number as a string — `'1'`, `'2'`
 - **VASP**: element symbol — `'Ba'`, `'F'`

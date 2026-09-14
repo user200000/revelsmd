@@ -1,9 +1,9 @@
 # Quickstart
 
 RevelsMD computes reduced-variance radial distribution functions (RDFs) and 3D
-number densities from molecular dynamics trajectories. It uses force sampling
-to produce estimators with lower statistical noise than conventional histogram
-counting. You need an MD trajectory that includes per-atom forces.
+number densities from molecular dynamics trajectories, using force sampling
+to produce estimators with lower noise than histogram counting. It requires a
+trajectory that includes per-atom forces.
 
 ## Radial distribution functions
 
@@ -30,7 +30,7 @@ rdf.g_count   # conventional histogram RDF
 rdf.g_force   # force-sampled RDF
 ```
 
-Plot them together to see the variance reduction:
+Plot both to see the variance reduction:
 
 ```python
 import matplotlib.pyplot as plt
@@ -58,7 +58,7 @@ grid = compute_density(
 )
 ```
 
-The grid carries three estimators and a hybrid selector:
+The grid carries three estimators and a hybrid:
 
 ```python
 grid.rho_count             # histogram density
@@ -75,8 +75,8 @@ grid.write_to_cube("lambda", "density.cube")
 
 ## Rigid molecules
 
-For rigid molecules (e.g. water), accumulate across all atoms in the group and
-deposit at the centre of mass:
+For rigid molecules (e.g. water), sum forces across all atoms and deposit at the
+centre of mass:
 
 ```python
 from revelsMD.trajectories import MDATrajectory
@@ -92,14 +92,13 @@ grid = compute_density(
 )
 ```
 
-Each atom must have a unique name. By default the density is deposited at the
-centre of mass of the group. See the [rigid molecules how-to](../how-to/rigid-molecules) for
+Each atom must have a unique name. By default, density is deposited at the
+centre of mass. See the [rigid molecules how-to](../how-to/rigid-molecules) for
 further options including charge and polarisation densities.
 
 ## Trajectory formats
 
-All trajectory backends share the same interface and can be used with any
-RevelsMD function.
+All backends share the same interface.
 
 **LAMMPS**
 

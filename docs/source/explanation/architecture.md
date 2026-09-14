@@ -31,10 +31,10 @@ revelsMD/
 ## Two-level API
 
 Every calculation is available at two levels. Convenience functions
-(`compute_rdf`, `compute_density`) handle the common case in one call and are
-thin wrappers around the class-based API. The classes (`RDF`, `DensityGrid`)
-expose full control over frame ranges, bin parameters, and incremental
-accumulation from multiple trajectories.
+(`compute_rdf`, `compute_density`) handle the common case in one call as thin
+wrappers around the class-based API. The classes (`RDF`, `DensityGrid`) expose
+full control over frame ranges, bin parameters, and multi-trajectory
+accumulation.
 
 ```python
 # Convenience
@@ -48,8 +48,8 @@ print(grid.rho_force.mean())
 
 ## Trajectory interface
 
-All trajectory backends implement `Trajectory` (`revelsMD/trajectories/_base.py`),
-an abstract base class that defines:
+All backends implement `Trajectory` (`revelsMD/trajectories/_base.py`), which
+defines:
 
 - `frames` — total frame count
 - `cell_matrix` — 3x3 array with rows as lattice vectors (works for any cell geometry)
@@ -59,9 +59,9 @@ an abstract base class that defines:
 - `iter_frames(start, stop, stride)` — sequential frame iteration, yields `Frame` instances
 - `get_frame(index)` — random access by index (abstract)
 
-The base class normalises start/stop/stride bounds (negative indices, `None` stop)
-before delegating to `_iter_frames_impl()`, which subclasses implement with
-non-negative bounds.
+The base class normalises start/stop/stride (negative indices, `None` stop) before
+delegating to `_iter_frames_impl()`, which subclasses implement with non-negative
+bounds.
 
 ### Frame
 
@@ -74,9 +74,9 @@ class Frame:
     forces: np.ndarray      # shape (n_atoms, 3)
 ```
 
-`__post_init__` validates that both arrays are 2D with a second dimension of 3,
-and that the atom counts match. The `frozen=True` constraint prevents accidental
-mutation after creation. `eq=False` leaves identity-based equality in place.
+`__post_init__` validates that both arrays are 2D with second dimension 3 and
+that atom counts match. `frozen=True` prevents mutation after creation.
+`eq=False` leaves identity-based equality in place.
 
 ## The deposit/accumulate pattern
 
@@ -85,39 +85,36 @@ Both `DensityGrid` and `RDF` follow the same two-level pattern:
 - `deposit()` — low-level single-frame method; user controls the iteration loop.
 - `accumulate()` — convenience wrapper that iterates frames and calls `deposit()`.
 
-This separation makes it straightforward to add custom iteration logic
-(e.g. subsampling, multi-trajectory accumulation) without duplicating any
-normalisation or bookkeeping code.
+This separation lets you add custom iteration logic (e.g. subsampling,
+multi-trajectory accumulation) without duplicating normalisation or bookkeeping.
 
 ### DensityGrid.deposit takes raw arrays
 
-`DensityGrid.deposit(positions, forces, weights, kernel)` operates below the
-`Selection` abstraction. It accepts raw numpy arrays (or lists of arrays for
-multi-species) directly. The `accumulate()` method builds a `Selection` from the
-provided `atom_names` and calls `Selection.extract(frame)` to produce the inputs
-for each `deposit()` call.
+`DensityGrid.deposit(positions, forces, weights, kernel)` operates below
+`Selection`, accepting raw numpy arrays (or lists of arrays for multi-species).
+`accumulate()` builds a `Selection` from `atom_names` and calls
+`Selection.extract(frame)` to produce inputs for each `deposit()` call.
 
-This design keeps `deposit()` general enough to be called with pre-processed data,
-without requiring the caller to go through a trajectory object.
+This keeps `deposit()` general enough to call with pre-processed data, without
+requiring a trajectory.
 
 ### RDF.deposit takes a Frame
 
-`RDF.deposit(frame)` accepts a `Frame` directly and performs all atom selection
-internally using the indices stored during `__init__`. This is appropriate because
-the RDF always computes a pairwise property between two named species — the
-selection is fixed at construction and there is no equivalent of the flexible
-`Selection` class.
+`RDF.deposit(frame)` accepts a `Frame` and performs atom selection internally
+using indices stored at `__init__`. This is appropriate because the RDF always
+computes a pairwise property between two fixed species — there is no equivalent
+of the flexible `Selection` class.
 
-This is a genuine structural difference: `DensityGrid` supports runtime
-reconfiguration of what is deposited (rigid molecules, charge weights, different
-species), while `RDF` is always a two-species pairwise calculation.
+This is a structural difference: `DensityGrid` supports runtime reconfiguration
+(rigid molecules, charge weights, different species), while `RDF` is always a
+two-species pairwise calculation.
 
 ## Selection and Selection.extract
 
-`Selection` (`revelsMD/density/selection.py`) bridges a `Frame` to the inputs
-required by `DensityGrid.deposit()`. It is constructed once per `accumulate()`
-call with the trajectory and `atom_names` configuration, then called once per
-frame via `extract(frame)`.
+`Selection` (`revelsMD/density/selection.py`) bridges `Frame` to
+`DensityGrid.deposit()` inputs. It is constructed once per `accumulate()` call
+with the trajectory and `atom_names`, then called per frame via
+`extract(frame)`.
 
 `extract(frame)` returns a `(positions, forces, weights)` tuple:
 
@@ -127,24 +124,22 @@ frame via `extract(frame)`.
 - **weights**: `1.0` for number density; per-atom charges for charge density;
   dipole projection along `polarisation_axis` for polarisation density.
 
-The minimum-image convention is applied inside `Selection` when computing COMs and
-dipole projections for molecules that may span periodic boundaries.
+`Selection` applies the minimum-image convention when computing COMs and dipole
+projections for molecules spanning periodic boundaries.
 
 ## Backend system
 
-The backend controls which implementation of numerically intensive inner loops is
-used. It is selected once at import time from the `REVELSMD_BACKEND` environment
-variable (default: `'numba'`).
+The backend selects the implementation of inner loops, chosen at import time from
+`REVELSMD_BACKEND` (default: `'numba'`).
 
-`get_backend()` (`revelsMD/backends.py`) returns the resolved backend name.
+`get_backend()` (`revelsMD/backends.py`) returns the resolved name.
 `get_backend_functions()` in `grid_helpers.py` and `rdf_helpers.py` returns the
-appropriate pair of functions for that backend.
+matching function pair.
 
 The numba backend (`grid_helpers_numba.py`, `rdf_helpers_numba.py`) provides
-JIT-compiled implementations for production speed. The numpy backend uses
-`np.add.at()` for correct accumulation when multiple particles share a voxel —
-standard fancy indexing with `+=` silently keeps only the last write for duplicate
-indices.
+JIT-compiled implementations. The numpy backend uses `np.add.at()` for correct
+accumulation when multiple particles share a voxel — `+=` with fancy indexing
+silently drops duplicate writes.
 
 FFT parallelism is configured separately via `REVELSMD_FFT_WORKERS`.
 
@@ -153,8 +148,8 @@ FFT parallelism is configured separately via `REVELSMD_FFT_WORKERS`.
 `revelsMD/statistics.py` provides three components:
 
 **`WelfordAccumulator3D`** — accumulates per-voxel variance and covariance across
-blocks using a weighted online algorithm. The caller provides
-`update(delta, rho_force, weight)` for each block, where `delta = rho_force - rho_count`.
+blocks using a weighted online algorithm. The caller calls
+`update(delta, rho_force, weight)` per block, where `delta = rho_force - rho_count`.
 `finalise()` returns population variance and covariance arrays. At least two blocks
 are required.
 
@@ -166,17 +161,15 @@ Zero-variance voxels and non-finite values are mapped to zero (pure counting den
 combination $(1-\lambda)\,\rho_\text{count} + \lambda\,\rho_\text{force}$ and
 sanitises non-finite values.
 
-These are used internally by `DensityGrid` when `compute_lambda=True` is passed to
-`accumulate()`. The computed $\lambda$ weights and combined density are exposed as
+`DensityGrid` uses these when `compute_lambda=True`, exposing the results as
 `grid.lambda_weights` and `grid.rho_lambda`.
 
 ## Cell geometry
 
-Simulation cells are represented throughout as a 3x3 `cell_matrix` with rows as
-lattice vectors. This handles both orthorhombic and non-orthorhombic cells
-uniformly. For orthorhombic cells, convenience properties `box_x`, `box_y`, `box_z`
-expose the diagonal elements; they raise `AttributeError` on non-orthorhombic cells
-to prevent misuse.
+Simulation cells are a 3x3 `cell_matrix` with rows as lattice vectors, handling
+orthorhombic and non-orthorhombic cells uniformly. For orthorhombic cells,
+`box_x`, `box_y`, `box_z` expose the diagonal elements; they raise
+`AttributeError` on non-orthorhombic cells.
 
 `DensityGrid` works in fractional coordinates internally: positions are transformed
 to $[0, 1)$ before grid assignment. This makes bin edges and voxel sizes

@@ -2,9 +2,8 @@
 
 ## Charge density
 
-Charge density requires the trajectory to carry per-atom charges. Pass
-`density_type='charge'` to the `DensityGrid` constructor, then call
-`accumulate()` as normal.
+Charge density requires per-atom charges on the trajectory. Pass
+`density_type='charge'` to `DensityGrid`, then call `accumulate()` as normal.
 
 ```python
 import numpy as np
@@ -30,15 +29,15 @@ grid.accumulate(traj, atom_names='O')
 print(grid.rho_force)   # charge density at oxygen sites
 ```
 
-For single-species accumulation the weights are the per-atom charges.
-For a multi-species (rigid-molecule) accumulation the weights are the
-summed molecular charge deposited at the centre location.
+For single-species accumulation, weights are per-atom charges. For
+rigid-molecule accumulation, the summed molecular charge is deposited at the
+centre location.
 
 ## Polarisation density
 
-Polarisation density computes the projection of the molecular dipole
-moment along one Cartesian axis. It requires `rigid=True` together with
-charge and mass data on the trajectory.
+Polarisation density projects the molecular dipole moment along one
+Cartesian axis. It requires `rigid=True` with charge and mass data on the
+trajectory.
 
 ```python
 masses = np.array([15.999, 1.008, 1.008] * 100)
@@ -64,7 +63,7 @@ grid.accumulate(
 print(grid.rho_force)   # polarisation density along z
 ```
 
-The `polarisation_axis` argument selects which component of the dipole
-vector is accumulated (default is 0, i.e. x).
+`polarisation_axis` selects which dipole component is accumulated (default
+0, i.e. x).
 
 Valid density types are `'number'`, `'charge'`, and `'polarisation'`.

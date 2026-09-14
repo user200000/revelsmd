@@ -25,8 +25,7 @@ and box geometry. `atom_style` describes the column layout in the data file.
 
 ## Compute the RDF
 
-The quickest route is `compute_rdf`, which accumulates all frames and
-integrates in one call:
+`compute_rdf` accumulates all frames and integrates in one call:
 
 ```python
 from revelsMD.rdf import compute_rdf
@@ -34,12 +33,11 @@ from revelsMD.rdf import compute_rdf
 rdf = compute_rdf(traj, '1', '1', integration='lambda')
 ```
 
-Species are identified by LAMMPS atom type number, passed as a string.
-This computes the type-1/type-1 RDF. Use `'1'` and `'2'` for a cross-species RDF.
+Species are LAMMPS atom type numbers passed as strings. This computes the
+type-1/type-1 RDF; use `'1'` and `'2'` for a cross-species RDF.
 
-`integration='lambda'` selects the variance-minimised estimator. The
-alternatives are `'forward'` (integrates from g(0) = 0) and `'backward'`
-(integrates from g(inf) = 1).
+`integration='lambda'` selects the variance-minimised estimator. Alternatives
+are `'forward'` (from g(0) = 0) and `'backward'` (from g(inf) = 1).
 
 ## Access the results
 
@@ -72,14 +70,13 @@ plt.show()
 :width: 60%
 ```
 
-The force-based estimator resolves pair structure with far less noise than
-the histogram. This is a single frame with fine bins (`delr=0.005`) — the
-histogram is barely usable while the force-based curve is smooth.
+The force-based estimator resolves pair structure with far less noise.
+This is a single frame with fine bins (`delr=0.005`) -- the histogram is
+barely usable while the force-based curve is smooth.
 
 ## Using the RDF class directly
 
-`compute_rdf` is a convenience wrapper. For separate control over
-accumulation and integration, use the `RDF` class:
+For separate control over accumulation and integration, use `RDF` directly:
 
 ```python
 from revelsMD.rdf import RDF
@@ -89,8 +86,8 @@ rdf.accumulate(traj, start=10, stop=None, period=2)
 rdf.get_rdf(integration='lambda')
 ```
 
-Separating `accumulate()` from `get_rdf()` lets you try different integration
-methods without re-reading the trajectory:
+This lets you try different integration methods without re-reading the
+trajectory:
 
 ```python
 rdf.get_rdf(integration='forward')
@@ -119,7 +116,7 @@ rdf.accumulate(traj, start=50, period=2)
 rdf.accumulate(traj, stop=100)
 ```
 
-These have the same meaning as Python slice indices.
+These follow Python slice semantics.
 
 ## Parameters
 

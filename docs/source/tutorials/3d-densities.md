@@ -1,9 +1,7 @@
 # 3D densities
 
-Compute a 3D lithium density for Li6PS5I using VASP
-trajectory data. The example file `Li6PS5I_run1_vasprun.xml` is available
-in the `examples/` directory of the
-[repository](https://github.com/user200000/revelsmd).
+Compute a 3D lithium density for Li6PS5I using VASP trajectory data from the
+`examples/` directory of the [repository](https://github.com/user200000/revelsmd).
 
 ## Load the trajectory
 
@@ -18,8 +16,8 @@ traj = VaspTrajectory(
 
 ## Compute the density
 
-The quickest route is `compute_density`, which accumulates all frames and
-returns a `DensityGrid` in one call:
+`compute_density` accumulates all frames and returns a `DensityGrid` in one
+call:
 
 ```python
 from revelsMD.density import compute_density
@@ -33,8 +31,8 @@ grid = compute_density(
 )
 ```
 
-Species are identified by name. `nbins=200` sets a uniform 200x200x200
-voxel grid. `compute_lambda=True` enables the variance-minimised estimator.
+`nbins=200` sets a uniform 200x200x200 voxel grid. `compute_lambda=True`
+enables the variance-minimised estimator.
 
 ## Access the results
 
@@ -44,8 +42,8 @@ rho_force  = grid.rho_force   # force-based density
 rho_lambda = grid.rho_lambda  # variance-minimised density
 ```
 
-All three are 3D NumPy arrays of shape `(nbinsx, nbinsy, nbinsz)`,
-computed lazily on first access.
+All three are NumPy arrays of shape `(nbinsx, nbinsy, nbinsz)`, computed
+lazily on first access.
 
 ## Visualise a 2D slice
 
@@ -82,9 +80,8 @@ the optimal result.
 
 ## Hybrid density
 
-The force estimator can produce spurious negative values in poorly sampled
-voxels. `rho_hybrid` switches to the counting estimate below a density
-threshold:
+The force estimator can produce negative values in poorly sampled voxels.
+`rho_hybrid` falls back to the counting estimate below a threshold:
 
 ```python
 rho = grid.rho_hybrid(threshold=0.5)
@@ -95,8 +92,8 @@ the threshold use the counting value.
 
 ## Using DensityGrid directly
 
-`compute_density` is a convenience wrapper. For separate control over grid
-construction and accumulation, use `DensityGrid`:
+For separate control over grid construction and accumulation, use
+`DensityGrid` directly:
 
 ```python
 from revelsMD.density import DensityGrid
@@ -110,8 +107,8 @@ grid.accumulate(
 ```
 
 Per-axis bin counts are set with a `(nbinsx, nbinsy, nbinsz)` tuple.
-`accumulate()` accepts `start`, `stop`, and `period` with the same semantics
-as Python slice indices.
+`accumulate()` accepts `start`, `stop`, and `period` following Python slice
+semantics.
 
 ## Grid metadata
 

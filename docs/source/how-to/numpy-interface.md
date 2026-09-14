@@ -2,8 +2,8 @@
 
 ## NumpyTrajectory
 
-`NumpyTrajectory` wraps in-memory NumPy arrays so they can be used with
-`DensityGrid.accumulate()` and `RDF.accumulate()` just like any
+`NumpyTrajectory` wraps in-memory NumPy arrays for use with
+`DensityGrid.accumulate()` and `RDF.accumulate()`, just like any
 file-backed trajectory.
 
 ```python
@@ -26,10 +26,10 @@ grid = DensityGrid(traj, density_type='number', nbins=50)
 grid.accumulate(traj, atom_names='O')
 ```
 
-For triclinic cells, pass `cell_matrix` (a 3x3 array with rows as lattice
-vectors) instead of `box_x/y/z`.
+For triclinic cells, pass `cell_matrix` (3x3, rows as lattice vectors)
+instead of `box_x/y/z`.
 
-Charge and mass arrays can be supplied via `charge_list` and `mass_list`:
+Supply charges and masses via `charge_list` and `mass_list`:
 
 ```python
 charges = np.array([-0.82, 0.41, 0.41] * 100)
@@ -47,8 +47,8 @@ traj = NumpyTrajectory(
 
 ## Raw deposit()
 
-For custom iteration loops you can call `deposit()` directly on a
-`DensityGrid` or `RDF` object. Each call deposits a single frame.
+For custom iteration, call `deposit()` directly on a `DensityGrid` or
+`RDF`. Each call deposits one frame.
 
 ```python
 from revelsMD.frame_sources import Frame
@@ -69,7 +69,7 @@ for i in range(len(positions)):
     rdf.deposit(frame)
 ```
 
-Using `accumulate()` via `NumpyTrajectory` is preferred because it
-handles blocking, Welford statistics, and frame-range selection
-automatically. Use `deposit()` only when you need fine-grained control
-over which frames or pre-processed data to accumulate.
+`accumulate()` is preferred because it handles blocking, Welford
+statistics, and frame-range selection automatically. Use `deposit()` only
+when you need control over which frames or pre-processed data to
+accumulate.

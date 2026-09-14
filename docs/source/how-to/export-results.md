@@ -2,7 +2,7 @@
 
 ## RDF data
 
-After computing an RDF, results are plain NumPy arrays on the returned object.
+RDF results are plain NumPy arrays on the returned object.
 
 ```python
 from revelsMD.rdf import compute_rdf
@@ -33,7 +33,7 @@ np.savez("rdf.npz", r=rdf.r, g_count=rdf.g_count, g_force=rdf.g_force)
 
 ## Density data
 
-Density grids expose their accumulated arrays directly as NumPy arrays.
+Density grids expose accumulated arrays as NumPy arrays.
 
 ```python
 grid.rho_count       # histogram-based density
@@ -61,7 +61,7 @@ np.savez("density.npz",
 
 ## Cube files
 
-Export a density grid to a Gaussian cube file for use with VESTA or VMD:
+Export to a Gaussian cube file for VESTA or VMD:
 
 ```python
 grid.write_to_cube("force", "force_density.cube")
@@ -71,12 +71,12 @@ grid.write_to_cube("hybrid", "hybrid_density.cube", threshold=0.01)
 ```
 
 The first argument selects which density to write: `"force"`, `"count"`,
-`"lambda"`, or `"hybrid"`. The `threshold` argument is required for
-`"hybrid"` and controls the crossover between force and count density.
+`"lambda"`, or `"hybrid"`. `threshold` is required for `"hybrid"` and
+controls the force/count crossover.
 
 ## Grid metadata
 
-Cell geometry and grid dimensions are available as attributes:
+Cell geometry and grid dimensions:
 
 ```python
 grid.cell_matrix   # (3, 3) array, rows are lattice vectors

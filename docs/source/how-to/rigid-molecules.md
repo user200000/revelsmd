@@ -1,7 +1,6 @@
 # Rigid molecules
 
-Compute densities for molecular species where forces on constituent atoms are
-summed per molecule.
+Compute densities for molecules where forces on constituent atoms are summed.
 
 ## Basic usage
 
@@ -18,14 +17,14 @@ grid.accumulate(
 )
 ```
 
-Each atom name must be unique. All selections must have the same number of
+Each atom name must be unique, and all selections must have the same number of
 indices.
 
 ## Centre of mass vs atom site
 
-By default, the density is deposited at the molecular centre of mass
-(`centre_location=True`). To deposit at a specific atom instead, pass its
-index into `atom_names`:
+By default, density is deposited at the centre of mass
+(`centre_location=True`). To deposit at a specific atom, pass its index
+into `atom_names`:
 
 ```python
 grid.accumulate(
@@ -37,12 +36,11 @@ grid.accumulate(
 ```
 
 Centre-of-mass deposition requires mass data. `MDATrajectory` provides this
-automatically. For `NumpyTrajectory`, pass `mass_list` to the constructor.
+automatically; for `NumpyTrajectory`, pass `mass_list`.
 
 ## Charge density
 
-Pass `density_type='charge'` when constructing the grid. Charge data must be
-available on the trajectory.
+Pass `density_type='charge'`. Charge data must be available on the trajectory.
 
 ```python
 grid = DensityGrid(traj, density_type='charge', nbins=50)
@@ -57,8 +55,8 @@ The summed molecular charge is deposited at the centre location.
 
 ## Polarisation density
 
-Pass `density_type='polarisation'` and specify `polarisation_axis`.
-`rigid=True` with multiple atom names is required.
+Pass `density_type='polarisation'` and `polarisation_axis`. Requires
+`rigid=True` with multiple atom names.
 
 ```python
 grid = DensityGrid(traj, density_type='polarisation', nbins=50)
@@ -71,7 +69,7 @@ grid.accumulate(
 )
 ```
 
-Both charge and mass data must be available on the trajectory.
+Requires both charge and mass data on the trajectory.
 
 ## Troubleshooting
 
