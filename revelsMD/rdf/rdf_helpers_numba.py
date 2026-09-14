@@ -9,8 +9,18 @@ Performance: ~8-12x speedup over original Python loops, ~3-4x over NumPy.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
-from numba import jit, prange  # type: ignore[import-untyped]
+
+if TYPE_CHECKING:
+    # numba's type stubs (>= 0.67) do not present prange as iterable to
+    # mypy; for type checking treat it as the semantically equivalent
+    # builtin range.
+    from builtins import range as prange
+    from numba import jit  # type: ignore[import-untyped]
+else:
+    from numba import jit, prange  # type: ignore[import-untyped]
 
 
 # ---------------------------------------------------------------------------

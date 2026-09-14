@@ -154,7 +154,16 @@ class DensityGrid:
 
     @property
     def lambda_weights(self) -> np.ndarray | None:
-        """Per-voxel lambda weights (available after accumulate with compute_lambda)."""
+        """Per-voxel lambda weights (available after accumulate with compute_lambda).
+
+        This is the Eq. 3 weight of Coles et al. (2021) applied to
+        rho_force (E_1 in the paper's notation; rho_count is E_0 and
+        carries weight 1 - lambda), so
+        rho_lambda = (1 - lambda) * rho_count + lambda * rho_force.
+        Degenerate voxels with Var(delta) = 0 report lambda = 1, i.e. the
+        force estimator (a guard for pathological input, not a
+        poorly-sampled-regions policy -- see rho_hybrid for that).
+        """
         if self._lambda_weights is None and self._welford is not None:
             self._finalise_lambda()
         return self._lambda_weights
@@ -804,7 +813,7 @@ class DensityGrid:
         # combine_estimators computes:
         #   rho_lambda = rho_count * lambda_raw + rho_force * (1 - lambda_raw)
         # i.e. rho_count * (1 - _lambda_weights) + rho_force * _lambda_weights
-        # (see Coles et al., J. Phys. Chem. B 2021).
+        # (see Coles et al., J. Chem. Phys. 154, 191101 (2021)).
         lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
         self._lambda_weights = 1.0 - lambda_raw
 
