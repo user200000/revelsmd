@@ -169,7 +169,8 @@ class RDF:
         -------
         np.ndarray or None
             1D array of per-bin lambda weights, or None if
-            integration='lambda' was not used.
+            integration='lambda' was not used. The first entry (r = 0)
+            is padding and is always 0.
         """
         return self._lam
 
@@ -245,7 +246,9 @@ class RDF:
         Raises
         ------
         ValueError
-            If frame indices are out of range or the selected range is empty.
+            If start or stop exceeds the number of frames, or the selected
+            range is empty. Negative values count from the end of the
+            trajectory.
         """
         # Validate frame bounds
         if start > trajectory.frames:
@@ -344,7 +347,8 @@ class RDF:
         The last bin edge (at r_max + delr) also has only one contributing shell,
         but we discard this bin from returned results, so no correction is needed.
 
-        See docs/triangular_deposition_normalisation.md for the full derivation.
+        See the kernels page of the documentation (section "CIC normalisation
+        for the RDF") for the full derivation.
         """
         delr = self.delr
         r_vals = self._bins
