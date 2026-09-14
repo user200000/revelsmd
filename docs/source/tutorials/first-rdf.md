@@ -1,7 +1,8 @@
 # Radial distribution functions
 
 Compute a radial distribution function for a Lennard-Jones fluid
-using the example data in `examples/example_1_LJ/`.
+using the ten-frame Lennard-Jones subset committed under
+`tests/data/example_1_LJ/`.
 
 ## Load the trajectory
 
@@ -9,8 +10,8 @@ using the example data in `examples/example_1_LJ/`.
 from revelsMD.trajectories import LammpsTrajectory
 
 traj = LammpsTrajectory(
-    'examples/example_1_LJ/dump.nh.lammps',
-    'examples/example_1_LJ/data.fin.nh.data',
+    'tests/data/example_1_LJ/dump.nh.lammps',
+    'tests/data/example_1_LJ/data.fin.nh.data',
     temperature=1.35,
     units='lj',
     atom_style="id resid type q x y z ix iy iz",
@@ -110,11 +111,11 @@ is always 0.
 `accumulate()` accepts `start`, `stop`, and `period`:
 
 ```python
-# Use every other frame from frame 50 onwards
-rdf.accumulate(traj, start=50, period=2)
+# Use every other frame from frame 4 onwards
+rdf.accumulate(traj, start=4, period=2)
 
-# Use only the first 100 frames
-rdf.accumulate(traj, stop=100)
+# Use only the first 5 frames
+rdf.accumulate(traj, stop=5)
 ```
 
 These follow Python slice semantics.

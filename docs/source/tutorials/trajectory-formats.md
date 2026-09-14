@@ -17,8 +17,8 @@ dump 1 all custom 100 trajectory.dump id type x y z fx fy fz
 from revelsMD.trajectories import LammpsTrajectory
 
 traj = LammpsTrajectory(
-    'examples/example_1_LJ/dump.nh.lammps',
-    'examples/example_1_LJ/data.fin.nh.data',
+    'tests/data/example_1_LJ/dump.nh.lammps',
+    'tests/data/example_1_LJ/data.fin.nh.data',
     temperature=1.35,
     units='lj',
     atom_style='id resid type q x y z ix iy iz',
@@ -56,7 +56,7 @@ beyond a standard NVT or NVE run:
 from revelsMD.trajectories import VaspTrajectory
 
 traj = VaspTrajectory(
-    'examples/example_3_BaSnF4/r1/vasprun.xml',
+    'tests/data/example_3_vasp/vasprun.xml',
     temperature=500.0,
 )
 
@@ -95,8 +95,8 @@ AMBER (`.nc`, `.mdcrd`), CHARMM/NAMD (`.dcd`), and others.
 from revelsMD.trajectories import MDATrajectory
 
 traj = MDATrajectory(
-    'examples/example_4_rigid_water/prod.trr',
-    'examples/example_4_rigid_water/prod.tpr',
+    'tests/data/example_4_water/prod.trr',
+    'tests/data/example_4_water/prod.tpr',
     temperature=300.0,
 )
 
@@ -202,8 +202,8 @@ for frame in traj.iter_frames():
     print(frame.positions.shape)  # (n_atoms, 3)
     print(frame.forces.shape)     # (n_atoms, 3)
 
-# Every other frame, skipping the first 100
-for frame in traj.iter_frames(start=100, stride=2):
+# Every other frame, skipping the first two
+for frame in traj.iter_frames(start=2, stride=2):
     process(frame)
 ```
 
