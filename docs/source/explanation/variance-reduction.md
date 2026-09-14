@@ -32,7 +32,7 @@ For RDFs, $A = g_\text{bwd}$ and $B = g_\text{fwd}$, so $\lambda(r)$ is the weig
 
 $$g_\lambda(r) = (1 - \lambda(r))\, g_\text{bwd}(r) + \lambda(r)\, g_\text{fwd}(r)$$
 
-$\lambda(r)$ approaches 1 at small $r$, where forward integration is accurate, and 0 at large $r$.
+$\lambda(r)$ approaches 1 at small $r$, where forward integration is accurate, and 0 at large $r$. The entry at $r = 0$ itself is padding and is reported as 0.
 
 For 3D densities, $A = \rho_\text{count}$ and $B = \rho_\text{force}$, so $\lambda(\mathbf{r})$ is the weight on the force estimator:
 

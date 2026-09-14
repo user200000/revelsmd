@@ -169,6 +169,8 @@ class NumpyTrajectory(Trajectory):
         ------
         DataUnavailableError
             If no ``charge_list`` was provided at construction.
+        ValueError
+            If no ``species_list`` was provided, or no atoms match ``atype``.
         """
         if not hasattr(self, 'charge_list'):
             raise DataUnavailableError("Charge data not available for this trajectory.")
@@ -192,6 +194,8 @@ class NumpyTrajectory(Trajectory):
         ------
         DataUnavailableError
             If no ``mass_list`` was provided at construction.
+        ValueError
+            If no ``species_list`` was provided, or no atoms match ``atype``.
         """
         if not hasattr(self, 'mass_list'):
             raise DataUnavailableError("Mass data not available for this trajectory.")

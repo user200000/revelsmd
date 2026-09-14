@@ -78,7 +78,8 @@ which integrates to its net charge.
 
 Because the summed density is larger than any single species' density, a
 `rho_hybrid` threshold tuned on one species does not transfer unchanged: the
-threshold is compared against the summed counting density, so scale it by the
-number of species in the selection.
+threshold is compared against the summed counting density, so choose it by
+inspecting `rho_count` of the multi-species grid rather than reusing a
+single-species value.
 
 Valid density types are `'number'`, `'charge'`, and `'polarisation'`.
