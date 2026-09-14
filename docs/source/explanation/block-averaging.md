@@ -102,14 +102,20 @@ blocks have been accumulated.
 
 ### Lambda weight computation
 
-`compute_lambda_weights(variance, covariance)` computes
+`compute_lambda_weights(variance, covariance)` returns the ratio
+`covariance / variance`, guarded so that zero-variance voxels and non-finite
+results receive a fixed replacement value instead of dividing by zero.
+`DensityGrid` passes it $\text{Var}(\delta)$ and
+$\text{Cov}(\delta, \rho_\text{force})$ and takes one minus the ratio as the
+weight on the force density:
 
 $$
-\lambda = \frac{\text{Cov}(\delta, \rho_\text{force})}{\text{Var}(\delta)}
+\lambda = 1 - \frac{\text{Cov}(\delta, \rho_\text{force})}{\text{Var}(\delta)}
+= -\frac{\text{Cov}(\rho_\text{count}, \delta)}{\text{Var}(\delta)}
 $$
 
-with safe handling for zero-variance voxels (lambda defaults to 0, i.e. counting
-density). Non-finite values are also set to zero.
+Zero-variance voxels, where every block gave the same $\delta$, report
+$\lambda = 1$ (force density), as do voxels whose ratio is non-finite.
 
 ### Estimator combination
 
