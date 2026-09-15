@@ -41,15 +41,6 @@ The following packages are installed automatically:
 
 RevelsMD uses Numba for JIT-compiled numerical kernels. On first import, Numba will compile the kernels; subsequent imports are faster.
 
-To disable Numba (e.g. for debugging), set the environment variable before importing:
-
-```python
-import os
-os.environ['REVELSMD_BACKEND'] = 'numpy'
-
-import revelsMD  # uses pure NumPy implementations
-```
-
 ## Verifying the installation
 
 ```python
