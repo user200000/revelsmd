@@ -57,7 +57,7 @@ from revelsMD.trajectories import VaspTrajectory
 
 traj = VaspTrajectory(
     'tests/data/example_3_vasp/vasprun.xml',
-    temperature=500.0,
+    temperature=600.0,
 )
 
 print(traj.frames)
@@ -70,7 +70,7 @@ from sequential restarts:
 ```python
 traj = VaspTrajectory(
     ['run1/vasprun.xml', 'run2/vasprun.xml'],
-    temperature=500.0,
+    temperature=600.0,
 )
 ```
 
