@@ -245,18 +245,61 @@ class LammpsTrajectory(Trajectory):
         self._validate_cell_matrix(self.cell_matrix)
 
     def get_indices(self, atype: str) -> np.ndarray:
-        """Return atom indices for a given LAMMPS atom type (as string, e.g. '1', '2')."""
+        """Return atom indices for a given LAMMPS atom type.
+
+        Parameters
+        ----------
+        atype : str
+            LAMMPS atom type as a string (e.g. ``'1'``, ``'2'``).
+
+        Returns
+        -------
+        np.ndarray
+            Zero-based atom indices corresponding to the given type.
+        """
         return self.mdanalysis_universe.select_atoms(f'type {atype}').ids - 1
 
     def get_charges(self, atype: str) -> np.ndarray:
-        """Return atomic charges for a given LAMMPS atom type (as string, e.g. '1', '2')."""
+        """Return atomic charges for a given LAMMPS atom type.
+
+        Parameters
+        ----------
+        atype : str
+            LAMMPS atom type as a string (e.g. ``'1'``, ``'2'``).
+
+        Returns
+        -------
+        np.ndarray
+            Array of atomic charges for the selected atoms.
+
+        Raises
+        ------
+        DataUnavailableError
+            If charge data is absent from the topology file.
+        """
         try:
             return self.mdanalysis_universe.select_atoms(f'type {atype}').charges
         except NoDataError:
             raise DataUnavailableError("Charge data not available for this LAMMPS trajectory.")
 
     def get_masses(self, atype: str) -> np.ndarray:
-        """Return atomic masses for a given LAMMPS atom type (as string, e.g. '1', '2')."""
+        """Return atomic masses for a given LAMMPS atom type.
+
+        Parameters
+        ----------
+        atype : str
+            LAMMPS atom type as a string (e.g. ``'1'``, ``'2'``).
+
+        Returns
+        -------
+        np.ndarray
+            Array of atomic masses for the selected atoms.
+
+        Raises
+        ------
+        DataUnavailableError
+            If mass data is absent from the topology file.
+        """
         try:
             return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
         except NoDataError:
@@ -304,6 +347,17 @@ class LammpsTrajectory(Trajectory):
         This is only needed for interleaved blocking. Contiguous blocking
         (the default) streams frames via ``iter_frames()`` and does not
         trigger the cache.
+
+        Parameters
+        ----------
+        index : int
+            Frame index to retrieve.
+
+        Returns
+        -------
+        Frame
+            A dataclass with ``positions`` and ``forces`` arrays,
+            each of shape ``(n_atoms, 3)``.
 
         Warning
         -------

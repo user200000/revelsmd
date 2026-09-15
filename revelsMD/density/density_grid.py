@@ -40,7 +40,7 @@ class DensityGrid:
     Parameters
     ----------
     trajectory : Trajectory
-        Trajectory-state object providing `box_x`, `box_y`, `box_z`, and `units`.
+        Trajectory-state object providing `cell_matrix` and `units`.
     density_type : {'number', 'charge', 'polarisation'}
         Type of density to be constructed (controls the estimator weighting).
     nbins : int or tuple of int
@@ -130,7 +130,14 @@ class DensityGrid:
 
     @property
     def rho_count(self) -> np.ndarray | None:
-        """Counting-based density. Computed on first access after accumulate()."""
+        """Counting-based density. Computed on first access after accumulate().
+
+        Returns
+        -------
+        np.ndarray or None
+            3D array of counting-based density (shape: nbinsx, nbinsy, nbinsz),
+            or None if no frames have been accumulated.
+        """
         if self.count == 0:
             return None  # No data accumulated yet
         if self._rho_count is None:
@@ -139,7 +146,14 @@ class DensityGrid:
 
     @property
     def rho_force(self) -> np.ndarray | None:
-        """Force-based density via FFT. Computed on first access after accumulate()."""
+        """Force-based density via FFT. Computed on first access after accumulate().
+
+        Returns
+        -------
+        np.ndarray or None
+            3D array of force-based density (shape: nbinsx, nbinsy, nbinsz),
+            or None if no frames have been accumulated.
+        """
         if self.count == 0:
             return None  # No data accumulated yet
         if self._rho_force is None:
@@ -148,7 +162,14 @@ class DensityGrid:
 
     @property
     def rho_lambda(self) -> np.ndarray | None:
-        """Variance-minimised density (available after accumulate with compute_lambda)."""
+        """Variance-minimised density (available after accumulate with compute_lambda).
+
+        Returns
+        -------
+        np.ndarray or None
+            3D array of variance-minimised density (shape: nbinsx, nbinsy, nbinsz),
+            or None if compute_lambda was not used.
+        """
         if self._rho_lambda is None and self._welford is not None:
             self._finalise_lambda()
         return self._rho_lambda
@@ -164,6 +185,12 @@ class DensityGrid:
         Degenerate voxels with Var(delta) = 0 report lambda = 1, i.e. the
         force estimator (a guard for pathological input, not a
         poorly-sampled-regions policy -- see rho_hybrid for that).
+
+        Returns
+        -------
+        np.ndarray or None
+            3D array of per-voxel lambda weights (shape: nbinsx, nbinsy, nbinsz),
+            or None if compute_lambda was not used.
         """
         if self._lambda_weights is None and self._welford is not None:
             self._finalise_lambda()
