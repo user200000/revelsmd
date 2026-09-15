@@ -1,5 +1,5 @@
-sphinx==7.1.2
-sphinx-rtd-theme==1.3.0rc1
+sphinx==8.1.3
+sphinx-rtd-theme==3.0.2
 numpy 
 ase
 pymatgen 
@@ -7,6 +7,6 @@ scipy>=1.15
 tqdm
 lxml
 MDAnalysis>=2.8.0
-myst-parser
+myst-parser==5.1.0
 cmcrameri
 revelsMD
