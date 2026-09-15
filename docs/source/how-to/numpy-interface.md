@@ -48,7 +48,10 @@ traj = NumpyTrajectory(
 ## Raw deposit()
 
 For custom iteration, call `deposit()` directly on a `DensityGrid` or
-`RDF`. Each call deposits one frame.
+`RDF`. Each call deposits one frame. To deposit several species from the
+same frame, pass their position and force arrays as lists in a single
+call; the grid counts frames, not arrays, so splitting one frame across
+several calls would normalise the density as if it were several frames.
 
 ```python
 from revelsMD.frame_sources import Frame

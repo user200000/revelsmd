@@ -10,7 +10,7 @@ from matplotlib import rcParams
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent.parent
-EXAMPLES = REPO_ROOT / "examples"
+TEST_DATA = REPO_ROOT / "tests" / "data"
 OUTPUT_DIR = Path(__file__).parent.parent / "_static" / "images"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -47,7 +47,7 @@ def main():
     from revelsMD.trajectories import LammpsTrajectory
     from revelsMD.rdf import compute_rdf
 
-    lj_path = EXAMPLES / "example_1_LJ"
+    lj_path = TEST_DATA / "example_1_LJ"
     traj = LammpsTrajectory(
         str(lj_path / "dump.nh.lammps"),
         str(lj_path / "data.fin.nh.data"),

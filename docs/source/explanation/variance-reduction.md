@@ -10,41 +10,48 @@ In both cases, the optimal strategy is a position-dependent weighted average fav
 
 ## The optimal linear combination
 
-Given two unbiased estimators $A$ and $B$, the minimum-variance combination is:
+Given two unbiased estimators $A$ and $B$, write their difference as $\delta = B - A$. Any linear combination that stays unbiased has the form
 
-$$\hat{\theta}_\lambda = (1 - \lambda) A + \lambda B$$
+$$\hat{\theta}_\lambda = A + \lambda\,\delta = (1 - \lambda) A + \lambda B$$
 
-The variance of this combined estimate is:
+so $\lambda$ is the weight on $B$. The variance of this combined estimate is:
 
-$$\operatorname{Var}(\hat{\theta}_\lambda) = (1-\lambda)^2 \operatorname{Var}(A) + \lambda^2 \operatorname{Var}(B) + 2\lambda(1-\lambda)\operatorname{Cov}(A, B)$$
+$$\operatorname{Var}(\hat{\theta}_\lambda) = \operatorname{Var}(A) + 2\lambda\operatorname{Cov}(A, \delta) + \lambda^2 \operatorname{Var}(\delta)$$
 
 Differentiating with respect to $\lambda$ and setting to zero gives the optimal weight:
 
-$$\lambda^* = \frac{\operatorname{Cov}(\delta, B)}{\operatorname{Var}(\delta)}$$
+$$\lambda^* = -\frac{\operatorname{Cov}(A, \delta)}{\operatorname{Var}(\delta)}$$
 
-where $\delta = B - A$.
+This is Eq. 3 of Coles et al. (2021), with $A$ and $B$ playing the roles of their $E_0$ and $E_1$.
 
 ## Position-dependent weights
 
 The optimal $\lambda$ varies with position. RevelsMD computes a $\lambda(r)$ profile for RDFs and a three-dimensional $\lambda(\mathbf{r})$ field for densities. The combined estimates are then:
 
-For RDFs:
+For RDFs, $A = g_\text{bwd}$ and $B = g_\text{fwd}$, so $\lambda(r)$ is the weight on the forward estimator:
 
-$$g_\lambda(r) = (1 - \lambda(r))\, g_\text{fwd}(r) + \lambda(r)\, g_\text{bwd}(r)$$
+$$g_\lambda(r) = (1 - \lambda(r))\, g_\text{bwd}(r) + \lambda(r)\, g_\text{fwd}(r)$$
 
-For 3D densities:
+$\lambda(r)$ approaches 1 at small $r$, where forward integration is accurate, and 0 at large $r$. The entry at $r = 0$ itself is padding and is reported as 0.
+
+For 3D densities, $A = \rho_\text{count}$ and $B = \rho_\text{force}$, so $\lambda(\mathbf{r})$ is the weight on the force estimator:
 
 $$\rho_\lambda(\mathbf{r}) = (1 - \lambda(\mathbf{r}))\, \rho_\text{count}(\mathbf{r}) + \lambda(\mathbf{r})\, \rho_\text{force}(\mathbf{r})$$
 
+These are the weights exposed as `rdf.lam` and `grid.lambda_weights`.
+
 ## Estimating variance and covariance
 
-Computing $\lambda^*$ requires $\operatorname{Var}(\delta)$ and $\operatorname{Cov}(\delta, B)$ estimated from the trajectory. RevelsMD obtains these by dividing frames into $N$ blocks. Both contiguous (default) and interleaved blocking are supported. Each block yields an independent pair ($A_i$, $B_i$), and statistics are computed from the spread across blocks:
+Computing $\lambda^*$ requires $\operatorname{Var}(\delta)$ and $\operatorname{Cov}(A, \delta)$ estimated from the trajectory. Given $N$ independent samples ($A_i$, $B_i$) of the two estimators, the statistics are computed from their spread:
 
 $$\operatorname{Var}(\delta) \approx \frac{1}{N} \sum_{i=1}^N (\delta_i - \bar{\delta})^2$$
 
-$$\operatorname{Cov}(\delta, B) \approx \frac{1}{N} \sum_{i=1}^N (\delta_i - \bar{\delta})(B_i - \bar{B})$$
+$$\operatorname{Cov}(A, \delta) \approx \frac{1}{N} \sum_{i=1}^N (A_i - \bar{A})(\delta_i - \bar{\delta})$$
 
-By default, blocks are contiguous (consecutive frames), controlled by `block_size`. Interleaved blocking (`sections` parameter) can reduce bias from slow drift. Strategy selection is covered in [Block Averaging](block-averaging.md).
+The two calculations draw their samples differently:
+
+- **RDFs** keep the per-frame $g_\text{fwd}(r)$ and $g_\text{bwd}(r)$ profiles, so each frame is one sample and no blocking parameters apply. Lambda estimation is enabled by passing `integration='lambda'` to `compute_rdf` or `get_rdf`.
+- **3D densities** divide frames into $N$ blocks, and each block yields one sample. By default, blocks are contiguous (consecutive frames), controlled by `block_size`. Interleaved blocking (`sections` parameter) can reduce bias from slow drift. Strategy selection is covered in [Block Averaging](block-averaging.md).
 
 ### The Welford accumulator
 
@@ -54,11 +61,9 @@ For 3D density fields, where storing all block densities would be prohibitive, R
 
 `block_size` sets frames per block (contiguous); `sections` sets the number of interleaved blocks. More blocks yield better variance estimates but fewer frames per block. At least two blocks are required.
 
-For RDFs, lambda estimation is enabled by passing `integration='lambda'` to `compute_rdf` or `get_rdf`.
-
 ## Edge cases
 
-Where $\operatorname{Var}(\delta)$ is zero — because both estimators agree exactly — $\lambda$ is undefined. RevelsMD defaults to $\lambda = 0$ (counting estimator). Non-finite values from numerical issues are also set to zero. These defaults are conservative: they fall back to counting rather than introducing artefacts.
+Where $\operatorname{Var}(\delta)$ is zero — because both estimators agree exactly across every sample — $\lambda$ is undefined. RevelsMD then reports a fixed weight: $\lambda = 0$ for RDFs (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). Non-finite values from numerical issues receive the same fixed weight. These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
 
 ## When to use lambda estimation
 

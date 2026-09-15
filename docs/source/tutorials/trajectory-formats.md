@@ -17,16 +17,16 @@ dump 1 all custom 100 trajectory.dump id type x y z fx fy fz
 from revelsMD.trajectories import LammpsTrajectory
 
 traj = LammpsTrajectory(
-    'examples/example_1_LJ/dump.nh',
-    'examples/example_1_LJ/data.fin.nh.data',
-    temperature=0.75,
+    'tests/data/example_1_LJ/dump.nh.lammps',
+    'tests/data/example_1_LJ/data.fin.nh.data',
+    temperature=1.35,
     units='lj',
-    atom_style='full',
+    atom_style='id resid type q x y z ix iy iz',
 )
 
 print(traj.frames)        # number of frames
 print(traj.cell_matrix)   # 3x3 lattice matrix, rows are lattice vectors
-print(traj.temperature)   # 0.75
+print(traj.temperature)   # 1.35
 print(traj.beta)          # 1 / (kB * T) in the chosen unit system
 ```
 
@@ -56,8 +56,8 @@ beyond a standard NVT or NVE run:
 from revelsMD.trajectories import VaspTrajectory
 
 traj = VaspTrajectory(
-    'examples/example_3_BaSnF4/r1/vasprun.xml',
-    temperature=500.0,
+    'tests/data/example_3_vasp/vasprun.xml',
+    temperature=600.0,
 )
 
 print(traj.frames)
@@ -70,7 +70,7 @@ from sequential restarts:
 ```python
 traj = VaspTrajectory(
     ['run1/vasprun.xml', 'run2/vasprun.xml'],
-    temperature=500.0,
+    temperature=600.0,
 )
 ```
 
@@ -95,8 +95,8 @@ AMBER (`.nc`, `.mdcrd`), CHARMM/NAMD (`.dcd`), and others.
 from revelsMD.trajectories import MDATrajectory
 
 traj = MDATrajectory(
-    'examples/example_4_rigid_water/prod.trr',
-    'examples/example_4_rigid_water/prod.tpr',
+    'tests/data/example_4_water/prod.trr',
+    'tests/data/example_4_water/prod.tpr',
     temperature=300.0,
 )
 
@@ -202,8 +202,8 @@ for frame in traj.iter_frames():
     print(frame.positions.shape)  # (n_atoms, 3)
     print(frame.forces.shape)     # (n_atoms, 3)
 
-# Every other frame, skipping the first 100
-for frame in traj.iter_frames(start=100, stride=2):
+# Every other frame, skipping the first two
+for frame in traj.iter_frames(start=2, stride=2):
     process(frame)
 ```
 

@@ -20,6 +20,10 @@ grid.accumulate(
 Each atom name must be unique, and all selections must have the same number of
 indices.
 
+A rigid selection deposits one weight per molecule at the chosen centre, so
+listing several atom names here selects the atoms that make up each molecule
+rather than adding up separate species densities.
+
 ## Centre of mass vs atom site
 
 By default, density is deposited at the centre of mass

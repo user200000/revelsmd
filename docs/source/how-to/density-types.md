@@ -66,4 +66,20 @@ print(grid.rho_force)   # polarisation density along z
 `polarisation_axis` selects which dipole component is accumulated (default
 0, i.e. x).
 
+## Multi-species selections
+
+A non-rigid selection of several species, e.g. `atom_names=['H1', 'H2']`,
+gives the total density of the selected atoms: the sum of the single-species
+densities, not their average. Accumulating each species into its own grid
+and adding the grids reproduces the multi-species counting and force
+densities (the lambda and hybrid estimators are not additive). For
+`density_type='charge'` this is the total charge density of the selection,
+which integrates to its net charge.
+
+Because the summed density is larger than any single species' density, a
+`rho_hybrid` threshold tuned on one species does not transfer unchanged: the
+threshold is compared against the summed counting density, so choose it by
+inspecting `rho_count` of the multi-species grid rather than reusing a
+single-species value.
+
 Valid density types are `'number'`, `'charge'`, and `'polarisation'`.

@@ -92,8 +92,11 @@ multi-trajectory accumulation) without duplicating normalisation or bookkeeping.
 
 `DensityGrid.deposit(positions, forces, weights, kernel)` operates below
 `Selection`, accepting raw numpy arrays (or lists of arrays for multi-species).
-`accumulate()` builds a `Selection` from `atom_names` and calls
-`Selection.extract(frame)` to produce inputs for each `deposit()` call.
+Each call deposits exactly one frame: for a multi-species selection, every
+array in the lists belongs to that same frame, and `count` advances by one
+per call rather than per array. `accumulate()` builds a `Selection` from
+`atom_names` and calls `Selection.extract(frame)` to produce inputs for each
+`deposit()` call.
 
 This keeps `deposit()` general enough to call with pre-processed data, without
 requiring a trajectory.
@@ -153,9 +156,11 @@ blocks using a weighted online algorithm. The caller calls
 `finalise()` returns population variance and covariance arrays. At least two blocks
 are required.
 
-**`compute_lambda_weights(variance, covariance)`** — computes the optimal per-voxel
-combination weight $\lambda = \text{Cov}(\delta, \rho_\text{force}) / \text{Var}(\delta)$.
-Zero-variance voxels and non-finite values are mapped to zero (pure counting density).
+**`compute_lambda_weights(variance, covariance)`** — returns the guarded ratio
+`covariance / variance`. `DensityGrid` takes one minus the ratio of
+$\text{Cov}(\delta, \rho_\text{force})$ to $\text{Var}(\delta)$ as the per-voxel
+weight on the force density. Zero-variance voxels and non-finite values report
+$\lambda = 1$ (pure force density).
 
 **`combine_estimators(rho_count, rho_force, weights)`** — evaluates the linear
 combination $(1-\lambda)\,\rho_\text{count} + \lambda\,\rho_\text{force}$ and

@@ -169,6 +169,12 @@ class DensityGrid:
         np.ndarray or None
             3D array of variance-minimised density (shape: nbinsx, nbinsy, nbinsz),
             or None if compute_lambda was not used.
+
+        Raises
+        ------
+        ValueError
+            If fewer than two blocks have been accumulated with
+            compute_lambda=True.
         """
         if self._rho_lambda is None and self._welford is not None:
             self._finalise_lambda()
@@ -191,6 +197,12 @@ class DensityGrid:
         np.ndarray or None
             3D array of per-voxel lambda weights (shape: nbinsx, nbinsy, nbinsz),
             or None if compute_lambda was not used.
+
+        Raises
+        ------
+        ValueError
+            If fewer than two blocks have been accumulated with
+            compute_lambda=True.
         """
         if self._lambda_weights is None and self._welford is not None:
             self._finalise_lambda()

@@ -15,9 +15,10 @@ from revelsMD.rdf import compute_rdf
 
 ts = LammpsTrajectory(
     "dump.nh.lammps",
-    topology_file="data.min.nh",
-    temperature=1.0,
+    topology_file="data.fin.nh.data",
+    temperature=1.35,
     units="lj",
+    atom_style="id resid type q x y z ix iy iz",
 )
 
 rdf = compute_rdf(ts, species_a="1", species_b="1", integration="forward")
@@ -107,9 +108,10 @@ from revelsMD.trajectories import LammpsTrajectory
 
 ts = LammpsTrajectory(
     "dump.nh.lammps",
-    topology_file="data.min.nh",
-    temperature=1.0,
+    topology_file="data.fin.nh.data",
+    temperature=1.35,
     units="lj",
+    atom_style="id resid type q x y z ix iy iz",
 )
 ```
 
