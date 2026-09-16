@@ -5,6 +5,7 @@ This module provides the LammpsTrajectory class for reading LAMMPS dump files,
 along with helper functions for parsing the LAMMPS dump format.
 """
 
+import warnings
 from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
@@ -86,7 +87,10 @@ def first_read(dumpFile: str):
         numLines = sum(1 for _ in f)
     frames = numLines / float(num_ats + header_length)
     if frames % 1 != 0:
-        print("WARNING: Non-integer frame count - incomplete file or inconsistent headers.")
+        warnings.warn(
+            "Non-integer frame count: incomplete file or inconsistent headers.",
+            stacklevel=2,
+        )
     columns = dic[2:]
     if "id" not in columns:
         raise ValueError(
@@ -246,8 +250,9 @@ class LammpsTrajectory(Trajectory):
     ValueError
         If the cell matrix is invalid or box dimensions cannot be parsed.
     RuntimeError
-        If the trajectory cannot be parsed by MDAnalysis, or if the topology
-        atom ids are not in ascending order.
+        If the dump header cannot be parsed (including a dump without an
+        ``id`` column), if the trajectory cannot be parsed by MDAnalysis, or
+        if the topology atom ids are not in ascending order.
 
     Notes
     -----
