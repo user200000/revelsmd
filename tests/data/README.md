@@ -103,7 +103,8 @@ the id column removed. `dump_dupid.lammps` repeats one id and omits
 another: in both frames, the row for id 21 has its id changed to 3, so
 id 3 appears twice and id 21 is absent. `dump_badframe.lammps` is valid in
 frame 0 and repeats an id in frame 1 (the row for id 21 has its id changed
-to 3). Not derived from any simulation.
+to 3). `dump_idsecond.lammps` has the id column second. Not derived from
+any simulation.
 
 | File | sha256 |
 | --- | --- |
@@ -112,3 +113,4 @@ to 3). Not derived from any simulation.
 | `dump_noid.lammps` | `af157469b926e5e7e428fa63b82007ca5addde7b7edae21a594e7101208e4e46` |
 | `dump_dupid.lammps` | `46f4ca0f39eb9c99620caadc181e36b84c7895d4adb28d1c5028b1004caff69b` |
 | `dump_badframe.lammps` | `259ef98a35650a062dd0940c1428802b3dfc3d1c0c87e92ad9b07ddc0541c674` |
+| `dump_idsecond.lammps` | `a654e1d3c862595f28cdbe94784c072254b1e5824e4629dd90bfd0d42c7a757f` |

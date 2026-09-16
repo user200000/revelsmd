@@ -19,9 +19,9 @@ ITEM: BOX BOUNDS pp pp pp
 0 10
 0 10
 ITEM: ATOMS id x y z fx fy fz
+3 0.7 0.8 0.9 0.5 0.4 0.3
 1 0.1 0.2 0.3 0.0 0.1 0.2
 2 0.4 0.5 0.6 0.3 0.2 0.1
-3 0.7 0.8 0.9 0.5 0.4 0.3
 ITEM: TIMESTEP
 1
 ITEM: NUMBER OF ATOMS
@@ -31,9 +31,9 @@ ITEM: BOX BOUNDS pp pp pp
 0 10
 0 10
 ITEM: ATOMS id x y z fx fy fz
-1 0.2 0.3 0.4 0.0 0.1 0.2
 2 0.5 0.6 0.7 0.3 0.2 0.1
 3 0.8 0.9 1.0 0.5 0.4 0.3
+1 0.2 0.3 0.4 0.0 0.1 0.2
 """
     path = tmp_path / "test.dump"
     path.write_text(dump_content)
@@ -58,15 +58,19 @@ def test_define_strngdex_maps_correctly():
     assert result == [1, 3]
 
 
-def test_get_a_frame_extracts_data(tmp_lammps_dump):
+def test_get_a_frame_returns_rows_in_id_order(tmp_lammps_dump):
     frames, num_ats, dic, header_length, _, id_column = first_read(tmp_lammps_dump)
     strngdex = define_strngdex(["x", "y", "z"], dic)
 
     with open(tmp_lammps_dump, "r") as f:
         data = get_a_frame(f, num_ats, header_length, strngdex, id_column, np.array([1, 2, 3]))
 
-    assert data.shape == (num_ats, 3)
-    assert np.all(np.isfinite(data))
+    expected = np.array([
+        [0.1, 0.2, 0.3],
+        [0.4, 0.5, 0.6],
+        [0.7, 0.8, 0.9],
+    ])
+    np.testing.assert_array_equal(data, expected)
 
 
 def test_frame_skip_moves_pointer(tmp_lammps_dump):

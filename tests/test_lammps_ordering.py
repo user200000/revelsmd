@@ -86,3 +86,10 @@ def test_later_corrupt_frame_is_rejected_at_that_frame():
     next(frames)
     with pytest.raises(ValueError, match="frame 1"):
         next(frames)
+
+
+def test_id_column_may_be_anywhere_in_the_row():
+    traj = _make("dump_idsecond.lammps")
+    frame0 = next(traj.iter_frames())
+    np.testing.assert_array_equal(frame0.positions[:, 0], IDS_SORTED)
+    np.testing.assert_array_equal(traj.get_indices("2"), [1, 3, 5])
