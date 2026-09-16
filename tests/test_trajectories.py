@@ -139,7 +139,7 @@ def test_numpy_state_invalid_shapes_and_box():
 # LammpsTrajectory
 # -----------------------------------------------------------------------------
 @patch("revelsMD.trajectories.mda.MD.Universe")
-@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2)), 0))
 def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
     state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
@@ -148,7 +148,7 @@ def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_univ
 
 
 @patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("bad universe"))
-@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, [], 9, np.zeros((3, 2))))
+@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, [], 9, np.zeros((3, 2)), 0))
 def test_lammps_state_universe_error(mock_first_read, mock_universe):
     with pytest.raises(RuntimeError, match="Failed to load LAMMPS trajectory"):
         LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
@@ -160,7 +160,7 @@ def test_lammps_state_requires_topology():
 
 
 @patch("revelsMD.trajectories.mda.MD.Universe")
-@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+@patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2)), 0))
 def test_lammps_triclinic_cell(mock_first_read, mock_universe):
     """LammpsTrajectory should accept and store a full triclinic cell matrix."""
     mock_uni = MagicMock()
@@ -461,7 +461,7 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
     # Mock first_read to return metadata
     # dic simulates: ITEM: ATOMS id type x y z fx fy fz
     mock_dic = ["ITEM:", "ATOMS", "id", "type", "x", "y", "z", "fx", "fy", "fz"]
-    mock_first_read.return_value = (n_frames, n_atoms, mock_dic, 9, np.zeros((3, 2)))
+    mock_first_read.return_value = (n_frames, n_atoms, mock_dic, 9, np.zeros((3, 2)), 0)
 
     # Mock MDAnalysis universe
     mock_uni = MagicMock()
@@ -477,7 +477,7 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
 
     # Mock get_a_frame to return combined position+force data
     frame_idx = [0]
-    def mock_get_a_frame(f, num_ats, header_length, strngdex):
+    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column):
         idx = frame_idx[0]
         frame_idx[0] += 1
         # Return combined [x, y, z, fx, fy, fz] array
@@ -503,7 +503,7 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
     n_frames, n_atoms = 10, 2
 
     mock_dic = ["ITEM:", "ATOMS", "id", "type", "x", "y", "z", "fx", "fy", "fz"]
-    mock_first_read.return_value = (n_frames, n_atoms, mock_dic, 9, np.zeros((3, 2)))
+    mock_first_read.return_value = (n_frames, n_atoms, mock_dic, 9, np.zeros((3, 2)), 0)
 
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
@@ -518,7 +518,7 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
 
     # Track which frames get_a_frame is called for
     frames_read = []
-    def mock_get_a_frame(f, num_ats, header_length, strngdex):
+    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column):
         # We need to track the actual frame index being read
         idx = len(frames_read)
         frames_read.append(idx)
@@ -686,7 +686,7 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
     n_frames, n_atoms = 5, 3
 
     mock_dic = ["ITEM:", "ATOMS", "id", "type", "x", "y", "z", "fx", "fy", "fz"]
-    mock_first_read.return_value = (n_frames, n_atoms, mock_dic, 9, np.zeros((3, 2)))
+    mock_first_read.return_value = (n_frames, n_atoms, mock_dic, 9, np.zeros((3, 2)), 0)
 
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
@@ -698,7 +698,7 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
     positions = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
     forces = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
 
-    def mock_get_a_frame(f, num_ats, header_length, strngdex):
+    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column):
         idx = mock_get_a_frame.call_count
         mock_get_a_frame.call_count += 1
         return np.hstack([positions[idx], forces[idx]])
@@ -723,7 +723,7 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
     n_frames, n_atoms = 10, 2
 
     mock_dic = ["ITEM:", "ATOMS", "id", "type", "x", "y", "z", "fx", "fy", "fz"]
-    mock_first_read.return_value = (n_frames, n_atoms, mock_dic, 9, np.zeros((3, 2)))
+    mock_first_read.return_value = (n_frames, n_atoms, mock_dic, 9, np.zeros((3, 2)), 0)
 
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
@@ -735,7 +735,7 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
     positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
     forces = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float) + 1000
 
-    def mock_get_a_frame(f, num_ats, header_length, strngdex):
+    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column):
         idx = mock_get_a_frame.call_count
         mock_get_a_frame.call_count += 1
         return np.hstack([positions[idx], forces[idx]])
@@ -1074,7 +1074,7 @@ class TestTrajectoryBetaAttribute:
         assert pytest.approx(state.beta, rel=1e-12) == expected_beta
 
     @patch("revelsMD.trajectories.mda.MD.Universe")
-    @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+    @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2)), 0))
     def test_lammps_trajectory_requires_temperature(self, mock_first_read, mock_universe, mock_mdanalysis_universe):
         """LammpsTrajectory should require temperature as a keyword argument."""
         mock_universe.return_value = mock_mdanalysis_universe
@@ -1083,7 +1083,7 @@ class TestTrajectoryBetaAttribute:
             LammpsTrajectory("dump.lammpstrj", "data.lmp")
 
     @patch("revelsMD.trajectories.mda.MD.Universe")
-    @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2))))
+    @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2)), 0))
     def test_lammps_trajectory_stores_temperature_and_beta(self, mock_first_read, mock_universe, mock_mdanalysis_universe):
         """LammpsTrajectory should store temperature and compute beta."""
         mock_universe.return_value = mock_mdanalysis_universe

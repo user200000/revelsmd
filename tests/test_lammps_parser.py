@@ -41,7 +41,7 @@ ITEM: ATOMS id x y z fx fy fz
 
 
 def test_first_read_returns_metadata(tmp_lammps_dump):
-    frames, num_ats, dic, header_length, dimgrid = first_read(tmp_lammps_dump)
+    frames, num_ats, dic, header_length, dimgrid, id_column = first_read(tmp_lammps_dump)
 
     assert frames == 2
     assert num_ats == 3
@@ -49,6 +49,7 @@ def test_first_read_returns_metadata(tmp_lammps_dump):
     assert header_length > 0
     assert dimgrid.shape == (3, 2)
     assert np.allclose(dimgrid[:, 1], 10.0)
+    assert id_column == dic[2:].index("id")
 
 
 def test_define_strngdex_maps_correctly():
@@ -58,18 +59,18 @@ def test_define_strngdex_maps_correctly():
 
 
 def test_get_a_frame_extracts_data(tmp_lammps_dump):
-    frames, num_ats, dic, header_length, _ = first_read(tmp_lammps_dump)
+    frames, num_ats, dic, header_length, _, id_column = first_read(tmp_lammps_dump)
     strngdex = define_strngdex(["x", "y", "z"], dic)
 
     with open(tmp_lammps_dump, "r") as f:
-        data = get_a_frame(f, num_ats, header_length, strngdex)
+        data = get_a_frame(f, num_ats, header_length, strngdex, id_column)
 
     assert data.shape == (num_ats, 3)
     assert np.all(np.isfinite(data))
 
 
 def test_frame_skip_moves_pointer(tmp_lammps_dump):
-    frames, num_ats, dic, header_length, _ = first_read(tmp_lammps_dump)
+    frames, num_ats, dic, header_length, _, _ = first_read(tmp_lammps_dump)
 
     with open(tmp_lammps_dump, "r") as f:
         frame_skip(f, num_ats, 1, header_length)
