@@ -130,6 +130,17 @@ def example4_trajectory():
     return MDATrajectory(str(trr_file), str(tpr_file), temperature=300.0)
 
 
+@pytest.fixture(scope="module")
+def example4_gro_trajectory():
+    """Example 4 with a GRO topology (one-based atom numbers) instead of the TPR."""
+    from revelsMD.trajectories import MDATrajectory
+
+    trr_file = TEST_DATA_DIR / "example_4_water" / "prod.trr"
+    gro_file = TEST_DATA_DIR / "example_4_water" / "prod.gro"
+
+    return MDATrajectory(str(trr_file), str(gro_file), temperature=300.0)
+
+
 # ---------------------------------------------------------------------------
 # Trajectory fixtures - VASP
 # ---------------------------------------------------------------------------

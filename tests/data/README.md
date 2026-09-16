@@ -85,6 +85,10 @@ SPC/E rigid water (GROMACS), 6339 atoms (2113 molecules), 10 frames at
 - `prod.trr`: first 10 frames rewritten via MDAnalysis (positions and
   forces verified by reload-and-compare)
 - `prod.tpr`: verbatim copy
+- `prod.gro`: the first frame of `prod.trr` written by MDAnalysis with
+  `prod.tpr` as topology (by `create_water_gro` in
+  `scripts/create_test_subsets.py`); GRO atom numbers are one-based,
+  unlike the TPR's zero-based ids
 - Construction command: `python scripts/create_test_subsets.py`
   (or `--water-dir PATH`)
 
@@ -92,6 +96,7 @@ SPC/E rigid water (GROMACS), 6339 atoms (2113 molecules), 10 frames at
 | --- | --- |
 | `prod.trr` | `6ef57d66179c59e391d30af6df517168812ba1c82727fa7253d1fa66a20f542e` |
 | `prod.tpr` | `617704b93199215ceb400e429743b310d92bede8c889b2e4783331fec0285871` |
+| `prod.gro` | `ef49069f207b905b8f37ccdf33d85ce19b42d6efcd71838017adcfb5f23af274` |
 
 ## lammps_small
 
