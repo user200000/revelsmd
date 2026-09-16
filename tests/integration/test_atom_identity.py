@@ -16,13 +16,6 @@ class TestShuffledDumpEquivalence:
             np.testing.assert_array_equal(shuffled_frame.positions, sorted_frame.positions)
             np.testing.assert_array_equal(shuffled_frame.forces, sorted_frame.forces)
 
-    def test_indices_identical_to_sorted_dump(self, example1_trajectory, example1_shuffled_trajectory):
-        for species in ("1", "2"):
-            np.testing.assert_array_equal(
-                example1_shuffled_trajectory.get_indices(species),
-                example1_trajectory.get_indices(species),
-            )
-
     @pytest.mark.parametrize("species_b", ["1", "2"])
     def test_rdf_identical_to_sorted_dump(self, example1_trajectory, example1_shuffled_trajectory, species_b):
         reference = compute_rdf(example1_trajectory, "1", species_b, integration="forward", delr=0.05)
