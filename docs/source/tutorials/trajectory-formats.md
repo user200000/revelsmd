@@ -109,7 +109,7 @@ The default unit system is `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:
 
 ```python
-indices = traj.get_indices('OW')  # oxygen atoms in SPC/E water
+indices = traj.get_indices('Ow')  # oxygen atoms in SPC/E water
 ```
 
 ## NumPy arrays
@@ -241,5 +241,5 @@ The string passed to `get_indices()` follows the source simulation's convention:
 
 - **LAMMPS**: type number as a string — `'1'`, `'2'`
 - **VASP**: element symbol — `'Ba'`, `'F'`
-- **MDAnalysis**: atom name from the topology — `'OW'`, `'HW1'`
+- **MDAnalysis**: atom name from the topology — `'Ow'`, `'Hw1'`
 - **NumPy**: the label provided in `species_list`
