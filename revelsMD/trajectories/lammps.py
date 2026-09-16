@@ -281,8 +281,8 @@ class LammpsTrajectory(Trajectory):
         try:
             (self.frames, self.num_ats, self.dic, self.header_length,
              self.dimgrid, self._id_column) = first_read(first_traj)
-        except Exception as e:
-            raise RuntimeError(f"Failed to parse LAMMPS trajectory header: {e}")
+        except (ValueError, OSError) as e:
+            raise RuntimeError(f"Failed to parse LAMMPS trajectory header: {e}") from e
 
         try:
             mdanalysis_universe = MD.Universe(topology_file, *all_trajs, atom_style=atom_style,format="LAMMPSDump")
