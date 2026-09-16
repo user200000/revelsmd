@@ -42,7 +42,8 @@ def first_read(dumpFile: str):
     dimgrid : numpy.ndarray of shape (3, 2)
         Box boundaries (x, y, z) for the first frame.
     id_column : int
-        Index of the ``id`` column within the atom rows.
+        Index of the ``id`` column within the atom columns, i.e. the
+        ``ITEM: ATOMS`` header minus its two leading tokens.
 
     Raises
     ------
@@ -175,7 +176,7 @@ def define_strngdex(our_string: list[str], dic: list[str]) -> list[int]:
     --------
     >>> dic = ['ITEM:', 'ATOMS', 'id', 'type', 'x', 'y', 'z', 'fx', 'fy', 'fz']
     >>> define_strngdex(['x', 'z'], dic)
-    [3, 5]
+    [2, 4]
     """
     return [int(dic.index(ele) - 2) for ele in our_string]
 
