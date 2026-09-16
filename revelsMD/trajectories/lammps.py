@@ -227,6 +227,9 @@ class LammpsTrajectory(Trajectory):
     Parses the LAMMPS trajectory file to obtain metadata (frames, atoms, box size),
     and loads coordinates via MDAnalysis for compatibility with the rest of RevelsMD.
 
+    Frames are returned with atoms in ascending id order, whatever order
+    the dump was written in. The dump must contain an ``id`` column.
+
     Parameters
     ----------
     trajectory_file : str or list of str
@@ -239,9 +242,6 @@ class LammpsTrajectory(Trajectory):
         LAMMPS unit system (default: `'real'`).
     atom_style : str, optional
         LAMMPS atom style (default: `'full'`).
-
-    Frames are returned with atoms in ascending id order, whatever order
-    the dump was written in. The dump must contain an ``id`` column.
 
     Attributes
     ----------
