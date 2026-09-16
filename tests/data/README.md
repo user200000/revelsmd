@@ -101,7 +101,9 @@ types alternate by id, and the rows are written in a different order in
 each frame and in the data file. `dump_noid.lammps` is the same dump with
 the id column removed. `dump_dupid.lammps` repeats one id and omits
 another: in both frames, the row for id 21 has its id changed to 3, so
-id 3 appears twice and id 21 is absent. Not derived from any simulation.
+id 3 appears twice and id 21 is absent. `dump_badframe.lammps` is valid in
+frame 0 and repeats an id in frame 1 (the row for id 21 has its id changed
+to 3). Not derived from any simulation.
 
 | File | sha256 |
 | --- | --- |
@@ -109,3 +111,4 @@ id 3 appears twice and id 21 is absent. Not derived from any simulation.
 | `data.small.data` | `6014c0a65b161cbc624336bf83774642eb281f5ddef13da2906c5e2a68afad62` |
 | `dump_noid.lammps` | `af157469b926e5e7e428fa63b82007ca5addde7b7edae21a594e7101208e4e46` |
 | `dump_dupid.lammps` | `46f4ca0f39eb9c99620caadc181e36b84c7895d4adb28d1c5028b1004caff69b` |
+| `dump_badframe.lammps` | `259ef98a35650a062dd0940c1428802b3dfc3d1c0c87e92ad9b07ddc0541c674` |

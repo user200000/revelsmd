@@ -63,7 +63,7 @@ def test_get_a_frame_extracts_data(tmp_lammps_dump):
     strngdex = define_strngdex(["x", "y", "z"], dic)
 
     with open(tmp_lammps_dump, "r") as f:
-        data = get_a_frame(f, num_ats, header_length, strngdex, id_column)
+        data = get_a_frame(f, num_ats, header_length, strngdex, id_column, np.array([1, 2, 3]))
 
     assert data.shape == (num_ats, 3)
     assert np.all(np.isfinite(data))

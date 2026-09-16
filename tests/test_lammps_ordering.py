@@ -66,10 +66,23 @@ def test_dump_without_id_column_is_rejected():
         )
 
 
-def test_dump_whose_ids_do_not_match_the_topology_is_rejected():
-    with pytest.raises(RuntimeError, match="atom ids"):
-        LammpsTrajectory(
-            str(FIXTURE_DIR / "dump_dupid.lammps"),
-            str(FIXTURE_DIR / "data.small.data"),
-            temperature=1.0, units="lj", atom_style=ATOM_STYLE,
-        )
+def _make(dump_name):
+    return LammpsTrajectory(
+        str(FIXTURE_DIR / dump_name),
+        str(FIXTURE_DIR / "data.small.data"),
+        temperature=1.0, units="lj", atom_style=ATOM_STYLE,
+    )
+
+
+def test_frame_whose_ids_do_not_match_the_topology_is_rejected():
+    traj = _make("dump_dupid.lammps")
+    with pytest.raises(ValueError, match="frame 0"):
+        list(traj.iter_frames())
+
+
+def test_later_corrupt_frame_is_rejected_at_that_frame():
+    traj = _make("dump_badframe.lammps")
+    frames = traj.iter_frames()
+    next(frames)
+    with pytest.raises(ValueError, match="frame 1"):
+        next(frames)

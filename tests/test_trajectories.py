@@ -23,6 +23,7 @@ def mock_mdanalysis_universe():
     mock = MagicMock()
     mock.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
     mock.trajectory = [0, 1, 2]
+    mock.atoms.ids = np.arange(1, 6)
     mock.select_atoms.return_value.ids = np.array([1, 2, 3])
     mock.select_atoms.return_value.charges = np.array([0.1, 0.2, 0.3])
     mock.select_atoms.return_value.masses = np.array([12.0, 1.0, 16.0])
@@ -138,11 +139,9 @@ def test_numpy_state_invalid_shapes_and_box():
 # -----------------------------------------------------------------------------
 # LammpsTrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.lammps.read_frame_ids", return_value=np.array([1, 2, 3]))
 @patch("revelsMD.trajectories.mda.MD.Universe")
 @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2)), 0))
-def test_lammps_state_valid(mock_first_read, mock_universe, mock_read_frame_ids, mock_mdanalysis_universe):
-    mock_mdanalysis_universe.atoms.ids = np.array([1, 2, 3])
+def test_lammps_state_valid(mock_first_read, mock_universe, mock_mdanalysis_universe):
     mock_universe.return_value = mock_mdanalysis_universe
     state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
     assert np.isclose(state.box_x, 10.0)
@@ -161,15 +160,14 @@ def test_lammps_state_requires_topology():
         LammpsTrajectory("dump.lammpstrj", None, temperature=300.0)
 
 
-@patch("revelsMD.trajectories.lammps.read_frame_ids", return_value=np.array([1, 2, 3]))
 @patch("revelsMD.trajectories.mda.MD.Universe")
 @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2)), 0))
-def test_lammps_triclinic_cell(mock_first_read, mock_universe, mock_read_frame_ids):
+def test_lammps_triclinic_cell(mock_first_read, mock_universe):
     """LammpsTrajectory should accept and store a full triclinic cell matrix."""
     mock_uni = MagicMock()
     # MDAnalysis dimensions: [a, b, c, alpha, beta, gamma]
     mock_uni.dimensions = np.array([10.0, 9.0, 8.0, 80.0, 85.0, 70.0])
-    mock_uni.atoms.ids = np.array([1, 2, 3])
+    mock_uni.atoms.ids = np.arange(1, 6)
     mock_trajectory = MagicMock()
     mock_trajectory.__len__ = MagicMock(return_value=10)
     mock_uni.trajectory = mock_trajectory
@@ -470,7 +468,7 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
     # Mock MDAnalysis universe
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
-    mock_uni.atoms.ids = np.arange(n_atoms)
+    mock_uni.atoms.ids = np.arange(1, n_atoms + 1)
     mock_trajectory = MagicMock()
     mock_trajectory.__len__ = MagicMock(return_value=n_frames)
     mock_uni.trajectory = mock_trajectory
@@ -482,7 +480,7 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
 
     # Mock get_a_frame to return combined position+force data
     frame_idx = [0]
-    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column):
+    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column, expected_ids):
         idx = frame_idx[0]
         frame_idx[0] += 1
         # Return combined [x, y, z, fx, fy, fz] array
@@ -490,16 +488,15 @@ def test_lammps_iter_frames_yields_positions_and_forces(mock_first_read, mock_un
 
     with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
-            with patch("revelsMD.trajectories.lammps.read_frame_ids", return_value=np.arange(n_atoms)):
-                with patch("builtins.open", MagicMock()):
-                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
+            with patch("builtins.open", MagicMock()):
+                state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
-                    frames_list = list(state.iter_frames())
-                    assert len(frames_list) == n_frames
+                frames_list = list(state.iter_frames())
+                assert len(frames_list) == n_frames
 
-                    for i, frame in enumerate(frames_list):
-                        np.testing.assert_array_equal(frame.positions, positions[i])
-                        np.testing.assert_array_equal(frame.forces, forces[i])
+                for i, frame in enumerate(frames_list):
+                    np.testing.assert_array_equal(frame.positions, positions[i])
+                    np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 @patch("revelsMD.trajectories.mda.MD.Universe")
@@ -513,7 +510,7 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
 
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
-    mock_uni.atoms.ids = np.arange(n_atoms)
+    mock_uni.atoms.ids = np.arange(1, n_atoms + 1)
     mock_trajectory = MagicMock()
     mock_trajectory.__len__ = MagicMock(return_value=n_frames)
     mock_uni.trajectory = mock_trajectory
@@ -525,7 +522,7 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
 
     # Track which frames get_a_frame is called for
     frames_read = []
-    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column):
+    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column, expected_ids):
         # We need to track the actual frame index being read
         idx = len(frames_read)
         frames_read.append(idx)
@@ -539,13 +536,12 @@ def test_lammps_iter_frames_with_start_stop_stride(mock_first_read, mock_univers
     with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip", side_effect=mock_frame_skip):
-                with patch("revelsMD.trajectories.lammps.read_frame_ids", return_value=np.arange(n_atoms)):
-                    with patch("builtins.open", MagicMock()):
-                        state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
+                with patch("builtins.open", MagicMock()):
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
-                        # Test start=2, stop=8, stride=2 -> should yield frames at indices 2, 4, 6
-                        frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
-                        assert len(frames_list) == 3
+                    # Test start=2, stop=8, stride=2 -> should yield frames at indices 2, 4, 6
+                    frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
+                    assert len(frames_list) == 3
 
 
 # -----------------------------------------------------------------------------
@@ -698,7 +694,7 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
 
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
-    mock_uni.atoms.ids = np.arange(n_atoms)
+    mock_uni.atoms.ids = np.arange(1, n_atoms + 1)
     mock_trajectory = MagicMock()
     mock_trajectory.__len__ = MagicMock(return_value=n_frames)
     mock_uni.trajectory = mock_trajectory
@@ -707,7 +703,7 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
     positions = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
     forces = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
 
-    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column):
+    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column, expected_ids):
         idx = mock_get_a_frame.call_count
         mock_get_a_frame.call_count += 1
         return np.hstack([positions[idx], forces[idx]])
@@ -716,14 +712,13 @@ def test_lammps_get_frame_returns_correct_data(mock_first_read, mock_universe):
     with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip"):
-                with patch("revelsMD.trajectories.lammps.read_frame_ids", return_value=np.arange(n_atoms)):
-                    with patch("builtins.open", MagicMock()):
-                        state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
+                with patch("builtins.open", MagicMock()):
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
-                        for i in range(n_frames):
-                            frame = state.get_frame(i)
-                            np.testing.assert_array_equal(frame.positions, positions[i])
-                            np.testing.assert_array_equal(frame.forces, forces[i])
+                    for i in range(n_frames):
+                        frame = state.get_frame(i)
+                        np.testing.assert_array_equal(frame.positions, positions[i])
+                        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 @patch("revelsMD.trajectories.mda.MD.Universe")
@@ -737,7 +732,7 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
 
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
-    mock_uni.atoms.ids = np.arange(n_atoms)
+    mock_uni.atoms.ids = np.arange(1, n_atoms + 1)
     mock_trajectory = MagicMock()
     mock_trajectory.__len__ = MagicMock(return_value=n_frames)
     mock_uni.trajectory = mock_trajectory
@@ -746,7 +741,7 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
     positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
     forces = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float) + 1000
 
-    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column):
+    def mock_get_a_frame(f, num_ats, header_length, strngdex, id_column, expected_ids):
         idx = mock_get_a_frame.call_count
         mock_get_a_frame.call_count += 1
         return np.hstack([positions[idx], forces[idx]])
@@ -755,15 +750,14 @@ def test_lammps_get_frame_random_access(mock_first_read, mock_universe):
     with patch("revelsMD.trajectories.lammps.get_a_frame", side_effect=mock_get_a_frame):
         with patch("revelsMD.trajectories.lammps.define_strngdex", return_value=[2, 3, 4, 5, 6, 7]):
             with patch("revelsMD.trajectories.lammps.frame_skip"):
-                with patch("revelsMD.trajectories.lammps.read_frame_ids", return_value=np.arange(n_atoms)):
-                    with patch("builtins.open", MagicMock()):
-                        state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
+                with patch("builtins.open", MagicMock()):
+                    state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=300.0)
 
-                        # Random access in any order
-                        for i in [7, 2, 9, 0, 5]:
-                            frame = state.get_frame(i)
-                            np.testing.assert_array_equal(frame.positions, positions[i])
-                            np.testing.assert_array_equal(frame.forces, forces[i])
+                    # Random access in any order
+                    for i in [7, 2, 9, 0, 5]:
+                        frame = state.get_frame(i)
+                        np.testing.assert_array_equal(frame.positions, positions[i])
+                        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 # -----------------------------------------------------------------------------
@@ -1094,12 +1088,10 @@ class TestTrajectoryBetaAttribute:
         with pytest.raises(TypeError):
             LammpsTrajectory("dump.lammpstrj", "data.lmp")
 
-    @patch("revelsMD.trajectories.lammps.read_frame_ids", return_value=np.array([1, 2, 3]))
     @patch("revelsMD.trajectories.mda.MD.Universe")
     @patch("revelsMD.trajectories.lammps.first_read", return_value=(10, 5, ["id", "x", "y", "z"], 9, np.zeros((3, 2)), 0))
-    def test_lammps_trajectory_stores_temperature_and_beta(self, mock_first_read, mock_universe, mock_read_frame_ids, mock_mdanalysis_universe):
+    def test_lammps_trajectory_stores_temperature_and_beta(self, mock_first_read, mock_universe, mock_mdanalysis_universe):
         """LammpsTrajectory should store temperature and compute beta."""
-        mock_mdanalysis_universe.atoms.ids = np.array([1, 2, 3])
         mock_universe.return_value = mock_mdanalysis_universe
 
         state = LammpsTrajectory("dump.lammpstrj", "data.lmp", temperature=350.0, units='real')
