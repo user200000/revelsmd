@@ -41,6 +41,14 @@ def first_read(dumpFile: str):
         Number of header lines per frame (before atom coordinates start).
     dimgrid : numpy.ndarray of shape (3, 2)
         Box boundaries (x, y, z) for the first frame.
+    id_column : int
+        Index of the ``id`` column within the atom rows.
+
+    Raises
+    ------
+    ValueError
+        If the dump has no ``id`` column. Atom ids are required to pair
+        dump rows with the topology.
 
     Notes
     -----
@@ -78,12 +86,24 @@ def first_read(dumpFile: str):
     frames = numLines / float(num_ats + header_length)
     if frames % 1 != 0:
         print("WARNING: Non-integer frame count - incomplete file or inconsistent headers.")
-    return int(frames), num_ats, dic, header_length, dimgrid
+    columns = dic[2:]
+    if "id" not in columns:
+        raise ValueError(
+            "LAMMPS dump has no 'id' column; it is required to pair dump "
+            "rows with the topology."
+        )
+    id_column = columns.index("id")
+    return int(frames), num_ats, dic, header_length, dimgrid, id_column
 
 
-def get_a_frame(f, num_ats: int, header_length: int, strngdex: list[int]) -> np.ndarray:
+def get_a_frame(
+    f, num_ats: int, header_length: int, strngdex: list[int], id_column: int
+) -> np.ndarray:
     """
     Extract a single frame of atomic data from an open LAMMPS dump file.
+
+    Rows are returned in ascending atom-id order regardless of the order
+    in which they appear in the file.
 
     Parameters
     ----------
@@ -95,21 +115,26 @@ def get_a_frame(f, num_ats: int, header_length: int, strngdex: list[int]) -> np.
         Number of header lines preceding atomic data.
     strngdex : list of int
         Column indices to extract (relative to the start of atom data).
+    id_column : int
+        Column index of the atom id.
 
     Returns
     -------
     numpy.ndarray
         Array of shape ``(num_ats, len(strngdex))`` containing the requested
-        columns (e.g. coordinates, forces, velocities).
+        columns, rows sorted by atom id.
     """
     vars_trest = np.zeros((num_ats, len(strngdex)))
+    ids = np.zeros(num_ats, dtype=np.int64)
     for _ in range(header_length):
         f.readline()
     for i in range(num_ats):
         currentString = f.readline().split()
+        ids[i] = int(currentString[id_column])
         for j, k in enumerate(strngdex):
             vars_trest[i, j] = float(currentString[k])
-    return vars_trest
+    order = np.argsort(ids, kind="stable")
+    return vars_trest[order]
 
 
 def define_strngdex(our_string: list[str], dic: list[str]) -> list[int]:
@@ -185,6 +210,9 @@ class LammpsTrajectory(Trajectory):
     atom_style : str, optional
         LAMMPS atom style (default: `'full'`).
 
+    Frames are returned with atoms in ascending id order, whatever order
+    the dump was written in. The dump must contain an ``id`` column.
+
     Attributes
     ----------
     temperature : float
@@ -225,7 +253,8 @@ class LammpsTrajectory(Trajectory):
             all_trajs = [trajectory_file]
 
         try:
-            self.frames, self.num_ats, self.dic, self.header_length, self.dimgrid = first_read(first_traj)
+            (self.frames, self.num_ats, self.dic, self.header_length,
+             self.dimgrid, self._id_column) = first_read(first_traj)
         except Exception as e:
             raise RuntimeError(f"Failed to parse LAMMPS trajectory header: {e}")
 
@@ -245,7 +274,10 @@ class LammpsTrajectory(Trajectory):
         self._validate_cell_matrix(self.cell_matrix)
 
     def get_indices(self, atype: str) -> np.ndarray:
-        """Return atom indices for a given LAMMPS atom type.
+        """Return positional indices of the atoms of a given LAMMPS type.
+
+        Frames yielded by this trajectory are in ascending atom-id order,
+        and the returned indices are row positions in those frames.
 
         Parameters
         ----------
@@ -255,9 +287,9 @@ class LammpsTrajectory(Trajectory):
         Returns
         -------
         np.ndarray
-            Zero-based atom indices corresponding to the given type.
+            Row indices into the per-frame position and force arrays.
         """
-        return self.mdanalysis_universe.select_atoms(f'type {atype}').ids - 1
+        return self.mdanalysis_universe.select_atoms(f'type {atype}').ix
 
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for a given LAMMPS atom type.
@@ -326,7 +358,7 @@ class LammpsTrajectory(Trajectory):
 
             frame_idx = start
             while frame_idx < stop:
-                data = get_a_frame(f, self.num_ats, self.header_length, strngdex)
+                data = get_a_frame(f, self.num_ats, self.header_length, strngdex, self._id_column)
                 positions = data[:, :3]
                 forces = data[:, 3:]
                 yield Frame(positions, forces)
