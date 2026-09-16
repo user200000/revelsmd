@@ -68,6 +68,23 @@ def example1_trajectory():
 
 
 @pytest.fixture(scope="module")
+def example1_shuffled_trajectory():
+    """Example 1 with the atom rows of every frame permuted (same data)."""
+    from revelsMD.trajectories import LammpsTrajectory
+
+    dump_file = TEST_DATA_DIR / "example_1_LJ" / "dump.nh.shuffled.lammps"
+    data_file = TEST_DATA_DIR / "example_1_LJ" / "data.fin.nh.data"
+
+    return LammpsTrajectory(
+        str(dump_file),
+        str(data_file),
+        temperature=1.35,
+        units='lj',
+        atom_style="id resid type q x y z ix iy iz",
+    )
+
+
+@pytest.fixture(scope="module")
 def example2_trajectory():
     """
     Load Example 2 LJ trajectory for 3D density tests.
