@@ -170,6 +170,61 @@ def create_lammps_subset(
     ]
 
 
+SHUFFLE_SEED = 20260916
+
+
+def create_shuffled_dump(src_dump: Path, dst_dump: Path, force: bool) -> str:
+    """Permute the atom rows of every frame of a committed dump.
+
+    Headers are copied byte for byte; the rows of each frame are permuted
+    independently with numpy's default generator seeded with SHUFFLE_SEED,
+    so the file exercises id-unordered input while holding exactly the
+    same data as the source.
+    """
+    rng = np.random.default_rng(SHUFFLE_SEED)
+
+    def frames(path: Path):
+        with open(path, "rb") as f:
+            lines = f.readlines()
+        i = 0
+        while i < len(lines):
+            if not lines[i].startswith(b"ITEM: TIMESTEP"):
+                raise RuntimeError(
+                    f"{path}, line {i + 1}: expected ITEM: TIMESTEP, "
+                    f"found {lines[i]!r}"
+                )
+            count_line = i
+            while not lines[count_line].startswith(b"ITEM: NUMBER OF ATOMS"):
+                count_line += 1
+            n_atoms = int(lines[count_line + 1])
+            header_end = count_line
+            while not lines[header_end].startswith(b"ITEM: ATOMS"):
+                header_end += 1
+            header_end += 1
+            yield lines[i:header_end], lines[header_end:header_end + n_atoms]
+            i = header_end + n_atoms
+
+    def write(tmp: Path) -> None:
+        out = []
+        for header, rows in frames(src_dump):
+            out.extend(header)
+            out.extend(rows[k] for k in rng.permutation(len(rows)))
+        tmp.write_bytes(b"".join(out))
+
+    def verify(tmp: Path) -> None:
+        permuted = False
+        for (h_src, r_src), (h_tmp, r_tmp) in zip(
+            frames(src_dump), frames(tmp), strict=True
+        ):
+            if h_src != h_tmp or sorted(r_src) != sorted(r_tmp):
+                raise RuntimeError(f"Shuffled dump is not a row permutation: {dst_dump}")
+            permuted = permuted or r_src != r_tmp
+        if not permuted:
+            raise RuntimeError(f"Shuffled dump is identical to its source: {dst_dump}")
+
+    return write_verified(dst_dump, force, write, verify)
+
+
 def _parse_vasp(content: str) -> tuple[str, list[str], str]:
     """Split a vasprun.xml into header, <calculation> blocks, and footer."""
     first_calc = content.find("<calculation>")
@@ -320,6 +375,11 @@ def main() -> None:
          lambda: create_lammps_subset(
              args.example1_dir, OUTPUT_DIR / "example_1_LJ", args.n_frames,
              args.force)),
+        ("example_1_LJ (shuffled)",
+         lambda: [create_shuffled_dump(
+             OUTPUT_DIR / "example_1_LJ" / "dump.nh.lammps",
+             OUTPUT_DIR / "example_1_LJ" / "dump.nh.shuffled.lammps",
+             args.force)]),
         ("example_2_LJ_3D",
          lambda: create_lammps_subset(
              args.example2_dir, OUTPUT_DIR / "example_2_LJ_3D", args.n_frames,

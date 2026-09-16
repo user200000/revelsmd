@@ -27,6 +27,10 @@ Lennard-Jones fluid, 2880 atoms (2304 of type 1, 576 of type 2), 10 frames.
 - `dump.nh.lammps`: first 10 frames, split on `ITEM: TIMESTEP`
   (byte-identical head of the source dump)
 - `data.fin.nh.data`: verbatim copy
+- `dump.nh.shuffled.lammps`: `dump.nh.lammps` with the atom rows of every
+  frame permuted independently (numpy `default_rng(20260916)`, by
+  `create_shuffled_dump` in `scripts/create_test_subsets.py`); headers
+  byte-identical, same data
 - Construction command: `python scripts/create_test_subsets.py`
   (or `--example1-dir PATH` to point at a different source)
 
@@ -34,6 +38,7 @@ Lennard-Jones fluid, 2880 atoms (2304 of type 1, 576 of type 2), 10 frames.
 | --- | --- |
 | `dump.nh.lammps` | `29f07f0ddd4c7fce2b0e02f6c8fdac5789dcb69600f4d58a1b9350311ad1a299` |
 | `data.fin.nh.data` | `b352029323dc70214f737a8a749d4c84f0a213855de4549c1e2f68331c362931` |
+| `dump.nh.shuffled.lammps` | `a5366034dcc422e322120fd343af07885b58dbe2b588b3cbb7659e4036dc7707` |
 
 ## example_2_LJ_3D
 
@@ -87,3 +92,25 @@ SPC/E rigid water (GROMACS), 6339 atoms (2113 molecules), 10 frames at
 | --- | --- |
 | `prod.trr` | `6ef57d66179c59e391d30af6df517168812ba1c82727fa7253d1fa66a20f542e` |
 | `prod.tpr` | `617704b93199215ceb400e429743b310d92bede8c889b2e4783331fec0285871` |
+
+## lammps_small
+
+Hand-written six-atom, two-frame LAMMPS dump and `atom_style atomic` data
+file for unit tests of atom-id handling. Ids are {3, 7, 12, 20, 21, 40},
+types alternate by id, and the rows are written in a different order in
+each frame and in the data file. `dump_noid.lammps` is the same dump with
+the id column removed. `dump_dupid.lammps` repeats one id and omits
+another: in both frames, the row for id 21 has its id changed to 3, so
+id 3 appears twice and id 21 is absent. `dump_badframe.lammps` is valid in
+frame 0 and repeats an id in frame 1 (the row for id 21 has its id changed
+to 3). `dump_idsecond.lammps` has the id column second. Not derived from
+any simulation.
+
+| File | sha256 |
+| --- | --- |
+| `dump.lammps` | `8c1d90ea48e684cdaf6c9a258c3503f6edfc6c6c0845448dedfc76b8d2ba6880` |
+| `data.small.data` | `6014c0a65b161cbc624336bf83774642eb281f5ddef13da2906c5e2a68afad62` |
+| `dump_noid.lammps` | `af157469b926e5e7e428fa63b82007ca5addde7b7edae21a594e7101208e4e46` |
+| `dump_dupid.lammps` | `46f4ca0f39eb9c99620caadc181e36b84c7895d4adb28d1c5028b1004caff69b` |
+| `dump_badframe.lammps` | `259ef98a35650a062dd0940c1428802b3dfc3d1c0c87e92ad9b07ddc0541c674` |
+| `dump_idsecond.lammps` | `a654e1d3c862595f28cdbe94784c072254b1e5824e4629dd90bfd0d42c7a757f` |
