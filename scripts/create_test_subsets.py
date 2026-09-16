@@ -331,6 +331,35 @@ def create_water_subset(
     return statuses
 
 
+def create_water_gro(dst_dir: Path, force: bool) -> str:
+    """Write the first frame of the committed water subset as a GRO topology.
+
+    GRO atom numbers are one-based file positions, so this topology gives
+    MDAnalysis ids that differ from positional indices.
+    """
+    import MDAnalysis as mda
+
+    tpr = dst_dir / "prod.tpr"
+    trr = dst_dir / "prod.trr"
+    dst = dst_dir / "prod.gro"
+
+    def write(tmp: Path) -> None:
+        universe = mda.Universe(str(tpr), str(trr))
+        universe.atoms.write(str(tmp))
+
+    def verify(tmp: Path) -> None:
+        reference = mda.Universe(str(tpr), str(trr))
+        written = mda.Universe(str(tmp))
+        if len(written.atoms) != len(reference.atoms):
+            raise RuntimeError(f"GRO atom count differs: {dst}")
+        if not (written.atoms.names == reference.atoms.names).all():
+            raise RuntimeError(f"GRO atom names differ: {dst}")
+        if not np.allclose(written.atoms.positions, reference.atoms.positions, atol=1e-2):
+            raise RuntimeError(f"GRO positions differ beyond GRO precision: {dst}")
+
+    return write_verified(dst, force, write, verify)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -392,6 +421,8 @@ def main() -> None:
          lambda: create_water_subset(
              args.water_dir, OUTPUT_DIR / "example_4_water", args.n_frames,
              args.force)),
+        ("example_4_water (gro)",
+         lambda: [create_water_gro(OUTPUT_DIR / "example_4_water", args.force)]),
     ]
 
     failures = []
