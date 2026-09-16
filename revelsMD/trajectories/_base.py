@@ -312,8 +312,8 @@ class Trajectory(ABC):
         Returns
         -------
         np.ndarray
-            Array of integer atom indices corresponding to the given species
-            or type.
+            Row positions into the per-frame position and force arrays for
+            atoms matching the given species or type.
         """
         ...
 
