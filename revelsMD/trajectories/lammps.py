@@ -163,7 +163,7 @@ def get_a_frame(
         ids[i] = int(currentString[id_column])
         for j, k in enumerate(strngdex):
             vars_trest[i, j] = float(currentString[k])
-    order = np.argsort(ids, kind="stable")
+    order = np.argsort(ids)
     return vars_trest[order]
 
 
