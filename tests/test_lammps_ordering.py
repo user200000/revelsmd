@@ -64,3 +64,12 @@ def test_dump_without_id_column_is_rejected():
             str(FIXTURE_DIR / "data.small.data"),
             temperature=1.0, units="lj", atom_style=ATOM_STYLE,
         )
+
+
+def test_dump_whose_ids_do_not_match_the_topology_is_rejected():
+    with pytest.raises(RuntimeError, match="atom ids"):
+        LammpsTrajectory(
+            str(FIXTURE_DIR / "dump_dupid.lammps"),
+            str(FIXTURE_DIR / "data.small.data"),
+            temperature=1.0, units="lj", atom_style=ATOM_STYLE,
+        )

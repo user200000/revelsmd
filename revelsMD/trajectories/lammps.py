@@ -96,6 +96,36 @@ def first_read(dumpFile: str):
     return int(frames), num_ats, dic, header_length, dimgrid, id_column
 
 
+def read_frame_ids(dumpFile: str, num_ats: int, header_length: int, id_column: int) -> np.ndarray:
+    """Return the atom ids of the first frame of a dump, in file order.
+
+    Parameters
+    ----------
+    dumpFile : str
+        Path to the LAMMPS dump file.
+    num_ats : int
+        Number of atoms per frame.
+    header_length : int
+        Number of header lines preceding atomic data.
+    id_column : int
+        Column index of the atom id.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of shape ``(num_ats,)`` containing the atom ids of the first
+        frame, in the order they appear in the file.
+    """
+    ids = np.zeros(num_ats, dtype=np.int64)
+    with open(dumpFile, "r") as f:
+        for _ in range(header_length):
+            f.readline()
+        for i in range(num_ats):
+            currentString = f.readline().split()
+            ids[i] = int(currentString[id_column])
+    return ids
+
+
 def get_a_frame(
     f, num_ats: int, header_length: int, strngdex: list[int], id_column: int
 ) -> np.ndarray:
@@ -225,7 +255,9 @@ class LammpsTrajectory(Trajectory):
     ValueError
         If the cell matrix is invalid or box dimensions cannot be parsed.
     RuntimeError
-        If the trajectory cannot be parsed by MDAnalysis.
+        If the trajectory cannot be parsed by MDAnalysis, or if the atom
+        ids in the first frame of the dump are not exactly the topology's
+        atom ids (checked against the first frame only).
     """
 
     def __init__(
@@ -265,6 +297,13 @@ class LammpsTrajectory(Trajectory):
 
         self.mdanalysis_universe = mdanalysis_universe
         self.frames = len(mdanalysis_universe.trajectory)
+
+        dump_ids = np.sort(read_frame_ids(first_traj, self.num_ats, self.header_length, self._id_column))
+        if not np.array_equal(dump_ids, mdanalysis_universe.atoms.ids):
+            raise RuntimeError(
+                "LAMMPS dump atom ids do not match the topology: the first "
+                "frame must contain each topology atom id exactly once."
+            )
 
         dims = mdanalysis_universe.dimensions
         if len(dims) < 6:
