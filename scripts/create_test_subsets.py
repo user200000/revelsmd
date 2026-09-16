@@ -188,9 +188,16 @@ def create_shuffled_dump(src_dump: Path, dst_dump: Path, force: bool) -> str:
             lines = f.readlines()
         i = 0
         while i < len(lines):
-            assert lines[i].startswith(b"ITEM: TIMESTEP"), lines[i]
-            n_atoms = int(lines[i + 3])
-            header_end = i
+            if not lines[i].startswith(b"ITEM: TIMESTEP"):
+                raise RuntimeError(
+                    f"{path}, line {i + 1}: expected ITEM: TIMESTEP, "
+                    f"found {lines[i]!r}"
+                )
+            count_line = i
+            while not lines[count_line].startswith(b"ITEM: NUMBER OF ATOMS"):
+                count_line += 1
+            n_atoms = int(lines[count_line + 1])
+            header_end = count_line
             while not lines[header_end].startswith(b"ITEM: ATOMS"):
                 header_end += 1
             header_end += 1
@@ -205,9 +212,15 @@ def create_shuffled_dump(src_dump: Path, dst_dump: Path, force: bool) -> str:
         tmp.write_bytes(b"".join(out))
 
     def verify(tmp: Path) -> None:
-        for (h_src, r_src), (h_tmp, r_tmp) in zip(frames(src_dump), frames(tmp)):
-            if h_src != h_tmp or sorted(r_src) != sorted(r_tmp) or r_src == r_tmp:
+        permuted = False
+        for (h_src, r_src), (h_tmp, r_tmp) in zip(
+            frames(src_dump), frames(tmp), strict=True
+        ):
+            if h_src != h_tmp or sorted(r_src) != sorted(r_tmp):
                 raise RuntimeError(f"Shuffled dump is not a row permutation: {dst_dump}")
+            permuted = permuted or r_src != r_tmp
+        if not permuted:
+            raise RuntimeError(f"Shuffled dump is identical to its source: {dst_dump}")
 
     return write_verified(dst_dump, force, write, verify)
 
