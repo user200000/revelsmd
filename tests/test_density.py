@@ -94,8 +94,6 @@ def test_build_kvectors_3d_shape():
     k_vectors, ksquared = gs._build_kvectors_3d()
     assert k_vectors.shape == (4, 4, 3, 3)
     assert ksquared.shape == (4, 4, 3)
-    # ksquared should equal the sum of squares of k components
-    np.testing.assert_allclose(ksquared, np.sum(k_vectors ** 2, axis=-1))
 
 
 def test_build_kvectors_3d_orthorhombic_separability():
@@ -135,14 +133,23 @@ def test_build_kvectors_3d_orthorhombic_separability():
 
 
 def test_build_kvectors_3d_triclinic():
-    """k-vectors satisfy the defining property a_i . k(m) = 2*pi*m_i.
+    """k-vectors satisfy the defining property a_i . k(m) = 2*pi*m_i, with
+    one exception: on an even axis, the Nyquist Miller component is zeroed
+    in Miller space before the cell_inverse transform, so k_vectors (the
+    first-derivative numerator) is the transform of the Nyquist-masked
+    Miller vector rather than of m itself. ksquared (the second-derivative
+    denominator) has no such exception: it always equals the squared norm
+    of the transform of the full, unmasked Miller vector.
 
     The property is convention-independent (it cannot inherit a transposed
     formula from the implementation): each lattice vector dotted with the
     reciprocal vector of Miller indices m must give 2*pi times the
     corresponding index. Uses a fully triclinic cell whose third row
-    couples all three axes, so any deviation from the property shows in
-    every component rather than hiding in a subspace.
+    couples all three axes, so any deviation from the property -- or from
+    doing the masking in Miller space rather than on the Cartesian result,
+    which would be wrong here because cell_inverse mixes all three Miller
+    components into every Cartesian component -- shows in every component
+    rather than hiding in a subspace.
     """
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
@@ -165,24 +172,33 @@ def test_build_kvectors_3d_triclinic():
 
     miller_xy = np.fft.fftfreq(nbins, d=1.0 / nbins)
     miller_z = np.fft.rfftfreq(nbins, d=1.0 / nbins)
+    nyquist = nbins // 2  # nbins=4 is even on every axis
     M_inv = np.linalg.inv(cell)
     for i, m1 in enumerate(miller_xy):
         for j, m2 in enumerate(miller_xy):
             for k_idx, m3 in enumerate(miller_z):
                 m = np.array([m1, m2, m3])
-                k = k_vectors[i, j, k_idx]
-                # Defining property: a_i . k = 2*pi*m_i for every row of M.
+                k_full = 2 * np.pi * (M_inv @ m)
+                # ksquared always matches the full (unmasked) reciprocal
+                # vector, including at Nyquist.
                 np.testing.assert_allclose(
-                    cell @ k, 2 * np.pi * m, atol=1e-12,
+                    ksquared[i, j, k_idx], np.sum(k_full ** 2), atol=1e-12,
+                )
+                # Defining property for k_vectors: a_i . k = 2*pi*m_i,
+                # except each Miller component is zeroed independently
+                # when its own axis index is at that axis's Nyquist plane.
+                m_masked = np.array([
+                    0.0 if i == nyquist else m1,
+                    0.0 if j == nyquist else m2,
+                    0.0 if k_idx == nyquist else m3,
+                ])
+                k_expected = 2 * np.pi * (M_inv @ m_masked)
+                k = k_vectors[i, j, k_idx]
+                np.testing.assert_allclose(
+                    cell @ k, 2 * np.pi * m_masked, atol=1e-12,
                     err_msg=f"defining property violated at m={m}",
                 )
-                # Column-form formula, equivalent to the property.
-                np.testing.assert_allclose(
-                    k, 2 * np.pi * (M_inv @ m), atol=1e-12,
-                )
-    np.testing.assert_allclose(
-        ksquared, np.sum(k_vectors ** 2, axis=-1), atol=1e-15,
-    )
+                np.testing.assert_allclose(k, k_expected, atol=1e-12)
 
 
 def test_build_kvectors_3d_rfft_shape(ts):
