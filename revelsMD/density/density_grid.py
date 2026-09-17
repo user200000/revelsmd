@@ -908,9 +908,15 @@ class DensityGrid:
         Returns
         -------
         k_vectors : np.ndarray, shape (nbinsx, nbinsy, nbinsz // 2 + 1, 3)
-            Cartesian k-vectors at each reciprocal grid point (rfft layout).
+            Cartesian k-vectors at each reciprocal grid point (rfft layout),
+            used as the divergence (first-derivative) numerator k.F. The
+            Nyquist Miller mode of each even axis is zeroed here, since it
+            is not fixed by the sampled data and a real density requires it
+            to vanish.
         ksquared : np.ndarray, shape (nbinsx, nbinsy, nbinsz // 2 + 1)
-            |k|^2 at each reciprocal grid point (rfft layout).
+            |k|^2 (an inverse-Laplacian, second-derivative denominator) at
+            each reciprocal grid point (rfft layout), formed from the full,
+            unzeroed k-vectors and retaining the full Nyquist value.
         """
         # These k-vectors are multiplied element-wise with rfftn output
         # in _fft_force_to_density, so the grid must match its layout:
@@ -925,6 +931,22 @@ class DensityGrid:
             'ab,ijkb->ijka', self.cell_inverse, m_stack
         )
         ksquared = np.sum(k_vectors ** 2, axis=-1)
+
+        # k.F is a divergence (first-derivative) operator. On an even grid the
+        # Nyquist Miller mode along a reciprocal axis is not fixed by the
+        # sampled data, and a real density requires that mode to be zero, so
+        # drop it from the numerator vectors. ksquared (an inverse Laplacian,
+        # a second derivative) keeps the full Nyquist value and is formed
+        # above from the unmodified vectors.
+        if self.nbinsx % 2 == 0:
+            m_stack[self.nbinsx // 2, :, :, 0] = 0.0
+        if self.nbinsy % 2 == 0:
+            m_stack[:, self.nbinsy // 2, :, 1] = 0.0
+        if self.nbinsz % 2 == 0:
+            m_stack[:, :, self.nbinsz // 2, 2] = 0.0
+        k_vectors = 2 * np.pi * np.einsum(
+            'ab,ijkb->ijka', self.cell_inverse, m_stack
+        )
         return k_vectors, ksquared
 
     def write_to_cube(
