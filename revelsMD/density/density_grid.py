@@ -757,12 +757,18 @@ class DensityGrid:
         then rho(r) = <rho_count(r)> + F^-1[delta_rho(k)].
 
         The reconstruction takes the real part of the full complex inverse
-        transform, del_rho_n = -Re(ifftn(del_rho_k)). delta_rho(k) is
-        Hermitian everywhere except the Nyquist planes, where the masked
-        numerator (see _build_kvectors_3d) makes it real rather than
-        Hermitian; taking Re of the full reconstruction is correct there for
-        any cell geometry, triclinic included, and agrees with the
-        orthorhombic case to floating-point precision.
+        transform, del_rho_n = -Re(ifftn(del_rho_k)). Away from the Nyquist
+        planes, del_rho_k is exactly Hermitian (its value at -k is the
+        complex conjugate of its value at k) for any cell geometry. At a
+        Nyquist plane, ksquared is built from the raw Miller vector, whose
+        sign there is a convention -- +N/2 and -N/2 index the same grid
+        point. For an orthorhombic cell this convention choice cancels out
+        of ksquared; for a triclinic cell the metric cross-terms make
+        ksquared depend on it, so del_rho_k is not exactly Hermitian at a
+        triclinic cell's Nyquist planes. Taking Re of the full
+        reconstruction needs no such symmetry and is correct for any cell
+        geometry; it agrees with the orthorhombic case to floating-point
+        precision.
 
         Parameters
         ----------

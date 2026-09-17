@@ -47,16 +47,19 @@ def test_rho_force_matches_naive_reference():
 
 def test_reconstructed_density_has_no_imaginary_part():
     """Production rho_force matches the reference reconstruction (the real
-    part of the full complex inverse transform) for an orthorhombic cell
-    with a Nyquist bin -- the masked Nyquist numerator leaves no imaginary
-    component large enough to affect the result."""
+    part of the full complex inverse transform) for a non-cubic
+    orthorhombic cell with distinct even bin counts per axis, so each
+    axis's Nyquist plane is exercised separately -- the masked Nyquist
+    numerator leaves no imaginary component large enough to affect the
+    result."""
     rng = np.random.default_rng(2)
-    box = 10.0
-    n_atoms, n_frames, nbins = 50, 3, 16  # even grid -> has a Nyquist bin
-    positions = rng.uniform(0, box, (n_frames, n_atoms, 3))
+    box_x, box_y, box_z = 12.0, 9.0, 15.0
+    n_atoms, n_frames = 50, 3
+    nbins = (10, 14, 18)  # distinct and even on every axis -> three Nyquist planes
+    positions = rng.uniform(0, 1, (n_frames, n_atoms, 3)) * np.array([box_x, box_y, box_z])
     forces = rng.normal(0, 1.0, (n_frames, n_atoms, 3))
     traj = NumpyTrajectory(
-        positions, forces, box_x=box, box_y=box, box_z=box,
+        positions, forces, box_x=box_x, box_y=box_y, box_z=box_z,
         species_list=["A"] * n_atoms, temperature=1.0, units="lj",
     )
     grid = DensityGrid(traj, density_type="number", nbins=nbins)
