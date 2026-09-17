@@ -92,8 +92,8 @@ def test_build_kvectors_3d_shape():
     )
     gs = DensityGrid(traj, density_type="number", nbins=4)
     k_vectors, ksquared = gs._build_kvectors_3d()
-    assert k_vectors.shape == (4, 4, 3, 3)
-    assert ksquared.shape == (4, 4, 3)
+    assert k_vectors.shape == (4, 4, 4, 3)
+    assert ksquared.shape == (4, 4, 4)
 
 
 def test_build_kvectors_3d_orthorhombic_separability():
@@ -121,10 +121,9 @@ def test_build_kvectors_3d_orthorhombic_separability():
     kz_1d = k_vectors[0, 0, :, 2]
 
     # Verify separability: full 3D array matches outer product of 1D slices
-    nz_rfft = nbins // 2 + 1
     for i in range(nbins):
         for j in range(nbins):
-            for k in range(nz_rfft):
+            for k in range(nbins):
                 np.testing.assert_allclose(
                     k_vectors[i, j, k],
                     [kx_1d[i], ky_1d[j], kz_1d[k]],
@@ -170,13 +169,12 @@ def test_build_kvectors_3d_triclinic():
 
     k_vectors, ksquared = gs._build_kvectors_3d()
 
-    miller_xy = np.fft.fftfreq(nbins, d=1.0 / nbins)
-    miller_z = np.fft.rfftfreq(nbins, d=1.0 / nbins)
+    miller = np.fft.fftfreq(nbins, d=1.0 / nbins)
     nyquist = nbins // 2  # nbins=4 is even on every axis
     M_inv = np.linalg.inv(cell)
-    for i, m1 in enumerate(miller_xy):
-        for j, m2 in enumerate(miller_xy):
-            for k_idx, m3 in enumerate(miller_z):
+    for i, m1 in enumerate(miller):
+        for j, m2 in enumerate(miller):
+            for k_idx, m3 in enumerate(miller):
                 m = np.array([m1, m2, m3])
                 k_full = 2 * np.pi * (M_inv @ m)
                 # ksquared always matches the full (unmasked) reciprocal
@@ -201,29 +199,26 @@ def test_build_kvectors_3d_triclinic():
                 np.testing.assert_allclose(k, k_expected, atol=1e-12)
 
 
-def test_build_kvectors_3d_rfft_shape(ts):
-    """k-vectors should have rfft shape on last axis."""
+def test_build_kvectors_3d_full_shape(ts):
+    """k-vectors should have full shape on every axis."""
     grid = DensityGrid(ts, density_type='number', nbins=10)
     k_vectors, ksquared = grid._build_kvectors_3d()
-    # Last axis should be nbinsz // 2 + 1 (rfft convention)
-    assert k_vectors.shape == (10, 10, 6, 3)
-    assert ksquared.shape == (10, 10, 6)
+    assert k_vectors.shape == (10, 10, 10, 3)
+    assert ksquared.shape == (10, 10, 10)
 
 
-def test_build_kvectors_3d_rfft_shape_odd(ts):
-    """rfft shape is correct for odd nbinsz."""
+def test_build_kvectors_3d_full_shape_odd(ts):
+    """Full shape is correct for odd nbinsz."""
     grid = DensityGrid(ts, density_type='number', nbins=(4, 4, 5))
     k_vectors, ksquared = grid._build_kvectors_3d()
-    # 5 // 2 + 1 = 3
-    assert k_vectors.shape == (4, 4, 3, 3)
-    assert ksquared.shape == (4, 4, 3)
+    assert k_vectors.shape == (4, 4, 5, 3)
+    assert ksquared.shape == (4, 4, 5)
 
 
 def test_fft_force_to_density_odd_nbinsz(ts):
     """FFT pipeline produces correct shapes with odd nbinsz."""
     grid = DensityGrid(ts, density_type='number', nbins=(4, 4, 5))
     real_shape = (4, 4, 5)
-    rfft_shape = (4, 4, 3)
 
     force_x = np.random.default_rng(0).standard_normal(real_shape)
     force_y = np.random.default_rng(1).standard_normal(real_shape)
@@ -236,7 +231,7 @@ def test_fft_force_to_density_odd_nbinsz(ts):
 
     assert rho_force.shape == real_shape
     assert rho_count.shape == real_shape
-    assert del_rho_k.shape == rfft_shape
+    assert del_rho_k.shape == real_shape
     assert del_rho_n.shape == real_shape
 
 
@@ -2423,8 +2418,7 @@ class TestFFTForceToDensity:
         np.testing.assert_array_equal(rho_count, 0.0)
         np.testing.assert_array_equal(del_rho_n, 0.0)
         assert np.issubdtype(del_rho_k.dtype, np.complexfloating)
-        rfft_shape = (grid.nbinsx, grid.nbinsy, grid.nbinsz // 2 + 1)
-        assert del_rho_k.shape == rfft_shape
+        assert del_rho_k.shape == shape
 
     def test_zero_forces_gives_mean_rho_count(self, grid):
         """With zero forces, rho_force should equal mean(rho_count) everywhere."""
