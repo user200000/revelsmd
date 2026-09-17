@@ -79,9 +79,11 @@ def test_triclinic_reconstruction_matches_reference():
     production must match the reference oracle for a triclinic cell just as
     closely as it does for an orthorhombic one.
 
-    Checks both a cubic bin count and a triclinic cell with distinct even
-    bin counts per axis, so each axis's independent Nyquist mask is
-    exercised separately.
+    Checks a cubic bin count, distinct even bin counts per axis, a
+    mixed-parity grid and an all-odd grid, so each axis's independent
+    Nyquist mask (and its absence on odd axes) is exercised separately. The
+    reversal-evening indexing is subtlest on mixed parity, so it is locked
+    here.
     """
     rng = np.random.default_rng(3)
     n_atoms, n_frames = 80, 4
@@ -104,3 +106,5 @@ def test_triclinic_reconstruction_matches_reference():
 
     check([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [1.0, 2.0, 8.0]], nbins=16)
     check([[10.0, 0.0, 0.0], [3.0, 8.0, 0.0], [1.0, 2.0, 12.0]], nbins=(12, 16, 20))
+    check([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [1.0, 2.0, 8.0]], nbins=(16, 15, 12))
+    check([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [1.0, 2.0, 8.0]], nbins=15)
