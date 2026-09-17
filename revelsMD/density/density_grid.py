@@ -101,9 +101,13 @@ class DensityGrid:
         self.binsz = np.linspace(0, 1, nbinsz + 1)
 
         # Precompute full 3D k-vectors
-        self._k_vectors, self._ksquared = self._build_kvectors_3d()
+        self._k_vectors, ksquared = self._build_kvectors_3d()
 
         self.beta = trajectory.beta
+        ksquared[0, 0, 0] = 1.0
+        prefactor = 1j * self.beta / ksquared
+        prefactor[0, 0, 0] = 0.0
+        self._del_rho_prefactor = prefactor
         self.count = 0
         self.units = trajectory.units
 
@@ -784,12 +788,12 @@ class DensityGrid:
         # Counting density (count > 0 guaranteed by early return above)
         rho_count = counter * (1.0 / (self.voxel_volume * count))
 
-        # FFT of normalised forces — rfftn exploits real input symmetry
+        # FFT the raw forces; rfftn exploits real input symmetry
         workers = get_fft_workers()
         scale = 1.0 / (count * self.voxel_volume)
-        fx_fft = scipy.fft.rfftn(force_x * scale, workers=workers)
-        fy_fft = scipy.fft.rfftn(force_y * scale, workers=workers)
-        fz_fft = scipy.fft.rfftn(force_z * scale, workers=workers)
+        fx_fft = scipy.fft.rfftn(force_x, workers=workers)
+        fy_fft = scipy.fft.rfftn(force_y, workers=workers)
+        fz_fft = scipy.fft.rfftn(force_z, workers=workers)
 
         # k . F(k) dot product using precomputed 3D k-vectors
         kx = self._k_vectors[..., 0]
@@ -797,14 +801,9 @@ class DensityGrid:
         kz = self._k_vectors[..., 2]
         k_dot_F = kx * fx_fft + ky * fy_fft + kz * fz_fft
 
-        # Avoid ksquared.copy() — set-and-reset the DC component.
-        # Not thread-safe, but accumulation is inherently sequential.
-        saved_dc = self._ksquared[0, 0, 0]
-        self._ksquared[0, 0, 0] = 1.0
-        del_rho_k = (1j * self.beta / self._ksquared) * k_dot_F
-        self._ksquared[0, 0, 0] = saved_dc
-
-        del_rho_k[0, 0, 0] = 0.0
+        # del_rho(k) = i*beta*(k.F)/k^2 with the k=0 term dropped by the
+        # prefactor; the per-frame normalisation is applied here in k-space.
+        del_rho_k = (self._del_rho_prefactor * scale) * k_dot_F
 
         # Back to real space — irfftn returns real directly
         real_shape = (self.nbinsx, self.nbinsy, self.nbinsz)
