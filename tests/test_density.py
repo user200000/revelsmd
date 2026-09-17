@@ -78,8 +78,9 @@ def test_densitygrid_fractional_bin_edges(ts):
 # ---------------------------------------------------------------------------
 
 def test_build_kvectors_3d_shape():
-    """_build_kvectors_3d should return (nbins, nbins, nbins, 3) k-vectors
-    and (nbins, nbins, nbins) ksquared."""
+    """_build_kvectors_3d should return rfft-layout k_vectors
+    (nbins, nbins, nbins // 2 + 1, 3) and a same-shaped evened 1/k^2
+    (real, zeroed at the origin)."""
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
     cell = np.diag([10.0, 8.0, 6.0])
@@ -91,9 +92,11 @@ def test_build_kvectors_3d_shape():
         temperature=300.0, units="real",
     )
     gs = DensityGrid(traj, density_type="number", nbins=4)
-    k_vectors, ksquared = gs._build_kvectors_3d()
-    assert k_vectors.shape == (4, 4, 4, 3)
-    assert ksquared.shape == (4, 4, 4)
+    k_vectors, inv_ksquared_even = gs._build_kvectors_3d()
+    assert k_vectors.shape == (4, 4, 3, 3)
+    assert inv_ksquared_even.shape == (4, 4, 3)
+    assert not np.iscomplexobj(inv_ksquared_even)
+    assert inv_ksquared_even[0, 0, 0] == 0.0
 
 
 def test_build_kvectors_3d_orthorhombic_separability():
@@ -111,7 +114,8 @@ def test_build_kvectors_3d_orthorhombic_separability():
     )
     gs = DensityGrid(traj, density_type="number", nbins=nbins)
 
-    k_vectors, ksquared = gs._build_kvectors_3d()
+    k_vectors, _ = gs._build_kvectors_3d()
+    nbinsz_r = nbins // 2 + 1  # rfft layout on the last axis
 
     # For orthorhombic cells, each component depends only on one axis:
     # k_x[i,j,k] depends only on i, k_y[i,j,k] only on j, etc.
@@ -123,7 +127,7 @@ def test_build_kvectors_3d_orthorhombic_separability():
     # Verify separability: full 3D array matches outer product of 1D slices
     for i in range(nbins):
         for j in range(nbins):
-            for k in range(nbins):
+            for k in range(nbinsz_r):
                 np.testing.assert_allclose(
                     k_vectors[i, j, k],
                     [kx_1d[i], ky_1d[j], kz_1d[k]],
@@ -132,23 +136,30 @@ def test_build_kvectors_3d_orthorhombic_separability():
 
 
 def test_build_kvectors_3d_triclinic():
-    """k-vectors satisfy the defining property a_i . k(m) = 2*pi*m_i, with
+    """k_vectors satisfies the defining property a_i . k(m) = 2*pi*m_i, with
     one exception: on an even axis, the Nyquist Miller component is zeroed
     in Miller space before the cell_inverse transform, so k_vectors (the
     first-derivative numerator) is the transform of the Nyquist-masked
-    Miller vector rather than of m itself. ksquared (the second-derivative
-    denominator) has no such exception: it always equals the squared norm
-    of the transform of the full, unmasked Miller vector.
+    Miller vector rather than of m itself.
 
-    The property is convention-independent (it cannot inherit a transposed
-    formula from the implementation): each lattice vector dotted with the
-    reciprocal vector of Miller indices m must give 2*pi times the
-    corresponding index. Uses a fully triclinic cell whose third row
-    couples all three axes, so any deviation from the property -- or from
-    doing the masking in Miller space rather than on the Cartesian result,
-    which would be wrong here because cell_inverse mixes all three Miller
-    components into every Cartesian component -- shows in every component
-    rather than hiding in a subspace.
+    inv_ksquared_even (the second-derivative denominator, an inverse
+    Laplacian) has no defining property in terms of a single Miller vector:
+    it is deliberately the reversal-averaged 1/|k|^2, checked here against
+    an independent from-scratch rebuild of the full (non-rfft, non-evened)
+    grid. That rebuild also shows the raw (un-evened) reciprocal actually
+    differs between a Nyquist-adjacent grid point and its grid-reversed
+    image for this cell -- grounding the check in a real triclinic
+    cross-term effect rather than a vacuously-satisfied identity.
+
+    The k_vectors property is convention-independent (it cannot inherit a
+    transposed formula from the implementation): each lattice vector
+    dotted with the reciprocal vector of Miller indices m must give 2*pi
+    times the corresponding index. Uses a fully triclinic cell whose third
+    row couples all three axes, so any deviation from the property -- or
+    from doing the masking in Miller space rather than on the Cartesian
+    result, which would be wrong here because cell_inverse mixes all three
+    Miller components into every Cartesian component -- shows in every
+    component rather than hiding in a subspace.
     """
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
@@ -167,21 +178,18 @@ def test_build_kvectors_3d_triclinic():
     )
     gs = DensityGrid(traj, density_type="number", nbins=nbins)
 
-    k_vectors, ksquared = gs._build_kvectors_3d()
+    k_vectors, inv_ksquared_even = gs._build_kvectors_3d()
+    nbinsz_r = nbins // 2 + 1
+    assert k_vectors.shape == (nbins, nbins, nbinsz_r, 3)
+    assert inv_ksquared_even.shape == (nbins, nbins, nbinsz_r)
 
     miller = np.fft.fftfreq(nbins, d=1.0 / nbins)
+    miller_r = np.fft.rfftfreq(nbins, d=1.0 / nbins)
     nyquist = nbins // 2  # nbins=4 is even on every axis
     M_inv = np.linalg.inv(cell)
     for i, m1 in enumerate(miller):
         for j, m2 in enumerate(miller):
-            for k_idx, m3 in enumerate(miller):
-                m = np.array([m1, m2, m3])
-                k_full = 2 * np.pi * (M_inv @ m)
-                # ksquared always matches the full (unmasked) reciprocal
-                # vector, including at Nyquist.
-                np.testing.assert_allclose(
-                    ksquared[i, j, k_idx], np.sum(k_full ** 2), atol=1e-12,
-                )
+            for k_idx, m3 in enumerate(miller_r):
                 # Defining property for k_vectors: a_i . k = 2*pi*m_i,
                 # except each Miller component is zeroed independently
                 # when its own axis index is at that axis's Nyquist plane.
@@ -194,31 +202,76 @@ def test_build_kvectors_3d_triclinic():
                 k = k_vectors[i, j, k_idx]
                 np.testing.assert_allclose(
                     cell @ k, 2 * np.pi * m_masked, atol=1e-12,
-                    err_msg=f"defining property violated at m={m}",
+                    err_msg=f"defining property violated at m=({m1},{m2},{m3})",
                 )
                 np.testing.assert_allclose(k, k_expected, atol=1e-12)
 
+    # inv_ksquared_even: real, k=0 term dropped (not inverted).
+    assert not np.iscomplexobj(inv_ksquared_even)
+    assert inv_ksquared_even[0, 0, 0] == 0.0
+
+    # Independent from-scratch rebuild of the FULL (nbins, nbins, nbins)
+    # raw 1/k^2, using the raw (un-evened, un-masked) Miller vectors --
+    # exactly what the pre-optimisation implementation used as its second
+    # return. This is deliberately not a call into any DensityGrid method.
+    Mfull = np.stack(np.meshgrid(miller, miller, miller, indexing="ij"), axis=-1)
+    kfull = 2 * np.pi * np.einsum("ab,ijkb->ijka", M_inv, Mfull)
+    ksq_full = np.sum(kfull ** 2, axis=-1)
+    ksq_full[0, 0, 0] = 1.0
+    inv_raw = 1.0 / ksq_full
+    inv_raw[0, 0, 0] = 0.0
+
+    # Grid reversal: point (i, j, k) <-> ((-i) % nbins, (-j) % nbins, (-k) % nbins).
+    rev = tuple((-np.arange(nbins)) % nbins for _ in range(3))
+    inv_raw_reversed = inv_raw[np.ix_(*rev)]
+
+    # Ground the check in a real effect: on this triclinic cell, the raw
+    # (un-evened) reciprocal genuinely differs from its grid-reversed image
+    # at a Nyquist-adjacent point (axis 0 at Nyquist, axes 1/2 general).
+    assert abs(inv_raw[nyquist, 1, 1] - inv_raw_reversed[nyquist, 1, 1]) > 1e-6
+
+    # inv_ksquared_even must equal the reversal-average of the raw array,
+    # restricted to the rfft half -- the key property that makes it even
+    # under grid reversal on every Nyquist plane.
+    inv_full_even_expected = 0.5 * (inv_raw + inv_raw_reversed)
+    np.testing.assert_allclose(
+        inv_ksquared_even, inv_full_even_expected[:, :, :nbinsz_r], atol=1e-12,
+    )
+
+    # The key property stated directly, restricted to indices whose
+    # reversed z-index stays within the rfft half (z=0 and z=Nyquist are
+    # self-reversed): inv[q, j, kz] == inv[q, (-j) % ny, (-kz) % nz].
+    for q in (0, nyquist):
+        for j in range(nbins):
+            for kz in (0, nyquist):
+                np.testing.assert_allclose(
+                    inv_ksquared_even[q, j, kz],
+                    inv_ksquared_even[q, (-j) % nbins, (-kz) % nbins],
+                    atol=1e-12,
+                )
+
 
 def test_build_kvectors_3d_full_shape(ts):
-    """k-vectors should have full shape on every axis."""
+    """k-vectors should have rfft shape (nbinsz // 2 + 1) on the last axis."""
     grid = DensityGrid(ts, density_type='number', nbins=10)
-    k_vectors, ksquared = grid._build_kvectors_3d()
-    assert k_vectors.shape == (10, 10, 10, 3)
-    assert ksquared.shape == (10, 10, 10)
+    k_vectors, inv_ksquared_even = grid._build_kvectors_3d()
+    assert k_vectors.shape == (10, 10, 6, 3)
+    assert inv_ksquared_even.shape == (10, 10, 6)
 
 
 def test_build_kvectors_3d_full_shape_odd(ts):
-    """Full shape is correct for odd nbinsz."""
+    """rfft shape is correct for odd nbinsz."""
     grid = DensityGrid(ts, density_type='number', nbins=(4, 4, 5))
-    k_vectors, ksquared = grid._build_kvectors_3d()
-    assert k_vectors.shape == (4, 4, 5, 3)
-    assert ksquared.shape == (4, 4, 5)
+    k_vectors, inv_ksquared_even = grid._build_kvectors_3d()
+    assert k_vectors.shape == (4, 4, 3, 3)
+    assert inv_ksquared_even.shape == (4, 4, 3)
 
 
 def test_fft_force_to_density_odd_nbinsz(ts):
     """FFT pipeline produces correct shapes with odd nbinsz."""
     grid = DensityGrid(ts, density_type='number', nbins=(4, 4, 5))
     real_shape = (4, 4, 5)
+    kspace_shape = (4, 4, 3)  # nbinsz // 2 + 1 == 5 // 2 + 1 == 3
 
     force_x = np.random.default_rng(0).standard_normal(real_shape)
     force_y = np.random.default_rng(1).standard_normal(real_shape)
@@ -231,7 +284,7 @@ def test_fft_force_to_density_odd_nbinsz(ts):
 
     assert rho_force.shape == real_shape
     assert rho_count.shape == real_shape
-    assert del_rho_k.shape == real_shape
+    assert del_rho_k.shape == kspace_shape
     assert del_rho_n.shape == real_shape
 
 
@@ -2410,6 +2463,7 @@ class TestFFTForceToDensity:
     def test_zero_count_returns_zeros(self, grid):
         """count=0 should return all-zero arrays."""
         shape = (grid.nbinsx, grid.nbinsy, grid.nbinsz)
+        kspace_shape = (grid.nbinsx, grid.nbinsy, grid.nbinsz // 2 + 1)
         zeros = np.zeros(shape)
         rho_force, rho_count, del_rho_k, del_rho_n = grid._fft_force_to_density(
             zeros, zeros, zeros, zeros, count=0
@@ -2418,7 +2472,7 @@ class TestFFTForceToDensity:
         np.testing.assert_array_equal(rho_count, 0.0)
         np.testing.assert_array_equal(del_rho_n, 0.0)
         assert np.issubdtype(del_rho_k.dtype, np.complexfloating)
-        assert del_rho_k.shape == shape
+        assert del_rho_k.shape == kspace_shape
 
     def test_zero_forces_gives_mean_rho_count(self, grid):
         """With zero forces, rho_force should equal mean(rho_count) everywhere."""
