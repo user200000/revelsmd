@@ -756,6 +756,14 @@ class DensityGrid:
         delta_rho(k) = i / (k_B T k^2) * k . F(k), with delta_rho(k=0) := 0,
         then rho(r) = <rho_count(r)> + F^-1[delta_rho(k)].
 
+        The reconstruction takes the real part of the full complex inverse
+        transform, del_rho_n = -Re(ifftn(del_rho_k)). delta_rho(k) is
+        Hermitian everywhere except the Nyquist planes, where the masked
+        numerator (see _build_kvectors_3d) makes it real rather than
+        Hermitian; taking Re of the full reconstruction is correct there for
+        any cell geometry, triclinic included, and agrees with the
+        orthorhombic case to floating-point precision.
+
         Parameters
         ----------
         force_x, force_y, force_z : ndarray
@@ -772,28 +780,28 @@ class DensityGrid:
         rho_count : ndarray
             Counting-based density.
         del_rho_k : ndarray
-            Density perturbation in k-space (rfft layout).
+            Density perturbation in k-space (full layout).
         del_rho_n : ndarray
             Density perturbation in real space.
         """
         if count == 0:
-            rfft_shape = (self.nbinsx, self.nbinsy, self.nbinsz // 2 + 1)
+            kspace_shape = (self.nbinsx, self.nbinsy, self.nbinsz)
             return (
                 np.zeros_like(force_x),
                 np.zeros_like(force_x),
-                np.zeros(rfft_shape, dtype=complex),
+                np.zeros(kspace_shape, dtype=complex),
                 np.zeros_like(force_x),
             )
 
         # Counting density (count > 0 guaranteed by early return above)
         rho_count = counter * (1.0 / (self.voxel_volume * count))
 
-        # FFT the raw forces; rfftn exploits real input symmetry
+        # FFT the raw forces (full complex transform)
         workers = get_fft_workers()
         scale = 1.0 / (count * self.voxel_volume)
-        fx_fft = scipy.fft.rfftn(force_x, workers=workers)
-        fy_fft = scipy.fft.rfftn(force_y, workers=workers)
-        fz_fft = scipy.fft.rfftn(force_z, workers=workers)
+        fx_fft = scipy.fft.fftn(force_x, workers=workers)
+        fy_fft = scipy.fft.fftn(force_y, workers=workers)
+        fz_fft = scipy.fft.fftn(force_z, workers=workers)
 
         # k . F(k) dot product using precomputed 3D k-vectors
         kx = self._k_vectors[..., 0]
@@ -805,9 +813,9 @@ class DensityGrid:
         # prefactor; the per-frame normalisation is applied here in k-space.
         del_rho_k = (self._del_rho_prefactor * scale) * k_dot_F
 
-        # Back to real space — irfftn returns real directly
-        real_shape = (self.nbinsx, self.nbinsy, self.nbinsz)
-        del_rho_n = -scipy.fft.irfftn(del_rho_k, s=real_shape, workers=workers)
+        # Back to real space: the real part of the full complex inverse
+        # transform.
+        del_rho_n = -scipy.fft.ifftn(del_rho_k, workers=workers).real
         rho_force = del_rho_n + np.mean(rho_count)
 
         return rho_force, rho_count, del_rho_k, del_rho_n
@@ -898,7 +906,7 @@ class DensityGrid:
 
     def _build_kvectors_3d(self) -> tuple[np.ndarray, np.ndarray]:
         """
-        Build 3D k-vector arrays in rfft layout for general (triclinic) cells.
+        Build 3D k-vector arrays in full layout for general (triclinic) cells.
 
         The k-vector at Miller indices (m1, m2, m3) is defined by
         a_i . k = 2*pi*m_i for every lattice vector a_i (rows of the cell
@@ -907,24 +915,23 @@ class DensityGrid:
 
         Returns
         -------
-        k_vectors : np.ndarray, shape (nbinsx, nbinsy, nbinsz // 2 + 1, 3)
-            Cartesian k-vectors at each reciprocal grid point (rfft layout),
+        k_vectors : np.ndarray, shape (nbinsx, nbinsy, nbinsz, 3)
+            Cartesian k-vectors at each reciprocal grid point (full layout),
             used as the divergence (first-derivative) numerator k.F. The
             Nyquist Miller mode of each even axis is zeroed here, since it
             is not fixed by the sampled data and a real density requires it
             to vanish.
-        ksquared : np.ndarray, shape (nbinsx, nbinsy, nbinsz // 2 + 1)
+        ksquared : np.ndarray, shape (nbinsx, nbinsy, nbinsz)
             |k|^2 (an inverse-Laplacian, second-derivative denominator) at
-            each reciprocal grid point (rfft layout), formed from the full,
+            each reciprocal grid point (full layout), formed from the full,
             unzeroed k-vectors and retaining the full Nyquist value.
         """
-        # These k-vectors are multiplied element-wise with rfftn output
-        # in _fft_force_to_density, so the grid must match its layout:
-        # full frequencies on the first two axes, and rfftfreq on the last
-        # which gives only non-negative frequencies (0 to Nyquist).
+        # These k-vectors are multiplied element-wise with fftn output in
+        # _fft_force_to_density, so all three axes use the full fftfreq
+        # layout (positive and negative frequencies), matching fftn.
         m1 = np.fft.fftfreq(self.nbinsx, d=1.0 / self.nbinsx)
         m2 = np.fft.fftfreq(self.nbinsy, d=1.0 / self.nbinsy)
-        m3 = np.fft.rfftfreq(self.nbinsz, d=1.0 / self.nbinsz)
+        m3 = np.fft.fftfreq(self.nbinsz, d=1.0 / self.nbinsz)
         M1, M2, M3 = np.meshgrid(m1, m2, m3, indexing='ij')
         m_stack = np.stack([M1, M2, M3], axis=-1)
         k_vectors = 2 * np.pi * np.einsum(
