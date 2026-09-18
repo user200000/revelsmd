@@ -6,31 +6,25 @@ from revelsMD.trajectories import NumpyTrajectory
 from revelsMD.density import DensityGrid
 
 
-def _reference_rho_force(grid, force_x, force_y, force_z, counter, count):
-    """Independent reference for delta_rho(k) = i*beta*(k.F)/k^2, DC term 0.
-
-    Uses the same rfft frequency convention as the production grid: rfftn on
-    the last axis with rfftfreq for its frequencies.
-    """
+def _reference_rho_force(grid, fx, fy, fz, counter, count):
+    """Convention-independent correct density: Re of the full complex
+    reconstruction with the masked-divergence numerator and full k^2."""
+    nx, ny, nz = grid.nbinsx, grid.nbinsy, grid.nbinsz
     vv = grid.voxel_volume
     scale = 1.0 / (count * vv)
-    fx = np.fft.rfftn(force_x * scale)
-    fy = np.fft.rfftn(force_y * scale)
-    fz = np.fft.rfftn(force_z * scale)
-    nx, ny, nz = grid.nbinsx, grid.nbinsy, grid.nbinsz
-    m1 = np.fft.fftfreq(nx, d=1.0 / nx)
-    m2 = np.fft.fftfreq(ny, d=1.0 / ny)
-    m3 = np.fft.rfftfreq(nz, d=1.0 / nz)
-    M = np.stack(np.meshgrid(m1, m2, m3, indexing="ij"), axis=-1)
-    kvec = 2 * np.pi * np.einsum("ab,ijkb->ijka", grid.cell_inverse, M)
-    k_dot_F = kvec[..., 0] * fx + kvec[..., 1] * fy + kvec[..., 2] * fz
-    ksq = np.sum(kvec * kvec, axis=-1)
-    ksq[0, 0, 0] = 1.0
-    del_k = (1j * grid.beta / ksq) * k_dot_F
-    del_k[0, 0, 0] = 0.0
-    del_n = -np.fft.irfftn(del_k, s=(nx, ny, nz), axes=(0, 1, 2))
-    rho_count = counter * (1.0 / (vv * count))
-    return del_n + np.mean(rho_count)
+    Fx = np.fft.fftn(fx * scale); Fy = np.fft.fftn(fy * scale); Fz = np.fft.fftn(fz * scale)
+    ax = [np.fft.fftfreq(n, d=1.0 / n) for n in (nx, ny, nz)]
+    M = np.stack(np.meshgrid(*ax, indexing="ij"), axis=-1)
+    kfull = 2 * np.pi * np.einsum("ab,ijkb->ijka", grid.cell_inverse, M)
+    ksq = np.sum(kfull ** 2, axis=-1); ksq[0, 0, 0] = 1.0
+    Mn = M.copy()
+    for a, n in enumerate((nx, ny, nz)):
+        if n % 2 == 0:
+            Mn[(slice(None),) * a + (n // 2,) + (slice(None),) * (2 - a) + (a,)] = 0.0
+    knum = 2 * np.pi * np.einsum("ab,ijkb->ijka", grid.cell_inverse, Mn)
+    delk = (1j * grid.beta / ksq) * (knum[..., 0] * Fx + knum[..., 1] * Fy + knum[..., 2] * Fz)
+    delk[0, 0, 0] = 0.0
+    return (-np.fft.ifftn(delk)).real + np.mean(counter * (1.0 / (vv * count)))
 
 
 def test_rho_force_matches_naive_reference():
@@ -49,3 +43,66 @@ def test_rho_force_matches_naive_reference():
         grid, grid.force_x, grid.force_y, grid.force_z, grid.counter, grid.count
     )
     np.testing.assert_allclose(grid.rho_force, reference, rtol=1e-12, atol=1e-14)
+
+
+def test_production_matches_reference_distinct_even_axes():
+    """Production rho_force matches the reference reconstruction (the real
+    part of the full complex inverse transform) for a non-cubic
+    orthorhombic cell with distinct even bin counts per axis, so each
+    axis's Nyquist plane is exercised separately."""
+    rng = np.random.default_rng(2)
+    box_x, box_y, box_z = 12.0, 9.0, 15.0
+    n_atoms, n_frames = 50, 3
+    nbins = (10, 14, 18)  # distinct and even on every axis -> three Nyquist planes
+    positions = rng.uniform(0, 1, (n_frames, n_atoms, 3)) * np.array([box_x, box_y, box_z])
+    forces = rng.normal(0, 1.0, (n_frames, n_atoms, 3))
+    traj = NumpyTrajectory(
+        positions, forces, box_x=box_x, box_y=box_y, box_z=box_z,
+        species_list=["A"] * n_atoms, temperature=1.0, units="lj",
+    )
+    grid = DensityGrid(traj, density_type="number", nbins=nbins)
+    grid.accumulate(traj, atom_names="A")
+    reference = _reference_rho_force(
+        grid, grid.force_x, grid.force_y, grid.force_z, grid.counter, grid.count
+    )
+    np.testing.assert_allclose(grid.rho_force, reference, rtol=1e-12, atol=1e-14)
+
+
+def test_triclinic_reconstruction_matches_reference():
+    """The point of this module: on a triclinic cell, delta_rho(k) is only
+    Hermitian away from the Nyquist planes once the divergence numerator is
+    masked there, and triclinic metric cross-terms make a real-FFT
+    reconstruction's implicit Hermitian fill-in convention-dependent at
+    those planes. Re of the full complex reconstruction is not, so
+    production must match the reference oracle for a triclinic cell just as
+    closely as it does for an orthorhombic one.
+
+    Checks a cubic bin count, distinct even bin counts per axis, a
+    mixed-parity grid and an all-odd grid, so each axis's independent
+    Nyquist mask (and its absence on odd axes) is exercised separately. The
+    reversal-evening indexing is subtlest on mixed parity, so it is locked
+    here.
+    """
+    rng = np.random.default_rng(3)
+    n_atoms, n_frames = 80, 4
+
+    def check(cell, nbins):
+        cell = np.asarray(cell)
+        frac = rng.random((n_frames, n_atoms, 3))
+        positions = np.einsum("fai,ij->faj", frac, cell)
+        forces = rng.normal(0, 1.0, (n_frames, n_atoms, 3))
+        traj = NumpyTrajectory(
+            positions, forces, cell_matrix=cell,
+            species_list=["A"] * n_atoms, temperature=1.0, units="lj",
+        )
+        grid = DensityGrid(traj, density_type="number", nbins=nbins)
+        grid.accumulate(traj, atom_names="A")
+        reference = _reference_rho_force(
+            grid, grid.force_x, grid.force_y, grid.force_z, grid.counter, grid.count
+        )
+        np.testing.assert_allclose(grid.rho_force, reference, rtol=1e-12, atol=1e-14)
+
+    check([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [1.0, 2.0, 8.0]], nbins=16)
+    check([[10.0, 0.0, 0.0], [3.0, 8.0, 0.0], [1.0, 2.0, 12.0]], nbins=(12, 16, 20))
+    check([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [1.0, 2.0, 8.0]], nbins=(16, 15, 12))
+    check([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [1.0, 2.0, 8.0]], nbins=15)
