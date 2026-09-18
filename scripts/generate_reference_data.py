@@ -600,9 +600,7 @@ def generate_synthetic_references():
         seed=42
     )
 
-    # Triclinic force density (pinned from the current, correct
-    # reconstruction; no pre-fix triclinic baseline could exist -- it
-    # would have pinned the bug).
+    # Triclinic force density baseline.
     print("  Computing triclinic density...")
     np.random.seed(77)
     tri_cell = np.array([

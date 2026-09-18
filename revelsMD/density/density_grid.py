@@ -960,12 +960,22 @@ class DensityGrid:
         # non-orthogonal cell, k^2's metric cross-terms carry that sign;
         # averaging 1/k^2 with its grid-reversed value removes it, which makes
         # the assembled density perturbation Hermitian and the density real.
+        # k^2 is the quadratic form (2*pi)^2 m^T G m with metric
+        # G = cell_inverse^T cell_inverse, evaluated by broadcasting the 1D
+        # frequency axes so no full (nx, ny, nz, 3) k-vector array is built.
         m3f = np.fft.fftfreq(self.nbinsz, d=1.0 / self.nbinsz)
-        kfull = 2 * np.pi * np.einsum(
-            'ab,ijkb->ijka', self.cell_inverse,
-            np.stack(np.meshgrid(m1, m2, m3f, indexing='ij'), axis=-1),
+        gmetric = self.cell_inverse.T @ self.cell_inverse
+        a1 = m1[:, None, None]
+        a2 = m2[None, :, None]
+        a3 = m3f[None, None, :]
+        ksquared = (2 * np.pi) ** 2 * (
+            gmetric[0, 0] * a1 * a1
+            + gmetric[1, 1] * a2 * a2
+            + gmetric[2, 2] * a3 * a3
+            + 2 * gmetric[0, 1] * a1 * a2
+            + 2 * gmetric[0, 2] * a1 * a3
+            + 2 * gmetric[1, 2] * a2 * a3
         )
-        ksquared = np.sum(kfull ** 2, axis=-1)
         ksquared[0, 0, 0] = 1.0
         inv_ksquared = 1.0 / ksquared
         inv_ksquared[0, 0, 0] = 0.0

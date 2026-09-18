@@ -45,13 +45,11 @@ def test_rho_force_matches_naive_reference():
     np.testing.assert_allclose(grid.rho_force, reference, rtol=1e-12, atol=1e-14)
 
 
-def test_reconstructed_density_has_no_imaginary_part():
+def test_production_matches_reference_distinct_even_axes():
     """Production rho_force matches the reference reconstruction (the real
     part of the full complex inverse transform) for a non-cubic
     orthorhombic cell with distinct even bin counts per axis, so each
-    axis's Nyquist plane is exercised separately -- the masked Nyquist
-    numerator leaves no imaginary component large enough to affect the
-    result."""
+    axis's Nyquist plane is exercised separately."""
     rng = np.random.default_rng(2)
     box_x, box_y, box_z = 12.0, 9.0, 15.0
     n_atoms, n_frames = 50, 3

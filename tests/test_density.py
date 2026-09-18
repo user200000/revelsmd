@@ -251,7 +251,7 @@ def test_build_kvectors_3d_triclinic():
                 )
 
 
-def test_build_kvectors_3d_full_shape(ts):
+def test_build_kvectors_3d_rfft_shape(ts):
     """k-vectors should have rfft shape (nbinsz // 2 + 1) on the last axis."""
     grid = DensityGrid(ts, density_type='number', nbins=10)
     k_vectors, inv_ksquared_even = grid._build_kvectors_3d()
@@ -259,7 +259,7 @@ def test_build_kvectors_3d_full_shape(ts):
     assert inv_ksquared_even.shape == (10, 10, 6)
 
 
-def test_build_kvectors_3d_full_shape_odd(ts):
+def test_build_kvectors_3d_rfft_shape_odd(ts):
     """rfft shape is correct for odd nbinsz."""
     grid = DensityGrid(ts, density_type='number', nbins=(4, 4, 5))
     k_vectors, inv_ksquared_even = grid._build_kvectors_3d()
