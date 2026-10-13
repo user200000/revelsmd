@@ -5,6 +5,7 @@ This module provides the LammpsTrajectory class for reading LAMMPS dump files,
 along with helper functions for parsing the LAMMPS dump format.
 """
 
+import warnings
 from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
@@ -41,6 +42,15 @@ def first_read(dumpFile: str):
         Number of header lines per frame (before atom coordinates start).
     dimgrid : numpy.ndarray of shape (3, 2)
         Box boundaries (x, y, z) for the first frame.
+    id_column : int
+        Index of the ``id`` column within the atom columns, i.e. the
+        ``ITEM: ATOMS`` header minus its two leading tokens.
+
+    Raises
+    ------
+    ValueError
+        If the dump has no ``id`` column. Atom ids are required to pair
+        dump rows with the topology.
 
     Notes
     -----
@@ -77,13 +87,33 @@ def first_read(dumpFile: str):
         numLines = sum(1 for _ in f)
     frames = numLines / float(num_ats + header_length)
     if frames % 1 != 0:
-        print("WARNING: Non-integer frame count - incomplete file or inconsistent headers.")
-    return int(frames), num_ats, dic, header_length, dimgrid
+        warnings.warn(
+            "Non-integer frame count: incomplete file or inconsistent headers.",
+            stacklevel=2,
+        )
+    columns = dic[2:]
+    if "id" not in columns:
+        raise ValueError(
+            "LAMMPS dump has no 'id' column; it is required to pair dump "
+            "rows with the topology."
+        )
+    id_column = columns.index("id")
+    return int(frames), num_ats, dic, header_length, dimgrid, id_column
 
 
-def get_a_frame(f, num_ats: int, header_length: int, strngdex: list[int]) -> np.ndarray:
+def get_a_frame(
+    f,
+    num_ats: int,
+    header_length: int,
+    strngdex: list[int],
+    id_column: int,
+    expected_ids: np.ndarray,
+) -> np.ndarray:
     """
     Extract a single frame of atomic data from an open LAMMPS dump file.
+
+    Rows are returned in ascending atom-id order regardless of the order
+    in which they appear in the file.
 
     Parameters
     ----------
@@ -95,21 +125,39 @@ def get_a_frame(f, num_ats: int, header_length: int, strngdex: list[int]) -> np.
         Number of header lines preceding atomic data.
     strngdex : list of int
         Column indices to extract (relative to the start of atom data).
+    id_column : int
+        Column index of the atom id.
+    expected_ids : numpy.ndarray
+        The topology's atom ids in ascending order. The frame must contain
+        each of them exactly once.
 
     Returns
     -------
     numpy.ndarray
         Array of shape ``(num_ats, len(strngdex))`` containing the requested
-        columns (e.g. coordinates, forces, velocities).
+        columns, rows sorted by atom id.
+
+    Raises
+    ------
+    ValueError
+        If the sorted ids of the frame are not ``expected_ids``.
     """
     vars_trest = np.zeros((num_ats, len(strngdex)))
+    ids = np.zeros(num_ats, dtype=np.int64)
     for _ in range(header_length):
         f.readline()
     for i in range(num_ats):
         currentString = f.readline().split()
+        ids[i] = int(currentString[id_column])
         for j, k in enumerate(strngdex):
             vars_trest[i, j] = float(currentString[k])
-    return vars_trest
+    order = np.argsort(ids)
+    if not np.array_equal(ids[order], expected_ids):
+        raise ValueError(
+            "frame atom ids do not match the topology: each topology id "
+            "must appear exactly once"
+        )
+    return vars_trest[order]
 
 
 def define_strngdex(our_string: list[str], dic: list[str]) -> list[int]:
@@ -132,7 +180,7 @@ def define_strngdex(our_string: list[str], dic: list[str]) -> list[int]:
     --------
     >>> dic = ['ITEM:', 'ATOMS', 'id', 'type', 'x', 'y', 'z', 'fx', 'fy', 'fz']
     >>> define_strngdex(['x', 'z'], dic)
-    [3, 5]
+    [2, 4]
     """
     return [int(dic.index(ele) - 2) for ele in our_string]
 
@@ -169,8 +217,13 @@ class LammpsTrajectory(Trajectory):
     """
     Represents a molecular dynamics trajectory obtained from LAMMPS output.
 
-    Parses the LAMMPS trajectory file to obtain metadata (frames, atoms, box size),
-    and loads coordinates via MDAnalysis for compatibility with the rest of RevelsMD.
+    Parses the LAMMPS dump file to obtain metadata (frames, atoms, box size)
+    and reads positions and forces with the package's own parser. MDAnalysis
+    provides the topology only.
+
+    Frames are returned with atoms in ascending id order, whatever order
+    the dump was written in. The dump must contain an ``id`` column, and
+    every frame's ids are checked against the topology when it is read.
 
     Parameters
     ----------
@@ -197,7 +250,14 @@ class LammpsTrajectory(Trajectory):
     ValueError
         If the cell matrix is invalid or box dimensions cannot be parsed.
     RuntimeError
-        If the trajectory cannot be parsed by MDAnalysis.
+        If the dump header cannot be parsed (including a dump without an
+        ``id`` column), if the trajectory cannot be parsed by MDAnalysis, or
+        if the topology atom ids are not in ascending order.
+
+    Notes
+    -----
+    Reading a frame raises ValueError if its atom ids are not exactly the
+    topology's atom ids.
     """
 
     def __init__(
@@ -225,9 +285,10 @@ class LammpsTrajectory(Trajectory):
             all_trajs = [trajectory_file]
 
         try:
-            self.frames, self.num_ats, self.dic, self.header_length, self.dimgrid = first_read(first_traj)
-        except Exception as e:
-            raise RuntimeError(f"Failed to parse LAMMPS trajectory header: {e}")
+            (self.frames, self.num_ats, self.dic, self.header_length,
+             self.dimgrid, self._id_column) = first_read(first_traj)
+        except (ValueError, OSError) as e:
+            raise RuntimeError(f"Failed to parse LAMMPS trajectory header: {e}") from e
 
         try:
             mdanalysis_universe = MD.Universe(topology_file, *all_trajs, atom_style=atom_style,format="LAMMPSDump")
@@ -237,6 +298,14 @@ class LammpsTrajectory(Trajectory):
         self.mdanalysis_universe = mdanalysis_universe
         self.frames = len(mdanalysis_universe.trajectory)
 
+        topology_ids = np.asarray(mdanalysis_universe.atoms.ids)
+        if not np.all(np.diff(topology_ids) > 0):
+            raise RuntimeError(
+                "Topology atom ids are not in ascending order; positional "
+                "indices would not match id-sorted frames."
+            )
+        self._topology_ids = topology_ids
+
         dims = mdanalysis_universe.dimensions
         if len(dims) < 6:
             raise ValueError(f"Invalid LAMMPS box dimensions: {dims}")
@@ -245,7 +314,10 @@ class LammpsTrajectory(Trajectory):
         self._validate_cell_matrix(self.cell_matrix)
 
     def get_indices(self, atype: str) -> np.ndarray:
-        """Return atom indices for a given LAMMPS atom type.
+        """Return positional indices of the atoms of a given LAMMPS type.
+
+        Frames yielded by this trajectory are in ascending atom-id order,
+        and the returned indices are row positions in those frames.
 
         Parameters
         ----------
@@ -255,9 +327,9 @@ class LammpsTrajectory(Trajectory):
         Returns
         -------
         np.ndarray
-            Zero-based atom indices corresponding to the given type.
+            Row indices into the per-frame position and force arrays.
         """
-        return self.mdanalysis_universe.select_atoms(f'type {atype}').ids - 1
+        return self.mdanalysis_universe.select_atoms(f'type {atype}').ix
 
     def get_charges(self, atype: str) -> np.ndarray:
         """Return atomic charges for a given LAMMPS atom type.
@@ -326,7 +398,13 @@ class LammpsTrajectory(Trajectory):
 
             frame_idx = start
             while frame_idx < stop:
-                data = get_a_frame(f, self.num_ats, self.header_length, strngdex)
+                try:
+                    data = get_a_frame(
+                        f, self.num_ats, self.header_length, strngdex,
+                        self._id_column, self._topology_ids,
+                    )
+                except ValueError as e:
+                    raise ValueError(f"{traj_file}, frame {frame_idx}: {e}") from e
                 positions = data[:, :3]
                 forces = data[:, 3:]
                 yield Frame(positions, forces)

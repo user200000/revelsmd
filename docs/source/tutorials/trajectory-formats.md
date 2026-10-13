@@ -7,7 +7,8 @@ so analysis code is format-independent.
 ## LAMMPS
 
 `LammpsTrajectory` reads LAMMPS custom dump files, requiring both a dump file and a
-topology (data) file. The dump must contain positions and forces:
+topology (data) file. The dump must contain atom ids as well as positions and forces;
+rows may be in any order, since frames are sorted by id on loading:
 
 ```
 dump 1 all custom 100 trajectory.dump id type x y z fx fy fz
