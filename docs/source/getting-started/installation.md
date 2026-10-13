@@ -2,7 +2,7 @@
 
 ## Requirements
 
-RevelsMD requires Python 3.11 or later.
+RevelsMD requires Python 3.12 or later.
 
 ## Installing from PyPI
 
