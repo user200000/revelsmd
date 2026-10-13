@@ -7,7 +7,8 @@ so analysis code is format-independent.
 ## LAMMPS
 
 `LammpsTrajectory` reads LAMMPS custom dump files, requiring both a dump file and a
-topology (data) file. The dump must contain positions and forces:
+topology (data) file. The dump must contain atom ids as well as positions and forces;
+rows may be in any order, since frames are sorted by id on loading:
 
 ```
 dump 1 all custom 100 trajectory.dump id type x y z fx fy fz
@@ -108,7 +109,7 @@ The default unit system is `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:
 
 ```python
-indices = traj.get_indices('OW')  # oxygen atoms in SPC/E water
+indices = traj.get_indices('Ow')  # oxygen atoms in SPC/E water
 ```
 
 ## NumPy arrays
@@ -240,5 +241,5 @@ The string passed to `get_indices()` follows the source simulation's convention:
 
 - **LAMMPS**: type number as a string — `'1'`, `'2'`
 - **VASP**: element symbol — `'Ba'`, `'F'`
-- **MDAnalysis**: atom name from the topology — `'OW'`, `'HW1'`
+- **MDAnalysis**: atom name from the topology — `'Ow'`, `'Hw1'`
 - **NumPy**: the label provided in `species_list`

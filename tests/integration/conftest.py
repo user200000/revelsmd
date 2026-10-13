@@ -68,6 +68,23 @@ def example1_trajectory():
 
 
 @pytest.fixture(scope="module")
+def example1_shuffled_trajectory():
+    """Example 1 with the atom rows of every frame permuted (same data)."""
+    from revelsMD.trajectories import LammpsTrajectory
+
+    dump_file = TEST_DATA_DIR / "example_1_LJ" / "dump.nh.shuffled.lammps"
+    data_file = TEST_DATA_DIR / "example_1_LJ" / "data.fin.nh.data"
+
+    return LammpsTrajectory(
+        str(dump_file),
+        str(data_file),
+        temperature=1.35,
+        units='lj',
+        atom_style="id resid type q x y z ix iy iz",
+    )
+
+
+@pytest.fixture(scope="module")
 def example2_trajectory():
     """
     Load Example 2 LJ trajectory for 3D density tests.
@@ -111,6 +128,17 @@ def example4_trajectory():
     tpr_file = TEST_DATA_DIR / "example_4_water" / "prod.tpr"
 
     return MDATrajectory(str(trr_file), str(tpr_file), temperature=300.0)
+
+
+@pytest.fixture(scope="module")
+def example4_gro_trajectory():
+    """Example 4 with a GRO topology (one-based atom numbers) instead of the TPR."""
+    from revelsMD.trajectories import MDATrajectory
+
+    trr_file = TEST_DATA_DIR / "example_4_water" / "prod.trr"
+    gro_file = TEST_DATA_DIR / "example_4_water" / "prod.gro"
+
+    return MDATrajectory(str(trr_file), str(gro_file), temperature=300.0)
 
 
 # ---------------------------------------------------------------------------

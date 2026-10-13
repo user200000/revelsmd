@@ -85,7 +85,10 @@ class MDATrajectory(Trajectory):
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
-        Return indices of atoms matching a given atom name.
+        Return positional indices of atoms matching a given atom name.
+
+        The indices are row positions in the frames yielded by this
+        trajectory, independent of the atom numbering in the topology file.
 
         Parameters
         ----------
@@ -95,9 +98,9 @@ class MDATrajectory(Trajectory):
         Returns
         -------
         np.ndarray
-            Array of atom indices corresponding to the given atom name.
+            Row indices into the per-frame position and force arrays.
         """
-        return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').ids)
+        return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').ix)
 
     def get_charges(self, atype: str) -> np.ndarray:
         """
