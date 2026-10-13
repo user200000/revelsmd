@@ -24,7 +24,7 @@ def mock_mdanalysis_universe():
     mock.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
     mock.trajectory = [0, 1, 2]
     mock.atoms.ids = np.arange(1, 6)
-    mock.select_atoms.return_value.ids = np.array([1, 2, 3])
+    mock.select_atoms.return_value.ix = np.array([0, 1, 2])
     mock.select_atoms.return_value.charges = np.array([0.1, 0.2, 0.3])
     mock.select_atoms.return_value.masses = np.array([12.0, 1.0, 16.0])
     return mock
@@ -64,7 +64,7 @@ def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_univers
     assert np.isclose(state.box_y, 10.0)
     assert np.isclose(state.box_z, 10.0)
 
-    assert np.all(state.get_indices("H") == np.array([1, 2, 3]))
+    assert np.all(state.get_indices("H") == np.array([0, 1, 2]))
     assert np.allclose(state.get_charges("H"), [0.1, 0.2, 0.3])
     assert np.allclose(state.get_masses("H"), [12.0, 1.0, 16.0])
 
@@ -88,7 +88,7 @@ def test_mda_triclinic_cell(mock_universe):
     # MDAnalysis dimensions: [a, b, c, alpha, beta, gamma]
     mock_uni.dimensions = np.array([10.0, 9.0, 8.0, 80.0, 85.0, 70.0])
     mock_uni.trajectory = [0, 1, 2]
-    mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
+    mock_uni.select_atoms.return_value.ix = np.array([0, 1, 2])
     mock_universe.return_value = mock_uni
 
     state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
@@ -572,7 +572,7 @@ def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
     mock_uni.trajectory = mock_trajectory
-    mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
+    mock_uni.select_atoms.return_value.ix = np.array([0, 1, 2])
     mock_universe.return_value = mock_uni
 
     state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
@@ -669,7 +669,7 @@ def test_mda_get_frame_returns_correct_data(mock_universe):
     mock_uni = MagicMock()
     mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
     mock_uni.trajectory = mock_trajectory
-    mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
+    mock_uni.select_atoms.return_value.ix = np.array([0, 1, 2])
     mock_universe.return_value = mock_uni
 
     state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
@@ -974,7 +974,7 @@ class TestIterFramesNegativeIndices:
         mock_uni = MagicMock()
         mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
         mock_uni.trajectory = mock_trajectory
-        mock_uni.select_atoms.return_value.ids = np.array([1, 2, 3])
+        mock_uni.select_atoms.return_value.ix = np.array([0, 1, 2])
         mock_universe.return_value = mock_uni
 
         state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)

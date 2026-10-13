@@ -1,8 +1,9 @@
-"""Row order in a LAMMPS dump must not affect any result."""
+"""Species selection must not depend on how a file orders or numbers its atoms."""
 
 import numpy as np
 import pytest
 
+from revelsMD.density import DensityGrid
 from revelsMD.rdf import compute_rdf
 
 
@@ -23,3 +24,28 @@ class TestShuffledDumpEquivalence:
         np.testing.assert_array_equal(result.r, reference.r)
         np.testing.assert_array_equal(result.g, reference.g)
         np.testing.assert_array_equal(result.g_count, reference.g_count)
+
+
+@pytest.mark.integration
+class TestTopologyNumberingIndependence:
+
+    def test_indices_are_positional(self, example4_gro_trajectory):
+        universe = example4_gro_trajectory.mdanalysis_universe
+        expected = np.flatnonzero(universe.atoms.names == "Ow")
+        np.testing.assert_array_equal(example4_gro_trajectory.get_indices("Ow"), expected)
+
+    def test_indices_match_tpr_topology(self, example4_trajectory, example4_gro_trajectory):
+        for name in ("Ow", "Hw1", "Hw2"):
+            np.testing.assert_array_equal(
+                example4_gro_trajectory.get_indices(name),
+                example4_trajectory.get_indices(name),
+            )
+
+    def test_density_identical_across_topologies(self, example4_trajectory, example4_gro_trajectory):
+        grids = []
+        for traj in (example4_trajectory, example4_gro_trajectory):
+            grid = DensityGrid(traj, density_type="number", nbins=20)
+            grid.accumulate(traj, atom_names="Ow", stop=1)
+            grids.append(grid)
+        np.testing.assert_array_equal(grids[1].rho_count, grids[0].rho_count)
+        np.testing.assert_array_equal(grids[1].rho_force, grids[0].rho_force)
