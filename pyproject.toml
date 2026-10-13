@@ -10,13 +10,12 @@ authors = [
 ]
 dynamic = ["version", "description"]
 license = {file = "LICENSE"}
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = ["molecular-dynamics", "radial-distribution-function", "density", "force-sampling", "reduced-variance"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
