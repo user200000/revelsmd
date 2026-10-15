@@ -34,6 +34,11 @@ Lennard-Jones fluid, 2880 atoms (2304 of type 1, 576 of type 2), 10 frames.
 - Construction command: `python scripts/create_test_subsets.py`
   (or `--example1-dir PATH` to point at a different source)
 
+In frame 3 (zero-based), atom 1758 lies exactly on a voxel boundary of the
+30-bin grid: z = 12.8043 is 27/30 of the 14.227 box. The voxel it is
+counted in, and so `lammps_example1/number_density_box.npz`, depends on the
+order of floating-point operations in the fractional-coordinate conversion.
+
 | File | sha256 |
 | --- | --- |
 | `dump.nh.lammps` | `29f07f0ddd4c7fce2b0e02f6c8fdac5789dcb69600f4d58a1b9350311ad1a299` |

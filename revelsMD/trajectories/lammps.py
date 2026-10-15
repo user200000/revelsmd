@@ -293,9 +293,10 @@ def _header_timestep(lines: list[str]) -> int | None:
 def combine_frames(indices: list[DumpIndex]) -> list[DumpFrame]:
     """Join the frames of consecutive dump files into one trajectory.
 
-    Frames are kept in timestep order. When a file starts at a timestep
-    that an earlier file already contains, the earlier frames from that
-    timestep on are replaced by the later file's. An incomplete final frame
+    Files must be given in run order: the files of a run, then those of
+    each restart. When a file starts at a timestep that an earlier file
+    already contains, the earlier frames from that timestep on are
+    replaced by the later file's. An incomplete final frame
     is dropped, with a warning unless the next file's frames replace it.
 
     Raises
@@ -470,9 +471,9 @@ class LammpsTrajectory(Trajectory):
 
     Frames are returned with atoms in ascending id order, whatever order
     the dump was written in. Several dump files from a run and its restarts
-    are joined in timestep order: where a file starts at a timestep an
-    earlier file already contains, the earlier frames from that timestep on
-    are replaced by the later file's. An incomplete final frame, as left by
+    are joined in the order given, which must be run order: where a file
+    starts at a timestep an earlier file already contains, the earlier
+    frames from that timestep on are replaced by the later file's. An incomplete final frame, as left by
     a job killed while writing, is dropped with a warning.
 
     Parameters
@@ -505,11 +506,16 @@ class LammpsTrajectory(Trajectory):
     ValueError
         If a dump file is malformed or lacks required columns, if a box is
         not fully periodic, if the box changes between frames, if a frame's
-        atom count differs from the topology's, or if the atom style cannot
-        be determined.
+        atom count differs from the topology's, if the atom style cannot be
+        determined, if a file starts at or before the first timestep of the
+        file before it, or if there are no complete frames.
     RuntimeError
         If MDAnalysis cannot read the topology, or if the topology atom ids
         are not in ascending order.
+    OSError
+        If a dump file cannot be opened (``FileNotFoundError`` if it does
+        not exist), or the topology file when the atom style is read from
+        it.
 
     Notes
     -----
