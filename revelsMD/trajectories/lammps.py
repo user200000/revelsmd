@@ -24,8 +24,8 @@ from ._base import Trajectory, DataUnavailableError, as_paths, check_fixed_cell
 # documentation), as MDAnalysis column strings.
 STYLE_COLUMNS: dict[str, str] = {
     "atomic": "id type x y z",
-    "charge": "id type q x y z",
-    "full": "id resid type q x y z",
+    "charge": "id type charge x y z",
+    "full": "id resid type charge x y z",
     "molecular": "id resid type x y z",
     "bond": "id resid type x y z",
     "angle": "id resid type x y z",

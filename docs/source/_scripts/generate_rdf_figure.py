@@ -53,7 +53,7 @@ def main():
         str(lj_path / "data.fin.nh.data"),
         temperature=1.35,
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
     )
 
     # Fine bins + few frames: force-based advantage is striking

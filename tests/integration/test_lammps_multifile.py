@@ -24,7 +24,7 @@ def split_trajectory(tmp_path_factory):
     return LammpsTrajectory(
         [str(first), str(second)],
         str(TEST_DATA_DIR / "example_1_LJ" / "data.fin.nh.data"),
-        temperature=1.35, units="lj", atom_style="id resid type q x y z ix iy iz",
+        temperature=1.35, units="lj", atom_style="id resid type charge x y z ix iy iz",
     )
 
 

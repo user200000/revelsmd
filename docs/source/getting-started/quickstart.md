@@ -18,7 +18,7 @@ ts = LammpsTrajectory(
     topology_file="data.fin.nh.data",
     temperature=1.35,
     units="lj",
-    atom_style="id resid type q x y z ix iy iz",
+    atom_style="id resid type charge x y z ix iy iz",
 )
 
 rdf = compute_rdf(ts, species_a="1", species_b="1", integration="forward")
@@ -111,7 +111,7 @@ ts = LammpsTrajectory(
     topology_file="data.fin.nh.data",
     temperature=1.35,
     units="lj",
-    atom_style="id resid type q x y z ix iy iz",
+    atom_style="id resid type charge x y z ix iy iz",
 )
 ```
 

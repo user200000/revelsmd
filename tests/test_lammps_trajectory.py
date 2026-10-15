@@ -202,13 +202,39 @@ class TestTopology:
         traj = LammpsTrajectory(six_frames, str(renamed), temperature=1.0, units="lj")
         np.testing.assert_array_equal(traj.get_indices("1"), [0, 2, 4])
 
+    def test_charges_of_a_full_style_data_file(self, six_frames, tmp_path):
+        # The lammps_small atoms in the full layout (id resid type charge x y z),
+        # with charge id / 10.
+        text = Path(DATA).read_text()
+        head, _, atoms = text.partition("Atoms # atomic\n")
+        full_rows = []
+        for line in atoms.splitlines():
+            if line.strip():
+                i, t, x, y, z = line.split()
+                full_rows.append(f"{i} 1 {t} {int(i) / 10} {x} {y} {z}\n")
+        path = tmp_path / "data.full"
+        path.write_text(head + "Atoms # full\n\n" + "".join(full_rows))
+
+        # The charges as written, read back with plain Python and ordered by id.
+        written = path.read_text().partition("Atoms # full\n")[2].split("\n")
+        table = sorted((int(w[0]), w[2], float(w[3])) for w in map(str.split, written) if w)
+        for style in (None, "full"):
+            traj = LammpsTrajectory(six_frames, str(path), temperature=1.0, units="lj",
+                                    atom_style=style)
+            for atype in ("1", "2"):
+                expected = [q for _, t, q in table if t == atype]
+                assert len(expected) == 3 and all(expected)
+                # MDAnalysis stores charges in single precision.
+                np.testing.assert_array_equal(
+                    traj.get_charges(atype), np.array(expected, dtype=np.float32))
+
     def test_full_style_data_file(self):
         lj = Path(__file__).parent / "data" / "example_1_LJ"
         inferred = LammpsTrajectory(str(lj / "dump.nh.lammps"), str(lj / "data.fin.nh.data"),
                                     temperature=1.35, units="lj")
         explicit = LammpsTrajectory(str(lj / "dump.nh.lammps"), str(lj / "data.fin.nh.data"),
                                     temperature=1.35, units="lj",
-                                    atom_style="id resid type q x y z ix iy iz")
+                                    atom_style="id resid type charge x y z ix iy iz")
         np.testing.assert_array_equal(
             inferred.mdanalysis_universe.atoms.types, explicit.mdanalysis_universe.atoms.types)
         np.testing.assert_array_equal(

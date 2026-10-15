@@ -63,7 +63,7 @@ def example1_trajectory():
         str(data_file),
         temperature=1.35,  # LJ reduced temperature from simulation
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
     )
 
 
@@ -80,7 +80,7 @@ def example1_shuffled_trajectory():
         str(data_file),
         temperature=1.35,
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
     )
 
 
@@ -104,7 +104,7 @@ def example2_trajectory():
         str(data_file),
         temperature=1.35,  # LJ reduced temperature from simulation
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
     )
 
 

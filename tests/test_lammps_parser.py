@@ -283,12 +283,12 @@ class TestCombineFrames:
 class TestResolveAtomStyle:
 
     def test_column_string_is_passed_through(self):
-        assert resolve_atom_style("id type q x y z", SMALL_DATA) == "id type q x y z"
+        assert resolve_atom_style("id type charge x y z", SMALL_DATA) == "id type charge x y z"
 
     @pytest.mark.parametrize("name, columns", [
         ("atomic", "id type x y z"),
-        ("charge", "id type q x y z"),
-        ("full", "id resid type q x y z"),
+        ("charge", "id type charge x y z"),
+        ("full", "id resid type charge x y z"),
         ("molecular", "id resid type x y z"),
         ("bond", "id resid type x y z"),
         ("angle", "id resid type x y z"),
@@ -298,7 +298,7 @@ class TestResolveAtomStyle:
 
     def test_style_read_from_the_data_file(self):
         assert resolve_atom_style(None, SMALL_DATA) == "id type x y z"   # Atoms # atomic
-        assert resolve_atom_style(None, LJ_DATA) == "id resid type q x y z"  # Atoms # full
+        assert resolve_atom_style(None, LJ_DATA) == "id resid type charge x y z"  # Atoms # full
 
     def test_data_file_without_a_style_comment(self, tmp_path):
         text = Path(SMALL_DATA).read_text().replace("Atoms # atomic", "Atoms")
