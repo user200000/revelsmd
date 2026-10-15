@@ -12,7 +12,7 @@ from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-unty
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory
+from ._base import Trajectory, check_fixed_cell
 
 
 class MDATrajectory(Trajectory):
@@ -25,7 +25,8 @@ class MDATrajectory(Trajectory):
     Parameters
     ----------
     trajectory_file : str
-        Path to the trajectory file (e.g., `.xtc`, `.trr`, `.dcd`, `.lammpstrj`).
+        Path to a trajectory file that stores forces (e.g. `.trr` written with
+        forces at every saved frame).
     topology_file : str
         Path to the topology file (e.g., `.pdb`, `.gro`, `.data`).
     temperature : float
@@ -47,9 +48,15 @@ class MDATrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If no topology file is provided or the cell matrix is invalid.
+        If no topology file is provided, if the trajectory has no box or no
+        forces, or if the cell matrix is invalid.
     RuntimeError
         If MDAnalysis fails to load the trajectory or topology file.
+
+    Notes
+    -----
+    Reading a frame raises ValueError if it has no forces or if its box
+    differs from the first frame's.
     """
 
     def __init__(self, trajectory_file: str, topology_file: str, *, temperature: float):
@@ -70,17 +77,18 @@ class MDATrajectory(Trajectory):
         self.frames = len(mdanalysis_universe.trajectory)
 
         dims = mdanalysis_universe.dimensions
-        if len(dims) < 3:
-            raise ValueError(f"Invalid simulation box dimensions: {dims}")
-
-        # Build full cell matrix from MDAnalysis dimensions [a, b, c, alpha, beta, gamma]
-        # For older trajectories lacking angular information, assume orthorhombic
-        if len(dims) < 6:
-            lx, ly, lz = float(dims[0]), float(dims[1]), float(dims[2])
-            lx, ly, lz = self._validate_box_dimensions(lx, ly, lz)
-            self.cell_matrix = self._cell_matrix_from_dimensions(lx, ly, lz)
-        else:
-            self.cell_matrix = np.array(triclinic_vectors(dims), dtype=np.float64)
+        if dims is None:
+            raise ValueError(
+                f"{trajectory_file}: the trajectory has no simulation box; "
+                "a periodic box is required"
+            )
+        if not mdanalysis_universe.trajectory.ts.has_forces:
+            raise ValueError(
+                f"{trajectory_file}: the trajectory has no forces; force "
+                "sampling needs forces in every frame"
+            )
+        self._dimensions = np.array(dims, dtype=np.float64)
+        self.cell_matrix = np.array(triclinic_vectors(dims), dtype=np.float64)
         self._validate_cell_matrix(self.cell_matrix)
 
     def get_indices(self, atype: str) -> np.ndarray:
@@ -134,6 +142,16 @@ class MDATrajectory(Trajectory):
         """
         return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
 
+    def _frame(self, ts) -> Frame:
+        """Check one MDAnalysis timestep and return it as a Frame."""
+        where = f"{self.trajectory_file}, frame {ts.frame}"
+        if not ts.has_forces:
+            raise ValueError(f"{where}: no forces; force sampling needs forces in every frame")
+        if ts.dimensions is None:
+            raise ValueError(f"{where}: no simulation box")
+        check_fixed_cell(np.array(ts.dimensions, dtype=np.float64), self._dimensions, where)
+        return Frame(ts.positions.copy(), ts.forces.copy())
+
     def _iter_frames_impl(
         self,
         start: int,
@@ -142,7 +160,7 @@ class MDATrajectory(Trajectory):
     ) -> Iterator[Frame]:
         """Iterate using MDAnalysis trajectory slicing."""
         for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
-            yield Frame(ts.positions.copy(), ts.forces.copy())
+            yield self._frame(ts)
 
     def get_frame(self, index: int) -> Frame:
         """Return positions and forces for a specific frame by index.
@@ -158,5 +176,4 @@ class MDATrajectory(Trajectory):
             A dataclass with ``positions`` and ``forces`` arrays,
             each of shape ``(n_atoms, 3)``.
         """
-        ts = self.mdanalysis_universe.trajectory[index]
-        return Frame(ts.positions.copy(), ts.forces.copy())
+        return self._frame(self.mdanalysis_universe.trajectory[index])
