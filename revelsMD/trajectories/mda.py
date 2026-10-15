@@ -25,8 +25,8 @@ class MDATrajectory(Trajectory):
     Parameters
     ----------
     trajectory_file : str
-        Path to a trajectory file that stores forces (e.g. `.trr` written with
-        forces at every saved frame).
+        Path to a trajectory file that stores positions and forces in every
+        saved frame (e.g. a `.trr` written with both at the same steps).
     topology_file : str
         Path to the topology file (e.g., `.pdb`, `.gro`, `.data`).
     temperature : float
@@ -48,15 +48,15 @@ class MDATrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If no topology file is provided, if the trajectory has no box or no
-        forces, or if the cell matrix is invalid.
+        If no topology file is provided, if the trajectory has no box, no
+        positions or no forces, or if the cell matrix is invalid.
     RuntimeError
         If MDAnalysis fails to load the trajectory or topology file.
 
     Notes
     -----
-    Reading a frame raises ValueError if it has no forces or if its box
-    differs from the first frame's.
+    Reading a frame raises ValueError if it has no positions or no forces,
+    or if its box differs from the first frame's.
     """
 
     def __init__(self, trajectory_file: str, topology_file: str, *, temperature: float):
@@ -81,6 +81,11 @@ class MDATrajectory(Trajectory):
             raise ValueError(
                 f"{trajectory_file}: the trajectory has no simulation box; "
                 "a periodic box is required"
+            )
+        if not mdanalysis_universe.trajectory.ts.has_positions:
+            raise ValueError(
+                f"{trajectory_file}: the trajectory has no positions; "
+                "positions are needed in every frame"
             )
         if not mdanalysis_universe.trajectory.ts.has_forces:
             raise ValueError(
@@ -145,6 +150,8 @@ class MDATrajectory(Trajectory):
     def _frame(self, ts) -> Frame:
         """Check one MDAnalysis timestep and return it as a Frame."""
         where = f"{self.trajectory_file}, frame {ts.frame}"
+        if not ts.has_positions:
+            raise ValueError(f"{where}: no positions")
         if not ts.has_forces:
             raise ValueError(f"{where}: no forces; force sampling needs forces in every frame")
         if ts.dimensions is None:

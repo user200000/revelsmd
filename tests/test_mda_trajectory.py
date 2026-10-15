@@ -98,6 +98,24 @@ class TestValidation:
         with pytest.raises(ValueError, match="frame 1: no forces"):
             traj.get_frame(1)
 
+    def test_trajectory_without_positions_raises_at_construction(self, tmp_path):
+        path = write_variant(tmp_path / "forces.trr", lambda ts: setattr(ts, "has_positions", False))
+        with pytest.raises(ValueError, match="forces.trr: the trajectory has no positions"):
+            MDATrajectory(path, TPR, temperature=300.0)
+
+    def test_frame_without_positions_raises_when_read(self, tmp_path):
+        def drop_positions(ts):
+            if ts.frame == 1:
+                ts.has_positions = False
+        path = write_variant(tmp_path / "partial.trr", drop_positions)
+        traj = MDATrajectory(path, TPR, temperature=300.0)
+        frames = traj.iter_frames()
+        next(frames)
+        with pytest.raises(ValueError, match="partial.trr, frame 1: no positions"):
+            next(frames)
+        with pytest.raises(ValueError, match="frame 1: no positions"):
+            traj.get_frame(1)
+
     def test_changing_box_raises_when_read(self, tmp_path):
         def grow(ts):
             if ts.frame == 2:
