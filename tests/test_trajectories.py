@@ -50,6 +50,19 @@ def test_numpy_state_species_not_found():
         state.get_indices("C")
 
 
+def test_numpy_state_non_finite_frame_raises_when_read():
+    positions = np.zeros((3, 2, 3))
+    forces = np.ones((3, 2, 3))
+    forces[1, 0, 2] = np.inf
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, ["O", "H"], temperature=300.0)
+    frames = state.iter_frames()
+    next(frames)
+    with pytest.raises(ValueError, match="frame 1: the forces contain NaN or infinite"):
+        next(frames)
+    with pytest.raises(ValueError, match="frame -2: the forces contain NaN or infinite"):
+        state.get_frame(-2)
+
+
 def test_numpy_state_invalid_shapes_and_box():
     with pytest.raises(ValueError, match="incommensurate"):
         NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 3, 3)), 10, 10, 10, ["O", "H"], temperature=300.0)

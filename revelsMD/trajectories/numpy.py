@@ -10,7 +10,7 @@ from typing import Iterator
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory, DataUnavailableError
+from ._base import Trajectory, DataUnavailableError, check_finite
 
 
 class NumpyTrajectory(Trajectory):
@@ -210,7 +210,7 @@ class NumpyTrajectory(Trajectory):
     ) -> Iterator[Frame]:
         """Iterate over in-memory position/force arrays."""
         for i in range(start, stop, stride):
-            yield Frame(self.positions[i], self.forces[i])
+            yield self.get_frame(i)
 
     def get_frame(self, index: int) -> Frame:
         """Return positions and forces for a specific frame by index.
@@ -225,5 +225,12 @@ class NumpyTrajectory(Trajectory):
         Frame
             A dataclass with ``positions`` and ``forces`` arrays,
             each of shape ``(n_atoms, 3)``.
+
+        Raises
+        ------
+        ValueError
+            If the frame's positions or forces contain NaN or infinity.
         """
-        return Frame(self.positions[index], self.forces[index])
+        positions, forces = self.positions[index], self.forces[index]
+        check_finite(positions, forces, f"frame {index}")
+        return Frame(positions, forces)
