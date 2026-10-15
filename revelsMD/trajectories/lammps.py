@@ -9,7 +9,7 @@ import mmap
 import os
 import warnings
 from dataclasses import dataclass
-from typing import Iterator
+from typing import BinaryIO, Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
 from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
@@ -395,6 +395,60 @@ def _data_file_style(topology_file: str) -> str | None:
                 words = line.partition("#")[2].split()
                 return words[0] if words else None
     return None
+
+
+def read_dump_frame(
+    f: BinaryIO,
+    frame: DumpFrame,
+    layout: ColumnLayout,
+    expected_ids: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Read the positions and forces of one indexed frame.
+
+    Parameters
+    ----------
+    f : binary file object
+        The frame's dump file, opened in binary mode.
+    frame : DumpFrame
+        The frame's index entry.
+    layout : ColumnLayout
+        The columns of the frame's file.
+    expected_ids : np.ndarray
+        The topology's atom ids in ascending order.
+
+    Returns
+    -------
+    positions, forces : np.ndarray
+        Arrays of shape ``(n_atoms, 3)``, rows in ascending atom-id order.
+        Scaled coordinates are converted to Cartesian.
+
+    Raises
+    ------
+    ValueError
+        If the rows do not all have the header's columns, or if the frame's
+        ids are not exactly ``expected_ids``.
+    """
+    f.seek(frame.data_start)
+    tokens = np.array(f.read(frame.data_end - frame.data_start).split())
+    if tokens.size != frame.n_atoms * layout.n_columns:
+        raise ValueError(
+            f"the atom rows do not all have the {layout.n_columns} columns "
+            "named in the header"
+        )
+    table = tokens.reshape(frame.n_atoms, layout.n_columns)
+    ids = table[:, layout.id_column].astype(np.int64)
+    order = np.argsort(ids, kind="stable")
+    if not np.array_equal(ids[order], expected_ids):
+        raise ValueError(
+            "frame atom ids do not match the topology: each topology id "
+            "must appear exactly once"
+        )
+    table = table[order]
+    positions = table[:, list(layout.coordinate_columns)].astype(np.float64)
+    forces = table[:, list(layout.force_columns)].astype(np.float64)
+    if layout.scaled:
+        positions = frame.origin + positions @ frame.cell
+    return positions, forces
 
 
 # -----------------------------------------------------------------------------

@@ -6,7 +6,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from lammps_dumps import frame, rows, write
+from lammps_dumps import (
+    IDS_SORTED,
+    forces as expected_forces,
+    frame,
+    positions as expected_positions,
+    rows,
+    write,
+)
 from revelsMD.trajectories.lammps import (
     ColumnLayout,
     DumpFrame,
@@ -14,6 +21,7 @@ from revelsMD.trajectories.lammps import (
     combine_frames,
     index_dump,
     parse_box,
+    read_dump_frame,
     resolve_atom_style,
     resolve_columns,
 )
@@ -307,3 +315,60 @@ class TestResolveAtomStyle:
             resolve_atom_style(None, str(path))
         with pytest.raises(ValueError, match="'sphere' has no known column layout"):
             resolve_atom_style("sphere", SMALL_DATA)
+
+
+def _read(path, k=0):
+    dump = index_dump(path)
+    target = dump.frames[k]
+    layout = resolve_columns(target.columns, path)
+    with open(path, "rb") as f:
+        return read_dump_frame(f, target, layout, IDS_SORTED)
+
+
+class TestReadDumpFrame:
+
+    def test_rows_are_returned_in_id_order(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100, 1.0))
+        positions, forces = _read(path, 1)
+        np.testing.assert_array_equal(positions, expected_positions(1.0))
+        np.testing.assert_array_equal(forces, expected_forces(100))
+        assert positions.dtype == np.float64 and forces.dtype == np.float64
+
+    def test_scaled_coordinates_are_converted(self, tmp_path):
+        cell = np.array([[10.0, 0, 0], [2.0, 10.0, 0], [1.0, -1.5, 10.0]])
+        bounds = "0.0 13.0 2.0\n-1.5 10.0 1.0\n0.0 10.0 -1.5\n"
+        scaled = expected_positions() @ np.linalg.inv(cell)
+        by_id = dict(zip(IDS_SORTED, scaled))
+        atom_rows = [
+            f"{i} 1 {float(by_id[i][0])!r} {float(by_id[i][1])!r} {float(by_id[i][2])!r} {-i} 0 {i}"
+            for i in (20, 3, 40, 12, 21, 7)
+        ]
+        path = write(tmp_path / "s.dump", frame(
+            0, box_item="xy xz yz pp pp pp", bounds=bounds,
+            columns="id type xs ys zs fx fy fz", atom_rows=atom_rows,
+        ))
+        positions, _ = _read(path)
+        np.testing.assert_allclose(positions, expected_positions(), rtol=1e-12, atol=1e-12)
+
+    def test_ids_not_matching_the_topology_raise(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0))
+        dump = index_dump(path)
+        layout = resolve_columns(dump.frames[0].columns, path)
+        wrong = np.array([3, 7, 12, 20, 21, 41])
+        with open(path, "rb") as f, pytest.raises(ValueError, match="ids do not match the topology"):
+            read_dump_frame(f, dump.frames[0], layout, wrong)
+
+    def test_rows_with_missing_values_raise(self, tmp_path):
+        atom_rows = [r.rsplit(" ", 1)[0] if k == 2 else r for k, r in enumerate(rows(0))]
+        path = write(tmp_path / "a.dump", frame(0, atom_rows=atom_rows))
+        with pytest.raises(ValueError, match="do not all have the 8 columns"):
+            _read(path)
+
+    def test_numbers_parse_exactly_as_python_floats(self):
+        # read_dump_frame converts byte strings with NumPy; it must agree
+        # bit for bit with float() so results do not depend on the parser.
+        rng = np.random.default_rng(1)
+        values = np.concatenate([rng.normal(0, 1e3, 2000), rng.normal(0, 1e-7, 2000)])
+        tokens = [repr(float(v)).encode() for v in values] + [f"{v:.6g}".encode() for v in values]
+        parsed = np.array(tokens).astype(np.float64)
+        np.testing.assert_array_equal(parsed, [float(t) for t in tokens])
