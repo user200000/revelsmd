@@ -657,7 +657,7 @@ class LammpsTrajectory(Trajectory):
         try:
             for index in range(start, stop, stride):
                 path = self._index[index].path
-                if path != current:
+                if handle is None or path != current:
                     if handle is not None:
                         handle.close()
                         handle = None
