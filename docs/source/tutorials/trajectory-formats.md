@@ -124,8 +124,11 @@ indices = traj.get_indices('F')
 
 ## MDAnalysis
 
-`MDATrajectory` supports any format MDAnalysis can read: GROMACS (`.xtc`, `.trr`),
-AMBER (`.nc`, `.mdcrd`), CHARMM/NAMD (`.dcd`), and others.
+`MDATrajectory` reads any format MDAnalysis can read that stores forces, such
+as GROMACS `.trr` files written with forces at every saved frame (`nstfout`
+equal to `nstxout`). Formats without forces, such as `.xtc` and `.dcd`, cannot
+be used. Every frame must have forces and the same box as the first frame;
+reading a frame that does not raises an error.
 
 ```python
 from revelsMD.trajectories import MDATrajectory
