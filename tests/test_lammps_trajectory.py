@@ -141,6 +141,13 @@ class TestValidation:
         with pytest.raises(ValueError, match="a.dump, timestep 100: the cell differs"):
             load(a)
 
+    def test_box_changing_between_files_raises(self, tmp_path):
+        bounds = "0.0 10.5\n0.0 10.0\n0.0 10.0\n"
+        a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0))
+        b = write(tmp_path / "b.dump", frame(200, 2.0, bounds=bounds), frame(300, 3.0, bounds=bounds))
+        with pytest.raises(ValueError, match=r"b\.dump, timestep 200: the cell differs"):
+            load([a, b])
+
     def test_non_periodic_boundaries_raise(self, tmp_path):
         a = write(tmp_path / "a.dump", frame(0, box_item="ff pp pp"))
         with pytest.raises(ValueError, match="periodic"):

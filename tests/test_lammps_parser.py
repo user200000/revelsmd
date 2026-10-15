@@ -60,6 +60,21 @@ class TestParseBox:
         np.testing.assert_array_equal(cell, [[10, 0, 0], [-2, 10, 0], [-1, 1.5, 10]])
         np.testing.assert_array_equal(origin, [0, 0, 0])
 
+    def test_mixed_sign_tilts_with_single_tilt_extrema(self, tmp_path):
+        # xy=2 xz=-1 yz=0.5 on the 10x10x10 box: the bounding box runs from
+        # xlo + min(0, xy, xz, xy+xz) = -1 (xz alone) to
+        # xhi + max(0, xy, xz, xy+xz) = 12 (xy alone), and y from 0 to 10.5.
+        bounds = "-1.0 12.0 2.0\n0.0 10.5 -1.0\n0.0 10.0 0.5\n"
+        expected = [[10, 0, 0], [2, 10, 0], [-1, 0.5, 10]]
+        cell, origin, _ = parse_box(TRICLINIC, bounds.splitlines())
+        np.testing.assert_array_equal(cell, expected)
+        np.testing.assert_array_equal(origin, [0, 0, 0])
+
+        from ase.io import read
+        path = write(tmp_path / "mixed.dump", frame(0, box_item="xy xz yz pp pp pp", bounds=bounds))
+        ase_cell = read(path, format="lammps-dump-text", index=0).cell.array
+        np.testing.assert_allclose(cell, ase_cell, atol=1e-12)
+
     @pytest.mark.parametrize("item, bounds", [
         ("ITEM: BOX BOUNDS ff pp pp", ["0 10"] * 3),
         ("ITEM: BOX BOUNDS pp pp sm", ["0 10"] * 3),
@@ -256,6 +271,10 @@ class TestCombineFrames:
     def test_restart_before_the_previous_file_raises(self, tmp_path):
         with pytest.raises(ValueError, match="starts at timestep 0, at or before the start of"):
             _combined(tmp_path, [frame(100), frame(200)], [frame(0), frame(100)])
+
+    def test_restart_at_the_previous_file_start_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="starts at timestep 100, at or before the start of"):
+            _combined(tmp_path, [frame(100), frame(200)], [frame(100), frame(300)])
 
     def test_partial_final_frame_warns_when_not_replaced(self, tmp_path):
         cut = frame(200)[:-30]
