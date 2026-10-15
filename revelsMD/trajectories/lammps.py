@@ -279,6 +279,69 @@ def _header_timestep(lines: list[str]) -> int | None:
         return None
 
 
+def combine_frames(indices: list[DumpIndex]) -> list[DumpFrame]:
+    """Join the frames of consecutive dump files into one trajectory.
+
+    Frames are kept in timestep order. When a file starts at a timestep
+    that an earlier file already contains, the earlier frames from that
+    timestep on are replaced by the later file's. An incomplete final frame
+    is dropped, with a warning unless the next file's frames replace it.
+
+    Raises
+    ------
+    ValueError
+        If a file starts at or before the first timestep of the previous
+        file, or if there are no complete frames.
+    """
+    combined: list[DumpFrame] = []
+    previous: DumpIndex | None = None
+    pending: PartialFrame | None = None
+    for index in indices:
+        if index.frames:
+            first = index.frames[0].timestep
+            if previous is not None and first <= previous.frames[0].timestep:
+                raise ValueError(
+                    f"{index.path} starts at timestep {first}, at or before the "
+                    f"start of {previous.path} (timestep "
+                    f"{previous.frames[0].timestep}); timesteps must continue "
+                    "from one file to the next"
+                )
+            if pending is not None and not _superseded(pending, combined, first):
+                _warn_dropped(pending)
+            pending = None
+            combined = [frame for frame in combined if frame.timestep < first]
+            combined.extend(index.frames)
+            previous = index
+        if index.partial is not None:
+            if pending is not None:
+                _warn_dropped(pending)
+            pending = index.partial
+    if pending is not None:
+        _warn_dropped(pending)
+    if not combined:
+        raise ValueError(
+            "no complete frames in " + ", ".join(index.path for index in indices)
+        )
+    return combined
+
+
+def _superseded(partial: PartialFrame, combined: list[DumpFrame], first: int) -> bool:
+    """Whether a file starting at ``first`` replaces an incomplete frame."""
+    if partial.timestep is not None:
+        return first <= partial.timestep
+    return bool(combined) and first <= combined[-1].timestep
+
+
+def _warn_dropped(partial: PartialFrame) -> None:
+    at = "" if partial.timestep is None else f" (timestep {partial.timestep})"
+    warnings.warn(
+        f"{partial.path}: dropping the incomplete final frame{at}; "
+        "the file appears to have been cut short",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 # -----------------------------------------------------------------------------
 # LAMMPS Dump File Parsing Helpers
 # -----------------------------------------------------------------------------

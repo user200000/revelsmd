@@ -1,5 +1,7 @@
 """Unit tests for the LAMMPS dump helpers."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -8,6 +10,7 @@ from revelsMD.trajectories.lammps import (
     ColumnLayout,
     DumpFrame,
     PartialFrame,
+    combine_frames,
     index_dump,
     parse_box,
     resolve_columns,
@@ -207,3 +210,58 @@ class TestIndexDump:
             index_dump(write(tmp_path / "empty.dump", ""))
         with pytest.raises(ValueError, match="not a LAMMPS dump"):
             index_dump(write(tmp_path / "other.txt", "hello\n"))
+
+
+def _combined(tmp_path, *files):
+    """files: one list of frame strings per dump file."""
+    paths = [write(tmp_path / f"run{k}.dump", *frames) for k, frames in enumerate(files)]
+    return paths, combine_frames([index_dump(p) for p in paths])
+
+
+class TestCombineFrames:
+
+    def test_consecutive_files_are_joined(self, tmp_path):
+        paths, frames = _combined(tmp_path, [frame(0), frame(100)], [frame(200), frame(300)])
+        assert [(f.path, f.timestep) for f in frames] == [
+            (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
+
+    def test_overlap_is_replaced_by_the_later_file(self, tmp_path):
+        paths, frames = _combined(
+            tmp_path, [frame(0), frame(100), frame(200)], [frame(100, 50.0), frame(300, 52.0)]
+        )
+        assert [(f.path, f.timestep) for f in frames] == [
+            (paths[0], 0), (paths[1], 100), (paths[1], 300)]
+
+    def test_single_repeated_boundary_frame_is_kept_once(self, tmp_path):
+        paths, frames = _combined(tmp_path, [frame(0), frame(100)], [frame(100), frame(200)])
+        assert [(f.path, f.timestep) for f in frames] == [
+            (paths[0], 0), (paths[1], 100), (paths[1], 200)]
+
+    def test_restart_before_the_previous_file_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="starts at timestep 0, at or before the start of"):
+            _combined(tmp_path, [frame(100), frame(200)], [frame(0), frame(100)])
+
+    def test_partial_final_frame_warns_when_not_replaced(self, tmp_path):
+        cut = frame(200)[:-30]
+        with pytest.warns(UserWarning, match=r"run0\.dump: dropping the incomplete final frame \(timestep 200\)"):
+            _, frames = _combined(tmp_path, [frame(0), frame(100), cut])
+        assert [f.timestep for f in frames] == [0, 100]
+
+    def test_partial_final_frame_replaced_by_the_next_file_is_silent(self, tmp_path):
+        cut = frame(200)[:-30]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            paths, frames = _combined(tmp_path, [frame(0), frame(100), cut], [frame(200), frame(300)])
+        assert [(f.path, f.timestep) for f in frames] == [
+            (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
+
+    def test_partial_frame_followed_by_a_gap_warns(self, tmp_path):
+        cut = frame(200)[:-30]
+        with pytest.warns(UserWarning, match="incomplete final frame"):
+            _, frames = _combined(tmp_path, [frame(0), frame(100), cut], [frame(300)])
+        assert [f.timestep for f in frames] == [0, 100, 300]
+
+    def test_no_complete_frames_raises(self, tmp_path):
+        with pytest.warns(UserWarning):
+            with pytest.raises(ValueError, match="no complete frames"):
+                _combined(tmp_path, [frame(0)[:-30]])
