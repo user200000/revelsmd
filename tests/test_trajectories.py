@@ -411,9 +411,6 @@ def test_vasp_iter_frames_with_start_stop_stride(mock_vasprun):
 # -----------------------------------------------------------------------------
 # iter_frames - MDATrajectory
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
-# iter_frames - MDATrajectory
-# -----------------------------------------------------------------------------
 @patch("revelsMD.trajectories.mda.MD.Universe")
 def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
     """iter_frames should yield positions and forces for each frame."""
@@ -865,6 +862,7 @@ class TestTrajectoryBetaAttribute:
         assert state.temperature == 500.0
         expected_beta = compute_beta('metal', 500.0)
         assert pytest.approx(state.beta, rel=1e-12) == expected_beta
+
 
 class TestComputeBeta:
     """Tests for the compute_beta() function."""

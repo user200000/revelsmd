@@ -16,7 +16,6 @@ from lammps_dumps import (
 )
 from revelsMD.trajectories.lammps import (
     ColumnLayout,
-    DumpFrame,
     PartialFrame,
     combine_frames,
     index_dump,

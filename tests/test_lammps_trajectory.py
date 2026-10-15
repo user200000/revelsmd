@@ -1,7 +1,6 @@
 """LammpsTrajectory on small dump files written for each case."""
 
 import shutil
-import warnings
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -293,5 +292,5 @@ class TestTriclinic:
                 line = " ".join(fields[:2] + [repr(float(v)) for v in s] + fields[5:]) + "\n"
             out.append(line.replace("ITEM: ATOMS id type x y z", "ITEM: ATOMS id type xs ys zs"))
         scaled = write(tmp_path / "tri_scaled.dump", "".join(out))
-        for got, expected in zip(load(scaled).iter_frames(), load(TRICLINIC).iter_frames()):
+        for got, expected in zip(load(scaled).iter_frames(), load(TRICLINIC).iter_frames(), strict=True):
             np.testing.assert_allclose(got.positions, expected.positions, rtol=1e-12, atol=1e-12)
