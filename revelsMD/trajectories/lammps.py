@@ -20,6 +20,17 @@ from revelsMD.frame_sources import Frame
 from ._base import Trajectory, DataUnavailableError
 
 
+# Column layouts of the Atoms section for LAMMPS atom styles (read_data
+# documentation), as MDAnalysis column strings.
+STYLE_COLUMNS: dict[str, str] = {
+    "atomic": "id type x y z",
+    "charge": "id type q x y z",
+    "full": "id resid type q x y z",
+    "molecular": "id resid type x y z",
+    "bond": "id resid type x y z",
+    "angle": "id resid type x y z",
+}
+
 # Coordinate column sets in order of preference, and whether they are scaled
 # (fractional) coordinates.
 COORDINATE_SETS: tuple[tuple[tuple[str, str, str], bool], ...] = (
@@ -340,6 +351,50 @@ def _warn_dropped(partial: PartialFrame) -> None:
         UserWarning,
         stacklevel=3,
     )
+
+
+def resolve_atom_style(atom_style: str | None, topology_file: str) -> str:
+    """Return the MDAnalysis column string for a LAMMPS data file.
+
+    Parameters
+    ----------
+    atom_style : str or None
+        An MDAnalysis column string (several words), a LAMMPS atom style
+        name from ``STYLE_COLUMNS``, or None to use the style named in the
+        data file's ``Atoms # <style>`` comment.
+    topology_file : str
+        The LAMMPS data file.
+
+    Raises
+    ------
+    ValueError
+        If the style is not given and the data file names none, or if the
+        style has no known column layout.
+    """
+    if atom_style is not None and len(atom_style.split()) > 1:
+        return atom_style
+    style = atom_style.strip() if atom_style is not None else _data_file_style(topology_file)
+    if style is None:
+        raise ValueError(
+            f"{topology_file}: no 'Atoms # <style>' comment; pass atom_style "
+            "as a column string, e.g. 'id type x y z'"
+        )
+    if style not in STYLE_COLUMNS:
+        raise ValueError(
+            f"atom style '{style}' has no known column layout; pass atom_style "
+            "as a column string, e.g. 'id type x y z'"
+        )
+    return STYLE_COLUMNS[style]
+
+
+def _data_file_style(topology_file: str) -> str | None:
+    """The style named by a data file's ``Atoms # <style>`` line, if any."""
+    with open(topology_file) as f:
+        for line in f:
+            if line.split()[:1] == ["Atoms"]:
+                words = line.partition("#")[2].split()
+                return words[0] if words else None
+    return None
 
 
 # -----------------------------------------------------------------------------

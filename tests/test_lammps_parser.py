@@ -1,6 +1,7 @@
 """Unit tests for the LAMMPS dump helpers."""
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,10 +14,14 @@ from revelsMD.trajectories.lammps import (
     combine_frames,
     index_dump,
     parse_box,
+    resolve_atom_style,
     resolve_columns,
 )
 
 TRICLINIC = "ITEM: BOX BOUNDS xy xz yz pp pp pp"
+DATA_DIR = Path(__file__).parent / "data"
+SMALL_DATA = str(DATA_DIR / "lammps_small" / "data.small.data")
+LJ_DATA = str(DATA_DIR / "example_1_LJ" / "data.fin.nh.data")
 
 
 class TestParseBox:
@@ -265,3 +270,40 @@ class TestCombineFrames:
         with pytest.warns(UserWarning):
             with pytest.raises(ValueError, match="no complete frames"):
                 _combined(tmp_path, [frame(0)[:-30]])
+
+
+class TestResolveAtomStyle:
+
+    def test_column_string_is_passed_through(self):
+        assert resolve_atom_style("id type q x y z", SMALL_DATA) == "id type q x y z"
+
+    @pytest.mark.parametrize("name, columns", [
+        ("atomic", "id type x y z"),
+        ("charge", "id type q x y z"),
+        ("full", "id resid type q x y z"),
+        ("molecular", "id resid type x y z"),
+        ("bond", "id resid type x y z"),
+        ("angle", "id resid type x y z"),
+    ])
+    def test_style_names(self, name, columns):
+        assert resolve_atom_style(name, SMALL_DATA) == columns
+
+    def test_style_read_from_the_data_file(self):
+        assert resolve_atom_style(None, SMALL_DATA) == "id type x y z"   # Atoms # atomic
+        assert resolve_atom_style(None, LJ_DATA) == "id resid type q x y z"  # Atoms # full
+
+    def test_data_file_without_a_style_comment(self, tmp_path):
+        text = Path(SMALL_DATA).read_text().replace("Atoms # atomic", "Atoms")
+        path = tmp_path / "data.nocomment"
+        path.write_text(text)
+        with pytest.raises(ValueError, match="no 'Atoms # <style>' comment.*column string"):
+            resolve_atom_style(None, str(path))
+
+    def test_unknown_style(self, tmp_path):
+        text = Path(SMALL_DATA).read_text().replace("Atoms # atomic", "Atoms # sphere")
+        path = tmp_path / "data.sphere"
+        path.write_text(text)
+        with pytest.raises(ValueError, match="'sphere' has no known column layout"):
+            resolve_atom_style(None, str(path))
+        with pytest.raises(ValueError, match="'sphere' has no known column layout"):
+            resolve_atom_style("sphere", SMALL_DATA)
