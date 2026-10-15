@@ -6,10 +6,8 @@ so analysis code is format-independent.
 
 ## Requirements for all formats
 
-Trajectories must have a fixed, fully periodic cell. Each loader checks
-that every frame's cell is identical to the first frame's and raises an
-error otherwise, so variable-cell (NPT) trajectories are not supported.
-Forces are required in every frame.
+Trajectories must have a fixed, fully periodic cell; variable-cell (NPT)
+trajectories are not supported. Forces are required in every frame.
 
 ## LAMMPS
 
@@ -22,8 +20,10 @@ dump 1 all custom 100 trajectory.dump id type x y z fx fy fz
 ```
 
 Positions may be written as `x y z`, unwrapped `xu yu zu`, or scaled
-`xs ys zs` or `xsu ysu zsu`. Orthogonal and triclinic boxes are supported, and
-all three boundaries must be periodic (`pp pp pp`).
+`xs ys zs` or `xsu ysu zsu`. Orthogonal and triclinic boxes are supported (not
+the general triclinic `abc origin` format). All three boundaries must be
+periodic (`pp pp pp`), and the box must be the same in every frame: a dump
+whose box changes raises an error.
 
 ```python
 from revelsMD.trajectories import LammpsTrajectory
@@ -43,9 +43,9 @@ print(traj.beta)          # 1 / (kB * T) in the chosen unit system
 
 The column layout of the data file's `Atoms` section is read from the
 `Atoms # <style>` comment that `write_data` writes. The styles `atomic`,
-`charge`, `full`, `molecular`, `bond` and `angle` are recognised. For other
-styles, or a data file without the comment, pass the layout as a column
-string, or pass one of the style names above:
+`charge`, `full`, `molecular`, `bond` and `angle` are recognised. For any
+other style, pass the layout as a column string; for a data file without the
+comment, pass a column string or one of the style names above:
 
 ```python
 traj = LammpsTrajectory(
@@ -68,11 +68,14 @@ traj = LammpsTrajectory(
 )
 ```
 
-Frames are kept in timestep order. When a file starts at a timestep that an
-earlier file already contains, as after a restart from a restart file, the
-earlier file's frames from that timestep on are replaced by the later file's.
-An incomplete final frame, as left by a job killed while writing, is dropped
-with a warning.
+List the files in run order. Where a file starts at or before the last
+timestep already read, as after a restart from a restart file, the earlier
+frames from that timestep on are replaced by the later file's. A file that
+starts at or before the first timestep of the file before it raises an error,
+since that would discard the whole earlier file. An incomplete final frame, as
+left by a job killed while writing, is dropped with a warning (silently if the
+next file's frames replace it); an incomplete frame anywhere else raises an
+error.
 
 Atoms are identified by LAMMPS type number, as a string:
 
