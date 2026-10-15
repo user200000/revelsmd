@@ -180,6 +180,20 @@ class TestValidation:
         with pytest.raises(ValueError, match="nobox.trr: the trajectory has no simulation box"):
             MDATrajectory(path, TPR, temperature=300.0)
 
+    def test_list_of_files_is_joined(self, tmp_path, universe):
+        first = write_variant(tmp_path / "a.trr", n_frames=3)
+        traj = MDATrajectory([first, TRR], TPR, temperature=300.0)
+        assert traj.frames == 13
+        np.testing.assert_array_equal(traj.get_frame(3).forces, universe.trajectory[0].forces)
+
+    def test_same_file_twice_raises(self):
+        with pytest.raises(ValueError, match="is given twice"):
+            MDATrajectory([TRR, TRR], TPR, temperature=300.0)
+
+    def test_unordered_files_raise(self):
+        with pytest.raises(TypeError, match="not set"):
+            MDATrajectory({TRR}, TPR, temperature=300.0)
+
     def test_unreadable_files(self, tmp_path):
         with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
             MDATrajectory(TRR, str(tmp_path / "missing.tpr"), temperature=300.0)
@@ -211,6 +225,14 @@ class TestUnits:
             del f["particles/trajectory/force/value"].attrs["unit"]
         with pytest.raises(RuntimeError, match="H5MD file must have readable units"):
             MDATrajectory(path, TPR, temperature=300.0)
+
+    def test_h5md_step_check_fails_closed(self, tmp_path):
+        from revelsMD.trajectories.mda import _check_reader
+        reader = MD.Universe(TPR, write_variant(tmp_path / "water.h5md")).trajectory
+        _check_reader(reader)
+        del reader._particle_group
+        with pytest.raises(RuntimeError, match="cannot check that this H5MD file"):
+            _check_reader(reader)
 
     def test_h5md_with_forces_at_other_steps_is_rejected(self, tmp_path):
         path = write_variant(tmp_path / "steps.h5md", n_frames=4)

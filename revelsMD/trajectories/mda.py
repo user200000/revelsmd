@@ -5,14 +5,17 @@ This module provides the MDATrajectory class for reading trajectories
 via MDAnalysis.
 """
 
+import os
+from collections.abc import Sequence
 from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
+from MDAnalysis.coordinates.H5MD import H5MDReader  # type: ignore[import-untyped]
 from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-untyped]
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory, check_finite, check_fixed_cell
+from ._base import Trajectory, as_paths, check_finite, check_fixed_cell
 
 
 class MDATrajectory(Trajectory):
@@ -30,9 +33,10 @@ class MDATrajectory(Trajectory):
 
     Parameters
     ----------
-    trajectory_file : str
+    trajectory_file : str, path, or sequence of these
         Path to a trajectory file in which every frame stores positions and
-        forces (e.g. a `.trr` written with both at the same steps).
+        forces (e.g. a `.trr` written with both at the same steps), or a
+        list of such files in run order, which MDAnalysis joins.
     topology_file : str
         Path to the topology file (e.g., `.tpr`, `.pdb`, `.gro`).
     temperature : float
@@ -54,10 +58,13 @@ class MDATrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If no topology file is provided, if MDAnalysis does not know the
+        If no topology file is provided, if the same file is given twice,
+        if MDAnalysis does not know the
         format's length or force units, if an H5MD file saves positions and
         forces at different steps, if the first frame has no box, no
         positions or no forces, or if the cell matrix is invalid.
+    TypeError
+        If ``trajectory_file`` is an unordered collection such as a set.
     RuntimeError
         If MDAnalysis fails to load the trajectory or topology file.
 
@@ -68,9 +75,17 @@ class MDATrajectory(Trajectory):
     or forces contain NaN or infinity.
     """
 
-    def __init__(self, trajectory_file: str, topology_file: str, *, temperature: float):
+    def __init__(
+        self,
+        trajectory_file: "str | os.PathLike[str] | Sequence[str | os.PathLike[str]]",
+        topology_file: str,
+        *,
+        temperature: float,
+    ):
         if not topology_file:
             raise ValueError("A topology file is required for MDAnalysis trajectories.")
+        if not isinstance(trajectory_file, (str, os.PathLike)):
+            trajectory_file = as_paths(trajectory_file)
 
         super().__init__(units='mda', temperature=temperature)
 
@@ -216,7 +231,8 @@ def _check_reader(reader) -> None:
     MDAnalysis converts lengths and forces only for formats that record
     their units; for others it returns the numbers in the file unchanged.
     H5MD files store a step for each saved position and force, and the
-    reader pairs them by position in the file, so the steps must agree.
+    reader pairs them by position in the file, so the steps must agree; the
+    check reads the reader's particle group, and raises if it cannot.
     """
     units = reader.units
     if units.get("length") is None or units.get("force") is None:
@@ -226,8 +242,15 @@ def _check_reader(reader) -> None:
             "cannot be converted to kJ/(mol Angstrom); read LAMMPS dumps with "
             "LammpsTrajectory"
         )
+    if not isinstance(reader, H5MDReader):
+        return
     particles = getattr(reader, "_particle_group", None)
-    if particles is not None and "position" in particles and "force" in particles:
+    if particles is None:
+        raise RuntimeError(
+            f"{reader.filename}: cannot check that this H5MD file saves positions "
+            "and forces at the same steps with this version of MDAnalysis"
+        )
+    if "position" in particles and "force" in particles:
         position_steps = particles["position/step"][()]
         force_steps = particles["force/step"][()]
         if not np.array_equal(position_steps, force_steps):

@@ -494,13 +494,29 @@ class TestCombineFrames:
                 timesteps = [start + 100 * j for j in range(rng.randint(1, 5))]
                 files.append((str(directory / f"run{k}.dump"), timesteps))
             expected = plain_join(files)
+            # Sometimes give one frame after a file's first a different box:
+            # an error if and only if that frame is kept.
+            changed = None
+            candidates = [(path, t) for path, ts in files for t in ts[1:]]
+            replaced = [c for c in candidates if expected is not None and c not in expected]
+            if replaced and rng.random() < 0.5:
+                changed = rng.choice(replaced)
+            elif candidates and rng.random() < 0.4:
+                changed = rng.choice(candidates)
+            grown = "0.0 10.5\n0.0 10.0\n0.0 10.0\n"
+            texts = [[frame(t, bounds=grown) if (path, t) == changed else frame(t) for t in ts]
+                     for path, ts in files]
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 if expected is None:
                     with pytest.raises(ValueError, match="at or before the start of"):
-                        _combined(directory, *[[frame(t) for t in ts] for _, ts in files])
+                        _combined(directory, *texts)
                     continue
-                _, got = _combined(directory, *[[frame(t) for t in ts] for _, ts in files])
+                if changed in expected:
+                    with pytest.raises(ValueError, match=f"timestep {changed[1]}: the cell differs"):
+                        _combined(directory, *texts)
+                    continue
+                _, got = _combined(directory, *texts)
             assert got == expected
             steps = [t for _, t in got]
             assert steps == sorted(set(steps))

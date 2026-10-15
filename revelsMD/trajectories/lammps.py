@@ -664,7 +664,8 @@ class LammpsTrajectory(Trajectory):
     frames replace every frame of the file before it from its own first
     timestep on, with a warning if the replaced frames run past the file's
     last timestep. An incomplete final frame, as left by a job killed while
-    writing, is dropped with a warning, and so is an empty file. Frames
+    writing, is dropped with a warning unless the next file's frames replace
+    it, and so is an empty file. Frames
     that a later file replaces are not checked, so a run whose box or atom
     count went wrong after the restart point can be joined with its
     restart.

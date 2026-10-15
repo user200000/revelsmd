@@ -31,8 +31,8 @@ Positions may be written as `x y z`, unwrapped `xu yu zu`, or scaled
 the general triclinic `abc origin` format). All three boundaries must be
 periodic (`pp pp pp`), and the box must be the same in every frame: a dump
 whose box changes raises an error. If the dump has a `type` column, each
-atom's type must match the data file, so a data file from another system
-raises an error when frames are read.
+atom's type must match the data file: reading a frame raises an error if
+any atom's type differs.
 
 Positions are returned as written. MDAnalysis's own dump reader shifts
 them so the box starts at the origin, so the two can differ by the box
@@ -95,7 +95,7 @@ Gaps in timesteps between files are not detected.
 The last frame of any file may be incomplete, as left by a job killed while
 writing: it is dropped with a warning, or silently if the next file's frames
 replace it. An empty file, from a job that stopped before writing a frame, is
-dropped with a warning. An incomplete frame anywhere else raises an error, so
+dropped in the same way. An incomplete frame anywhere else raises an error, so
 a file written with `dump_modify append yes` across a restart must be split
 at the restart.
 
