@@ -9,7 +9,6 @@ import mmap
 import os
 import warnings
 from collections.abc import Sequence
-from contextlib import ExitStack
 from dataclasses import dataclass
 from typing import BinaryIO, Iterator
 
@@ -652,14 +651,22 @@ class LammpsTrajectory(Trajectory):
         stop: int,
         stride: int
     ) -> Iterator[Frame]:
-        """Read the indexed frames in order, keeping each file open while in use."""
-        with ExitStack() as stack:
-            handles: dict[str, BinaryIO] = {}
+        """Read the indexed frames in order, with one dump file open at a time."""
+        handle: BinaryIO | None = None
+        current: str | None = None
+        try:
             for index in range(start, stop, stride):
                 path = self._index[index].path
-                if path not in handles:
-                    handles[path] = stack.enter_context(open(path, "rb"))
-                yield self._read(handles[path], index)
+                if path != current:
+                    if handle is not None:
+                        handle.close()
+                        handle = None
+                    handle = open(path, "rb")
+                    current = path
+                yield self._read(handle, index)
+        finally:
+            if handle is not None:
+                handle.close()
 
     def get_frame(self, index: int) -> Frame:
         """Return positions and forces for a specific frame by index.

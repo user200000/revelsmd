@@ -2,6 +2,7 @@
 
 import shutil
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,18 @@ from revelsMD.trajectories._base import compute_beta
 
 SMALL = Path(__file__).parent / "data" / "lammps_small"
 DATA = str(SMALL / "data.small.data")
+
+
+@contextmanager
+def open_file_limit(limit):
+    """Lower the soft open-file limit for the duration of the block."""
+    resource = pytest.importorskip("resource")
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (limit, hard))
+    try:
+        yield
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
 
 
 def load(dumps, **kwargs):
@@ -105,6 +118,19 @@ class TestMultipleFiles:
         a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0).rstrip("\n"))
         with pytest.warns(UserWarning, match="incomplete final frame"):
             assert load(a).frames == 1
+
+
+class TestOpenFiles:
+
+    def test_one_file_per_frame_does_not_exhaust_file_handles(self, tmp_path):
+        n_files = 300
+        dumps = [write(tmp_path / f"d{k:03d}.dump", frame(100 * k, float(k % 7)))
+                 for k in range(n_files)]
+        traj = load(dumps)
+        with open_file_limit(64):
+            got = list(traj.iter_frames())
+        assert len(got) == n_files
+        np.testing.assert_array_equal(got[-1].positions, positions(float((n_files - 1) % 7)))
 
 
 class TestValidation:
