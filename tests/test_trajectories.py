@@ -123,7 +123,6 @@ def test_lammps_state_requires_topology():
         LammpsTrajectory("dump.lammpstrj", None, temperature=300.0)
 
 
-
 # -----------------------------------------------------------------------------
 # Trajectory ABC
 # -----------------------------------------------------------------------------
@@ -576,7 +575,6 @@ class TestTrajectoryBetaAttribute:
         assert state.temperature == 300.0
         expected_beta = compute_beta('mda', 300.0)
         assert pytest.approx(state.beta, rel=1e-12) == expected_beta
-
 
 
 class TestComputeBeta:

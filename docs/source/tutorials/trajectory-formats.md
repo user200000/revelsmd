@@ -113,7 +113,8 @@ traj = VaspTrajectory(
 A `vasprun.xml` from a run that was killed before it finished is read up to its
 last complete ionic step, with a warning.
 
-The lattice must be the same in every ionic step; a run whose lattice changes raises an error.
+The lattice must be the same in every ionic step; a run whose lattice changes
+raises an error.
 
 Atoms are selected by element symbol:
 
