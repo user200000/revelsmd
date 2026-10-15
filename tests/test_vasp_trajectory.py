@@ -117,6 +117,14 @@ class TestFiles:
         with pytest.raises(ValueError, match="calculation 4: the cell differs"):
             VaspTrajectory(path, temperature=600.0)
 
+    def test_lattice_changing_between_files_raises(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        scaled = [with_basis(c, lambda b: b * 1.01) for c in calculations[5:]]
+        first = write(tmp_path / "1.xml", join(head, calculations[:5], tail))
+        second = write(tmp_path / "2.xml", join(head, scaled, tail))
+        with pytest.raises(ValueError, match=r"2\.xml, calculation 0: the cell differs"):
+            VaspTrajectory([first, second], temperature=600.0)
+
     def test_triclinic_cell(self, tmp_path):
         shear = np.array([[1.0, 0, 0], [0.3, 1.0, 0], [0.1, 0.2, 1.0]])
         head, calculations, tail = split(SOURCE.read_bytes())
