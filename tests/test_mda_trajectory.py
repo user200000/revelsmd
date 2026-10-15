@@ -114,4 +114,4 @@ class TestValidation:
 
     def test_unreadable_files(self, tmp_path):
         with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
-            MDATrajectory(str(tmp_path / "missing.trr"), TPR, temperature=300.0)
+            MDATrajectory(TRR, str(tmp_path / "missing.tpr"), temperature=300.0)
