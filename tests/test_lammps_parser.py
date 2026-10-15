@@ -93,6 +93,13 @@ class TestResolveColumns:
             resolve_columns(("x", "y", "z", "fx", "fy", "fz"), "a.dump")
 
 
+def read_block(path, dump_frame):
+    """The atom rows of an indexed frame, read back from the file."""
+    with open(path, "rb") as f:
+        f.seek(dump_frame.data_start)
+        return f.read(dump_frame.data_end - dump_frame.data_start).decode()
+
+
 class TestIndexDump:
 
     def test_complete_frames(self, tmp_path):
@@ -145,11 +152,36 @@ class TestIndexDump:
             tmp_path / "a.dump",
             "ITEM: UNITS\nlj\nITEM: TIME\n0\n", frame(0),
             "ITEM: TIME\n0.5\n", frame(100, 1.0),
+            "ITEM: TIME\n1.0\n",
         )
         index = index_dump(path)
         assert [f.timestep for f in index.frames] == [0, 100]
         assert index.partial is None
-        assert index.frames[0].data_end <= index.frames[1].data_start
+        first, second = index.frames
+        assert first.data_end <= second.data_start
+        assert read_block(path, first) == "".join(r + "\n" for r in rows(0))
+        assert read_block(path, second) == "".join(r + "\n" for r in rows(100, 1.0))
+
+    @pytest.mark.parametrize("tail", ["I", "IT", "ITE", "ITEM"])
+    def test_cut_off_next_header_is_dropped(self, tmp_path, tail):
+        path = write(tmp_path / "a.dump", frame(0) + tail)
+        index = index_dump(path)
+        assert [f.timestep for f in index.frames] == [0]
+        assert index.partial == PartialFrame(path, None)
+        assert read_block(path, index.frames[0]) == "".join(r + "\n" for r in rows(0))
+
+    def test_cut_off_next_header_after_a_frame_already_partial(self, tmp_path):
+        # The rows of frame 100 are cut short, so that partial frame is reported.
+        text = frame(0) + frame(100, atom_rows=rows(100)[:5]) + "ITE"
+        path = write(tmp_path / "a.dump", text)
+        index = index_dump(path)
+        assert [f.timestep for f in index.frames] == [0]
+        assert index.partial == PartialFrame(path, 100)
+
+    def test_other_unterminated_tail_raises(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0) + "garbage")
+        with pytest.raises(ValueError, match="the atom rows do not match"):
+            index_dump(path)
 
     def test_timesteps_must_increase(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(100), frame(100, 1.0))

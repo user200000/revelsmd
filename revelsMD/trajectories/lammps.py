@@ -194,7 +194,17 @@ def index_dump(path: str) -> DumpIndex:
                 position = m.find(_TIMESTEP, position + len(_TIMESTEP))
             if not starts:
                 raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
-            ends = starts[1:] + [len(m)]
+            # A file cut off inside the next frame's "ITEM:" header leaves a
+            # prefix of "ITEM:" after its last newline. Drop that tail.
+            limit = len(m)
+            dropped_header = False
+            if m[-1:] != b"\n":
+                last_newline = m.rfind(b"\n")
+                tail = m[last_newline + 1:]
+                if tail and b"ITEM:".startswith(tail):
+                    limit = last_newline + 1
+                    dropped_header = True
+            ends = starts[1:] + [limit]
             frames: list[DumpFrame] = []
             partial: PartialFrame | None = None
             for k, (start, end) in enumerate(zip(starts, ends)):
@@ -208,6 +218,8 @@ def index_dump(path: str) -> DumpIndex:
                         f"{path}: the frame at timestep {entry.timestep} is "
                         "incomplete but is not the last frame in the file"
                     )
+            if partial is None and dropped_header:
+                partial = PartialFrame(path, None)
     for previous, current in zip(frames, frames[1:]):
         if current.columns != frames[0].columns:
             raise ValueError(
