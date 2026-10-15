@@ -34,6 +34,20 @@ def without_forces(calculation: bytes) -> bytes:
     return calculation[:start] + calculation[end:]
 
 
+def without_structure(calculation: bytes) -> bytes:
+    """Remove the calculation's <structure> element."""
+    start = calculation.find(b"<structure>")
+    end = calculation.find(b"</structure>", start) + len(b"</structure>")
+    return calculation[:start] + calculation[end:]
+
+
+def without_basis(calculation: bytes) -> bytes:
+    """Remove the lattice basis varray from the calculation's structure."""
+    start = calculation.find(BASIS, calculation.find(b"<structure>"))
+    end = calculation.find(b"</varray>", start) + len(b"</varray>")
+    return calculation[:start] + calculation[end:]
+
+
 def with_basis(calculation: bytes, transform) -> bytes:
     """Replace the structure's basis with transform(basis)."""
     start = calculation.find(BASIS, calculation.find(b"<structure>"))

@@ -6,8 +6,20 @@ import numpy as np
 import pytest
 from lxml import etree
 
-from vasprun_variants import SOURCE, join, split, truncated, with_basis, without_forces, write
+from vasprun_variants import (
+    SOURCE,
+    join,
+    split,
+    truncated,
+    with_basis,
+    without_basis,
+    without_forces,
+    without_structure,
+    write,
+)
 from revelsMD.trajectories.vasp import index_vasprun, parse_basis, parse_varray, read_vasp_frame
+
+SHEAR = np.array([[1.0, 0, 0], [0.3, 1.0, 0], [0.1, 0.2, 1.0]])
 
 
 def test_parse_varray_types():
@@ -39,6 +51,20 @@ class TestIndexVasprun:
         with pytest.raises(ValueError, match="calculation 4: no forces"):
             index_vasprun(path)
 
+    def test_missing_structure_raises(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[4] = without_structure(calculations[4])
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 4: no structure"):
+            index_vasprun(path)
+
+    def test_missing_basis_in_a_middle_step_raises(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[4] = without_basis(calculations[4])
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 4: the structure has no lattice basis"):
+            index_vasprun(path)
+
     def test_unclosed_calculation_before_the_end_raises(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
         calculations[3] = calculations[3].replace(b"</calculation>", b"")
@@ -57,20 +83,37 @@ def _floats(elements):
     return np.array([[float(x) for x in v.text.split()] for v in elements])
 
 
+def _independent_frames(path):
+    """Positions (fractional @ basis) and forces of each ionic step, read with ElementTree."""
+    frames = []
+    for calculation in ET.parse(path).getroot().findall("calculation"):
+        structure = calculation.find("structure")
+        basis = _floats(structure.find("crystal").findall("varray[@name='basis']/v"))
+        fractional = _floats(structure.findall("varray[@name='positions']/v"))
+        forces = _floats(calculation.findall("varray[@name='forces']/v"))
+        frames.append((fractional @ basis, forces))
+    return frames
+
+
+@pytest.fixture(params=["committed", "sheared"])
+def vasprun_path(request, tmp_path):
+    """The committed file, and a copy whose basis is sheared so it is not symmetric."""
+    if request.param == "committed":
+        return str(SOURCE)
+    head, calculations, tail = split(SOURCE.read_bytes())
+    calculations = [with_basis(c, lambda b: SHEAR @ b) for c in calculations]
+    return write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+
+
 class TestReadVaspFrame:
 
-    def test_frames_match_an_independent_parse(self):
-        index = index_vasprun(str(SOURCE))
-        root = ET.parse(SOURCE).getroot()
-        calculations = root.findall("calculation")
-        with open(SOURCE, "rb") as f:
-            for frame, calculation in zip(index.frames, calculations, strict=True):
+    def test_frames_match_an_independent_parse(self, vasprun_path):
+        index = index_vasprun(vasprun_path)
+        expected = _independent_frames(vasprun_path)
+        with open(vasprun_path, "rb") as f:
+            for frame, (expected_positions, expected_forces) in zip(index.frames, expected, strict=True):
                 positions, forces = read_vasp_frame(f, frame, 324)
-                structure = calculation.find("structure")
-                basis = _floats(structure.find("crystal").findall("varray[@name='basis']/v"))
-                fractional = _floats(structure.findall("varray[@name='positions']/v"))
-                expected_forces = _floats(calculation.findall("varray[@name='forces']/v"))
-                np.testing.assert_array_equal(positions, fractional @ basis)
+                np.testing.assert_array_equal(positions, expected_positions)
                 np.testing.assert_array_equal(forces, expected_forces)
 
     def test_wrong_atom_count_raises(self):
