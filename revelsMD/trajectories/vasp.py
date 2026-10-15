@@ -270,8 +270,6 @@ class VaspTrajectory(Trajectory):
 
         self.trajectory_file = trajectory_file
         paths = as_paths(trajectory_file)
-        if not paths:
-            raise ValueError("At least one vasprun.xml file is required.")
 
         # Later files are checked against the first file's lattice, so a
         # lattice error names the first ionic step that differs.

@@ -638,8 +638,6 @@ class LammpsTrajectory(Trajectory):
             raise ValueError("A topology file is required for LAMMPS trajectories.")
         topology = os.fspath(topology_file)
         paths = as_paths(trajectory_file)
-        if not paths:
-            raise ValueError("At least one LAMMPS dump file is required.")
 
         columns = resolve_atom_style(atom_style, topology)
         try:

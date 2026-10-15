@@ -109,13 +109,60 @@ def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> Non
         )
 
 
+def check_finite(positions: np.ndarray, forces: np.ndarray, where: str) -> None:
+    """Raise if a frame's positions or forces contain NaN or infinity.
+
+    Parameters
+    ----------
+    positions, forces : np.ndarray
+        The frame's arrays.
+    where : str
+        File and frame, for the error message.
+
+    Raises
+    ------
+    ValueError
+        If any element of either array is not finite.
+    """
+    for name, values in (("positions", positions), ("forces", forces)):
+        if not np.isfinite(values).all():
+            raise ValueError(f"{where}: the {name} contain NaN or infinite values")
+
+
 def as_paths(
     files: "str | os.PathLike[str] | Sequence[str | os.PathLike[str]]",
 ) -> list[str]:
-    """Return a list of path strings from one path or a sequence of paths."""
+    """Return a list of path strings from one path or a sequence of paths.
+
+    Raises
+    ------
+    TypeError
+        If ``files`` is neither a path nor a sequence (a set, for example,
+        has no order).
+    ValueError
+        If no paths are given, or if the same file is given twice.
+    """
     if isinstance(files, (str, os.PathLike)):
         return [os.fspath(files)]
-    return [os.fspath(path) for path in files]
+    if not isinstance(files, Sequence):
+        raise TypeError(
+            "trajectory files must be a path or a sequence of paths in run "
+            f"order, not {type(files).__name__}"
+        )
+    paths = [os.fspath(path) for path in files]
+    if not paths:
+        raise ValueError("At least one trajectory file is required.")
+    seen: dict[tuple[int, int], str] = {}
+    for path in paths:
+        try:
+            stat = os.stat(path)
+        except OSError:
+            continue  # the loader reports the file it cannot open
+        key = (stat.st_dev, stat.st_ino)
+        if key in seen:
+            raise ValueError(f"{path}: the same file as {seen[key]} is given twice")
+        seen[key] = path
+    return paths
 
 
 # Boltzmann constants in different unit systems

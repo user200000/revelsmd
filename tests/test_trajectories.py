@@ -743,3 +743,93 @@ class TestAsPaths:
     def test_sequence_of_mixed(self, tmp_path):
         from revelsMD.trajectories._base import as_paths
         assert as_paths(("a.dump", tmp_path / "b.dump")) == ["a.dump", str(tmp_path / "b.dump")]
+
+    def test_unordered_collections_are_rejected(self):
+        from revelsMD.trajectories._base import as_paths
+        with pytest.raises(TypeError, match="sequence of paths in run order, not set"):
+            as_paths({"a.dump", "b.dump"})
+        with pytest.raises(TypeError, match="not dict_keys"):
+            as_paths({"a.dump": 0}.keys())
+
+    def test_empty_sequence_is_rejected(self):
+        from revelsMD.trajectories._base import as_paths
+        with pytest.raises(ValueError, match="At least one trajectory file"):
+            as_paths([])
+
+    def test_same_file_twice_is_rejected(self, tmp_path):
+        from revelsMD.trajectories._base import as_paths
+        (tmp_path / "a.dump").write_text("x")
+        (tmp_path / "b.dump").write_text("x")
+        alias = tmp_path / "sub" / ".." / "a.dump"
+        (tmp_path / "sub").mkdir()
+        with pytest.raises(ValueError, match="the same file as .*a.dump is given twice"):
+            as_paths([tmp_path / "a.dump", tmp_path / "b.dump", alias])
+
+
+class TestCheckFinite:
+    """check_finite rejects NaN and infinity in either array, naming the frame."""
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+    def test_non_finite_values_raise(self, bad):
+        from revelsMD.trajectories._base import check_finite
+        good = np.zeros((2, 3))
+        broken = good.copy()
+        broken[1, 2] = bad
+        check_finite(good, good, "f, frame 0")
+        with pytest.raises(ValueError, match="f, frame 3: the positions contain NaN or infinite"):
+            check_finite(broken, good, "f, frame 3")
+        with pytest.raises(ValueError, match="f, frame 3: the forces contain NaN or infinite"):
+            check_finite(good, broken, "f, frame 3")
+
+
+class TestReadFramesOneFileAtATime:
+    """The shared reader closes each file when it moves on and when it stops."""
+
+    def _files(self, tmp_path):
+        paths = []
+        for name in ("a", "b"):
+            path = tmp_path / name
+            path.write_bytes(name.encode())
+            paths.append(str(path))
+        return paths
+
+    def test_files_are_closed_on_switch_and_at_the_end(self, tmp_path):
+        from revelsMD.trajectories._base import read_frames_one_file_at_a_time
+        paths = self._files(tmp_path)
+        handles = []
+
+        def read(handle, index):
+            handles.append(handle)
+            assert all(h.closed for h in handles if h is not handle)
+            return handle.read(1)
+
+        frames = read_frames_one_file_at_a_time([0, 1], lambda i: paths[i], read)
+        assert list(frames) == [b"a", b"b"]
+        assert len(handles) == 2 and all(h.closed for h in handles)
+
+    def test_file_is_closed_when_reading_raises(self, tmp_path):
+        from revelsMD.trajectories._base import read_frames_one_file_at_a_time
+        paths = self._files(tmp_path)
+        handles = []
+
+        def read(handle, index):
+            handles.append(handle)
+            raise ValueError("bad frame")
+
+        with pytest.raises(ValueError, match="bad frame"):
+            list(read_frames_one_file_at_a_time([0], lambda i: paths[i], read))
+        assert handles[0].closed
+
+    def test_file_is_closed_when_iteration_is_abandoned(self, tmp_path):
+        from revelsMD.trajectories._base import read_frames_one_file_at_a_time
+        paths = self._files(tmp_path)
+        handles = []
+
+        def read(handle, index):
+            handles.append(handle)
+            return index
+
+        frames = read_frames_one_file_at_a_time([0, 0], lambda i: paths[i], read)
+        assert next(frames) == 0
+        frames.close()
+        assert handles[0].closed
