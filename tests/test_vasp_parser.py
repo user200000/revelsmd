@@ -32,17 +32,20 @@ class TestIndexVasprun:
 
     def test_complete_file(self):
         index = index_vasprun(str(SOURCE))
-        assert len(index.frames) == 10
-        assert [f.calculation for f in index.frames] == list(range(10))
+        assert len(index.starts) == len(index.ends) == 10
+        # Step k is the k-th <calculation> element, in file order.
+        text = SOURCE.read_bytes()
+        _, calculations, _ = split(text)
+        assert [text[a:b] for a, b in zip(index.starts, index.ends)] == calculations
         assert len(index.atom_names) == 324
         assert sorted(set(index.atom_names)) == ["Ba", "F", "Sn"]
-        np.testing.assert_allclose(parse_basis(index.frames[0].basis), np.eye(3) * 18.351083)
+        np.testing.assert_allclose(parse_basis(index.basis), np.eye(3) * 18.351083)
 
     def test_truncated_file_keeps_complete_steps_with_a_warning(self, tmp_path):
         path = truncated(tmp_path / "vasprun.xml")
         with pytest.warns(UserWarning, match="incomplete final ionic step.*9 complete steps"):
             index = index_vasprun(path)
-        assert len(index.frames) == 9
+        assert len(index.starts) == len(index.ends) == 9
 
     def test_missing_forces_raises(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
@@ -64,6 +67,21 @@ class TestIndexVasprun:
         path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
         with pytest.raises(ValueError, match="calculation 4: the structure has no lattice basis"):
             index_vasprun(path)
+
+    def test_changed_basis_raises_naming_the_calculation(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[4] = with_basis(calculations[4], lambda b: b * 1.01)
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match=r"vasprun\.xml, calculation 4: the cell differs from the first frame's"):
+            index_vasprun(path)
+
+    def test_basis_written_differently_with_the_same_values_is_accepted(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        original = calculations[4]
+        calculations[4] = with_basis(original, lambda b: b)
+        assert calculations[4] != original
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        index_vasprun(path)
 
     def test_unclosed_calculation_before_the_end_raises(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
@@ -111,15 +129,16 @@ class TestReadVaspFrame:
         index = index_vasprun(vasprun_path)
         expected = _independent_frames(vasprun_path)
         with open(vasprun_path, "rb") as f:
-            for frame, (expected_positions, expected_forces) in zip(index.frames, expected, strict=True):
-                positions, forces = read_vasp_frame(f, frame, 324)
+            steps = zip(index.starts, index.ends, expected, strict=True)
+            for start, end, (expected_positions, expected_forces) in steps:
+                positions, forces = read_vasp_frame(f, start, end, 324)
                 np.testing.assert_array_equal(positions, expected_positions)
                 np.testing.assert_array_equal(forces, expected_forces)
 
     def test_wrong_atom_count_raises(self):
         index = index_vasprun(str(SOURCE))
         with open(SOURCE, "rb") as f, pytest.raises(ValueError, match="for 323 atoms"):
-            read_vasp_frame(f, index.frames[0], 323)
+            read_vasp_frame(f, index.starts[0], index.ends[0], 323)
 
     def test_triclinic_basis(self, tmp_path):
         shear = np.array([[1.0, 0, 0], [0.3, 1.0, 0], [0.1, 0.2, 1.0]])
@@ -128,4 +147,4 @@ class TestReadVaspFrame:
         path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
         index = index_vasprun(path)
         expected = shear @ (np.eye(3) * 18.351083)
-        np.testing.assert_allclose(parse_basis(index.frames[0].basis), expected)
+        np.testing.assert_allclose(parse_basis(index.basis), expected)
