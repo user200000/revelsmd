@@ -200,8 +200,18 @@ class _ScannedFrame:
     header: DumpHeader
 
 
-def index_dump(path: str) -> DumpIndex:
+def index_dump(path: str, reference_box: np.ndarray | None = None) -> DumpIndex:
     """Index the frames of one dump file without parsing the atom rows.
+
+    Parameters
+    ----------
+    path : str
+        The dump file.
+    reference_box : np.ndarray, optional
+        The box (as returned by :func:`parse_box`) of the trajectory's
+        first frame, when this file is not the first. Every frame's box is
+        compared with it, so the first frame that differs is named. By
+        default frames are compared with the file's first frame.
 
     Raises
     ------
@@ -209,8 +219,8 @@ def index_dump(path: str) -> DumpIndex:
         If the file is empty or has no frames, if a frame other than the
         last is incomplete, if a frame has more rows than its header
         states, if the columns, the box or the atom count change within
-        the file, if timesteps do not strictly increase, or if a box is
-        not supported.
+        the file, if a box differs from ``reference_box``, if timesteps do
+        not strictly increase, or if a box is not supported.
     """
     with open(path, "rb") as f:
         if os.fstat(f.fileno()).st_size == 0:
@@ -253,6 +263,10 @@ def index_dump(path: str) -> DumpIndex:
                     continue
                 if header is None:
                     header = entry.header
+                    if reference_box is not None:
+                        check_fixed_cell(
+                            header.box, reference_box, f"{path}, timestep {entry.timestep}"
+                        )
                 else:
                     _check_same_header(entry, header, path)
                     previous = int(timesteps[count - 1])
@@ -642,7 +656,15 @@ class LammpsTrajectory(Trajectory):
             )
         self._topology_ids = topology_ids
 
-        table = combine_frames([index_dump(path) for path in paths])
+        # Each file is checked against the box of the first file with a
+        # complete frame, so a box error names the first frame that differs.
+        indices: list[DumpIndex] = []
+        reference_box: np.ndarray | None = None
+        for path in paths:
+            indices.append(index_dump(path, reference_box))
+            if reference_box is None and indices[-1].header is not None:
+                reference_box = indices[-1].header.box
+        table = combine_frames(indices)
         first_frames = np.searchsorted(table.file, np.arange(len(table.paths)))
         self._layouts: list[ColumnLayout] = []
         for path, header, first_frame in zip(table.paths, table.headers, first_frames):
@@ -652,7 +674,6 @@ class LammpsTrajectory(Trajectory):
                     f"{where}: {header.n_atoms} atoms, but the topology has "
                     f"{len(topology_ids)}"
                 )
-            check_fixed_cell(header.box, table.headers[0].box, where)
             self._layouts.append(resolve_columns(header.columns, path))
         self._table = table
 

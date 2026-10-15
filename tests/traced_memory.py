@@ -11,14 +11,17 @@ def retained_bytes(build):
     is traced along with Python objects.
     """
     gc.collect()
-    tracemalloc.start()
+    started = not tracemalloc.is_tracing()
+    if started:
+        tracemalloc.start()
     try:
         before = tracemalloc.get_traced_memory()[0]
         kept = build()
         gc.collect()
         after = tracemalloc.get_traced_memory()[0]
     finally:
-        tracemalloc.stop()
+        if started:
+            tracemalloc.stop()
     del kept
     return after - before
 

@@ -74,11 +74,21 @@ class VasprunIndex:
     ends: np.ndarray
 
 
-def index_vasprun(path: str) -> VasprunIndex:
+def index_vasprun(path: str, reference_basis: bytes | None = None) -> VasprunIndex:
     """Index the ionic steps of one vasprun.xml without parsing them.
 
     A final ``<calculation>`` with no closing tag, as left by a run killed
     while writing, is dropped with a warning.
+
+    Parameters
+    ----------
+    path : str
+        The vasprun.xml file.
+    reference_basis : bytes, optional
+        The basis element of the trajectory's first ionic step, when this
+        file is not the first. Every step's lattice is compared with it, so
+        the first step that differs is named. By default steps are compared
+        with the file's first step.
 
     Raises
     ------
@@ -86,7 +96,7 @@ def index_vasprun(path: str) -> VasprunIndex:
         If the file has no ``<atominfo>`` or no complete ionic step, if a
         calculation other than the last is not closed, if a calculation
         lacks a structure, a lattice basis or forces, or if the lattice
-        changes between steps.
+        changes between steps or differs from ``reference_basis``.
     """
     with open(path, "rb") as f:
         if os.fstat(f.fileno()).st_size == 0:
@@ -96,6 +106,7 @@ def index_vasprun(path: str) -> VasprunIndex:
             starts = array.array("q")
             ends = array.array("q")
             first_basis = b""
+            reference = reference_basis
             start = m.find(_CALCULATION_OPEN)
             while start != -1:
                 close = m.find(_CALCULATION_CLOSE, start)
@@ -119,9 +130,11 @@ def index_vasprun(path: str) -> VasprunIndex:
                 basis = _calculation_basis(m, path, k, start, end)
                 if not starts:
                     first_basis = basis
-                elif basis != first_basis:
+                if reference is None:
+                    reference = basis
+                if basis != reference:
                     check_fixed_cell(
-                        parse_basis(basis), parse_basis(first_basis), f"{path}, calculation {k}"
+                        parse_basis(basis), parse_basis(reference), f"{path}, calculation {k}"
                     )
                 starts.append(start)
                 ends.append(end)
@@ -260,22 +273,19 @@ class VaspTrajectory(Trajectory):
         if not paths:
             raise ValueError("At least one vasprun.xml file is required.")
 
-        indices = [index_vasprun(path) for path in paths]
-        self._atom_names = indices[0].atom_names
-        for index in indices[1:]:
-            if index.atom_names != self._atom_names:
-                raise ValueError(
-                    f"{index.path}: the atoms differ from those in {indices[0].path}"
-                )
+        # Later files are checked against the first file's lattice, so a
+        # lattice error names the first ionic step that differs.
+        first = index_vasprun(paths[0])
+        indices = [first]
+        for path in paths[1:]:
+            index = index_vasprun(path, first.basis)
+            if index.atom_names != first.atom_names:
+                raise ValueError(f"{index.path}: the atoms differ from those in {first.path}")
+            indices.append(index)
+        self._atom_names = first.atom_names
 
-        first = indices[0]
         self.cell_matrix = parse_basis(first.basis)
         self._validate_cell_matrix(self.cell_matrix)
-        for index in indices[1:]:
-            if index.basis != first.basis:
-                check_fixed_cell(
-                    parse_basis(index.basis), self.cell_matrix, f"{index.path}, calculation 0"
-                )
 
         # Frame i is ionic step _calculation[i] of file _paths[_file[i]].
         counts = [len(index.starts) for index in indices]

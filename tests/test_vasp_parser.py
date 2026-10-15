@@ -75,6 +75,14 @@ class TestIndexVasprun:
         with pytest.raises(ValueError, match=r"vasprun\.xml, calculation 4: the cell differs from the first frame's"):
             index_vasprun(path)
 
+    def test_first_step_is_checked_against_a_reference_basis(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        reference = index_vasprun(str(SOURCE)).basis
+        changed = [with_basis(calculations[0], lambda b: b * 1.01)] + calculations[1:]
+        path = write(tmp_path / "vasprun.xml", join(head, changed, tail))
+        with pytest.raises(ValueError, match=r"vasprun\.xml, calculation 0: the cell differs from the first frame's"):
+            index_vasprun(path, reference)
+
     def test_basis_written_differently_with_the_same_values_is_accepted(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
         original = calculations[4]

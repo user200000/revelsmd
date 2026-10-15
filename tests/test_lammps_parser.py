@@ -233,6 +233,12 @@ class TestIndexDump:
         with pytest.raises(ValueError, match=r"a\.dump, timestep 100: the cell differs from the first frame's"):
             index_dump(path)
 
+    def test_first_frame_is_checked_against_a_reference_box(self, tmp_path):
+        path = write(tmp_path / "b.dump", frame(200, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"), frame(300))
+        reference = index_dump(write(tmp_path / "a.dump", frame(0))).header.box
+        with pytest.raises(ValueError, match=r"b\.dump, timestep 200: the cell differs from the first frame's"):
+            index_dump(path, reference)
+
     def test_atom_count_must_not_change_within_a_file(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0), frame(100, atom_rows=rows(100)[:5], n_atoms=5))
         with pytest.raises(ValueError, match=r"a\.dump, timestep 100: 5 atoms, but the file's first frame has 6"):
@@ -314,6 +320,35 @@ class TestCombineFrames:
         with pytest.warns(UserWarning, match="incomplete final frame"):
             _, frames = _combined(tmp_path, [frame(0), frame(100), cut], [frame(300)])
         assert [t for _, t in frames] == [0, 100, 300]
+
+    def test_middle_file_truncated_by_the_next_restart(self, tmp_path):
+        paths, frames = _combined(
+            tmp_path,
+            [frame(0), frame(100), frame(200), frame(300)],
+            [frame(200, 20.0), frame(300, 30.0), frame(400, 40.0)],
+            [frame(300, 33.0), frame(500, 55.0)],
+        )
+        assert frames == [
+            (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 300), (paths[2], 500)]
+
+    def test_file_with_only_a_partial_frame_between_two_files(self, tmp_path):
+        cut = frame(200)[:-30]
+        with pytest.warns(UserWarning, match=r"run1\.dump: dropping the incomplete final frame \(timestep 200\)"):
+            paths, frames = _combined(tmp_path, [frame(0), frame(100)], [cut], [frame(300), frame(400)])
+        assert frames == [(paths[0], 0), (paths[0], 100), (paths[2], 300), (paths[2], 400)]
+
+    def test_cut_header_replaced_by_a_restart_is_silent(self, tmp_path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100), "ITEM: TIM"], [frame(100, 1.0), frame(200)])
+        assert frames == [(paths[0], 0), (paths[1], 100), (paths[1], 200)]
+
+    def test_cut_header_not_replaced_by_the_next_file_warns(self, tmp_path):
+        with pytest.warns(UserWarning, match=r"run0\.dump: dropping the incomplete final frame;"):
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100), "ITEM: TIM"], [frame(200), frame(300)])
+        assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
 
     def test_no_complete_frames_raises(self, tmp_path):
         with pytest.warns(UserWarning):
