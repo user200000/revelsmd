@@ -28,8 +28,6 @@ def test_mda_raises_no_topology():
         MDATrajectory("traj.xtc", "", temperature=300.0)
 
 
-
-
 # -----------------------------------------------------------------------------
 # NumpyTrajectory
 # -----------------------------------------------------------------------------
@@ -41,7 +39,6 @@ def test_numpy_state_valid_and_accessors():
     state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
     assert state.frames == 5
     assert np.allclose(state.get_indices("H"), [1, 2])
-
 
 
 def test_numpy_state_species_not_found():
@@ -352,7 +349,6 @@ class TestIterFramesNegativeIndices:
         assert len(frames) == n_frames
 
 
-
 # -----------------------------------------------------------------------------
 # compute_beta - Unit conversion function
 # -----------------------------------------------------------------------------
@@ -398,8 +394,6 @@ class TestTrajectoryBetaAttribute:
 
         state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=1.0, units='lj')
         assert state.beta == 1.0
-
-
 
 
 class TestComputeBeta:
