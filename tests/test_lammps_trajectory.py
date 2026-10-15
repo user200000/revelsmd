@@ -174,15 +174,24 @@ class TestCoordinateColumns:
         np.testing.assert_array_equal(got, positions() + shifts)
         np.testing.assert_allclose(np.mod(got, 10.0), np.mod(positions(), 10.0), atol=1e-12)
 
-    def test_scaled_coordinates(self, tmp_path):
+    @staticmethod
+    def scaled_dump(tmp_path):
         atom_rows = []
         for r in rows(0):
             i, t, x, y, z, *f = r.split()
             atom_rows.append(" ".join([i, t, repr(float(x) / 10), repr(float(y) / 10),
                                        repr(float(z) / 10)] + f))
-        a = write(tmp_path / "s.dump", frame(0, columns="id type xs ys zs fx fy fz", atom_rows=atom_rows))
-        got = next(load(a).iter_frames()).positions
+        return write(tmp_path / "s.dump", frame(0, columns="id type xs ys zs fx fy fz", atom_rows=atom_rows))
+
+    def test_scaled_coordinates(self, tmp_path):
+        got = next(load(self.scaled_dump(tmp_path)).iter_frames()).positions
         np.testing.assert_allclose(got, positions(), rtol=1e-12, atol=1e-12)
+
+    def test_changing_cell_matrix_does_not_change_scaled_frames(self, tmp_path):
+        traj = load(self.scaled_dump(tmp_path))
+        before = traj.get_frame(0).positions
+        traj.cell_matrix *= 2.0
+        np.testing.assert_array_equal(traj.get_frame(0).positions, before)
 
 
 class TestTopology:

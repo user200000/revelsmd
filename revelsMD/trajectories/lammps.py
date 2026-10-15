@@ -569,7 +569,7 @@ class LammpsTrajectory(Trajectory):
                 self._layouts[key] = resolve_columns(frame.columns, frame.path)
 
         self.frames = len(self._index)
-        self.cell_matrix = first.cell
+        self.cell_matrix = first.cell.copy()
         self._validate_cell_matrix(self.cell_matrix)
 
     def get_indices(self, atype: str) -> np.ndarray:
