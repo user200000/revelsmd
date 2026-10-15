@@ -300,6 +300,13 @@ class TestResolveAtomStyle:
         assert resolve_atom_style(None, SMALL_DATA) == "id type x y z"   # Atoms # atomic
         assert resolve_atom_style(None, LJ_DATA) == "id resid type charge x y z"  # Atoms # full
 
+    def test_title_line_is_not_read_as_the_atoms_header(self, tmp_path):
+        # LAMMPS reads the first line of a data file as a free-text title.
+        lines = Path(SMALL_DATA).read_text().splitlines(keepends=True)
+        path = tmp_path / "data.title"
+        path.write_text("Atoms # sphere title text\n" + "".join(lines[1:]))
+        assert resolve_atom_style(None, str(path)) == "id type x y z"
+
     def test_data_file_without_a_style_comment(self, tmp_path):
         text = Path(SMALL_DATA).read_text().replace("Atoms # atomic", "Atoms")
         path = tmp_path / "data.nocomment"

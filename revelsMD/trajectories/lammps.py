@@ -388,8 +388,12 @@ def resolve_atom_style(atom_style: str | None, topology_file: str) -> str:
 
 
 def _data_file_style(topology_file: str) -> str | None:
-    """The style named by a data file's ``Atoms # <style>`` line, if any."""
+    """The style named by a data file's ``Atoms # <style>`` line, if any.
+
+    The first line of a data file is a title and is not searched.
+    """
     with open(topology_file) as f:
+        next(f, None)
         for line in f:
             if line.split()[:1] == ["Atoms"]:
                 words = line.partition("#")[2].split()
