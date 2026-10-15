@@ -58,7 +58,7 @@ def test_get_frame_matches_iteration(small):
 
 
 def test_dump_without_id_column_is_rejected():
-    with pytest.raises(RuntimeError, match="'id'"):
+    with pytest.raises(ValueError, match="lack id"):
         LammpsTrajectory(
             str(FIXTURE_DIR / "dump_noid.lammps"),
             str(FIXTURE_DIR / "data.small.data"),
