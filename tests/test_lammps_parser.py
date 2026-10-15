@@ -350,6 +350,25 @@ class TestReadDumpFrame:
         positions, _ = _read(path)
         np.testing.assert_allclose(positions, expected_positions(), rtol=1e-12, atol=1e-12)
 
+    def test_scaled_coordinates_are_offset_by_the_box_origin(self, tmp_path):
+        # The cell of the test above, with the box origin moved to (5, -3, 2).
+        origin = np.array([5.0, -3.0, 2.0])
+        cell = np.array([[10.0, 0, 0], [2.0, 10.0, 0], [1.0, -1.5, 10.0]])
+        bounds = "5.0 18.0 2.0\n-4.5 7.0 1.0\n2.0 12.0 -1.5\n"
+        scaled = (expected_positions() - origin) @ np.linalg.inv(cell)
+        by_id = dict(zip(IDS_SORTED, scaled))
+        atom_rows = [
+            f"{i} 1 {float(by_id[i][0])!r} {float(by_id[i][1])!r} {float(by_id[i][2])!r} {-i} 0 {i}"
+            for i in (20, 3, 40, 12, 21, 7)
+        ]
+        path = write(tmp_path / "o.dump", frame(
+            0, box_item="xy xz yz pp pp pp", bounds=bounds,
+            columns="id type xs ys zs fx fy fz", atom_rows=atom_rows,
+        ))
+        np.testing.assert_array_equal(index_dump(path).frames[0].origin, origin)
+        positions, _ = _read(path)
+        np.testing.assert_allclose(positions, expected_positions(), rtol=1e-12, atol=1e-12)
+
     def test_ids_not_matching_the_topology_raise(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0))
         dump = index_dump(path)
