@@ -1,180 +1,88 @@
-"""
-pytest test suite for py
+"""Unit tests for the vasprun.xml index and frame reader."""
 
-These tests create minimal vasprun.xml-like files to validate parsing logic,
-without needing full VASP outputs.
-"""
+import xml.etree.ElementTree as ET
 
-import pytest
 import numpy as np
+import pytest
 from lxml import etree
-from pymatgen.core import Structure
-from revelsMD.trajectories.vasp import parse_varray, parse_structure, structure_from_structure_data, Vasprun
+
+from vasprun_variants import SOURCE, join, split, truncated, with_basis, without_forces, write
+from revelsMD.trajectories.vasp import index_vasprun, parse_basis, parse_varray, read_vasp_frame
 
 
-@pytest.fixture
-def minimal_vasprun_xml(tmp_path):
-    """Create a small valid vasprun.xml file for testing."""
-    xml_content = """
-<modeling>
-  <atominfo>
-    <array name="atoms">
-      <set>
-        <rc><c>H</c></rc>
-        <rc><c>O</c></rc>
-      </set>
-    </array>
-  </atominfo>
-
-  <calculation>
-    <structure>
-      <crystal>
-        <varray name="basis">
-          <v>1.0 0.0 0.0</v>
-          <v>0.0 1.0 0.0</v>
-          <v>0.0 0.0 1.0</v>
-        </varray>
-      </crystal>
-      <varray name="positions">
-        <v>0.0 0.0 0.0</v>
-        <v>0.5 0.5 0.5</v>
-      </varray>
-    </structure>
-    <varray name="forces" type="float">
-      <v>0.1 0.0 0.0</v>
-      <v>-0.1 0.0 0.0</v>
-    </varray>
-  </calculation>
-</modeling>
-"""
-    xml_path = tmp_path / "vasprun.xml"
-    xml_path.write_text(xml_content)
-    return str(xml_path)
+def test_parse_varray_types():
+    assert np.allclose(parse_varray(etree.fromstring("<varray><v>1.0 2.0 3.0</v></varray>")), [[1, 2, 3]])
+    assert parse_varray(etree.fromstring('<varray type="int"><v>1 2 3</v></varray>')) == [[1, 2, 3]]
+    assert parse_varray(etree.fromstring('<varray type="logical"><v>T F T</v></varray>')) == [[True, False, True]]
 
 
-# -----------------------------------------------------------------------------
-# Unit tests for helper functions
-# -----------------------------------------------------------------------------
-def test_parse_varray_float():
-    xml = etree.fromstring('<varray><v>1.0 2.0 3.0</v></varray>')
-    arr = parse_varray(xml)
-    assert np.allclose(arr, [[1.0, 2.0, 3.0]])
+class TestIndexVasprun:
+
+    def test_complete_file(self):
+        index = index_vasprun(str(SOURCE))
+        assert len(index.frames) == 10
+        assert [f.calculation for f in index.frames] == list(range(10))
+        assert len(index.atom_names) == 324
+        assert sorted(set(index.atom_names)) == ["Ba", "F", "Sn"]
+        np.testing.assert_allclose(parse_basis(index.frames[0].basis), np.eye(3) * 18.351083)
+
+    def test_truncated_file_keeps_complete_steps_with_a_warning(self, tmp_path):
+        path = truncated(tmp_path / "vasprun.xml")
+        with pytest.warns(UserWarning, match="incomplete final ionic step.*9 complete steps"):
+            index = index_vasprun(path)
+        assert len(index.frames) == 9
+
+    def test_missing_forces_raises(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[4] = without_forces(calculations[4])
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 4: no forces"):
+            index_vasprun(path)
+
+    def test_unclosed_calculation_before_the_end_raises(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[3] = calculations[3].replace(b"</calculation>", b"")
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 3: no closing"):
+            index_vasprun(path)
+
+    def test_no_atominfo_raises(self, tmp_path):
+        text = SOURCE.read_bytes().replace(b"<atominfo>", b"<atominf>").replace(b"</atominfo>", b"</atominf>")
+        with pytest.raises(ValueError, match="no <atominfo>"):
+            index_vasprun(write(tmp_path / "vasprun.xml", text))
 
 
-def test_parse_varray_int():
-    xml = etree.fromstring('<varray type="int"><v>1 2 3</v></varray>')
-    arr = parse_varray(xml)
-    assert arr == [[1, 2, 3]]
+def _floats(elements):
+    """Rows of numbers from <v> elements, converted with float()."""
+    return np.array([[float(x) for x in v.text.split()] for v in elements])
 
 
-def test_parse_varray_logical():
-    xml = etree.fromstring('<varray type="logical"><v>T F T</v></varray>')
-    arr = parse_varray(xml)
-    assert arr == [[True, False, True]]
+class TestReadVaspFrame:
 
+    def test_frames_match_an_independent_parse(self):
+        index = index_vasprun(str(SOURCE))
+        root = ET.parse(SOURCE).getroot()
+        calculations = root.findall("calculation")
+        with open(SOURCE, "rb") as f:
+            for frame, calculation in zip(index.frames, calculations, strict=True):
+                positions, forces = read_vasp_frame(f, frame, 324)
+                structure = calculation.find("structure")
+                basis = _floats(structure.find("crystal").findall("varray[@name='basis']/v"))
+                fractional = _floats(structure.findall("varray[@name='positions']/v"))
+                expected_forces = _floats(calculation.findall("varray[@name='forces']/v"))
+                np.testing.assert_array_equal(positions, fractional @ basis)
+                np.testing.assert_array_equal(forces, expected_forces)
 
-def test_parse_structure_returns_expected_dict():
-    xml = etree.fromstring("""
-    <structure>
-      <crystal>
-        <varray>
-          <v>1 0 0</v>
-          <v>0 1 0</v>
-          <v>0 0 1</v>
-        </varray>
-      </crystal>
-      <varray>
-        <v>0 0 0</v>
-        <v>0.5 0.5 0.5</v>
-      </varray>
-    </structure>
-    """)
-    parsed = parse_structure(xml)
-    assert "lattice" in parsed
-    assert "frac_coords" in parsed
-    assert parsed["selective_dynamics"] is None
-    assert np.shape(parsed["lattice"]) == (3, 3)
+    def test_wrong_atom_count_raises(self):
+        index = index_vasprun(str(SOURCE))
+        with open(SOURCE, "rb") as f, pytest.raises(ValueError, match="for 323 atoms"):
+            read_vasp_frame(f, index.frames[0], 323)
 
-
-def test_structure_from_structure_data_creates_structure():
-    lattice = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-    names = ["H", "O"]
-    coords = [[0, 0, 0], [0.5, 0.5, 0.5]]
-    struct = structure_from_structure_data(lattice, names, coords)
-    assert isinstance(struct, Structure)
-    assert len(struct) == 2
-
-
-# -----------------------------------------------------------------------------
-# Tests for Vasprun class
-# -----------------------------------------------------------------------------
-def test_vasprun_parses_atom_names(minimal_vasprun_xml):
-    vr = Vasprun(minimal_vasprun_xml)
-    assert vr.atom_names == ["H", "O"]
-
-
-def test_vasprun_parses_structures(minimal_vasprun_xml):
-    vr = Vasprun(minimal_vasprun_xml)
-    structs = vr.structures
-    assert len(structs) == 1
-    s = structs[0]
-    assert np.allclose(s.lattice.matrix, np.eye(3))
-    assert np.allclose(s.frac_coords, [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
-
-
-def test_vasprun_frac_and_cart_coords_are_numpy(minimal_vasprun_xml):
-    vr = Vasprun(minimal_vasprun_xml)
-    assert isinstance(vr.frac_coords, np.ndarray)
-    assert vr.frac_coords.shape == (1, 2, 3)
-    assert isinstance(vr.cart_coords, np.ndarray)
-
-
-def test_vasprun_forces_parsed(minimal_vasprun_xml):
-    vr = Vasprun(minimal_vasprun_xml)
-    forces = vr.forces
-    assert isinstance(forces, np.ndarray)
-    assert forces.shape == (1, 2, 3)
-    assert np.allclose(forces[0][0], [0.1, 0.0, 0.0])
-
-
-def test_structure_from_structure_data_raises_without_pymatgen(monkeypatch):
-    """Lazy import raises ImportError with install instructions if pymatgen is missing."""
-    import builtins
-    real_import = builtins.__import__
-
-    def mock_import(name, *args, **kwargs):
-        if name == "pymatgen.core":
-            raise ImportError("No module named 'pymatgen'")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", mock_import)
-
-    with pytest.raises(ImportError, match="pip install revelsMD"):
-        structure_from_structure_data(
-            lattice=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-            atom_names=["H"],
-            frac_coords=[[0, 0, 0]],
-        )
-
-
-def test_vasprun_raises_if_no_forces(tmp_path):
-    """If there are no forces, parser should raise ValueError."""
-    xml_no_forces = """
-<modeling>
-  <atominfo>
-    <array name="atoms"><set><rc><c>H</c></rc></set></array>
-  </atominfo>
-  <calculation>
-    <structure>
-      <crystal><varray><v>1 0 0</v><v>0 1 0</v><v>0 0 1</v></varray></crystal>
-      <varray><v>0 0 0</v></varray>
-    </structure>
-  </calculation>
-</modeling>
-"""
-    path = tmp_path / "vasprun_no_forces.xml"
-    path.write_text(xml_no_forces)
-    vr = Vasprun(str(path))
-    with pytest.raises(ValueError, match="No forces"):
-        _ = vr.forces
-
+    def test_triclinic_basis(self, tmp_path):
+        shear = np.array([[1.0, 0, 0], [0.3, 1.0, 0], [0.1, 0.2, 1.0]])
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations = [with_basis(c, lambda b: shear @ b) for c in calculations]
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        index = index_vasprun(path)
+        expected = shear @ (np.eye(3) * 18.351083)
+        np.testing.assert_allclose(parse_basis(index.frames[0].basis), expected)

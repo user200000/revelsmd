@@ -7,7 +7,11 @@ along with the Vasprun parser class.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterator
+import mmap
+import os
+import warnings
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, BinaryIO, Iterator
 
 import numpy as np
 from lxml import etree  # type: ignore[import-untyped]
@@ -47,6 +51,146 @@ def parse_varray(varray: etree.Element) -> list[list[float]] | list[list[int]] |
         return [[val == "T" for val in v] for v in v_list]
     else:
         return [[float(num) for num in v] for v in v_list]
+
+
+_CALCULATION_OPEN = b"<calculation>"
+_CALCULATION_CLOSE = b"</calculation>"
+_STRUCTURE = b"<structure>"
+_FORCES = b'<varray name="forces"'
+_BASIS = b'<varray name="basis"'
+_VARRAY_CLOSE = b"</varray>"
+
+
+@dataclass(frozen=True)
+class VaspFrame:
+    """Where one ionic step lies in its vasprun.xml."""
+
+    path: str
+    calculation: int
+    start: int
+    end: int
+    basis: bytes
+
+
+@dataclass(frozen=True)
+class VasprunIndex:
+    """The atoms and the complete ionic steps of one vasprun.xml."""
+
+    path: str
+    atom_names: list[str]
+    frames: list[VaspFrame]
+
+
+def index_vasprun(path: str) -> VasprunIndex:
+    """Index the ionic steps of one vasprun.xml without parsing them.
+
+    A final ``<calculation>`` with no closing tag, as left by a run killed
+    while writing, is dropped with a warning.
+
+    Raises
+    ------
+    ValueError
+        If the file has no ``<atominfo>`` or no complete ionic step, if a
+        calculation other than the last is not closed, or if a calculation
+        lacks a structure, a lattice basis or forces.
+    """
+    with open(path, "rb") as f:
+        if os.fstat(f.fileno()).st_size == 0:
+            raise ValueError(f"{path}: the file is empty")
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
+            atom_names = _read_atom_names(m, path)
+            frames: list[VaspFrame] = []
+            start = m.find(_CALCULATION_OPEN)
+            while start != -1:
+                close = m.find(_CALCULATION_CLOSE, start)
+                following = m.find(_CALCULATION_OPEN, start + len(_CALCULATION_OPEN))
+                if close == -1 or (following != -1 and following < close):
+                    if following == -1:
+                        warnings.warn(
+                            f"{path}: dropping the incomplete final ionic step "
+                            f"(calculation {len(frames)}); the file appears to have "
+                            f"been cut short, so its {len(frames)} complete steps are used",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        break
+                    raise ValueError(
+                        f"{path}, calculation {len(frames)}: no closing "
+                        "</calculation> before the next ionic step"
+                    )
+                end = close + len(_CALCULATION_CLOSE)
+                frames.append(_index_calculation(m, path, len(frames), start, end))
+                start = following
+    if not frames:
+        raise ValueError(f"{path}: no complete ionic steps")
+    return VasprunIndex(path, atom_names, frames)
+
+
+def _index_calculation(m: mmap.mmap, path: str, k: int, start: int, end: int) -> VaspFrame:
+    """Check one calculation's contents and record where it lies."""
+    structure = m.find(_STRUCTURE, start, end)
+    missing = []
+    if structure == -1:
+        missing.append("structure")
+    if m.find(_FORCES, start, end) == -1:
+        missing.append("forces")
+    if missing:
+        raise ValueError(
+            f"{path}, calculation {k}: no {' and no '.join(missing)}; every "
+            "ionic step needs a structure and forces"
+        )
+    basis_start = m.find(_BASIS, structure, end)
+    basis_end = m.find(_VARRAY_CLOSE, basis_start, end) if basis_start != -1 else -1
+    if basis_end == -1:
+        raise ValueError(f"{path}, calculation {k}: the structure has no lattice basis")
+    return VaspFrame(path, k, start, end, bytes(m[basis_start:basis_end + len(_VARRAY_CLOSE)]))
+
+
+def _read_atom_names(m: mmap.mmap, path: str) -> list[str]:
+    """Element names of the atoms, from the ``<atominfo>`` section."""
+    start = m.find(b"<atominfo>")
+    end = m.find(b"</atominfo>", start) if start != -1 else -1
+    if end == -1:
+        raise ValueError(f"{path}: no <atominfo> section")
+    atominfo = etree.fromstring(bytes(m[start:end + len(b"</atominfo>")]))
+    for array in atominfo.findall("array"):
+        if array.get("name") == "atoms":
+            names = [rc.find("c").text.strip() for rc in array.find("set")]
+            if names:
+                return names
+    raise ValueError(f"{path}: no atom list in <atominfo>")
+
+
+def parse_basis(element: bytes) -> np.ndarray:
+    """The 3x3 lattice basis (rows are lattice vectors) from a basis varray."""
+    return np.array(parse_varray(etree.fromstring(element)), dtype=np.float64)
+
+
+def read_vasp_frame(f: BinaryIO, frame: VaspFrame, n_atoms: int) -> tuple[np.ndarray, np.ndarray]:
+    """Read the Cartesian positions and the forces of one indexed ionic step.
+
+    Raises
+    ------
+    ValueError
+        If the step's basis, positions or forces are missing or do not have
+        one row per atom.
+    """
+    f.seek(frame.start)
+    calculation = etree.fromstring(f.read(frame.end - frame.start))
+    basis = calculation.find("structure/crystal/varray[@name='basis']")
+    fractional = calculation.find("structure/varray[@name='positions']")
+    forces = calculation.find("varray[@name='forces']")
+    if basis is None or fractional is None or forces is None:
+        raise ValueError("the ionic step lacks a basis, positions or forces")
+    lattice = np.array(parse_varray(basis), dtype=np.float64)
+    positions = np.array(parse_varray(fractional), dtype=np.float64) @ lattice
+    force_array = np.array(parse_varray(forces), dtype=np.float64)
+    if positions.shape != (n_atoms, 3) or force_array.shape != (n_atoms, 3):
+        raise ValueError(
+            f"expected positions and forces for {n_atoms} atoms, got arrays of "
+            f"shape {positions.shape} and {force_array.shape}"
+        )
+    return positions, force_array
 
 
 def parse_structure(structure: etree.Element) -> dict[str, Any]:
