@@ -5,6 +5,8 @@ This module provides the LammpsTrajectory class for reading LAMMPS dump files,
 along with helper functions for parsing the LAMMPS dump format.
 """
 
+import mmap
+import os
 import warnings
 from dataclasses import dataclass
 from typing import Iterator
@@ -133,6 +135,136 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
     x, y, z = (columns.index(name) for name in names)
     fx, fy, fz = (columns.index(name) for name in FORCE_COLUMNS)
     return ColumnLayout(len(columns), columns.index("id"), (x, y, z), (fx, fy, fz), scaled)
+
+
+_TIMESTEP = b"ITEM: TIMESTEP"
+
+
+@dataclass(frozen=True, eq=False)
+class DumpFrame:
+    """Where one complete dump frame lies in its file, with its header."""
+
+    path: str
+    timestep: int
+    data_start: int
+    data_end: int
+    n_atoms: int
+    columns: tuple[str, ...]
+    cell: np.ndarray
+    origin: np.ndarray
+    box: np.ndarray
+
+
+@dataclass(frozen=True)
+class PartialFrame:
+    """An incomplete final frame, as left by a job killed while writing."""
+
+    path: str
+    timestep: int | None
+
+
+@dataclass(frozen=True)
+class DumpIndex:
+    """The complete frames of one dump file, and its incomplete final frame."""
+
+    path: str
+    frames: list[DumpFrame]
+    partial: PartialFrame | None
+
+
+def index_dump(path: str) -> DumpIndex:
+    """Index the frames of one dump file without parsing the atom rows.
+
+    Raises
+    ------
+    ValueError
+        If the file is empty or has no frames, if a frame other than the
+        last is incomplete, if a frame has more rows than its header
+        states, if the columns change within the file, if timesteps do not
+        strictly increase, or if a box is not supported.
+    """
+    with open(path, "rb") as f:
+        if os.fstat(f.fileno()).st_size == 0:
+            raise ValueError(f"{path}: the dump file is empty")
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
+            starts = []
+            position = m.find(_TIMESTEP)
+            while position != -1:
+                starts.append(position)
+                position = m.find(_TIMESTEP, position + len(_TIMESTEP))
+            if not starts:
+                raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
+            ends = starts[1:] + [len(m)]
+            frames: list[DumpFrame] = []
+            partial: PartialFrame | None = None
+            for k, (start, end) in enumerate(zip(starts, ends)):
+                entry = _index_frame(m, path, start, end)
+                if isinstance(entry, DumpFrame):
+                    frames.append(entry)
+                elif k == len(starts) - 1:
+                    partial = entry
+                else:
+                    raise ValueError(
+                        f"{path}: the frame at timestep {entry.timestep} is "
+                        "incomplete but is not the last frame in the file"
+                    )
+    for previous, current in zip(frames, frames[1:]):
+        if current.columns != frames[0].columns:
+            raise ValueError(
+                f"{path}, timestep {current.timestep}: the dump columns change within the file"
+            )
+        if current.timestep <= previous.timestep:
+            raise ValueError(
+                f"{path}: timesteps do not increase "
+                f"({previous.timestep} is followed by {current.timestep})"
+            )
+    return DumpIndex(path, frames, partial)
+
+
+def _index_frame(m: mmap.mmap, path: str, start: int, end: int) -> "DumpFrame | PartialFrame":
+    """Index one frame occupying bytes [start, end) of a mapped dump file."""
+    lines: list[str] = []
+    position = start
+    while len(lines) < 9:
+        newline = m.find(b"\n", position, end)
+        if newline == -1:
+            return PartialFrame(path, _header_timestep(lines))
+        lines.append(m[position:newline].decode("ascii").strip())
+        position = newline + 1
+    if (
+        lines[0] != "ITEM: TIMESTEP"
+        or lines[2] != "ITEM: NUMBER OF ATOMS"
+        or not lines[4].startswith("ITEM: BOX BOUNDS")
+        or not lines[8].startswith("ITEM: ATOMS")
+    ):
+        raise ValueError(f"{path}: unexpected frame header at byte {start}: {lines}")
+    timestep, n_atoms = int(lines[1]), int(lines[3])
+    try:
+        cell, origin, box = parse_box(lines[4], lines[5:8])
+    except ValueError as e:
+        raise ValueError(f"{path}, timestep {timestep}: {e}") from e
+    next_item = m.find(b"ITEM:", position, end)
+    rows_end = end if next_item == -1 else next_item
+    n_rows = m[position:rows_end].count(b"\n")
+    if n_rows < n_atoms:
+        return PartialFrame(path, timestep)
+    if n_rows > n_atoms or m[rows_end - 1:rows_end] != b"\n":
+        raise ValueError(
+            f"{path}, timestep {timestep}: the atom rows do not match the "
+            f"header's {n_atoms} atoms"
+        )
+    return DumpFrame(
+        path, timestep, position, rows_end, n_atoms,
+        tuple(lines[8].split()[2:]), cell, origin, box,
+    )
+
+
+def _header_timestep(lines: list[str]) -> int | None:
+    """The timestep of a cut-off header, if its value line was written."""
+    try:
+        return int(lines[1])
+    except (IndexError, ValueError):
+        return None
 
 
 # -----------------------------------------------------------------------------

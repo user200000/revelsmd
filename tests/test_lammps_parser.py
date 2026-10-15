@@ -3,7 +3,15 @@
 import numpy as np
 import pytest
 
-from revelsMD.trajectories.lammps import ColumnLayout, parse_box, resolve_columns
+from lammps_dumps import frame, rows, write
+from revelsMD.trajectories.lammps import (
+    ColumnLayout,
+    DumpFrame,
+    PartialFrame,
+    index_dump,
+    parse_box,
+    resolve_columns,
+)
 
 TRICLINIC = "ITEM: BOX BOUNDS xy xz yz pp pp pp"
 
@@ -83,3 +91,87 @@ class TestResolveColumns:
     def test_missing_id(self):
         with pytest.raises(ValueError, match="lack id"):
             resolve_columns(("x", "y", "z", "fx", "fy", "fz"), "a.dump")
+
+
+class TestIndexDump:
+
+    def test_complete_frames(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100, 1.0))
+        index = index_dump(path)
+        assert index.path == path
+        assert index.partial is None
+        assert [f.timestep for f in index.frames] == [0, 100]
+        first = index.frames[0]
+        assert first.n_atoms == 6
+        assert first.columns == ("id", "type", "x", "y", "z", "fx", "fy", "fz")
+        np.testing.assert_array_equal(first.cell, np.diag([10.0, 10.0, 10.0]))
+        with open(path, "rb") as f:
+            f.seek(first.data_start)
+            block = f.read(first.data_end - first.data_start).decode()
+        assert block == "".join(r + "\n" for r in rows(0))
+
+    def test_cut_short_final_frame_is_partial(self, tmp_path):
+        text = frame(0) + frame(100)
+        path = write(tmp_path / "a.dump", text[: len(text) - 30])
+        index = index_dump(path)
+        assert [f.timestep for f in index.frames] == [0]
+        assert index.partial == PartialFrame(path, 100)
+
+    def test_header_cut_before_the_timestep_value(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0) + "ITEM: TIMESTEP\n")
+        assert index_dump(path).partial == PartialFrame(path, None)
+
+    def test_missing_final_newline_makes_the_final_frame_partial(self, tmp_path):
+        text = frame(0) + frame(100)
+        path = write(tmp_path / "a.dump", text.rstrip("\n"))
+        index = index_dump(path)
+        assert [f.timestep for f in index.frames] == [0]
+        assert index.partial == PartialFrame(path, 100)
+
+    def test_incomplete_frame_before_the_end_raises(self, tmp_path):
+        short = frame(100, atom_rows=rows(100)[:4])
+        path = write(tmp_path / "a.dump", frame(0), short, frame(200))
+        with pytest.raises(ValueError, match="timestep 100 is incomplete but is not the last"):
+            index_dump(path)
+
+    def test_more_rows_than_the_header_states_raises(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0, n_atoms=5))
+        with pytest.raises(ValueError, match="timestep 0: the atom rows do not match"):
+            index_dump(path)
+
+    def test_time_and_units_items_are_skipped(self, tmp_path):
+        # dump_modify units yes / time yes write these before ITEM: TIMESTEP.
+        path = write(
+            tmp_path / "a.dump",
+            "ITEM: UNITS\nlj\nITEM: TIME\n0\n", frame(0),
+            "ITEM: TIME\n0.5\n", frame(100, 1.0),
+        )
+        index = index_dump(path)
+        assert [f.timestep for f in index.frames] == [0, 100]
+        assert index.partial is None
+        assert index.frames[0].data_end <= index.frames[1].data_start
+
+    def test_timesteps_must_increase(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(100), frame(100, 1.0))
+        with pytest.raises(ValueError, match="timesteps do not increase"):
+            index_dump(path)
+
+    def test_columns_must_not_change_within_a_file(self, tmp_path):
+        reordered = frame(
+            100, columns="type id x y z fx fy fz",
+            atom_rows=[" ".join([r.split()[1], r.split()[0]] + r.split()[2:]) for r in rows(100)],
+        )
+        path = write(tmp_path / "a.dump", frame(0), reordered)
+        with pytest.raises(ValueError, match="columns change"):
+            index_dump(path)
+
+    def test_box_errors_name_the_file_and_timestep(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0, box_item="ff pp pp"))
+        with pytest.raises(ValueError, match="a.dump, timestep 0: box boundaries must be periodic"):
+            index_dump(path)
+
+    def test_empty_and_non_dump_files_raise(self, tmp_path):
+        with pytest.raises(ValueError, match="empty"):
+            index_dump(write(tmp_path / "empty.dump", ""))
+        with pytest.raises(ValueError, match="not a LAMMPS dump"):
+            index_dump(write(tmp_path / "other.txt", "hello\n"))
