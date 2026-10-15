@@ -8,6 +8,7 @@ import pytest
 
 from file_limits import open_descriptors, open_file_limit
 from lammps_dumps import IDS_SORTED, forces, frame, positions, rows, write
+from traced_memory import bytes_per_extra_item
 from revelsMD.trajectories import LammpsTrajectory
 from revelsMD.trajectories._base import compute_beta
 
@@ -118,6 +119,16 @@ class TestOpenFiles:
             got = list(traj.iter_frames())
         assert len(got) == n_files
         np.testing.assert_array_equal(got[-1].positions, positions(float((n_files - 1) % 7)))
+
+
+class TestIndexMemory:
+
+    def test_index_memory_per_frame_is_small(self, tmp_path):
+        n = 2000
+        paths = {m: write(tmp_path / f"{m}.dump", *(frame(k) for k in range(m)))
+                 for m in (n, 2 * n)}
+        per_frame = bytes_per_extra_item(lambda m: load(paths[m]), n)
+        assert per_frame < 64, f"the index keeps {per_frame:.0f} bytes per frame"
 
 
 class TestValidation:

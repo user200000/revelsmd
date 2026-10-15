@@ -123,11 +123,11 @@ class TestResolveColumns:
             resolve_columns(("x", "y", "z", "fx", "fy", "fz"), "a.dump")
 
 
-def read_block(path, dump_frame):
-    """The atom rows of an indexed frame, read back from the file."""
+def read_block(path, index, k):
+    """The atom rows of frame k of a dump index, read back from the file."""
     with open(path, "rb") as f:
-        f.seek(dump_frame.data_start)
-        return f.read(dump_frame.data_end - dump_frame.data_start).decode()
+        f.seek(index.starts[k])
+        return f.read(index.ends[k] - index.starts[k]).decode()
 
 
 class TestIndexDump:
@@ -137,21 +137,20 @@ class TestIndexDump:
         index = index_dump(path)
         assert index.path == path
         assert index.partial is None
-        assert [f.timestep for f in index.frames] == [0, 100]
-        first = index.frames[0]
-        assert first.n_atoms == 6
-        assert first.columns == ("id", "type", "x", "y", "z", "fx", "fy", "fz")
-        np.testing.assert_array_equal(first.cell, np.diag([10.0, 10.0, 10.0]))
+        assert index.timesteps.tolist() == [0, 100]
+        assert index.header.n_atoms == 6
+        assert index.header.columns == ("id", "type", "x", "y", "z", "fx", "fy", "fz")
+        np.testing.assert_array_equal(index.header.cell, np.diag([10.0, 10.0, 10.0]))
         with open(path, "rb") as f:
-            f.seek(first.data_start)
-            block = f.read(first.data_end - first.data_start).decode()
+            f.seek(index.starts[0])
+            block = f.read(index.ends[0] - index.starts[0]).decode()
         assert block == "".join(r + "\n" for r in rows(0))
 
     def test_cut_short_final_frame_is_partial(self, tmp_path):
         text = frame(0) + frame(100)
         path = write(tmp_path / "a.dump", text[: len(text) - 30])
         index = index_dump(path)
-        assert [f.timestep for f in index.frames] == [0]
+        assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, 100)
 
     def test_header_cut_before_the_timestep_value(self, tmp_path):
@@ -162,7 +161,7 @@ class TestIndexDump:
         text = frame(0) + frame(100)
         path = write(tmp_path / "a.dump", text.rstrip("\n"))
         index = index_dump(path)
-        assert [f.timestep for f in index.frames] == [0]
+        assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, 100)
 
     def test_incomplete_frame_before_the_end_raises(self, tmp_path):
@@ -185,12 +184,11 @@ class TestIndexDump:
             "ITEM: TIME\n1.0\n",
         )
         index = index_dump(path)
-        assert [f.timestep for f in index.frames] == [0, 100]
+        assert index.timesteps.tolist() == [0, 100]
         assert index.partial is None
-        first, second = index.frames
-        assert first.data_end <= second.data_start
-        assert read_block(path, first) == "".join(r + "\n" for r in rows(0))
-        assert read_block(path, second) == "".join(r + "\n" for r in rows(100, 1.0))
+        assert index.ends[0] <= index.starts[1]
+        assert read_block(path, index, 0) == "".join(r + "\n" for r in rows(0))
+        assert read_block(path, index, 1) == "".join(r + "\n" for r in rows(100, 1.0))
 
     @pytest.mark.parametrize("tail", [
         "I", "IT", "ITE", "ITEM", "ITEM:", "ITEM: ", "ITEM: TI", "ITEM: TIMESTE",
@@ -199,16 +197,16 @@ class TestIndexDump:
     def test_cut_off_next_header_is_dropped(self, tmp_path, tail):
         path = write(tmp_path / "a.dump", frame(0) + tail)
         index = index_dump(path)
-        assert [f.timestep for f in index.frames] == [0]
+        assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, None)
-        assert read_block(path, index.frames[0]) == "".join(r + "\n" for r in rows(0))
+        assert read_block(path, index, 0) == "".join(r + "\n" for r in rows(0))
 
     def test_cut_off_next_header_after_a_frame_already_partial(self, tmp_path):
         # The rows of frame 100 are cut short, so that partial frame is reported.
         text = frame(0) + frame(100, atom_rows=rows(100)[:5]) + "ITE"
         path = write(tmp_path / "a.dump", text)
         index = index_dump(path)
-        assert [f.timestep for f in index.frames] == [0]
+        assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, 100)
 
     def test_other_unterminated_tail_raises(self, tmp_path):
@@ -230,6 +228,16 @@ class TestIndexDump:
         with pytest.raises(ValueError, match="columns change"):
             index_dump(path)
 
+    def test_box_must_not_change_within_a_file(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"))
+        with pytest.raises(ValueError, match=r"a\.dump, timestep 100: the cell differs from the first frame's"):
+            index_dump(path)
+
+    def test_atom_count_must_not_change_within_a_file(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100, atom_rows=rows(100)[:5], n_atoms=5))
+        with pytest.raises(ValueError, match=r"a\.dump, timestep 100: 5 atoms, but the file's first frame has 6"):
+            index_dump(path)
+
     def test_box_errors_name_the_file_and_timestep(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0, box_item="ff pp pp"))
         with pytest.raises(ValueError, match="a.dump, timestep 0: box boundaries must be periodic"):
@@ -243,28 +251,40 @@ class TestIndexDump:
 
 
 def _combined(tmp_path, *files):
-    """files: one list of frame strings per dump file."""
+    """files: one list of frame strings per dump file.
+
+    Returns the paths and the (path, timestep) of each joined frame, after
+    checking that each frame's byte range is the one its file's index gives.
+    """
     paths = [write(tmp_path / f"run{k}.dump", *frames) for k, frames in enumerate(files)]
-    return paths, combine_frames([index_dump(p) for p in paths])
+    indices = {p: index_dump(p) for p in paths}
+    table = combine_frames(list(indices.values()))
+    frames = []
+    for i in range(len(table)):
+        index = indices[table.path(i)]
+        k = index.timesteps.tolist().index(table.timesteps[i])
+        assert (table.starts[i], table.ends[i]) == (index.starts[k], index.ends[k])
+        frames.append((table.path(i), int(table.timesteps[i])))
+    return paths, frames
 
 
 class TestCombineFrames:
 
     def test_consecutive_files_are_joined(self, tmp_path):
         paths, frames = _combined(tmp_path, [frame(0), frame(100)], [frame(200), frame(300)])
-        assert [(f.path, f.timestep) for f in frames] == [
+        assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
 
     def test_overlap_is_replaced_by_the_later_file(self, tmp_path):
         paths, frames = _combined(
             tmp_path, [frame(0), frame(100), frame(200)], [frame(100, 50.0), frame(300, 52.0)]
         )
-        assert [(f.path, f.timestep) for f in frames] == [
+        assert frames == [
             (paths[0], 0), (paths[1], 100), (paths[1], 300)]
 
     def test_single_repeated_boundary_frame_is_kept_once(self, tmp_path):
         paths, frames = _combined(tmp_path, [frame(0), frame(100)], [frame(100), frame(200)])
-        assert [(f.path, f.timestep) for f in frames] == [
+        assert frames == [
             (paths[0], 0), (paths[1], 100), (paths[1], 200)]
 
     def test_restart_before_the_previous_file_raises(self, tmp_path):
@@ -279,21 +299,21 @@ class TestCombineFrames:
         cut = frame(200)[:-30]
         with pytest.warns(UserWarning, match=r"run0\.dump: dropping the incomplete final frame \(timestep 200\)"):
             _, frames = _combined(tmp_path, [frame(0), frame(100), cut])
-        assert [f.timestep for f in frames] == [0, 100]
+        assert [t for _, t in frames] == [0, 100]
 
     def test_partial_final_frame_replaced_by_the_next_file_is_silent(self, tmp_path):
         cut = frame(200)[:-30]
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             paths, frames = _combined(tmp_path, [frame(0), frame(100), cut], [frame(200), frame(300)])
-        assert [(f.path, f.timestep) for f in frames] == [
+        assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
 
     def test_partial_frame_followed_by_a_gap_warns(self, tmp_path):
         cut = frame(200)[:-30]
         with pytest.warns(UserWarning, match="incomplete final frame"):
             _, frames = _combined(tmp_path, [frame(0), frame(100), cut], [frame(300)])
-        assert [f.timestep for f in frames] == [0, 100, 300]
+        assert [t for _, t in frames] == [0, 100, 300]
 
     def test_no_complete_frames_raises(self, tmp_path):
         with pytest.warns(UserWarning):
@@ -347,10 +367,9 @@ class TestResolveAtomStyle:
 
 def _read(path, k=0):
     dump = index_dump(path)
-    target = dump.frames[k]
-    layout = resolve_columns(target.columns, path)
+    layout = resolve_columns(dump.header.columns, path)
     with open(path, "rb") as f:
-        return read_dump_frame(f, target, layout, IDS_SORTED)
+        return read_dump_frame(f, dump.starts[k], dump.ends[k], dump.header, layout, IDS_SORTED)
 
 
 class TestReadDumpFrame:
@@ -393,17 +412,17 @@ class TestReadDumpFrame:
             0, box_item="xy xz yz pp pp pp", bounds=bounds,
             columns="id type xs ys zs fx fy fz", atom_rows=atom_rows,
         ))
-        np.testing.assert_array_equal(index_dump(path).frames[0].origin, origin)
+        np.testing.assert_array_equal(index_dump(path).header.origin, origin)
         positions, _ = _read(path)
         np.testing.assert_allclose(positions, expected_positions(), rtol=1e-12, atol=1e-12)
 
     def test_ids_not_matching_the_topology_raise(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0))
         dump = index_dump(path)
-        layout = resolve_columns(dump.frames[0].columns, path)
+        layout = resolve_columns(dump.header.columns, path)
         wrong = np.array([3, 7, 12, 20, 21, 41])
         with open(path, "rb") as f, pytest.raises(ValueError, match="ids do not match the topology"):
-            read_dump_frame(f, dump.frames[0], layout, wrong)
+            read_dump_frame(f, dump.starts[0], dump.ends[0], dump.header, layout, wrong)
 
     def test_rows_with_missing_values_raise(self, tmp_path):
         atom_rows = [r.rsplit(" ", 1)[0] if k == 2 else r for k, r in enumerate(rows(0))]
