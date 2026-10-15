@@ -1,0 +1,127 @@
+"""VaspTrajectory on the committed vasprun.xml and variants of it."""
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from vasprun_variants import SOURCE, join, split, truncated, with_basis, without_forces, write
+from revelsMD.trajectories import DataUnavailableError, VaspTrajectory
+from revelsMD.trajectories._base import compute_beta
+from revelsMD.trajectories.vasp import index_vasprun, read_vasp_frame
+
+
+def reference_frames(path=SOURCE):
+    """Frames read directly with the index reader, for comparison."""
+    index = index_vasprun(str(path))
+    with open(path, "rb") as f:
+        return [read_vasp_frame(f, frame, len(index.atom_names)) for frame in index.frames]
+
+
+@pytest.fixture(scope="module")
+def traj():
+    return VaspTrajectory(str(SOURCE), temperature=600.0)
+
+
+class TestReading:
+
+    def test_frames_and_cell(self, traj):
+        assert traj.frames == 10
+        np.testing.assert_allclose(traj.cell_matrix, np.eye(3) * 18.351083)
+
+    def test_iteration_matches_the_reader(self, traj):
+        for got, (positions, forces) in zip(traj.iter_frames(), reference_frames(), strict=True):
+            np.testing.assert_array_equal(got.positions, positions)
+            np.testing.assert_array_equal(got.forces, forces)
+
+    def test_start_stop_stride_and_negative_stop(self, traj):
+        reference = reference_frames()
+        got = list(traj.iter_frames(start=2, stop=8, stride=2))
+        assert len(got) == 3
+        for frame, k in zip(got, (2, 4, 6)):
+            np.testing.assert_array_equal(frame.positions, reference[k][0])
+        assert len(list(traj.iter_frames(stop=-1))) == 9
+
+    def test_get_frame_in_any_order(self, traj):
+        reference = reference_frames()
+        for k in (7, 2, 9, 0, 5, -1):
+            np.testing.assert_array_equal(traj.get_frame(k).positions, reference[k][0])
+            np.testing.assert_array_equal(traj.get_frame(k).forces, reference[k][1])
+
+    def test_get_indices(self, traj):
+        names = np.array(index_vasprun(str(SOURCE)).atom_names)
+        for symbol in ("Ba", "Sn", "F"):
+            np.testing.assert_array_equal(traj.get_indices(symbol), np.flatnonzero(names == symbol))
+
+    def test_charges_and_masses_are_unavailable(self, traj):
+        with pytest.raises(DataUnavailableError, match="Charge data not available"):
+            traj.get_charges("F")
+        with pytest.raises(DataUnavailableError, match="Mass data not available"):
+            traj.get_masses("F")
+
+    def test_temperature_and_beta(self):
+        traj = VaspTrajectory(str(SOURCE), temperature=500.0)
+        assert traj.temperature == 500.0
+        assert traj.beta == pytest.approx(compute_beta("metal", 500.0), rel=1e-12)
+
+    def test_temperature_is_required(self):
+        with pytest.raises(TypeError):
+            VaspTrajectory(str(SOURCE))
+
+    def test_no_whole_trajectory_arrays(self, traj):
+        assert not hasattr(traj, "positions")
+        assert not hasattr(traj, "forces")
+        assert not hasattr(traj, "Vasprun")
+
+
+class TestFiles:
+
+    def test_split_files_equal_the_single_file(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        first = write(tmp_path / "1.xml", join(head, calculations[:5], tail))
+        second = write(tmp_path / "2.xml", join(head, calculations[5:], tail))
+        traj = VaspTrajectory([Path(first), Path(second)], temperature=600.0)
+        assert traj.frames == 10
+        for got, (positions, forces) in zip(traj.iter_frames(), reference_frames(), strict=True):
+            np.testing.assert_array_equal(got.positions, positions)
+            np.testing.assert_array_equal(got.forces, forces)
+
+    def test_files_with_different_atoms_raise(self, tmp_path):
+        text = SOURCE.read_bytes()
+        atominfo = text.find(b"<atominfo>")
+        changed = text[:atominfo] + text[atominfo:].replace(b"<c>Ba</c>", b"<c>Sr</c>", 1)
+        other = write(tmp_path / "other.xml", changed)
+        with pytest.raises(ValueError, match="atoms differ"):
+            VaspTrajectory([str(SOURCE), other], temperature=600.0)
+
+    def test_killed_run(self, tmp_path):
+        path = truncated(tmp_path / "vasprun.xml")
+        with pytest.warns(UserWarning, match="incomplete final ionic step"):
+            traj = VaspTrajectory(path, temperature=600.0)
+        assert traj.frames == 9
+        for got, (positions, _) in zip(traj.iter_frames(), reference_frames()[:9], strict=True):
+            np.testing.assert_array_equal(got.positions, positions)
+
+    def test_missing_forces_raise_at_construction(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[4] = without_forces(calculations[4])
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 4: no forces"):
+            VaspTrajectory(path, temperature=600.0)
+
+    def test_changed_lattice_raises(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[4] = with_basis(calculations[4], lambda b: b * 1.01)
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 4: the cell differs"):
+            VaspTrajectory(path, temperature=600.0)
+
+    def test_triclinic_cell(self, tmp_path):
+        shear = np.array([[1.0, 0, 0], [0.3, 1.0, 0], [0.1, 0.2, 1.0]])
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations = [with_basis(c, lambda b: shear @ b) for c in calculations]
+        traj = VaspTrajectory(write(tmp_path / "vasprun.xml", join(head, calculations, tail)),
+                              temperature=600.0)
+        np.testing.assert_allclose(traj.cell_matrix, shear @ (np.eye(3) * 18.351083))
+        assert traj.is_orthorhombic is False
+        assert traj.cell_volume > 0

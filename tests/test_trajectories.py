@@ -30,27 +30,6 @@ def mock_mdanalysis_universe():
     return mock
 
 
-@pytest.fixture
-def mock_vasprun():
-    """Mock Vasprun object with structures and forces."""
-    mock_lattice = MagicMock()
-    mock_lattice.angles = np.array([90.0, 90.0, 90.0])
-    mock_lattice.matrix = np.diag([5.0, 5.0, 5.0])
-
-    mock_structure = MagicMock()
-    mock_structure.lattice = mock_lattice
-    mock_structure.frac_coords = np.array([[0.0, 0.0, 0.0]])
-    mock_structure.cart_coords = np.array([[1.0, 1.0, 1.0]])
-
-    mock = MagicMock()
-    mock.structures = [mock_structure]
-    mock.start = mock_structure
-    mock.cart_coords = np.array([[[1.0, 1.0, 1.0]]])
-    mock.forces = np.array([[[0.1, 0.2, 0.3]]])
-    mock.start.indices_from_symbol.return_value = np.array([0])
-    return mock
-
-
 # -----------------------------------------------------------------------------
 # MDATrajectory
 # -----------------------------------------------------------------------------
@@ -143,96 +122,6 @@ def test_lammps_state_requires_topology():
     with pytest.raises(ValueError, match="topology file is required"):
         LammpsTrajectory("dump.lammpstrj", None, temperature=300.0)
 
-
-# -----------------------------------------------------------------------------
-# VaspTrajectory
-# -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_state_valid(mock_vasprun):
-    mock_vasprun_instance = mock_vasprun.return_value
-
-    # ✅ Properly configure the mock Vasprun so lattice.matrix is 3×3
-    from unittest.mock import MagicMock
-    import numpy as np
-
-    mock_vasprun_instance.structures = [MagicMock()]
-    mock_vasprun_instance.structures[0].lattice.matrix = np.eye(3)
-    mock_vasprun_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-    mock_vasprun_instance.structures[0].lattice = mock_vasprun_instance.structures[0].lattice
-    mock_vasprun_instance.structures[0].frac_coords = np.array([[0.0, 0.0, 0.0]])
-    mock_vasprun_instance.cart_coords = np.zeros((1, 1, 3))
-    mock_vasprun_instance.forces = np.zeros((1, 1, 3))
-    mock_vasprun_instance.start = mock_vasprun_instance.structures[0]
-    mock_vasprun_instance.start.indices_from_symbol.return_value = np.array([0])
-
-    # Then run the test
-    state = VaspTrajectory("vasprun.xml", temperature=300.0)
-    assert np.isclose(state.box_x, 1.0)
-    assert np.allclose(state.positions, np.zeros((1, 1, 3)))
-    assert np.allclose(state.forces, np.zeros((1, 1, 3)))
-    assert np.all(state.get_indices("H") == np.array([0]))
-
-
-
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_state_raises_no_forces(mock_vasprun):
-    mock = MagicMock()
-    mock.structures = [MagicMock()]
-    mock.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-    mock.structures[0].lattice.matrix = np.diag([5.0, 5.0, 5.0])
-    mock.forces = None
-    mock.cart_coords = np.zeros((1, 1, 3))
-    mock_vasprun.return_value = mock
-    with pytest.raises(ValueError, match="No forces found"):
-        VaspTrajectory("vasprun.xml", temperature=300.0)
-
-
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_state_triclinic_cell(mock_vasprun):
-    """VaspTrajectory should accept and store a full triclinic cell matrix."""
-    mock = MagicMock()
-    mock.structures = [MagicMock()]
-    triclinic_matrix = np.array([
-        [10.0, 0.0, 0.0],
-        [3.0, 9.0, 0.0],
-        [0.0, 0.0, 8.0],
-    ])
-    mock.structures[0].lattice.matrix = triclinic_matrix
-    mock.structures[0].lattice.angles = [90.0, 90.0, 71.57]  # non-orthorhombic
-    mock.forces = np.zeros((1, 1, 3))
-    mock.cart_coords = np.zeros((1, 1, 3))
-    mock.start = mock.structures[0]
-    mock.start.indices_from_symbol.return_value = np.array([0])
-    mock_vasprun.return_value = mock
-
-    state = VaspTrajectory("vasprun.xml", temperature=300.0)
-
-    np.testing.assert_allclose(state.cell_matrix, triclinic_matrix)
-    assert state.is_orthorhombic is False
-    assert state.cell_volume == pytest.approx(abs(np.linalg.det(triclinic_matrix)))
-
-
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_state_triclinic_cell_volume_positive(mock_vasprun):
-    """VaspTrajectory with a triclinic cell should have positive volume."""
-    mock = MagicMock()
-    mock.structures = [MagicMock()]
-    triclinic_matrix = np.array([
-        [10.0, 0.0, 0.0],
-        [3.0, 9.0, 0.0],
-        [1.0, 2.0, 8.0],
-    ])
-    mock.structures[0].lattice.matrix = triclinic_matrix
-    mock.structures[0].lattice.angles = [75.0, 82.0, 71.0]
-    mock.forces = np.zeros((1, 1, 3))
-    mock.cart_coords = np.zeros((1, 1, 3))
-    mock.start = mock.structures[0]
-    mock.start.indices_from_symbol.return_value = np.array([0])
-    mock_vasprun.return_value = mock
-
-    state = VaspTrajectory("vasprun.xml", temperature=300.0)
-
-    assert state.cell_volume > 0
 
 
 # -----------------------------------------------------------------------------
@@ -353,62 +242,6 @@ def test_numpy_iter_frames_with_start_stop_stride():
 
 
 # -----------------------------------------------------------------------------
-# iter_frames - VaspTrajectory
-# -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_iter_frames_yields_all_frames(mock_vasprun):
-    """iter_frames should yield positions and forces for each frame."""
-    n_frames, n_atoms = 3, 2
-    positions = np.random.rand(n_frames, n_atoms, 3)
-    forces = np.random.rand(n_frames, n_atoms, 3)
-
-    mock_instance = mock_vasprun.return_value
-    mock_instance.structures = [MagicMock() for _ in range(n_frames)]
-    mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
-    mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-    mock_instance.start = mock_instance.structures[0]
-    mock_instance.start.indices_from_symbol.return_value = np.array([0])
-    mock_instance.cart_coords = positions
-    mock_instance.forces = forces
-
-    state = VaspTrajectory("vasprun.xml", temperature=300.0)
-
-    frames_list = list(state.iter_frames())
-    assert len(frames_list) == n_frames
-
-    for i, frame in enumerate(frames_list):
-        np.testing.assert_array_equal(frame.positions, positions[i])
-        np.testing.assert_array_equal(frame.forces, forces[i])
-
-
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_iter_frames_with_start_stop_stride(mock_vasprun):
-    """iter_frames should respect start, stop, and stride parameters."""
-    n_frames, n_atoms = 10, 2
-    positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
-    forces = np.zeros((n_frames, n_atoms, 3))
-
-    mock_instance = mock_vasprun.return_value
-    mock_instance.structures = [MagicMock() for _ in range(n_frames)]
-    mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
-    mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-    mock_instance.start = mock_instance.structures[0]
-    mock_instance.start.indices_from_symbol.return_value = np.array([0])
-    mock_instance.cart_coords = positions
-    mock_instance.forces = forces
-
-    state = VaspTrajectory("vasprun.xml", temperature=300.0)
-
-    # Test start=2, stop=8, stride=2 -> frames 2, 4, 6
-    frames_list = list(state.iter_frames(start=2, stop=8, stride=2))
-    assert len(frames_list) == 3
-
-    expected_indices = [2, 4, 6]
-    for idx, frame in zip(expected_indices, frames_list):
-        np.testing.assert_array_equal(frame.positions, positions[idx])
-
-
-# -----------------------------------------------------------------------------
 # iter_frames - MDATrajectory
 # -----------------------------------------------------------------------------
 @patch("revelsMD.trajectories.mda.MD.Universe")
@@ -480,33 +313,6 @@ def test_numpy_get_frame_random_access():
     for i in [7, 2, 9, 0, 5]:
         frame = state.get_frame(i)
         np.testing.assert_array_equal(frame.positions, positions[i])
-
-
-# -----------------------------------------------------------------------------
-# get_frame - VaspTrajectory
-# -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_get_frame_returns_correct_data(mock_vasprun):
-    """get_frame should return positions and forces for the specified index."""
-    n_frames, n_atoms = 5, 2
-    positions = np.random.rand(n_frames, n_atoms, 3)
-    forces = np.random.rand(n_frames, n_atoms, 3)
-
-    mock_instance = mock_vasprun.return_value
-    mock_instance.structures = [MagicMock() for _ in range(n_frames)]
-    mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
-    mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-    mock_instance.start = mock_instance.structures[0]
-    mock_instance.start.indices_from_symbol.return_value = np.array([0])
-    mock_instance.cart_coords = positions
-    mock_instance.forces = forces
-
-    state = VaspTrajectory("vasprun.xml", temperature=300.0)
-
-    for i in range(n_frames):
-        frame = state.get_frame(i)
-        np.testing.assert_array_equal(frame.positions, positions[i])
-        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 # -----------------------------------------------------------------------------
@@ -606,45 +412,6 @@ def test_numpy_get_masses_raises_without_mass_data():
 
 
 # -----------------------------------------------------------------------------
-# get_charges / get_masses - VaspTrajectory
-# -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_get_charges_raises_error(mock_vasprun):
-    """get_charges should raise DataUnavailableError for VASP trajectories."""
-    mock_instance = mock_vasprun.return_value
-    mock_instance.structures = [MagicMock()]
-    mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
-    mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-    mock_instance.start = mock_instance.structures[0]
-    mock_instance.start.indices_from_symbol.return_value = np.array([0])
-    mock_instance.cart_coords = np.zeros((1, 1, 3))
-    mock_instance.forces = np.zeros((1, 1, 3))
-
-    state = VaspTrajectory("vasprun.xml", temperature=300.0)
-
-    with pytest.raises(DataUnavailableError, match="Charge data not available"):
-        state.get_charges("H")
-
-
-@patch("revelsMD.trajectories.vasp.Vasprun")
-def test_vasp_get_masses_raises_error(mock_vasprun):
-    """get_masses should raise DataUnavailableError for VASP trajectories."""
-    mock_instance = mock_vasprun.return_value
-    mock_instance.structures = [MagicMock()]
-    mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
-    mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-    mock_instance.start = mock_instance.structures[0]
-    mock_instance.start.indices_from_symbol.return_value = np.array([0])
-    mock_instance.cart_coords = np.zeros((1, 1, 3))
-    mock_instance.forces = np.zeros((1, 1, 3))
-
-    state = VaspTrajectory("vasprun.xml", temperature=300.0)
-
-    with pytest.raises(DataUnavailableError, match="Mass data not available"):
-        state.get_masses("H")
-
-
-# -----------------------------------------------------------------------------
 # iter_frames - Negative index handling (Pythonic behaviour)
 # -----------------------------------------------------------------------------
 class TestIterFramesNegativeIndices:
@@ -711,28 +478,6 @@ class TestIterFramesNegativeIndices:
 
         frames = list(state.iter_frames(stop=None))
         assert len(frames) == n_frames
-
-    @patch("revelsMD.trajectories.vasp.Vasprun")
-    def test_vasp_negative_stop(self, mock_vasprun):
-        """VaspTrajectory should handle negative stop index."""
-        n_frames, n_atoms = 5, 2
-        positions = np.arange(n_frames * n_atoms * 3).reshape(n_frames, n_atoms, 3).astype(float)
-        forces = np.zeros((n_frames, n_atoms, 3))
-
-        mock_instance = mock_vasprun.return_value
-        mock_instance.structures = [MagicMock() for _ in range(n_frames)]
-        mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
-        mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-        mock_instance.start = mock_instance.structures[0]
-        mock_instance.start.indices_from_symbol.return_value = np.array([0])
-        mock_instance.cart_coords = positions
-        mock_instance.forces = forces
-
-        state = VaspTrajectory("vasprun.xml", temperature=300.0)
-
-        # stop=-1 means all but last -> frames 0, 1, 2, 3
-        frames = list(state.iter_frames(stop=-1))
-        assert len(frames) == 4
 
     @patch("revelsMD.trajectories.mda.MD.Universe")
     def test_mda_negative_stop(self, mock_universe):
@@ -832,36 +577,6 @@ class TestTrajectoryBetaAttribute:
         expected_beta = compute_beta('mda', 300.0)
         assert pytest.approx(state.beta, rel=1e-12) == expected_beta
 
-    @patch("revelsMD.trajectories.vasp.Vasprun")
-    def test_vasp_trajectory_requires_temperature(self, mock_vasprun):
-        """VaspTrajectory should require temperature as a keyword argument."""
-        mock_instance = mock_vasprun.return_value
-        mock_instance.structures = [MagicMock()]
-        mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
-        mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-        mock_instance.start = mock_instance.structures[0]
-        mock_instance.cart_coords = np.zeros((1, 1, 3))
-        mock_instance.forces = np.zeros((1, 1, 3))
-
-        with pytest.raises(TypeError):
-            VaspTrajectory("vasprun.xml")
-
-    @patch("revelsMD.trajectories.vasp.Vasprun")
-    def test_vasp_trajectory_stores_temperature_and_beta(self, mock_vasprun):
-        """VaspTrajectory should store temperature and compute beta in metal units."""
-        mock_instance = mock_vasprun.return_value
-        mock_instance.structures = [MagicMock()]
-        mock_instance.structures[0].lattice.matrix = np.eye(3) * 10.0
-        mock_instance.structures[0].lattice.angles = [90.0, 90.0, 90.0]
-        mock_instance.start = mock_instance.structures[0]
-        mock_instance.start.indices_from_symbol.return_value = np.array([0])
-        mock_instance.cart_coords = np.zeros((1, 1, 3))
-        mock_instance.forces = np.zeros((1, 1, 3))
-
-        state = VaspTrajectory("vasprun.xml", temperature=500.0)
-        assert state.temperature == 500.0
-        expected_beta = compute_beta('metal', 500.0)
-        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
 
 
 class TestComputeBeta:
