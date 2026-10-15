@@ -101,7 +101,7 @@ print(traj.cell_matrix)
 ```
 
 The default unit system is `'metal'` (eV). Concatenate multiple `vasprun.xml` files
-from sequential restarts:
+from sequential restarts by passing them in order:
 
 ```python
 traj = VaspTrajectory(
@@ -110,16 +110,15 @@ traj = VaspTrajectory(
 )
 ```
 
+A `vasprun.xml` from a run that was killed before it finished is read up to its
+last complete ionic step, with a warning.
+
+The lattice must be the same in every ionic step; a run whose lattice changes raises an error.
+
 Atoms are selected by element symbol:
 
 ```python
 indices = traj.get_indices('F')
-```
-
-`VaspTrajectory` requires pymatgen, which is installed with:
-
-```
-pip install revelsMD[vasp]
 ```
 
 ## MDAnalysis
