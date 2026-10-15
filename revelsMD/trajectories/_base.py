@@ -5,7 +5,9 @@ This module defines the abstract base class and common exceptions used by
 all trajectory backends.
 """
 
+import os
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import Iterator
 
 import numpy as np
@@ -52,6 +54,40 @@ def normalize_bounds(
     start = min(start, n_frames)
     stop = min(stop, n_frames)
     return start, stop, stride
+
+
+def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> None:
+    """Raise unless a frame's cell is exactly the first frame's.
+
+    Parameters
+    ----------
+    cell : np.ndarray
+        The frame's cell, in whatever representation the loader compares
+        (a cell matrix, box bounds, or box dimensions).
+    reference : np.ndarray
+        The first frame's cell in the same representation.
+    where : str
+        File and frame, for the error message.
+
+    Raises
+    ------
+    ValueError
+        If the two differ in any element.
+    """
+    if not np.array_equal(cell, reference):
+        raise ValueError(
+            f"{where}: the cell differs from the first frame's; "
+            "trajectories must have a fixed cell"
+        )
+
+
+def as_paths(
+    files: "str | os.PathLike[str] | Sequence[str | os.PathLike[str]]",
+) -> list[str]:
+    """Return a list of path strings from one path or a sequence of paths."""
+    if isinstance(files, (str, os.PathLike)):
+        return [os.fspath(files)]
+    return [os.fspath(path) for path in files]
 
 
 # Boltzmann constants in different unit systems

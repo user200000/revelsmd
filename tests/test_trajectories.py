@@ -1414,3 +1414,36 @@ class TestNormalizeBounds:
 
     def test_zero_frames(self):
         assert normalize_bounds(0, 0, None, 1) == (0, 0, 1)
+
+
+class TestCheckFixedCell:
+    """check_fixed_cell accepts only an identical cell."""
+
+    def test_identical_cell_passes(self):
+        from revelsMD.trajectories._base import check_fixed_cell
+        cell = np.array([[10.0, 0, 0], [2.0, 9.0, 0], [1.0, 1.0, 8.0]])
+        check_fixed_cell(cell.copy(), cell, "f.dump, timestep 0")
+
+    def test_any_difference_raises_naming_the_frame(self):
+        from revelsMD.trajectories._base import check_fixed_cell
+        cell = np.diag([10.0, 10.0, 10.0])
+        changed = cell.copy()
+        changed[0, 0] = np.nextafter(10.0, 11.0)
+        with pytest.raises(ValueError, match="f.dump, timestep 100: the cell differs.*fixed cell"):
+            check_fixed_cell(changed, cell, "f.dump, timestep 100")
+
+
+class TestAsPaths:
+    """as_paths normalises file arguments to a list of strings."""
+
+    def test_single_string(self):
+        from revelsMD.trajectories._base import as_paths
+        assert as_paths("a.dump") == ["a.dump"]
+
+    def test_single_path(self, tmp_path):
+        from revelsMD.trajectories._base import as_paths
+        assert as_paths(tmp_path / "a.dump") == [str(tmp_path / "a.dump")]
+
+    def test_sequence_of_mixed(self, tmp_path):
+        from revelsMD.trajectories._base import as_paths
+        assert as_paths(("a.dump", tmp_path / "b.dump")) == ["a.dump", str(tmp_path / "b.dump")]
