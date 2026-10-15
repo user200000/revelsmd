@@ -178,7 +178,10 @@ class TestIndexDump:
         assert read_block(path, first) == "".join(r + "\n" for r in rows(0))
         assert read_block(path, second) == "".join(r + "\n" for r in rows(100, 1.0))
 
-    @pytest.mark.parametrize("tail", ["I", "IT", "ITE", "ITEM"])
+    @pytest.mark.parametrize("tail", [
+        "I", "IT", "ITE", "ITEM", "ITEM:", "ITEM: ", "ITEM: TI", "ITEM: TIMESTE",
+        "ITEM: TIMESTEP", "ITEM: TIME",
+    ])
     def test_cut_off_next_header_is_dropped(self, tmp_path, tail):
         path = write(tmp_path / "a.dump", frame(0) + tail)
         index = index_dump(path)

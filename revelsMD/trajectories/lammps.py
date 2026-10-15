@@ -205,14 +205,14 @@ def index_dump(path: str) -> DumpIndex:
                 position = m.find(_TIMESTEP, position + len(_TIMESTEP))
             if not starts:
                 raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
-            # A file cut off inside the next frame's "ITEM:" header leaves a
-            # prefix of "ITEM:" after its last newline. Drop that tail.
+            # A file cut off inside the next frame's header leaves part of an
+            # "ITEM:" line after its last newline. Drop that tail.
             limit = len(m)
             dropped_header = False
             if m[-1:] != b"\n":
                 last_newline = m.rfind(b"\n")
                 tail = m[last_newline + 1:]
-                if tail and b"ITEM:".startswith(tail):
+                if b"ITEM:".startswith(tail) or tail.startswith(b"ITEM:"):
                     limit = last_newline + 1
                     dropped_header = True
             ends = starts[1:] + [limit]
