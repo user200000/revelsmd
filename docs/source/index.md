@@ -4,8 +4,9 @@ RevelsMD (REduced Variance Estimators of the Local Structure in MD simulations)
 computes reduced-variance radial distribution functions and 3D densities from
 molecular dynamics trajectories using force sampling methods.
 
-It processes output from LAMMPS, VASP, and any code supported by MDAnalysis,
-and can be driven directly from NumPy arrays.
+It processes output from LAMMPS, VASP, and GROMACS and other codes whose
+force trajectories MDAnalysis reads, and can be driven directly from NumPy
+arrays.
 
 ```{toctree}
 :maxdepth: 2

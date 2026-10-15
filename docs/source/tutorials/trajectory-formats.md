@@ -8,6 +8,13 @@ so analysis code is format-independent.
 
 Trajectories must have a fixed, fully periodic cell; variable-cell (NPT)
 trajectories are not supported. Forces are required in every frame.
+Reading a frame whose positions or forces contain NaN or infinity raises
+an error.
+
+Several files are joined in the order given, so pass a list or tuple in
+run order. `sorted(glob(...))` puts `run10` before `run2`; name files
+with leading zeros or list them explicitly. A set, or the same file
+twice, raises an error.
 
 ## LAMMPS
 
@@ -23,7 +30,13 @@ Positions may be written as `x y z`, unwrapped `xu yu zu`, or scaled
 `xs ys zs` or `xsu ysu zsu`. Orthogonal and triclinic boxes are supported (not
 the general triclinic `abc origin` format). All three boundaries must be
 periodic (`pp pp pp`), and the box must be the same in every frame: a dump
-whose box changes raises an error.
+whose box changes raises an error. If the dump has a `type` column, each
+atom's type must match the data file, so a data file from another system
+raises an error when frames are read.
+
+Positions are returned as written. MDAnalysis's own dump reader shifts
+them so the box starts at the origin, so the two can differ by the box
+origin (`xlo ylo zlo`).
 
 ```python
 from revelsMD.trajectories import LammpsTrajectory
@@ -45,7 +58,9 @@ The column layout of the data file's `Atoms` section is read from the
 `Atoms # <style>` comment that `write_data` writes. The styles `atomic`,
 `charge`, `full`, `molecular`, `bond` and `angle` are recognised. For any
 other style, pass the layout as a column string; for a data file without the
-comment, pass a column string or one of the style names above:
+comment, pass a column string or one of the style names above. MDAnalysis
+ignores column names it does not know; charges are read only from a column
+named `charge` (not `q`):
 
 ```python
 traj = LammpsTrajectory(
@@ -68,14 +83,21 @@ traj = LammpsTrajectory(
 )
 ```
 
-List the files in run order. Where a file starts at or before the last
-timestep already read, as after a restart from a restart file, the earlier
-frames from that timestep on are replaced by the later file's. A file that
-starts at or before the first timestep of the file before it raises an error,
-since that would discard the whole earlier file. An incomplete final frame, as
-left by a job killed while writing, is dropped with a warning (silently if the
-next file's frames replace it); an incomplete frame anywhere else raises an
-error.
+List the files in run order. Each file's frames replace the previous file's
+frames from its own first timestep on, as after a restart from a restart
+file; if the replaced frames run past the new file's last timestep, a
+warning says which are dropped. Replaced frames are not checked, so a run
+whose box or atom count went wrong after the restart point joins with its
+restart. A file that starts at or before the first timestep of the file
+before it raises an error, since that would discard the whole earlier file.
+Gaps in timesteps between files are not detected.
+
+The last frame of any file may be incomplete, as left by a job killed while
+writing: it is dropped with a warning, or silently if the next file's frames
+replace it. An empty file, from a job that stopped before writing a frame, is
+dropped with a warning. An incomplete frame anywhere else raises an error, so
+a file written with `dump_modify append yes` across a restart must be split
+at the restart.
 
 Atoms are identified by LAMMPS type number, as a string:
 
@@ -100,8 +122,8 @@ print(traj.frames)
 print(traj.cell_matrix)
 ```
 
-The default unit system is `'metal'` (eV). Concatenate multiple `vasprun.xml` files
-from sequential restarts by passing them in order:
+The unit system is always `'metal'` (eV). Join `vasprun.xml` files from
+sequential restarts by passing them in order:
 
 ```python
 traj = VaspTrajectory(
@@ -110,8 +132,12 @@ traj = VaspTrajectory(
 )
 ```
 
+`vasprun.xml` records no timesteps, so the order of the files, and repeated or
+missing steps between them, cannot be checked. Pass each file separately: a
+file holding two `vasprun.xml` documents joined with `cat` raises an error.
+
 A `vasprun.xml` from a run that was killed before it finished is read up to its
-last complete ionic step, with a warning.
+last complete ionic step; an ionic step cut short is dropped with a warning.
 
 The lattice must be the same in every ionic step; a run whose lattice changes
 raises an error.
@@ -124,13 +150,19 @@ indices = traj.get_indices('F')
 
 ## MDAnalysis
 
-`MDATrajectory` reads any format MDAnalysis can read that stores forces, such
-as GROMACS `.trr` files. Every saved frame must have both positions and
-forces, so a `.trr` must be written with positions and forces at the same
-steps, for example `nstfout` equal to `nstxout`. Formats without forces, such
-as `.xtc` and `.dcd`, cannot be used. Every frame must also have the same box
-as the first frame; reading a frame that does not meet these requirements
-raises an error.
+`MDATrajectory` reads trajectories through MDAnalysis and converts positions
+and forces to Angstrom and kJ/(mol Angstrom). The format must record its
+length and force units: GROMACS `.trr` and `.tng`, AMBER NetCDF, and H5MD
+files with units are accepted. Other formats raise an error, including LAMMPS
+dumps, which `LammpsTrajectory` reads, and formats without forces such as
+`.xtc` and `.dcd`.
+
+Every frame in the file must hold both positions and forces. For a `.trr`,
+set `nstfout` equal to `nstxout`, and `nstvout` to 0 or a multiple of
+`nstxout` (GROMACS writes a velocity-only frame otherwise). An H5MD file must
+save positions and forces at the same steps. Every frame must also have the
+same box as the first frame; reading a frame that does not meet these
+requirements raises an error.
 
 ```python
 from revelsMD.trajectories import MDATrajectory
@@ -145,7 +177,7 @@ print(traj.frames)
 print(traj.cell_matrix)
 ```
 
-The default unit system is `'mda'` (kJ/mol). Atoms are selected by name from the
+The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:
 
 ```python
@@ -271,9 +303,8 @@ The unit system controls how `beta` is computed from temperature.
 | `'mda'` | kJ/mol | GROMACS, MDAnalysis |
 | `'lj'` | epsilon (reduced) | Lennard-Jones simulations |
 
-Each backend sets a sensible default: `LammpsTrajectory` defaults to `'real'`,
-`VaspTrajectory` to `'metal'`, and `MDATrajectory` to `'mda'`. Override with `units`
-when needed.
+`LammpsTrajectory` and `NumpyTrajectory` take `units` (default `'real'`).
+`VaspTrajectory` always uses `'metal'` and `MDATrajectory` always uses `'mda'`.
 
 ## Species conventions
 

@@ -21,8 +21,9 @@ traj = LammpsTrajectory(
 `temperature` sets the inverse thermal energy used in the force estimator.
 For LJ reduced units, this is the reduced temperature T*.
 
-The topology file (`data.fin.nh.data`) is required: it supplies atom types
-and box geometry. `atom_style` describes the column layout in the data file.
+The topology file (`data.fin.nh.data`) is required: it supplies atom types,
+charges and masses. The box is read from the dump. `atom_style` describes
+the column layout in the data file.
 
 ## Compute the RDF
 

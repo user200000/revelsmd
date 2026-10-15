@@ -8,6 +8,8 @@ import pytest
 
 def open_descriptors():
     """Number of file descriptors this process has open."""
+    if not os.path.isdir("/dev/fd"):
+        pytest.skip("needs /dev/fd to count open files")
     return len(os.listdir("/dev/fd"))
 
 
