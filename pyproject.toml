@@ -54,6 +54,7 @@ markers = [
 ]
 filterwarnings = [
     "ignore:Reader has no dt information:UserWarning:MDAnalysis.*:",
+    "ignore:Setting the shape on a NumPy array:DeprecationWarning:ase.*:",
 ]
 
 [tool.coverage.run]
