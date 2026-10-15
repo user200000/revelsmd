@@ -6,6 +6,7 @@ along with helper functions for parsing the LAMMPS dump format.
 """
 
 import warnings
+from dataclasses import dataclass
 from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
@@ -15,6 +16,123 @@ import numpy as np
 
 from revelsMD.frame_sources import Frame
 from ._base import Trajectory, DataUnavailableError
+
+
+# Coordinate column sets in order of preference, and whether they are scaled
+# (fractional) coordinates.
+COORDINATE_SETS: tuple[tuple[tuple[str, str, str], bool], ...] = (
+    (("x", "y", "z"), False),
+    (("xu", "yu", "zu"), False),
+    (("xs", "ys", "zs"), True),
+    (("xsu", "ysu", "zsu"), True),
+)
+FORCE_COLUMNS = ("fx", "fy", "fz")
+
+
+def parse_box(
+    item_line: str, bound_lines: list[str]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Parse the ``ITEM: BOX BOUNDS`` header of a dump frame.
+
+    Parameters
+    ----------
+    item_line : str
+        The ``ITEM: BOX BOUNDS ...`` line.
+    bound_lines : list of str
+        The three lines that follow it.
+
+    Returns
+    -------
+    cell : np.ndarray, shape (3, 3)
+        Rows are the lattice vectors a, b, c.
+    origin : np.ndarray, shape (3,)
+        The corner (xlo, ylo, zlo).
+    box : np.ndarray, shape (9,)
+        The six bounds as written, then the tilts xy, xz, yz (zero for an
+        orthogonal box). Equal arrays mean an identical box.
+
+    Raises
+    ------
+    ValueError
+        If any boundary is not periodic, the box is in the general
+        triclinic ``abc origin`` format, or the bounds are malformed.
+    """
+    words = item_line.split()[3:]
+    if words[:1] == ["abc"]:
+        raise ValueError("general triclinic ('abc origin') dump boxes are not supported")
+    triclinic = words[:3] == ["xy", "xz", "yz"]
+    flags = words[3:] if triclinic else words
+    if flags != ["pp", "pp", "pp"]:
+        raise ValueError(
+            "box boundaries must be periodic in all directions (pp pp pp); "
+            f"got '{' '.join(flags)}'"
+        )
+    width = 3 if triclinic else 2
+    values = np.array([line.split() for line in bound_lines], dtype=np.float64)
+    if values.shape != (3, width):
+        raise ValueError(f"malformed box bounds: {bound_lines}")
+    if triclinic:
+        xy, xz, yz = (float(v) for v in values[:, 2])
+    else:
+        xy = xz = yz = 0.0
+    xlo = values[0, 0] - min(0.0, xy, xz, xy + xz)
+    xhi = values[0, 1] - max(0.0, xy, xz, xy + xz)
+    ylo = values[1, 0] - min(0.0, yz)
+    yhi = values[1, 1] - max(0.0, yz)
+    zlo, zhi = values[2, 0], values[2, 1]
+    cell = np.array([
+        [xhi - xlo, 0.0, 0.0],
+        [xy, yhi - ylo, 0.0],
+        [xz, yz, zhi - zlo],
+    ])
+    origin = np.array([xlo, ylo, zlo])
+    box = np.concatenate([values[:, :2].ravel(), [xy, xz, yz]])
+    return cell, origin, box
+
+
+@dataclass(frozen=True)
+class ColumnLayout:
+    """Where the id, coordinate and force columns are in a dump's rows."""
+
+    n_columns: int
+    id_column: int
+    coordinate_columns: tuple[int, int, int]
+    force_columns: tuple[int, int, int]
+    scaled: bool
+
+
+def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
+    """Locate the id, coordinate and force columns of a dump.
+
+    Coordinates are taken from the first of ``x y z``, ``xu yu zu``,
+    ``xs ys zs`` and ``xsu ysu zsu`` that is present.
+
+    Raises
+    ------
+    ValueError
+        If the id, the forces or every coordinate set is missing.
+    """
+    missing = []
+    if "id" not in columns:
+        missing.append("id")
+    if not all(name in columns for name in FORCE_COLUMNS):
+        missing.append("fx fy fz")
+    coordinates = next(
+        ((names, scaled) for names, scaled in COORDINATE_SETS
+         if all(name in columns for name in names)),
+        None,
+    )
+    if coordinates is None:
+        missing.append("one of x y z, xu yu zu, xs ys zs, xsu ysu zsu")
+    if missing or coordinates is None:
+        raise ValueError(
+            f"{path}: the dump columns ({' '.join(columns)}) lack "
+            f"{'; '.join(missing)}; atom ids, positions and forces are required"
+        )
+    names, scaled = coordinates
+    x, y, z = (columns.index(name) for name in names)
+    fx, fy, fz = (columns.index(name) for name in FORCE_COLUMNS)
+    return ColumnLayout(len(columns), columns.index("id"), (x, y, z), (fx, fy, fz), scaled)
 
 
 # -----------------------------------------------------------------------------

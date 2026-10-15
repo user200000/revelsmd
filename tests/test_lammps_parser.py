@@ -1,85 +1,85 @@
-"""
-pytest test suite for py
-"""
+"""Unit tests for the LAMMPS dump helpers."""
 
 import numpy as np
 import pytest
-from revelsMD.trajectories.lammps import first_read, get_a_frame, define_strngdex, frame_skip
+
+from revelsMD.trajectories.lammps import ColumnLayout, parse_box, resolve_columns
+
+TRICLINIC = "ITEM: BOX BOUNDS xy xz yz pp pp pp"
 
 
-@pytest.fixture
-def tmp_lammps_dump(tmp_path):
-    """Create a small valid LAMMPS dump file for parser testing."""
-    dump_content = """ITEM: TIMESTEP
-0
-ITEM: NUMBER OF ATOMS
-3
-ITEM: BOX BOUNDS pp pp pp
-0 10
-0 10
-0 10
-ITEM: ATOMS id x y z fx fy fz
-3 0.7 0.8 0.9 0.5 0.4 0.3
-1 0.1 0.2 0.3 0.0 0.1 0.2
-2 0.4 0.5 0.6 0.3 0.2 0.1
-ITEM: TIMESTEP
-1
-ITEM: NUMBER OF ATOMS
-3
-ITEM: BOX BOUNDS pp pp pp
-0 10
-0 10
-0 10
-ITEM: ATOMS id x y z fx fy fz
-2 0.5 0.6 0.7 0.3 0.2 0.1
-3 0.8 0.9 1.0 0.5 0.4 0.3
-1 0.2 0.3 0.4 0.0 0.1 0.2
-"""
-    path = tmp_path / "test.dump"
-    path.write_text(dump_content)
-    return str(path)
+class TestParseBox:
 
+    def test_orthogonal_box(self):
+        cell, origin, box = parse_box(
+            "ITEM: BOX BOUNDS pp pp pp", ["0.0 10.0", "-1.0 9.0", "2.0 14.0"]
+        )
+        np.testing.assert_array_equal(cell, np.diag([10.0, 10.0, 12.0]))
+        np.testing.assert_array_equal(origin, [0.0, -1.0, 2.0])
+        np.testing.assert_array_equal(box, [0, 10, -1, 9, 2, 14, 0, 0, 0])
 
-def test_first_read_returns_metadata(tmp_lammps_dump):
-    frames, num_ats, dic, header_length, dimgrid, id_column = first_read(tmp_lammps_dump)
+    def test_triclinic_box_follows_lammps_conventions(self):
+        # Box xlo=0 xhi=10, ylo=0 yhi=10, zlo=0 zhi=10, xy=2 xz=1 yz=-1.5,
+        # written as its bounding box (LAMMPS Howto triclinic).
+        cell, origin, box = parse_box(
+            TRICLINIC, ["0.0 13.0 2.0", "-1.5 10.0 1.0", "0.0 10.0 -1.5"]
+        )
+        np.testing.assert_array_equal(cell, [[10, 0, 0], [2, 10, 0], [1, -1.5, 10]])
+        np.testing.assert_array_equal(origin, [0, 0, 0])
+        np.testing.assert_array_equal(box, [0, 13, -1.5, 10, 0, 10, 2, 1, -1.5])
 
-    assert frames == 2
-    assert num_ats == 3
-    assert "ATOMS" in dic
-    assert header_length > 0
-    assert dimgrid.shape == (3, 2)
-    assert np.allclose(dimgrid[:, 1], 10.0)
-    assert id_column == dic[2:].index("id")
+    def test_negative_tilts(self):
+        # xy=-2 xz=-1 yz=1.5 on the same 10x10x10 box.
+        cell, origin, _ = parse_box(
+            TRICLINIC, ["-3.0 10.0 -2.0", "0.0 11.5 -1.0", "0.0 10.0 1.5"]
+        )
+        np.testing.assert_array_equal(cell, [[10, 0, 0], [-2, 10, 0], [-1, 1.5, 10]])
+        np.testing.assert_array_equal(origin, [0, 0, 0])
 
-
-def test_define_strngdex_maps_correctly():
-    dic = ["ITEM:", "ATOMS", "id", "x", "y", "z", "fx"]
-    result = define_strngdex(["x", "z"], dic)
-    assert result == [1, 3]
-
-
-def test_get_a_frame_returns_rows_in_id_order(tmp_lammps_dump):
-    frames, num_ats, dic, header_length, _, id_column = first_read(tmp_lammps_dump)
-    strngdex = define_strngdex(["x", "y", "z"], dic)
-
-    with open(tmp_lammps_dump, "r") as f:
-        data = get_a_frame(f, num_ats, header_length, strngdex, id_column, np.array([1, 2, 3]))
-
-    expected = np.array([
-        [0.1, 0.2, 0.3],
-        [0.4, 0.5, 0.6],
-        [0.7, 0.8, 0.9],
+    @pytest.mark.parametrize("item, bounds", [
+        ("ITEM: BOX BOUNDS ff pp pp", ["0 10"] * 3),
+        ("ITEM: BOX BOUNDS pp pp sm", ["0 10"] * 3),
+        ("ITEM: BOX BOUNDS xy xz yz pp fs pp", ["0 10 0"] * 3),
+        ("ITEM: BOX BOUNDS", ["0 10"] * 3),
     ])
-    np.testing.assert_array_equal(data, expected)
+    def test_non_periodic_or_unflagged_boundaries_are_rejected(self, item, bounds):
+        with pytest.raises(ValueError, match="periodic"):
+            parse_box(item, bounds)
+
+    def test_general_triclinic_is_rejected(self):
+        with pytest.raises(ValueError, match="not supported"):
+            parse_box("ITEM: BOX BOUNDS abc origin pp pp pp", ["10 0 0 0"] * 3)
+
+    def test_wrong_number_of_bound_values_is_rejected(self):
+        with pytest.raises(ValueError, match="box bounds"):
+            parse_box(TRICLINIC, ["0 10", "0 10", "0 10"])
 
 
-def test_frame_skip_moves_pointer(tmp_lammps_dump):
-    frames, num_ats, dic, header_length, _, _ = first_read(tmp_lammps_dump)
+class TestResolveColumns:
 
-    with open(tmp_lammps_dump, "r") as f:
-        frame_skip(f, num_ats, 1, header_length)
-        line = f.readline()
-        # After skipping one frame, we should be at or near the second frame
-        assert "ITEM: TIMESTEP" in line or "1" in line
+    def test_plain_coordinates_are_preferred(self):
+        columns = ("id", "type", "x", "y", "z", "xu", "yu", "zu", "fx", "fy", "fz")
+        assert resolve_columns(columns, "a.dump") == ColumnLayout(
+            11, 0, (2, 3, 4), (8, 9, 10), False
+        )
 
+    def test_unwrapped(self):
+        layout = resolve_columns(("fx", "fy", "fz", "xu", "yu", "zu", "id"), "a.dump")
+        assert layout == ColumnLayout(7, 6, (3, 4, 5), (0, 1, 2), False)
 
+    @pytest.mark.parametrize("names", [("xs", "ys", "zs"), ("xsu", "ysu", "zsu")])
+    def test_scaled(self, names):
+        layout = resolve_columns(("id",) + names + ("fx", "fy", "fz"), "a.dump")
+        assert layout == ColumnLayout(7, 0, (1, 2, 3), (4, 5, 6), True)
+
+    def test_missing_forces(self):
+        with pytest.raises(ValueError, match=r"a\.dump: .*lack fx fy fz"):
+            resolve_columns(("id", "type", "x", "y", "z"), "a.dump")
+
+    def test_missing_coordinates(self):
+        with pytest.raises(ValueError, match="one of x y z"):
+            resolve_columns(("id", "fx", "fy", "fz"), "a.dump")
+
+    def test_missing_id(self):
+        with pytest.raises(ValueError, match="lack id"):
+            resolve_columns(("x", "y", "z", "fx", "fy", "fz"), "a.dump")
