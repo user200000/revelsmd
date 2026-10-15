@@ -213,3 +213,43 @@ class TestTopology:
             inferred.mdanalysis_universe.atoms.types, explicit.mdanalysis_universe.atoms.types)
         np.testing.assert_array_equal(
             inferred.mdanalysis_universe.atoms.ids, explicit.mdanalysis_universe.atoms.ids)
+
+
+TRICLINIC = str(SMALL / "dump_triclinic.lammps")
+TRICLINIC_CELL = np.array([[10.0, 0.0, 0.0], [2.0, 10.0, 0.0], [1.0, -1.5, 10.0]])
+
+
+class TestTriclinic:
+
+    def test_cell_and_positions(self):
+        traj = load(TRICLINIC)
+        np.testing.assert_array_equal(traj.cell_matrix, TRICLINIC_CELL)
+        first, second = traj.iter_frames()
+        np.testing.assert_array_equal(first.positions, positions())
+        np.testing.assert_array_equal(second.positions, positions(1.0))
+
+    def test_cell_matches_ase(self):
+        from ase.io import read
+        atoms = read(TRICLINIC, format="lammps-dump-text", index=0)
+        np.testing.assert_allclose(load(TRICLINIC).cell_matrix, atoms.cell.array, atol=1e-12)
+
+    def test_cell_matches_mdanalysis(self):
+        import MDAnalysis as MD
+        from MDAnalysis.lib.mdamath import triclinic_vectors
+        universe = MD.Universe(DATA, TRICLINIC, topology_format="DATA",
+                               format="LAMMPSDump", atom_style="id type x y z")
+        np.testing.assert_allclose(
+            load(TRICLINIC).cell_matrix, triclinic_vectors(universe.dimensions), atol=1e-5)
+
+    def test_scaled_coordinates_in_a_triclinic_box(self, tmp_path):
+        text = Path(TRICLINIC).read_text().splitlines(keepends=True)
+        out = []
+        for line in text:
+            fields = line.split()
+            if len(fields) == 8 and not line.startswith("ITEM"):
+                s = np.array(fields[2:5], dtype=float) @ np.linalg.inv(TRICLINIC_CELL)
+                line = " ".join(fields[:2] + [repr(float(v)) for v in s] + fields[5:]) + "\n"
+            out.append(line.replace("ITEM: ATOMS id type x y z", "ITEM: ATOMS id type xs ys zs"))
+        scaled = write(tmp_path / "tri_scaled.dump", "".join(out))
+        for got, expected in zip(load(scaled).iter_frames(), load(TRICLINIC).iter_frames()):
+            np.testing.assert_allclose(got.positions, expected.positions, rtol=1e-12, atol=1e-12)
