@@ -1,30 +1,18 @@
 """LammpsTrajectory on small dump files written for each case."""
 
 import shutil
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from file_limits import open_file_limit
 from lammps_dumps import IDS_SORTED, forces, frame, positions, rows, write
 from revelsMD.trajectories import LammpsTrajectory
 from revelsMD.trajectories._base import compute_beta
 
 SMALL = Path(__file__).parent / "data" / "lammps_small"
 DATA = str(SMALL / "data.small.data")
-
-
-@contextmanager
-def open_file_limit(limit):
-    """Lower the soft open-file limit for the duration of the block."""
-    resource = pytest.importorskip("resource")
-    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (limit, hard))
-    try:
-        yield
-    finally:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
 
 
 def load(dumps, **kwargs):

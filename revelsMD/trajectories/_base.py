@@ -7,8 +7,8 @@ all trajectory backends.
 
 import os
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
-from typing import Iterator
+from collections.abc import Callable, Iterable, Sequence
+from typing import BinaryIO, Iterator
 
 import numpy as np
 import scipy.constants as constants
@@ -54,6 +54,34 @@ def normalize_bounds(
     start = min(start, n_frames)
     stop = min(stop, n_frames)
     return start, stop, stride
+
+
+def read_frames_one_file_at_a_time(
+    indices: Iterable[int],
+    path_of: Callable[[int], str],
+    read: Callable[[BinaryIO, int], Frame],
+) -> Iterator[Frame]:
+    """Yield ``read(handle, i)`` for each index, keeping at most one file open.
+
+    Consecutive indices in the same file share one open handle; the file is
+    closed when the path changes and when iteration ends, raises or is
+    abandoned.
+    """
+    handle: BinaryIO | None = None
+    current: str | None = None
+    try:
+        for index in indices:
+            path = path_of(index)
+            if handle is None or path != current:
+                if handle is not None:
+                    handle.close()
+                    handle = None
+                handle = open(path, "rb")
+                current = path
+            yield read(handle, index)
+    finally:
+        if handle is not None:
+            handle.close()
 
 
 def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> None:

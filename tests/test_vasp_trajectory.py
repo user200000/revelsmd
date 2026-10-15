@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from file_limits import open_descriptors, open_file_limit
 from vasprun_variants import SOURCE, join, split, truncated, with_basis, without_forces, write
 from revelsMD.trajectories import DataUnavailableError, VaspTrajectory
 from revelsMD.trajectories._base import compute_beta
@@ -125,3 +126,18 @@ class TestFiles:
         np.testing.assert_allclose(traj.cell_matrix, shear @ (np.eye(3) * 18.351083))
         assert traj.is_orthorhombic is False
         assert traj.cell_volume > 0
+
+
+class TestOpenFiles:
+
+    def test_one_file_per_step_keeps_one_file_open(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        paths = [write(tmp_path / f"{k:02d}.xml", join(head, [c], tail))
+                 for k, c in enumerate(calculations)]
+        traj = VaspTrajectory(paths, temperature=600.0)
+        with open_file_limit(open_descriptors() + 5):
+            got = list(traj.iter_frames())
+        assert len(got) == 10
+        for frame, (positions, forces) in zip(got, reference_frames(), strict=True):
+            np.testing.assert_array_equal(frame.positions, positions)
+            np.testing.assert_array_equal(frame.forces, forces)

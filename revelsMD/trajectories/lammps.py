@@ -17,7 +17,9 @@ from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory, DataUnavailableError, as_paths, check_fixed_cell
+from ._base import (
+    Trajectory, DataUnavailableError, as_paths, check_fixed_cell, read_frames_one_file_at_a_time,
+)
 
 
 # Column layouts of the Atoms section for LAMMPS atom styles (read_data
@@ -662,21 +664,9 @@ class LammpsTrajectory(Trajectory):
         stride: int
     ) -> Iterator[Frame]:
         """Read the indexed frames in order, with one dump file open at a time."""
-        handle: BinaryIO | None = None
-        current: str | None = None
-        try:
-            for index in range(start, stop, stride):
-                path = self._index[index].path
-                if handle is None or path != current:
-                    if handle is not None:
-                        handle.close()
-                        handle = None
-                    handle = open(path, "rb")
-                    current = path
-                yield self._read(handle, index)
-        finally:
-            if handle is not None:
-                handle.close()
+        return read_frames_one_file_at_a_time(
+            range(start, stop, stride), lambda i: self._index[i].path, self._read
+        )
 
     def get_frame(self, index: int) -> Frame:
         """Return positions and forces for a specific frame by index.
