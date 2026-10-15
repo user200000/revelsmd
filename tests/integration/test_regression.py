@@ -188,6 +188,9 @@ class TestLammpsRegression:
 
     def test_number_density_box_regression(self, example1_trajectory):
         """3D number density with the box kernel matches stored reference."""
+        # In these frames an atom lies exactly on a voxel boundary (z = 27/30
+        # of the box), so its voxel, and this baseline, change with the last
+        # bit of the box length.
         ref = load_reference("lammps_example1", "number_density_box.npz")
 
         gs = DensityGrid(

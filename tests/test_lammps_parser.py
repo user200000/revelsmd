@@ -1,5 +1,6 @@
 """Unit tests for the LAMMPS dump helpers."""
 
+import random
 import warnings
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from lammps_dumps import (
 )
 from revelsMD.trajectories.lammps import (
     ColumnLayout,
+    HeaderMismatch,
     PartialFrame,
     combine_frames,
     index_dump,
@@ -98,7 +100,7 @@ class TestResolveColumns:
     def test_plain_coordinates_are_preferred(self):
         columns = ("id", "type", "x", "y", "z", "xu", "yu", "zu", "fx", "fy", "fz")
         assert resolve_columns(columns, "a.dump") == ColumnLayout(
-            11, 0, (2, 3, 4), (8, 9, 10), False
+            11, 0, (2, 3, 4), (8, 9, 10), False, 1
         )
 
     def test_unwrapped(self):
@@ -151,6 +153,7 @@ class TestIndexDump:
         path = write(tmp_path / "a.dump", text[: len(text) - 30])
         index = index_dump(path)
         assert index.timesteps.tolist() == [0]
+        assert len(index.starts) == len(index.ends) == 1
         assert index.partial == PartialFrame(path, 100)
 
     def test_header_cut_before_the_timestep_value(self, tmp_path):
@@ -219,29 +222,71 @@ class TestIndexDump:
         with pytest.raises(ValueError, match="timesteps do not increase"):
             index_dump(path)
 
-    def test_columns_must_not_change_within_a_file(self, tmp_path):
+    def test_timesteps_must_increase_from_frame_to_frame(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(200), frame(100))
+        with pytest.raises(ValueError, match=r"timesteps do not increase \(200 is followed by 100\)"):
+            index_dump(path)
+
+    def test_columns_changing_within_a_file_are_recorded(self, tmp_path):
         reordered = frame(
             100, columns="type id x y z fx fy fz",
             atom_rows=[" ".join([r.split()[1], r.split()[0]] + r.split()[2:]) for r in rows(100)],
         )
-        path = write(tmp_path / "a.dump", frame(0), reordered)
-        with pytest.raises(ValueError, match="columns change"):
-            index_dump(path)
+        path = write(tmp_path / "a.dump", frame(0), reordered, frame(200))
+        assert index_dump(path).mismatch == HeaderMismatch(
+            1, f"{path}, timestep 100: the dump columns change within the file")
 
-    def test_box_must_not_change_within_a_file(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(0), frame(100, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"))
-        with pytest.raises(ValueError, match=r"a\.dump, timestep 100: the cell differs from the first frame's"):
-            index_dump(path)
+    def test_box_changing_within_a_file_is_recorded(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100),
+                     frame(200, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"), frame(300))
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0, 100, 200, 300]
+        assert index.mismatch.frame == 2
+        assert index.mismatch.message.startswith(
+            f"{path}, timestep 200: the cell differs from the first frame's")
 
-    def test_first_frame_is_checked_against_a_reference_box(self, tmp_path):
-        path = write(tmp_path / "b.dump", frame(200, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"), frame(300))
-        reference = index_dump(write(tmp_path / "a.dump", frame(0))).header.box
-        with pytest.raises(ValueError, match=r"b\.dump, timestep 200: the cell differs from the first frame's"):
-            index_dump(path, reference)
+    def test_tilt_change_with_the_same_bounds_is_recorded(self, tmp_path):
+        # Tilts (xy, xz) = (2, -1) and (-1, 2) give the same bounding box.
+        first = frame(0, box_item="xy xz yz pp pp pp", bounds="-1.0 12.0 2.0\n0.0 10.5 -1.0\n0.0 10.0 0.0\n")
+        second = frame(100, box_item="xy xz yz pp pp pp", bounds="-1.0 12.0 -1.0\n0.0 10.5 2.0\n0.0 10.0 0.0\n")
+        path = write(tmp_path / "a.dump", first, second)
+        index = index_dump(path)
+        assert index.mismatch.frame == 1
+        assert "timestep 100: the cell differs" in index.mismatch.message
 
-    def test_atom_count_must_not_change_within_a_file(self, tmp_path):
+    def test_atom_count_changing_within_a_file_is_recorded(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0), frame(100, atom_rows=rows(100)[:5], n_atoms=5))
-        with pytest.raises(ValueError, match=r"a\.dump, timestep 100: 5 atoms, but the file's first frame has 6"):
+        assert index_dump(path).mismatch == HeaderMismatch(
+            1, f"{path}, timestep 100: 5 atoms, but the file's first frame has 6")
+
+    def test_only_the_first_difference_is_recorded(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100, atom_rows=rows(100)[:5], n_atoms=5),
+                     frame(200, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"))
+        assert index_dump(path).mismatch.frame == 1
+
+    def test_crlf_line_endings_read_as_lf(self, tmp_path):
+        text = frame(0) + frame(100, 1.0)
+        lf = write(tmp_path / "lf.dump", text)
+        crlf = tmp_path / "crlf.dump"
+        crlf.write_bytes(text.replace("\n", "\r\n").encode())
+        assert index_dump(str(crlf)).timesteps.tolist() == [0, 100]
+        for k in (0, 1):
+            for got, expected in zip(_read(str(crlf), k), _read(lf, k)):
+                np.testing.assert_array_equal(got, expected)
+
+    def test_blank_lines_after_the_atom_rows_are_ignored(self, tmp_path):
+        lf = write(tmp_path / "lf.dump", frame(0), frame(100, 1.0))
+        blank = write(tmp_path / "blank.dump", frame(0), "\n  \n", frame(100, 1.0), "\n\n")
+        index = index_dump(blank)
+        assert index.timesteps.tolist() == [0, 100]
+        assert index.partial is None
+        for k in (0, 1):
+            for got, expected in zip(_read(blank, k), _read(lf, k)):
+                np.testing.assert_array_equal(got, expected)
+
+    def test_malformed_header_numbers_name_the_file(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0).replace("\n6\n", "\nsix\n"))
+        with pytest.raises(ValueError, match=r"a\.dump: malformed frame header at byte 0"):
             index_dump(path)
 
     def test_box_errors_name_the_file_and_timestep(self, tmp_path):
@@ -249,9 +294,15 @@ class TestIndexDump:
         with pytest.raises(ValueError, match="a.dump, timestep 0: box boundaries must be periodic"):
             index_dump(path)
 
-    def test_empty_and_non_dump_files_raise(self, tmp_path):
-        with pytest.raises(ValueError, match="empty"):
-            index_dump(write(tmp_path / "empty.dump", ""))
+    @pytest.mark.parametrize("text", ["", "ITEM: TIMES", "ITEM: UNITS\nlj\n", "ITEM: TIME\n0.5\nITEM: TIM"])
+    def test_file_cut_before_its_first_frame_has_only_a_partial_frame(self, tmp_path, text):
+        path = write(tmp_path / "a.dump", text)
+        index = index_dump(path)
+        assert index.header is None
+        assert index.timesteps.tolist() == []
+        assert index.partial == PartialFrame(path, None)
+
+    def test_non_dump_file_raises(self, tmp_path):
         with pytest.raises(ValueError, match="not a LAMMPS dump"):
             index_dump(write(tmp_path / "other.txt", "hello\n"))
 
@@ -355,6 +406,106 @@ class TestCombineFrames:
             with pytest.raises(ValueError, match="no complete frames"):
                 _combined(tmp_path, [frame(0)[:-30]])
 
+    def test_restart_into_an_earlier_file_of_three_raises(self, tmp_path):
+        # run2 starts after run0 but at or before run1's start, which would
+        # discard the whole of run1.
+        with pytest.raises(ValueError, match=r"run2\.dump starts at timestep 150, at or before the start of .*run1\.dump"):
+            _combined(tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(150), frame(400)])
+        with pytest.raises(ValueError, match=r"run2\.dump starts at timestep 50"):
+            _combined(tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(50), frame(400)])
+
+    def test_three_files_with_a_restart_into_the_second(self, tmp_path):
+        paths, frames = _combined(
+            tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(250), frame(400)])
+        assert frames == [
+            (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 250), (paths[2], 400)]
+
+    def test_cut_header_in_a_middle_file_replaced_by_a_restart_is_silent(self, tmp_path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100)], [frame(200), frame(300), "ITEM: TIM"],
+                [frame(300, 1.0), frame(400)])
+        assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 300), (paths[2], 400)]
+
+    def test_empty_last_file_warns(self, tmp_path):
+        with pytest.warns(UserWarning, match=r"run1\.dump: dropping the incomplete final frame"):
+            paths, frames = _combined(tmp_path, [frame(0), frame(100)], [""])
+        assert frames == [(paths[0], 0), (paths[0], 100)]
+
+    def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
+        with pytest.warns(UserWarning, match=(
+                r"run1\.dump replaces the frames of .*run0\.dump from timestep 200 on, "
+                r"but ends at timestep 300; the frames of .*run0\.dump up to timestep 400")):
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100), frame(200), frame(300), frame(400)],
+                [frame(200), frame(300)])
+        assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
+
+    def test_restart_reaching_the_end_of_the_frames_it_replaces_is_silent(self, tmp_path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            _, frames = _combined(
+                tmp_path, [frame(0), frame(100), frame(200), frame(300)], [frame(200), frame(300)])
+        assert [t for _, t in frames] == [0, 100, 200, 300]
+
+    def test_header_change_in_frames_a_restart_replaces_is_accepted(self, tmp_path):
+        lost_atom = frame(300, atom_rows=rows(300)[:5], n_atoms=5)
+        grown_box = frame(300, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n")
+        for changed in (lost_atom, grown_box):
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100), frame(200), changed], [frame(200), frame(300), frame(400)])
+            assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300), (paths[1], 400)]
+
+    def test_header_change_in_kept_frames_raises(self, tmp_path):
+        lost_atom = frame(300, atom_rows=rows(300)[:5], n_atoms=5)
+        with pytest.raises(ValueError, match=r"run0\.dump, timestep 300: 5 atoms, but the file's first frame has 6"):
+            _combined(tmp_path, [frame(0), frame(100), lost_atom], [frame(400)])
+        grown_box = frame(300, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n")
+        with pytest.raises(ValueError, match=r"run1\.dump, timestep 300: the cell differs"):
+            _combined(tmp_path, [frame(0)], [frame(200), grown_box])
+
+    def test_box_of_a_later_files_first_frame_is_checked(self, tmp_path):
+        bounds = "0.0 10.5\n0.0 10.0\n0.0 10.0\n"
+        # The rest of run1 matches run0, so the first differing frame is run1's first.
+        with pytest.raises(ValueError, match=r"run1\.dump, timestep 200: the cell differs"):
+            _combined(tmp_path, [frame(0), frame(100)], [frame(200, bounds=bounds), frame(300)])
+
+    def test_random_joins_match_a_plain_list_join(self, tmp_path):
+        # A plain join of (path, timestep) lists: each file replaces every
+        # earlier frame from its first timestep on, and may not start at or
+        # before the first timestep of the file before it.
+        def plain_join(files):
+            joined, previous_start = [], None
+            for path, timesteps in files:
+                if previous_start is not None and timesteps[0] <= previous_start:
+                    return None
+                joined = [(p, t) for p, t in joined if t < timesteps[0]] + [(path, t) for t in timesteps]
+                previous_start = timesteps[0]
+            return joined
+
+        rng = random.Random(20261015)
+        for case in range(150):
+            directory = tmp_path / str(case)
+            directory.mkdir()
+            files, start = [], 0
+            for k in range(rng.randint(1, 4)):
+                start = max(0, start + rng.choice([-100, 0, 100, 200, 300, 500]))
+                timesteps = [start + 100 * j for j in range(rng.randint(1, 5))]
+                files.append((str(directory / f"run{k}.dump"), timesteps))
+            expected = plain_join(files)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                if expected is None:
+                    with pytest.raises(ValueError, match="at or before the start of"):
+                        _combined(directory, *[[frame(t) for t in ts] for _, ts in files])
+                    continue
+                _, got = _combined(directory, *[[frame(t) for t in ts] for _, ts in files])
+            assert got == expected
+            steps = [t for _, t in got]
+            assert steps == sorted(set(steps))
+            assert [t for p, t in got if p == files[-1][0]] == files[-1][1]
+
 
 class TestResolveAtomStyle:
 
@@ -450,6 +601,36 @@ class TestReadDumpFrame:
         np.testing.assert_array_equal(index_dump(path).header.origin, origin)
         positions, _ = _read(path)
         np.testing.assert_allclose(positions, expected_positions(), rtol=1e-12, atol=1e-12)
+
+    def test_scaled_coordinates_follow_the_lammps_formula(self, tmp_path):
+        # Bounds for the cell a = (10, 0, 0), b = (2, 10, 0), c = (1, -1.5, 10)
+        # with origin (5, -3, 2); position = origin + sa a + sb b + sc c.
+        bounds = "5.0 18.0 2.0\n-4.5 7.0 1.0\n2.0 12.0 -1.5\n"
+        cases = {
+            3: ((0, 0, 0), (5.0, -3.0, 2.0)),
+            7: ((1, 1, 1), (18.0, 5.5, 12.0)),
+            12: ((0.25, 0.5, 0.75), (9.25, 0.875, 9.5)),
+            20: ((0.5, 0, 0), (10.0, -3.0, 2.0)),
+            21: ((0, 0.5, 0), (6.0, 2.0, 2.0)),
+            40: ((0, 0, 0.5), (5.5, -3.75, 7.0)),
+        }
+        atom_rows = [f"{i} 1 {sa} {sb} {sc} 0 0 0" for i, ((sa, sb, sc), _) in cases.items()]
+        path = write(tmp_path / "s.dump", frame(
+            0, box_item="xy xz yz pp pp pp", bounds=bounds,
+            columns="id type xs ys zs fx fy fz", atom_rows=atom_rows,
+        ))
+        positions, _ = _read(path)
+        expected = [cases[i][1] for i in IDS_SORTED]
+        np.testing.assert_allclose(positions, expected, rtol=0, atol=1e-14)
+
+    def test_types_not_matching_the_topology_raise(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0))
+        dump = index_dump(path)
+        layout = resolve_columns(dump.header.columns, path)
+        types = np.array([b"1", b"2", b"1", b"2", b"2", b"2"])  # id 21 should be type 1
+        with open(path, "rb") as f, pytest.raises(
+                ValueError, match="atom id 21 has type 1 in the dump and 2 in the topology"):
+            read_dump_frame(f, dump.starts[0], dump.ends[0], dump.header, layout, IDS_SORTED, types)
 
     def test_ids_not_matching_the_topology_raise(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0))
