@@ -97,6 +97,28 @@ class TestContiguousBlocks:
         assert [int(frame.positions[0, 0]) for frame in first_block] == [0, 1, 2]
 
 
+    def test_frames_are_read_as_blocks_are_iterated(self):
+        pulled = []
+
+        def stream():
+            for frame in _make_frames(6):
+                pulled.append(int(frame.positions[0, 0]))
+                yield frame
+
+        block = next(contiguous_blocks(stream(), block_size=3))
+        assert pulled == [0]
+        assert int(next(block).positions[0, 0]) == 0
+        next(block)
+        assert pulled == [0, 1]
+
+    def test_requesting_a_block_before_the_last_is_read_raises(self):
+        blocks = contiguous_blocks(iter(_make_frames(6)), block_size=3)
+        first = next(blocks)
+        next(first)
+        with pytest.raises(RuntimeError, match="not read to its end"):
+            next(blocks)
+
+
 # ---------------------------------------------------------------------------
 # interleaved_blocks
 # ---------------------------------------------------------------------------
@@ -108,6 +130,16 @@ class TestInterleavedBlocks:
         traj = _FakeTrajectory(6)
         blocks = _frame_ids(interleaved_blocks(traj, range(6), sections=2))
         assert blocks == [[0, 2, 4], [1, 3, 5]]
+
+    def test_range_sections_of_a_trajectory_are_read_in_order(self, monkeypatch):
+        # A file loader then keeps each file open for a section's frames.
+        from revelsMD.trajectories import NumpyTrajectory
+        positions = np.arange(10, dtype=float)[:, None, None] * np.ones((10, 2, 3))
+        traj = NumpyTrajectory(positions, np.ones((10, 2, 3)), 20, 20, 20, ["A", "B"],
+                               temperature=300.0)
+        monkeypatch.setattr(NumpyTrajectory, "get_frame", lambda self, i: pytest.fail("get_frame used"))
+        blocks = _frame_ids(interleaved_blocks(traj, range(1, 10), sections=4))
+        assert blocks == [[1, 5, 9], [2, 6], [3, 7], [4, 8]]
 
     def test_three_sections(self):
         traj = _FakeTrajectory(9)
