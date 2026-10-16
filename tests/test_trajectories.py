@@ -824,6 +824,86 @@ class TestAsPaths:
             as_paths([tmp_path / "a.dump", tmp_path / "b.dump", alias])
 
 
+class TestJoinRestarts:
+    """join_restarts, the restart join both file loaders use, against a plain list join."""
+
+    @staticmethod
+    def plain_join(files):
+        """Join (path, steps) lists: each file replaces every earlier frame
+        from its first step on. Returns the joined (path, step) list and, for
+        each file that replaces frames, (file, replaced file, its first step,
+        the replaced steps); or the error the join must raise.
+        """
+        for path, steps in files:
+            for i in range(1, len(steps)):
+                if steps[i] <= steps[i - 1]:
+                    return f"{path}, frame {i}: steps do not increase", None
+        joined, previous, replacements = [], None, []
+        for path, steps in files:
+            if previous is not None and steps[0] <= previous[1][0]:
+                return f"{path} starts at step {steps[0]}, at or before the start of {previous[0]}", None
+            replaced = [t for p, t in joined if t >= steps[0]]
+            if replaced:
+                replacements.append((path, previous[0], steps[0], replaced))
+            joined = [(p, t) for p, t in joined if t < steps[0]] + [(path, t) for t in steps]
+            previous = (path, steps)
+        return joined, replacements
+
+    def test_random_joins_match_a_plain_list_join(self):
+        import random
+        from revelsMD.trajectories._base import join_restarts
+
+        rng = random.Random(20261016)
+        outcomes = {"error": 0, "lossless": 0, "lossy": 0}
+        for case in range(3000):
+            files, start = [], 0
+            for k in range(rng.randint(1, 5)):
+                start = max(0, start + rng.choices(
+                    [-100, 0, 50, 100, 150, 200, 300, 500, 900], [1, 1, 2, 3, 2, 3, 2, 2, 1])[0])
+                interval = rng.choice([10, 50, 100, 200, 300])
+                steps = [start + interval * j for j in range(rng.randint(1, 12))]
+                if len(steps) > 2 and rng.random() < 0.05:  # a file whose steps go back
+                    i = rng.randrange(1, len(steps))
+                    steps[i] = steps[i - 1] - rng.choice([0, interval])
+                files.append((f"f{k}", steps))
+            expected, replacements = self.plain_join(files)
+            keys = [np.array(steps, dtype=np.int64) for _, steps in files]
+            paths = [path for path, _ in files]
+            if isinstance(expected, str):
+                outcomes["error"] += 1
+                with pytest.raises(ValueError) as error:
+                    join_restarts(keys, paths, "step")
+                assert str(error.value).startswith(expected)
+                continue
+            result = join_restarts(keys, paths, "step")
+            got = [(path, int(t)) for path, array, n in zip(paths, keys, result.kept) for t in array[:n]]
+            assert got == expected
+            output = {t for _, t in expected}
+            predicted = []
+            for path, replaced_path, first, replaced in replacements:
+                lost = [t for t in replaced if t not in output]
+                if lost:
+                    predicted.append((path, replaced_path, first, lost))
+            reported = [(d.replacing, d.replaced, d.start, d.lost.tolist()) for d in result.dropped]
+            assert reported == predicted
+            outcomes["lossy" if predicted else "lossless"] += 1
+        assert min(outcomes.values()) > 300, outcomes
+
+    def test_times_that_repeat_name_single_precision(self):
+        from revelsMD.trajectories._base import join_restarts
+        times = np.array([3e5, 3e5 + 0.02, 3e5 + 0.04], dtype=np.float32).astype(np.float64)
+        with pytest.raises(ValueError, match=r"a\.ncdf, frame \d: times do not increase within the file .*single precision"):
+            join_restarts([times], ["a.ncdf"], "time")
+
+    def test_independent_runs_get_the_advice(self):
+        from revelsMD.trajectories._base import join_restarts
+        with pytest.raises(ValueError, match=(
+                r"b starts at step 0, at or before the start of a \(step 0\); steps must continue "
+                r"from file to file, as in a run and its restarts\. Load independent runs as "
+                r"separate trajectories")):
+            join_restarts([np.array([0, 10]), np.array([0, 10])], ["a", "b"], "step")
+
+
 class TestReadingWithMDAnalysis:
     """Errors raised while MDAnalysis parses files become RuntimeError naming them."""
 

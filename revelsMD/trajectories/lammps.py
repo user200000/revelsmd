@@ -20,7 +20,7 @@ from revelsMD.cell import fractional_to_cartesian
 from ._base import (
     TrajectoryFiles, TrajectoryPath,
     DataUnavailableError, FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
-    open_check, reading_with_mdanalysis, replaced_frames_dropped, warn_user,
+    join_restarts, open_check, reading_with_mdanalysis, warn_user,
 )
 
 
@@ -527,10 +527,11 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
     """Join the frames of consecutive dump files into one trajectory.
 
     Files must be given in run order: the files of a run, then those of
-    each restart. Each file's frames replace every frame of the file
-    before it from its own first timestep on, with a warning for replaced
-    frames outside every joined file's range of kept timesteps. An
-    incomplete final frame is dropped, with a warning unless the next file's frames replace
+    each restart. The files with complete frames are joined by
+    :func:`join_restarts`: each file's frames replace every frame of the
+    file before it from its own first timestep on, with a warning for
+    replaced frames whose timesteps no kept frame has. An incomplete final
+    frame is dropped, with a warning unless the next file's frames replace
     it. Every kept frame must have the columns, box and atom count of its
     file's first frame, and every file's first frame the box of the first
     file's; frames that are replaced are not compared.
@@ -542,42 +543,17 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         file, if a kept frame's header differs as above, or if there are
         no complete frames.
     """
-    files: list[DumpIndex] = []
-    headers: list[DumpHeader] = []
-    kept: list[int] = []
-    # (replacing file, replaced file, replacing file's first timestep,
-    # the replaced frames' timesteps)
-    replacements: list[tuple[str, str, int, np.ndarray]] = []
+    files = [index for index in indices if index.header is not None]
+    # An incomplete final frame is dropped silently if the next file with
+    # frames starts at or before it.
     pending: PartialFrame | None = None
+    last: int | None = None  # the last timestep of the previous file with frames
     for index in indices:
         if index.header is not None:
-            first = int(index.timesteps[0])
-            if files and first <= files[-1].timesteps[0]:
-                raise ValueError(
-                    f"{index.path} starts at timestep {first}, at or before the "
-                    f"start of {files[-1].path} (timestep "
-                    f"{int(files[-1].timesteps[0])}); timesteps must continue "
-                    "from file to file, as in a run and its restarts. Load "
-                    "independent runs as separate trajectories"
-                )
-            last = int(files[-1].timesteps[kept[-1] - 1]) if files else None
-            if pending is not None and not _superseded(pending, last, first):
+            if pending is not None and not _superseded(pending, last, int(index.timesteps[0])):
                 _warn_dropped(pending)
             pending = None
-            # Every earlier file's frames precede the previous file's first
-            # timestep, which precedes ``first``, so only the previous file
-            # can lose frames.
-            if files:
-                previous = files[-1]
-                n_kept = int(np.searchsorted(previous.timesteps[:kept[-1]], first))
-                if n_kept < kept[-1]:
-                    replacements.append(
-                        (index.path, previous.path, first, previous.timesteps[n_kept:kept[-1]])
-                    )
-                kept[-1] = n_kept
-            files.append(index)
-            headers.append(index.header)
-            kept.append(len(index.timesteps))
+            last = int(index.timesteps[-1])
         if index.partial is not None:
             if pending is not None:
                 _warn_dropped(pending)
@@ -588,29 +564,23 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         raise ValueError(
             "no complete frames in " + ", ".join(index.path for index in indices)
         )
-    # A replaced frame is lost unless it lies within some file's range of
-    # kept timesteps.
-    spans = [
-        (int(index.timesteps[0]), int(index.timesteps[k - 1])) for index, k in zip(files, kept)
-    ]
-    for replacing, replaced, start, timesteps in replacements:
-        lost = [int(t) for t in timesteps if not any(lo <= t <= hi for lo, hi in spans)]
-        if lost:
-            warn_user(replaced_frames_dropped(
-                replacing, replaced, "timestep", start, len(lost), lost[0], lost[-1]
-            ))
-    for index, header, n_kept in zip(files, headers, kept):
+    joined = join_restarts(
+        [index.timesteps for index in files], [index.path for index in files], "timestep"
+    )
+    headers = [index.header for index in files if index.header is not None]
+    for index, header, n_kept in zip(files, headers, joined.kept):
         check_fixed_cell(
             header.box, headers[0].box, f"{index.path}, timestep {int(index.timesteps[0])}"
         )
         if index.mismatch is not None and index.mismatch.frame < n_kept:
             raise ValueError(index.mismatch.message)
+    joined.warn()
     return FrameTable.join(
         [index.path for index in files],
-        [index.starts[:k] for index, k in zip(files, kept)],
-        [index.ends[:k] for index, k in zip(files, kept)],
+        [index.starts[:k] for index, k in zip(files, joined.kept)],
+        [index.ends[:k] for index, k in zip(files, joined.kept)],
         headers=headers,
-        timesteps=np.concatenate([index.timesteps[:k] for index, k in zip(files, kept)]),
+        timesteps=np.concatenate([index.timesteps[:k] for index, k in zip(files, joined.kept)]),
     )
 
 
@@ -769,8 +739,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
     the dump was written in. Several dump files from a run and its restarts
     are joined in the order given, which must be run order: each file's
     frames replace every frame of the file before it from its own first
-    timestep on, with a warning for replaced frames outside every joined
-    file's range of kept timesteps. An incomplete final frame, as left by a job killed
+    timestep on, with a warning for replaced frames whose timesteps no kept
+    frame has. An incomplete final frame, as left by a job killed
     while writing, is dropped with a warning unless the next file's frames
     replace it, and so is an empty file or one holding only the start of a
     frame header. Frames that a later file replaces

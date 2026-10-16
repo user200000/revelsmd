@@ -19,9 +19,9 @@ import numpy as np
 from revelsMD.frame_sources import Frame
 from ._base import (
     TrajectoryFiles, TrajectoryPath, Trajectory, as_paths, check_finite, check_fixed_cell,
-    open_check, reading_with_mdanalysis, warn_user,
+    join_restarts, open_check, reading_with_mdanalysis, warn_user,
 )
-from ._mda_steps import frame_keys, join_restarts, order_keys
+from ._mda_steps import frame_keys, order_keys
 
 
 class MDATrajectory(Trajectory):
@@ -170,7 +170,9 @@ class MDATrajectory(Trajectory):
                     "the file appears to have been cut short"
                 )
         unit, arrays = order_keys(keys, paths)
-        kept = join_restarts(arrays, paths, unit)
+        joined = join_restarts(arrays, paths, unit)
+        joined.warn()
+        kept = joined.kept
         # Frame i is MDAnalysis frame _kept[i].
         self._kept = np.concatenate([
             first + np.arange(n, dtype=np.int64) for first, n in zip(self._first_frames, kept)

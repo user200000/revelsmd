@@ -474,9 +474,10 @@ class TestCombineFrames:
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
 
     def test_overlap_is_replaced_by_the_later_file(self, tmp_path):
-        paths, frames = _combined(
-            tmp_path, [frame(0), frame(100), frame(200)], [frame(100, 50.0), frame(300, 52.0)]
-        )
+        with pytest.warns(UserWarning, match=r"run1\.dump replaces the frames of .*run0\.dump from timestep 100 on; the frame at timestep 200 is not in the joined trajectory"):
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100), frame(200)], [frame(100, 50.0), frame(300, 52.0)]
+            )
         assert frames == [
             (paths[0], 0), (paths[1], 100), (paths[1], 300)]
 
@@ -517,12 +518,13 @@ class TestCombineFrames:
         assert [t for _, t in frames] == [0, 100, 300]
 
     def test_middle_file_truncated_by_the_next_restart(self, tmp_path):
-        paths, frames = _combined(
-            tmp_path,
-            [frame(0), frame(100), frame(200), frame(300)],
-            [frame(200, 20.0), frame(300, 30.0), frame(400, 40.0)],
-            [frame(300, 33.0), frame(500, 55.0)],
-        )
+        with pytest.warns(UserWarning, match=r"run2\.dump replaces the frames of .*run1\.dump from timestep 300 on; the frame at timestep 400 is not in the joined trajectory"):
+            paths, frames = _combined(
+                tmp_path,
+                [frame(0), frame(100), frame(200), frame(300)],
+                [frame(200, 20.0), frame(300, 30.0), frame(400, 40.0)],
+                [frame(300, 33.0), frame(500, 55.0)],
+            )
         assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 300), (paths[2], 500)]
 
@@ -566,8 +568,9 @@ class TestCombineFrames:
             _combined(tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(50), frame(400)])
 
     def test_three_files_with_a_restart_into_the_second(self, tmp_path):
-        paths, frames = _combined(
-            tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(250), frame(400)])
+        with pytest.warns(UserWarning, match=r"run2\.dump replaces the frames of .*run1\.dump from timestep 250 on; the frame at timestep 300 is not in the joined trajectory"):
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(250), frame(400)])
         assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 250), (paths[2], 400)]
 
@@ -587,8 +590,7 @@ class TestCombineFrames:
     def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
         with pytest.warns(UserWarning, match=(
                 r"run1\.dump replaces the frames of .*run0\.dump from timestep 200 on; "
-                r"the frame at timestep 400 lies outside every joined file's range of kept "
-                r"timesteps and is dropped")):
+                r"the frame at timestep 400 is not in the joined trajectory and dropped")):
             paths, frames = _combined(
                 tmp_path, [frame(0), frame(100), frame(200), frame(300), frame(400)],
                 [frame(200), frame(300)])
@@ -596,50 +598,39 @@ class TestCombineFrames:
 
     @staticmethod
     def _dropped_warnings(record):
-        return [str(w.message) for w in record if "outside every joined file's range" in str(w.message)]
+        return [str(w.message) for w in record if "not in the joined trajectory" in str(w.message)]
 
-    @pytest.mark.parametrize("files, lost", [
+    def test_replaced_frames_in_a_gap_between_later_files_warn(self, tmp_path):
         # A restart killed early, then one from after the replaced frames.
-        ([range(0, 1001, 100), range(500, 701, 100), range(900, 2001, 100)], "the frame at timestep 800 lies"),
-        # Restarts that leave a hole in the earlier file's replaced frames.
-        ([range(0, 1001, 100), range(500, 601, 100), range(700, 801, 100), range(1100, 2001, 100)],
-         "2 of those frames, between timesteps 900 and 1000, lie"),
-    ])
-    def test_replaced_frames_in_a_gap_between_later_files_warn(self, tmp_path, files, lost):
-        with warnings.catch_warnings(record=True) as record:
-            warnings.simplefilter("always")
-            _combined(tmp_path, *[[frame(t) for t in ts] for ts in files])
-        dropped = self._dropped_warnings(record)
-        assert len(dropped) == 1 and lost in dropped[0] and "run1.dump replaces" in dropped[0]
-
-    def test_each_restart_is_judged_on_its_own_replaced_frames(self, tmp_path):
-        # run1 leaves run0's 900 and 1000 uncovered; run2 covers what it replaces of run1.
         with warnings.catch_warnings(record=True) as record:
             warnings.simplefilter("always")
             _combined(tmp_path, [frame(t) for t in range(0, 1001, 100)],
-                      [frame(500), frame(600), frame(700)], [frame(600), frame(800)])
-        dropped = self._dropped_warnings(record)
-        assert len(dropped) == 1 and "run1.dump replaces" in dropped[0]
-        assert "between timesteps 900 and 1000" in dropped[0]
-        # run1 covers what it replaces of run0; run2 leaves run1's 700 to 900 uncovered.
+                      [frame(t) for t in range(500, 701, 100)], [frame(t) for t in range(900, 2001, 100)])
+        assert self._dropped_warnings(record) == [
+            f"{tmp_path / 'run1.dump'} replaces the frames of {tmp_path / 'run0.dump'} from "
+            "timestep 500 on; the frame at timestep 800 is not in the joined trajectory and dropped"]
+
+    def test_restart_that_dumps_less_often_warns(self, tmp_path):
+        # Every replaced frame whose timestep is not in the joined trajectory
+        # is reported, including those between a coarser restart's frames.
         with warnings.catch_warnings(record=True) as record:
             warnings.simplefilter("always")
-            (tmp_path / "second").mkdir()
-            _combined(tmp_path / "second", [frame(t) for t in range(0, 401, 100)],
-                      [frame(t) for t in range(300, 901, 100)], [frame(500), frame(600)])
-        dropped = self._dropped_warnings(record)
-        assert len(dropped) == 1 and "run2.dump replaces" in dropped[0]
-        assert "between timesteps 700 and 900" in dropped[0]
+            _combined(tmp_path, [frame(t) for t in range(0, 1001, 50)],
+                      [frame(t) for t in range(400, 1201, 200)])
+        assert self._dropped_warnings(record) == [
+            f"{tmp_path / 'run1.dump'} replaces the frames of {tmp_path / 'run0.dump'} from "
+            "timestep 400 on; 9 of those frames, between timesteps 450 and 950, are not in the "
+            "joined trajectory and dropped"]
 
-    def test_replaced_frames_covered_by_a_later_restart_are_silent(self, tmp_path):
+    def test_replaced_frames_a_later_restart_has_are_silent(self, tmp_path):
         # run1 is a restart killed early, and run2 restarts from it and runs on.
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             paths, frames = _combined(
                 tmp_path, [frame(t) for t in range(0, 1001, 100)],
-                [frame(500), frame(600), frame(700)], [frame(600), frame(800), frame(2000)])
-        assert frames == [(paths[0], t) for t in range(0, 401, 100)] + [
-            (paths[1], 500), (paths[2], 600), (paths[2], 800), (paths[2], 2000)]
+                [frame(500), frame(600), frame(700)], [frame(t) for t in range(600, 1101, 100)])
+        assert frames == [(paths[0], t) for t in range(0, 401, 100)] + [(paths[1], 500)] + [
+            (paths[2], t) for t in range(600, 1101, 100)]
 
     def test_restart_reaching_the_end_of_the_frames_it_replaces_is_silent(self, tmp_path):
         with warnings.catch_warnings():
@@ -691,14 +682,11 @@ class TestCombineFrames:
             return joined, replacements
 
         def predicted_warnings(joined, replacements):
-            # A replaced frame is lost unless some file's kept timesteps span it.
-            spans = {}
-            for path, t in joined:
-                lo, hi = spans.get(path, (t, t))
-                spans[path] = (min(lo, t), max(hi, t))
+            # Every replaced frame whose timestep is not in the output is reported.
+            output = {t for _, t in joined}
             predicted = []
             for path, replaced_path, start, replaced in replacements:
-                lost = [t for t in replaced if not any(lo <= t <= hi for lo, hi in spans.values())]
+                lost = [t for t in replaced if t not in output]
                 if lost:
                     predicted.append((path, replaced_path, start, len(lost), lost[0], lost[-1]))
             return predicted
@@ -706,7 +694,7 @@ class TestCombineFrames:
         def reported_warnings(messages):
             pattern = re.compile(
                 r"(\S+) replaces the frames of (\S+) from timestep (\d+) on; (?:the frame at "
-                r"timestep (\d+) lies|(\d+) of those frames, between timesteps (\d+) and (\d+), lie)")
+                r"timestep (\d+) is|(\d+) of those frames, between timesteps (\d+) and (\d+), are)")
             reported = []
             for message in messages:
                 a, b, start, single, count, first, last = pattern.match(message).groups()

@@ -98,26 +98,109 @@ def warn_user(message: str) -> None:
     warnings.warn(message, UserWarning, skip_file_prefixes=(_PACKAGE_DIR,))
 
 
-def replaced_frames_dropped(
-    replacing: str, replaced: str, unit: str, start: object, count: int,
-    first: object, last: object, suffix: str = "",
-) -> str:
-    """The warning for replaced frames outside every joined file's range of kept frames.
+@dataclass(frozen=True, eq=False)
+class DroppedFrames:
+    """Frames of ``replaced`` that ``replacing`` replaces but the joined trajectory lacks.
 
-    ``unit`` is what orders frames ("timestep", "step" or "time") and
-    ``suffix`` follows each value (" ps" for times). The replaced frames
-    run from ``start``, and ``count`` of them, from ``first`` to ``last``,
-    lie outside every joined file's range of kept frames.
+    ``start`` is the first key of ``replacing``; ``lost`` holds the keys of
+    the replaced frames whose keys no kept frame has.
     """
-    lost = (
-        f"the frame at {unit} {first}{suffix} lies" if count == 1
-        else f"{count} of those frames, between {unit}s {first}{suffix} and {last}{suffix}, lie"
-    )
-    return (
-        f"{replacing} replaces the frames of {replaced} from {unit} {start}{suffix} on; "
-        f"{lost} outside every joined file's range of kept {unit}s and "
-        f"{'is' if count == 1 else 'are'} dropped"
-    )
+
+    replacing: str
+    replaced: str
+    start: int | float
+    lost: np.ndarray
+
+
+@dataclass(frozen=True, eq=False)
+class JoinedFiles:
+    """How many frames of each file a restart join keeps, and the frames it drops."""
+
+    kept: list[int]
+    dropped: list[DroppedFrames]
+    unit: str
+
+    def warn(self) -> None:
+        """Warn about each file's dropped frames, naming the first and last."""
+        suffix = " ps" if self.unit == "time" else ""
+        for d in self.dropped:
+            first, last = _number(d.lost[0]), _number(d.lost[-1])
+            lost = (
+                f"the frame at {self.unit} {first}{suffix} is" if len(d.lost) == 1
+                else f"{len(d.lost)} of those frames, between {self.unit}s {first}{suffix} "
+                f"and {last}{suffix}, are"
+            )
+            warn_user(
+                f"{d.replacing} replaces the frames of {d.replaced} from "
+                f"{_value(self.unit, d.start)} on; {lost} not in the joined trajectory "
+                "and dropped"
+            )
+
+
+def join_restarts(keys: list[np.ndarray], paths: list[str], unit: str) -> JoinedFiles:
+    """Join the frames of a run and its restart files by their keys.
+
+    ``keys[k]`` orders the frames of file ``paths[k]``: timesteps or steps
+    (integers), or times. Each file's frames replace every frame of the
+    files before it from its own first key on, as when a run restarts from
+    a restart file. Every replaced frame whose key no kept frame has is
+    reported in ``dropped``. Each array must be non-empty.
+
+    Raises
+    ------
+    ValueError
+        If keys do not strictly increase within a file, or if a file starts
+        at or before the first key of the file before it.
+    """
+    for array, path in zip(keys, paths):
+        bad = np.flatnonzero(np.diff(array) <= 0)
+        if bad.size:
+            i = int(bad[0]) + 1
+            message = (
+                f"{path}, frame {i}: {unit}s do not increase within the file "
+                f"({_value(unit, array[i - 1])} at frame {i - 1}, "
+                f"{_value(unit, array[i])} at frame {i})"
+            )
+            if unit == "time" and array[i] == array[i - 1]:
+                message += (
+                    "; times are stored in single precision, so late in a long run "
+                    "neighbouring frames can share a time"
+                )
+            raise ValueError(message)
+    kept = [len(array) for array in keys]
+    replaced: list[tuple[int, np.ndarray]] = []
+    for k in range(1, len(keys)):
+        first, previous_first = keys[k][0], keys[k - 1][0]
+        if first <= previous_first:
+            raise ValueError(
+                f"{paths[k]} starts at {_value(unit, first)}, at or before the start of "
+                f"{paths[k - 1]} ({_value(unit, previous_first)}); {unit}s must continue "
+                "from file to file, as in a run and its restarts. Load independent runs "
+                "as separate trajectories"
+            )
+        # Every earlier file's frames precede the previous file's first key,
+        # which precedes ``first``, so only the previous file loses frames.
+        n = int(np.searchsorted(keys[k - 1][:kept[k - 1]], first))
+        if n < kept[k - 1]:
+            replaced.append((k, keys[k - 1][n:kept[k - 1]]))
+        kept[k - 1] = n
+    output = np.concatenate([array[:n] for array, n in zip(keys, kept)])
+    dropped = []
+    for k, frames in replaced:
+        lost = frames[~np.isin(frames, output)]
+        if lost.size:
+            dropped.append(DroppedFrames(paths[k], paths[k - 1], _number(keys[k][0]), lost))
+    return JoinedFiles(kept, dropped, unit)
+
+
+def _number(value) -> int | float:
+    return int(value) if isinstance(value, (int, np.integer)) else float(value)
+
+
+def _value(unit: str, value) -> str:
+    """A key for messages, such as "step 500" or "time 1.5 ps"."""
+    number = _number(value)
+    return f"{unit} {number} ps" if unit == "time" else f"{unit} {number}"
 
 
 def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> None:

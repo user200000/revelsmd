@@ -90,16 +90,14 @@ traj = LammpsTrajectory(
 
 List the files in run order. Each file's frames replace the previous file's
 frames from its own first timestep on, as after a restart from a restart
-file. A replaced frame whose timestep lies outside every joined file's range
-of kept timesteps is dropped with a warning naming it. Replaced frames are not
-compared with their file's first frame, so a run whose box or atom count went
-wrong after the restart point joins with its restart. A restart that dumps
-less often than the run it replaces does not warn: its frames cover that
-range of timesteps, and the replaced frames belong to the earlier run, so
-they are not used. A file that starts at or before the first timestep of the
-file before it raises an error, since that would discard the whole earlier
-file. Gaps in timesteps between or within the files as written are not
-detected.
+file. A warning names every replaced frame whose timestep is not in the
+joined trajectory, as when a restart ends before the frames it replaces, or
+dumps less often than the run it replaces. Replaced frames are not compared
+with their file's first frame, so a run whose box or atom count went wrong
+after the restart point joins with its restart. A file that starts at or
+before the first timestep of the file before it raises an error, since that
+would discard the whole earlier file. Gaps in timesteps between or within the
+files as written are not detected.
 
 The last frame of any file may be incomplete, as left by a job killed while
 writing: it is dropped with a warning, or silently if the next file's frames
@@ -204,10 +202,10 @@ with `-noappend` is read once. A restart must continue the step count, as
 `gmx mdrun -cpi` does; files whose steps start again from zero, including
 files written by MDAnalysis (which numbers steps from zero), cannot be joined.
 If any file records no steps (AMBER NetCDF), all are joined by time instead,
-and NetCDF files without times cannot be joined. Replaced frames outside
-every joined file's range of kept steps are dropped with a warning, and a
-file that starts at or before the first step of the file before it raises an
-error. Gaps in steps between the files are not detected. A last TRR frame
+and NetCDF files without times cannot be joined. As for LAMMPS dumps, a
+warning names every replaced frame whose step is not in the joined
+trajectory, and a file that starts at or before the first step of the file
+before it raises an error. Gaps in steps between the files are not detected. A last TRR frame
 cut short, as left by a job killed while writing, is dropped with a warning.
 
 The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the

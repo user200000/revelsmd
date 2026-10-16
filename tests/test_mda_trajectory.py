@@ -265,36 +265,14 @@ class TestValidation:
             MDATrajectory([b, write_frames(tmp_path / "c.ncdf", range(0, 3), forces=True)], TPR,
                           temperature=300.0)
 
-    @staticmethod
-    def _dropped(record):
-        return [str(w.message) for w in record if "outside every joined file's range" in str(w.message)]
-
     def test_replaced_frames_in_a_gap_between_later_files_warn(self, tmp_path):
         files = [write_frames(tmp_path / f"{name}.trr", frames)
                  for name, frames in (("a", range(0, 10)), ("b", range(3, 5)), ("c", range(7, 10)))]
-        with warnings.catch_warnings(record=True) as record:
-            warnings.simplefilter("always")
+        with pytest.warns(UserWarning, match=(
+                r"b\.trr replaces the frames of .*a\.trr from step 1500 on; 2 of those frames, "
+                r"between steps 2500 and 3000, are not in the joined trajectory and dropped")):
             traj = MDATrajectory(files, TPR, temperature=300.0)
-        dropped = self._dropped(record)
-        assert len(dropped) == 1
-        assert "b.trr replaces the frames of" in dropped[0]
-        assert "2 of those frames, between steps 2500 and 3000, lie" in dropped[0]
         assert traj.frames == 8
-
-    @pytest.mark.parametrize("frames, replacing, lost", [
-        # b leaves a's last two frames uncovered; c covers what it replaces of b.
-        ((range(0, 10), range(5, 7), range(6, 8)), "b.trr", "2 of those frames, between steps 4000 and 4500"),
-        # b covers what it replaces of a; c leaves b's last three frames uncovered.
-        ((range(0, 5), range(3, 10), range(5, 7)), "c.trr", "3 of those frames, between steps 3500 and 4500"),
-    ])
-    def test_each_restart_is_judged_on_its_own_replaced_frames(self, tmp_path, frames, replacing, lost):
-        files = [write_frames(tmp_path / f"{name}.trr", f) for name, f in zip("abc", frames)]
-        with warnings.catch_warnings(record=True) as record:
-            warnings.simplefilter("always")
-            MDATrajectory(files, TPR, temperature=300.0)
-        dropped = self._dropped(record)
-        assert len(dropped) == 1
-        assert f"{replacing} replaces" in dropped[0] and lost in dropped[0]
 
     @pytest.mark.parametrize("steps, bad", [
         ((0, 2500, 4500, 1000), 3),
@@ -387,7 +365,7 @@ class TestValidation:
     def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
         a = write_frames(tmp_path / "a.trr", range(0, 8))
         b = write_frames(tmp_path / "b.trr", range(3, 6))
-        with pytest.warns(UserWarning, match=r"b\.trr replaces the frames of .*a\.trr from step 1500 on; 2 of those frames, between steps 3000 and 3500, lie outside"):
+        with pytest.warns(UserWarning, match=r"b\.trr replaces the frames of .*a\.trr from step 1500 on; 2 of those frames, between steps 3000 and 3500, are not in the joined trajectory"):
             traj = MDATrajectory([a, b], TPR, temperature=300.0)
         assert traj.frames == 6
 
@@ -436,27 +414,28 @@ class TestValidation:
         with pytest.raises(TypeError, match="not set"):
             MDATrajectory({TRR}, TPR, temperature=300.0)
 
-    def test_topology_cut_short_raises_runtime_error(self, tmp_path):
-        # MDAnalysis raises StopIteration for this file; it must not escape,
-        # where it would silently end a caller's loop.
+    # Whatever MDAnalysis raises for a file it cannot parse becomes a
+    # RuntimeError naming the file. StopIteration in particular must not
+    # escape, where it would silently end a caller's loop.
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+    @pytest.mark.parametrize("name, source, length, which, raised", [
+        ("cut.gro", "prod.gro", 6, "topology", "StopIteration"),
+        ("empty.tpr", "prod.tpr", 0, "topology", "EOFError"),
+        ("cut.tpr", "prod.tpr", 200, "topology", "EOFError"),
+        ("cut.trr", "prod.trr", 40, "trajectory", "OSError"),
+    ])
+    def test_files_mdanalysis_cannot_parse_are_named(self, tmp_path, name, source, length, which, raised):
+        cut = tmp_path / name
+        cut.write_bytes((WATER / source).read_bytes()[:length])
+        trajectory, topology = (TRR, str(cut)) if which == "topology" else (str(cut), TPR)
+        with pytest.raises(RuntimeError, match=fr"MDAnalysis cannot read .*{name}.*: {raised}"):
+            MDATrajectory(trajectory, topology, temperature=300.0)
+
+    def test_stop_iteration_does_not_end_a_callers_loop(self, tmp_path):
         cut = tmp_path / "cut.gro"
         cut.write_bytes((WATER / "prod.gro").read_bytes()[:6])
-        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*cut\.gro with .*prod\.trr: StopIteration"):
-            MDATrajectory(TRR, str(cut), temperature=300.0)
-        loaded = list(map(lambda top: MDATrajectory(TRR, top, temperature=300.0), [TPR]))
-        assert len(loaded) == 1
         with pytest.raises(RuntimeError):
             list(map(lambda top: MDATrajectory(TRR, top, temperature=300.0), [TPR, str(cut), TPR]))
-
-    @pytest.mark.parametrize("name, data, raised", [
-        ("empty.tpr", b"", "EOFError"),
-        ("cut.tpr", (WATER / "prod.tpr").read_bytes()[:200], "EOFError"),
-    ])
-    def test_topologies_mdanalysis_cannot_parse(self, tmp_path, name, data, raised):
-        path = tmp_path / name
-        path.write_bytes(data)
-        with pytest.raises(RuntimeError, match=fr"MDAnalysis cannot read .*{name} with .*: {raised}"):
-            MDATrajectory(TRR, str(path), temperature=300.0)
 
     # MDAnalysis's readers fail while closing a file they could not open.
     @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
@@ -519,67 +498,8 @@ class TestValidation:
             traj.get_indices("Na")
 
 
-class TestJoinRestarts:
-    """join_restarts on step arrays, against a plain list join."""
-
-    def test_random_joins_match_a_plain_list_join(self):
-        import random
-        from revelsMD.trajectories._mda_steps import join_restarts
-
-        def plain_join(files):
-            joined, previous, replacements = [], None, []
-            for path, steps in files:
-                if previous is not None and steps[0] <= previous[1][0]:
-                    return None, []
-                replaced = [t for p, t in joined if t >= steps[0]]
-                if replaced:
-                    replacements.append((path, previous[0], steps[0], replaced))
-                joined = [(p, t) for p, t in joined if t < steps[0]] + [(path, t) for t in steps]
-                previous = (path, steps)
-            return joined, replacements
-
-        rng = random.Random(20261016)
-        for case in range(400):
-            files, start = [], 0
-            for k in range(rng.randint(1, 5)):
-                start = max(0, start + rng.choices([-100, 0, 100, 200, 300, 700], [1, 1, 3, 3, 3, 2])[0])
-                interval = rng.choice([10, 50, 100, 200])
-                files.append((f"f{k}", [start + interval * j for j in range(rng.randint(1, 8))]))
-            expected, replacements = plain_join(files)
-            arrays = [np.array(steps, dtype=np.int64) for _, steps in files]
-            paths = [path for path, _ in files]
-            with warnings.catch_warnings(record=True) as record:
-                warnings.simplefilter("always")
-                if expected is None:
-                    with pytest.raises(ValueError, match="at or before the start of"):
-                        join_restarts(arrays, paths, "step")
-                    continue
-                kept = join_restarts(arrays, paths, "step")
-            got = [(path, int(t)) for (path, _), array, n in zip(files, arrays, kept) for t in array[:n]]
-            assert got == expected
-            spans = {}
-            for path, t in expected:
-                lo, hi = spans.get(path, (t, t))
-                spans[path] = (min(lo, t), max(hi, t))
-            predicted = []
-            for path, replaced_path, first, replaced in replacements:
-                lost = [t for t in replaced if not any(lo <= t <= hi for lo, hi in spans.values())]
-                if lost:
-                    predicted.append((path, replaced_path, first, len(lost), lost[0], lost[-1]))
-            reported = []
-            for w in record:
-                message = str(w.message)
-                path, replaced_path = message.split(" replaces the frames of ")[0], message.split(" replaces the frames of ")[1].split(" from step ")[0]
-                first = int(message.split(" from step ")[1].split(" on;")[0])
-                if "the frame at step" in message:
-                    t = int(message.split("the frame at step ")[1].split(" lies")[0])
-                    reported.append((path, replaced_path, first, 1, t, t))
-                else:
-                    count = int(message.split(" on; ")[1].split(" of those frames")[0])
-                    lo = int(message.split("between steps ")[1].split(" and ")[0])
-                    hi = int(message.split(" and ")[1].split(", lie")[0])
-                    reported.append((path, replaced_path, first, count, lo, hi))
-            assert reported == predicted
+class TestOrderKeys:
+    """order_keys chooses steps or times for the files of a trajectory."""
 
     def test_files_without_steps_or_times_cannot_be_joined(self):
         from revelsMD.trajectories._mda_steps import FrameKeys, order_keys
@@ -588,12 +508,6 @@ class TestJoinRestarts:
             order_keys(keys, ["a.nc", "b.nc"])
         unit, arrays = order_keys(keys[:1], ["a.nc"])
         assert unit == "time" and arrays[0].tolist() == [0, 1, 2]
-
-    def test_equal_single_precision_times_name_the_cause(self):
-        from revelsMD.trajectories._mda_steps import join_restarts
-        times = np.array([3e5, 3e5 + 0.02, 3e5 + 0.04], dtype=np.float32).astype(np.float64)
-        with pytest.raises(ValueError, match="times do not increase within the file .*single precision"):
-            join_restarts([times], ["a.ncdf"], "time")
 
     def test_mixed_formats_order_by_time(self):
         from revelsMD.trajectories._mda_steps import FrameKeys, order_keys
