@@ -1,7 +1,6 @@
 """Unit tests for the vasprun.xml index and frame reader."""
 
 import io
-import warnings
 
 import numpy as np
 import pytest
@@ -36,11 +35,10 @@ class TestIndexVasprun:
         assert sorted(set(index.atom_names)) == ["Ba", "F", "Sn"]
         np.testing.assert_allclose(parse_basis(index.basis), np.eye(3) * 18.351083)
 
-    def test_truncated_file_keeps_complete_steps_with_a_warning(self, tmp_path):
-        path = truncated(tmp_path / "vasprun.xml")
-        with pytest.warns(UserWarning, match=r"dropping the incomplete final ionic step \(calculation 9\); the file appears to have been cut short"):
-            index = index_vasprun(path)
+    def test_truncated_file_keeps_complete_steps(self, tmp_path):
+        index = index_vasprun(truncated(tmp_path / "vasprun.xml"))
         assert len(index.starts) == len(index.ends) == 9
+        assert index.cut == 9
 
     def test_missing_forces_raises(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
@@ -104,17 +102,15 @@ class TestIndexVasprun:
         with pytest.raises(ValueError, match="no atom list in <atominfo>"):
             index_vasprun(write(tmp_path / "vasprun.xml", text))
 
-    def test_empty_file_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="the file is empty"):
-            index_vasprun(write(tmp_path / "vasprun.xml", b""))
-
-    def test_run_killed_during_its_first_step_raises(self, tmp_path):
+    @pytest.mark.parametrize("keep", [
+        lambda head, first: b"",  # empty
+        lambda head, first: head[:-50],  # cut before its first step
+        lambda head, first: head + first[:-200],  # cut during its first step
+    ])
+    def test_file_without_a_complete_step_has_none(self, tmp_path, keep):
         head, calculations, _ = split(SOURCE.read_bytes())
-        path = write(tmp_path / "vasprun.xml", head + calculations[0][:-200])
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            with pytest.raises(ValueError, match="no complete ionic steps"):
-                index_vasprun(path)
+        index = index_vasprun(write(tmp_path / "vasprun.xml", keep(head, calculations[0])))
+        assert len(index.starts) == 0 and index.cut == 0
 
     @pytest.mark.parametrize("edit, missing", [
         (without_forces, "no forces"),

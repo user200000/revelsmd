@@ -7,7 +7,8 @@ via MDAnalysis.
 
 import os
 import struct
-from collections.abc import Generator
+from typing import BinaryIO
+from collections.abc import Generator, Mapping
 
 from MDAnalysis.coordinates.H5MD import H5MDReader  # type: ignore[import-untyped]
 from MDAnalysis.coordinates.LAMMPS import DumpReader  # type: ignore[import-untyped]
@@ -20,7 +21,7 @@ import numpy as np
 from revelsMD.frame_sources import Frame
 from ._base import (
     TrajectoryFiles, TrajectoryPath, Trajectory, as_paths, check_fixed_cell, open_universe,
-    locate, reading_with_mdanalysis, topology_values, warn_cut_short,
+    given_values, locate, reading_with_mdanalysis, topology_values, warn_cut_short,
 )
 
 
@@ -52,6 +53,11 @@ class MDATrajectory(Trajectory):
         MDAnalysis stream.
     temperature : float
         Simulation temperature in Kelvin.
+    masses, charges : mapping, optional
+        Masses or charges by atom name (e.g. ``{'Ow': 15.999}``), used
+        instead of the topology's for the names given. Without them, the
+        values are those the topology records (a `.tpr` records both, a
+        `.gro` neither); neither is guessed.
 
     Attributes
     ----------
@@ -101,6 +107,8 @@ class MDATrajectory(Trajectory):
         topology_file: "TrajectoryPath | object",
         *,
         temperature: float,
+        masses: Mapping[str, float] | None = None,
+        charges: Mapping[str, float] | None = None,
     ):
         if not topology_file:
             raise ValueError("A topology file is required for MDAnalysis trajectories.")
@@ -122,15 +130,20 @@ class MDATrajectory(Trajectory):
         try:
             mdanalysis_universe = open_universe(topology, paths)
         except RuntimeError as e:
-            cut = [path for path in paths if _trr_second_frame_is_cut(path)]
+            # MDAnalysis reads a TRR file's second frame when opening it.
+            cut = [path for path in paths if _trr_ends_mid_frame(path)]
             if not cut:
                 raise
             raise RuntimeError(
-                f"{e}. MDAnalysis cannot open a TRR file whose second frame was "
-                f"cut short ({', '.join(cut)}); keep its first frame with gmx trjconv -e"
+                f"{e}. {', '.join(cut)} ends partway through a frame; keep its "
+                "complete frames with gmx trjconv -e"
             ) from e.__cause__
 
         self.mdanalysis_universe = mdanalysis_universe
+        def names() -> list[str]:
+            return list(mdanalysis_universe.atoms.names)
+        self._masses = given_values(masses, names, "masses", "atom names")
+        self._charges = given_values(charges, names, "charges", "atom names")
         trajectory = mdanalysis_universe.trajectory
         readers = _readers(trajectory)
         if len(readers) != len(paths):
@@ -162,10 +175,12 @@ class MDATrajectory(Trajectory):
             if n and isinstance(reader, TRRReader):
                 # A last frame cut in its body is listed by MDAnalysis; one cut
                 # in its header is not, and leaves bytes after the last listed frame.
-                listed_end = _trr_frame_end(path, reader._xdr.offsets[-1])
-                size = os.path.getsize(path)
+                with open(path, "rb") as f:
+                    listed_end = _trr_frame_end(f, reader._xdr.offsets[-1])
+                    size = os.fstat(f.fileno()).st_size
+                if listed_end > size:
+                    n -= 1
                 if listed_end != size:
-                    n -= listed_end > size
                     warn_cut_short(path, f"frame (frame {n})")
             complete.append(n)
         # Frame i is frame i - _first[k] of file k, which is MDAnalysis frame
@@ -221,11 +236,10 @@ class MDATrajectory(Trajectory):
         Raises
         ------
         DataUnavailableError
-            If the topology has no charges.
+            If neither ``charges`` nor the topology gives them.
         """
-        return topology_values(
-            self.mdanalysis_universe.select_atoms(f'name {atype}'), "charges", self._topology
-        )
+        atoms = self.mdanalysis_universe.select_atoms(f'name {atype}')
+        return topology_values(atoms, "charges", atype, self._charges, self._topology)
 
     def get_masses(self, atype: str) -> np.ndarray:
         """
@@ -244,11 +258,10 @@ class MDATrajectory(Trajectory):
         Raises
         ------
         DataUnavailableError
-            If the topology has no masses.
+            If neither ``masses`` nor the topology gives them.
         """
-        return topology_values(
-            self.mdanalysis_universe.select_atoms(f'name {atype}'), "masses", self._topology
-        )
+        atoms = self.mdanalysis_universe.select_atoms(f'name {atype}')
+        return topology_values(atoms, "masses", atype, self._masses, self._topology)
 
     def _where(self, index: int) -> str:
         k, local = locate(self._first, index)
@@ -280,8 +293,8 @@ class MDATrajectory(Trajectory):
             yield self._get_frame(index)
 
 
-def _trr_frame_end(path: str, offset: int) -> int:
-    """The byte at which the TRR frame starting at ``offset`` ends.
+def _trr_frame_end(f: BinaryIO, offset: int) -> int:
+    """The byte at which the TRR frame starting at ``offset`` of ``f`` ends.
 
     The frame's size is read from its header: the sizes of its blocks,
     and its precision, which GROMACS infers from the box or coordinate size.
@@ -291,11 +304,10 @@ def _trr_frame_end(path: str, offset: int) -> int:
     struct.error
         If the file ends inside the frame's header.
     """
-    with open(path, "rb") as f:
-        f.seek(offset)
-        _, _, length = struct.unpack(">3i", f.read(12))
-        f.seek(offset + 12 + (length + 3) // 4 * 4)
-        sizes = struct.unpack(">13i", f.read(52))
+    f.seek(offset)
+    _, _, length = struct.unpack(">3i", f.read(12))
+    f.seek(offset + 12 + (length + 3) // 4 * 4)
+    sizes = struct.unpack(">13i", f.read(52))
     box, n_atoms = sizes[2], sizes[10]
     data = max(sizes[7:10])
     double = box == 9 * 8 if box else bool(n_atoms) and data == n_atoms * 3 * 8
@@ -303,19 +315,24 @@ def _trr_frame_end(path: str, offset: int) -> int:
     return offset + header + sum(sizes[:10])
 
 
-def _trr_second_frame_is_cut(path: str) -> bool:
-    """Whether ``path`` is a TRR file whose second frame is cut short.
-
-    MDAnalysis reads the second frame of a TRR file when opening it, and
-    cannot open one whose second frame is incomplete.
-    """
+def _trr_ends_mid_frame(path: str) -> bool:
+    """Whether ``path`` is a TRR file with complete frames that ends partway through one."""
     if not path.lower().endswith(".trr"):
         return False
+    end = 0  # the end of the complete frames
     try:
-        size = os.path.getsize(path)
-        second = _trr_frame_end(path, 0)
-        return second < size and _trr_frame_end(path, second) > size
-    except (OSError, struct.error):
+        with open(path, "rb") as f:
+            size = os.fstat(f.fileno()).st_size
+            while True:
+                following = _trr_frame_end(f, end)
+                if following <= end:  # not a TRR frame header
+                    return False
+                if following >= size:
+                    return following > size and end > 0
+                end = following
+    except struct.error:  # the file ends inside a frame header
+        return end > 0
+    except OSError:
         return False
 
 

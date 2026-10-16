@@ -71,7 +71,9 @@ def test_warnings_point_at_the_caller_with_a_relative_import_path(tmp_path):
     repo = Path(__file__).resolve().parent.parent
     work = tmp_path / "notebooks"
     work.mkdir()
+    from lammps_dumps import frame
     (work / "a.dump").write_text("ITEM: TIMESTEP\n")
+    (work / "b.dump").write_text(frame(0))
     script = work / "run.py"
     script.write_text(
         "import sys, warnings\n"
@@ -79,10 +81,7 @@ def test_warnings_point_at_the_caller_with_a_relative_import_path(tmp_path):
         "from revelsMD.trajectories.lammps import combine_frames, index_dump\n"
         "with warnings.catch_warnings(record=True) as record:\n"
         "    warnings.simplefilter('always')\n"
-        "    try:\n"
-        "        combine_frames([index_dump('a.dump')])\n"
-        "    except ValueError:\n"
-        "        pass\n"
+        "    combine_frames([index_dump('a.dump'), index_dump('b.dump')])\n"
         "import revelsMD\n"
         "print(revelsMD.__file__)\n"
         "print(record[0].filename)\n"
@@ -807,9 +806,6 @@ class TestCheckFinite:
             check_finite(broken, good, "f, frame 3")
         with pytest.raises(ValueError, match="f, frame 3: the forces contain NaN or infinite"):
             check_finite(good, broken, "f, frame 3")
-
-
-class TestFiniteCheckNamesTheFrame:
 
     def test_frame_found_by_a_strided_read_is_named_by_its_index(self):
         forces = np.ones((10, 2, 3))

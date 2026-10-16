@@ -11,6 +11,7 @@ import pytest
 
 from lammps_dumps import (
     IDS_SORTED,
+    SMALL_DATA,
     forces as expected_forces,
     frame,
     positions as expected_positions,
@@ -31,7 +32,6 @@ from revelsMD.trajectories.lammps import (
 
 TRICLINIC = "ITEM: BOX BOUNDS xy xz yz pp pp pp"
 DATA_DIR = Path(__file__).parent / "data"
-SMALL_DATA = str(DATA_DIR / "lammps_small" / "data.small.data")
 LJ_DATA = str(DATA_DIR / "example_1_LJ" / "data.fin.nh.data")
 
 
@@ -228,16 +228,31 @@ class TestIndexDump:
     def test_frame_without_its_timestep_line_raises(self, tmp_path, at):
         frames = [frame(0), frame(100), frame(200)]
         frames[at] = frames[at].replace("ITEM: TIMESTEP", "ITEM: TIMESTEQ")
-        byte = sum(len(f) for f in frames[:at]) + frames[at].index("ITEM: NUMBER OF ATOMS")
+        byte = sum(len(f) for f in frames[:at])
         path = write(tmp_path / "a.dump", *frames)
-        with pytest.raises(ValueError, match=fr"a\.dump: a frame header without its ITEM: TIMESTEP line at byte {byte}; the frame is damaged"):
+        with pytest.raises(ValueError, match=fr"a\.dump: unexpected text at byte {byte}: b'ITEM: TIMESTEQ'; .*may be damaged"):
             index_dump(path)
 
-    def test_frame_header_overwritten_with_nul_bytes_raises(self, tmp_path):
-        # A crash can leave NUL bytes in place of a frame's first lines.
-        cut = frame(100)[frame(100).index("ITEM: NUMBER OF ATOMS"):]
-        path = write(tmp_path / "a.dump", "\0" * 20 + cut, frame(200))
-        with pytest.raises(ValueError, match=r"a\.dump: a frame header without its ITEM: TIMESTEP line at byte 20"):
+    @pytest.mark.parametrize("text, line", [
+        (frame(0).replace("ITEM: TIMESTEP", "ITEM: TIMESTEQ"), "ITEM: TIMESTEQ"),
+        ("ITEM: NUMBER OF ATOMS\n6\n", "ITEM: NUMBER OF ATOMS"),
+    ])
+    def test_file_whose_only_frame_lacks_its_timestep_line_raises(self, tmp_path, text, line):
+        path = write(tmp_path / "a.dump", text)
+        with pytest.raises(ValueError, match=fr"a\.dump: unexpected text at byte 0: b'{line}'"):
+            index_dump(path)
+
+    def test_unit_style_lines_with_spaces_and_carriage_returns(self, tmp_path):
+        path = write(tmp_path / "a.dump", "ITEM: UNITS \r\nmetal\r\n", frame(0))
+        assert index_dump(path).units == ("metal",)
+
+    # A crash can leave NUL bytes in place of a frame's first lines, or of
+    # its whole header.
+    @pytest.mark.parametrize("item", ["ITEM: NUMBER OF ATOMS", "ITEM: BOX BOUNDS", "ITEM: ATOMS", "20 2"])
+    def test_frame_header_overwritten_with_nul_bytes_raises(self, tmp_path, item):
+        cut = frame(0)[frame(0).index(item):]
+        path = write(tmp_path / "a.dump", "\0" * 20 + cut, frame(100))
+        with pytest.raises(ValueError, match=r"a\.dump: unexpected text at byte 0: b'\\x00"):
             index_dump(path)
         path = write(tmp_path / "b.dump", frame(0), "\0" * 20 + cut, frame(200))
         with pytest.raises(ValueError, match=fr"b\.dump, timestep 0: .*unexpected text at byte {len(frame(0))}"):
@@ -275,19 +290,19 @@ class TestIndexDump:
         with pytest.raises(ValueError, match="timestep 100 is incomplete but is not the last"):
             index_dump(path)
 
-    @pytest.mark.parametrize("text, timesteps", [
-        ("hello world\n" + frame(0), [0]),
-        ("ITEM: UNITS\nlj\nITEM: BONDS\n" + frame(0), [0]),
-        (frame(0) + "ITEM: BONDS\n1 2 3\n" + frame(100), [0, 100]),
-        (frame(0) + "ITEM: TIME\n" + frame(100), [0, 100]),
+    @pytest.mark.parametrize("text, message", [
+        ("hello world\n" + frame(0), "unexpected text at byte 0: b'hello world'"),
+        ("ITEM: UNITS\nlj\nITEM: BONDS\n" + frame(0), "unexpected text at byte 15: b'ITEM: BONDS'"),
+        (frame(0) + "ITEM: BONDS\n1 2 3\n" + frame(100), f"unexpected text at byte {len(frame(0))}: b'ITEM: BONDS'"),
+        (frame(0) + "ITEM: BONDS\n1 2 3\n", f"unexpected text at byte {len(frame(0))}: b'ITEM: BONDS'"),
+        (frame(0) + "ITEM: TIME\n" + frame(100), "ITEM: TIME without a value"),
     ])
-    def test_text_between_frames_is_skipped(self, tmp_path, text, timesteps):
-        index = index_dump(write(tmp_path / "a.dump", text))
-        assert index.timesteps.tolist() == timesteps
-        assert index.partial is None
+    def test_other_text_between_frames_raises(self, tmp_path, text, message):
+        with pytest.raises(ValueError, match=fr"a\.dump: {re.escape(message)}"):
+            index_dump(write(tmp_path / "a.dump", text))
 
-    def test_text_after_the_last_frame_is_a_cut_frame(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(0) + "ITEM: BONDS\n1 2 3\n")
+    def test_items_after_the_last_frame_are_a_cut_frame(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0) + "ITEM: TIME\n1.0\n")
         index = index_dump(path)
         assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, None)
@@ -419,7 +434,6 @@ class TestIndexDump:
         "ITEM: TIME\n0.5\nITEM: TIM", "ITEM: UNITS\nlj\nITEM: TIME\n0.5\n",
         "ITEM: UNITS\r\nlj\r\n", "ITEM: UNITS\nlj\n ITEM: TI", "ITEM: TIME\n0.5",
         "ITEM: UNITS\nelec", "ITEM: TIME\n1.5e", "ITEM: UNITS\nlj\nITEM: U",
-        "ITEM: NUMBER OF ATOMS\n6\n",
     ])
     def test_file_cut_before_its_first_frame_has_only_a_partial_frame(self, tmp_path, text):
         path = write(tmp_path / "a.dump", text)
@@ -559,8 +573,9 @@ class TestCombineFrames:
             with pytest.raises(ValueError, match="read-only"):
                 values[0] = 1
 
-    def test_no_complete_frames_raises(self, tmp_path):
-        with pytest.warns(UserWarning):
+    def test_no_complete_frames_raises_without_warning_first(self, tmp_path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             with pytest.raises(ValueError, match="no complete frames"):
                 _combined(tmp_path, [frame(0)[:-30]])
 

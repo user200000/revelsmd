@@ -1,6 +1,7 @@
 """MDATrajectory on the committed water trajectory and variants written from it."""
 
 import gc
+import io
 import struct
 from pathlib import Path
 
@@ -15,6 +16,12 @@ from revelsMD.trajectories._base import compute_beta
 DATA = Path(__file__).parent / "data"
 
 
+WATER = DATA / "example_4_water"
+TPR = str(WATER / "prod.tpr")
+TRR = str(WATER / "prod.trr")
+LAMMPS_DUMP = DATA / "lammps_small" / "dump.lammps"
+
+
 @pytest.fixture(autouse=True)
 def collect_failed_readers():
     """Collect readers MDAnalysis failed to open within the test that made them.
@@ -24,10 +31,6 @@ def collect_failed_readers():
     """
     yield
     gc.collect()
-WATER = DATA / "example_4_water"
-TPR = str(WATER / "prod.tpr")
-TRR = str(WATER / "prod.trr")
-LAMMPS_DUMP = DATA / "lammps_small" / "dump.lammps"
 
 
 def write_frames(path, frames=range(3), edit=None, **writer_options):
@@ -70,6 +73,41 @@ class TestReading:
         for name, read in (("charges", traj.get_charges), ("masses", traj.get_masses)):
             with pytest.raises(DataUnavailableError, match=rf"prod\.gro: the topology records no {name}"):
                 read("Ow")
+
+    # MDAnalysis warns about the attributes a .tpr does not give its PDB writer.
+    @pytest.mark.filterwarnings("ignore:Found no information for attr", "ignore:Found chainIDs")
+    def test_pdb_elements_do_not_give_masses(self, tmp_path):
+        # The format most likely to bring guessing back: elements are written.
+        pdb = tmp_path / "water.pdb"
+        MD.Universe(TPR, TRR).atoms.write(str(pdb))
+        lines = [line[:76] + (line[13] if line.startswith("ATOM") else line[76:78]).rjust(2)
+                 if line.startswith("ATOM") else line
+                 for line in pdb.read_text().splitlines()]
+        pdb.write_text("\n".join(lines) + "\n")
+        assert next(line for line in lines if line.startswith("ATOM"))[76:78] == " O"
+        traj = MDATrajectory(TRR, str(pdb), temperature=300.0)
+        with pytest.raises(DataUnavailableError, match=r"water\.pdb: the topology records no masses"):
+            traj.get_masses("Ow")
+
+    def test_masses_and_charges_given_by_name(self, universe):
+        given = {"Ow": 15.999, "Hw1": 1.008, "Hw2": 1.008}
+        traj = MDATrajectory(TRR, str(WATER / "prod.gro"), temperature=300.0,
+                             masses=given, charges={"Ow": -0.8476})
+        for name, mass in given.items():
+            np.testing.assert_array_equal(traj.get_masses(name), np.full(len(traj.get_indices(name)), mass))
+        np.testing.assert_array_equal(traj.get_charges("Ow"), np.full(len(traj.get_indices("Ow")), -0.8476))
+        with pytest.raises(DataUnavailableError, match=r"give them with charges=\{'Hw1': \.\.\.\}"):
+            traj.get_charges("Hw1")
+
+    def test_given_masses_win_over_the_topology(self, universe):
+        traj = MDATrajectory(TRR, TPR, temperature=300.0, masses={"Ow": 16.5})
+        assert set(traj.get_masses("Ow")) == {16.5}
+        np.testing.assert_array_equal(traj.get_masses("Hw1"), universe.select_atoms("name Hw1").masses)
+
+    @pytest.mark.parametrize("argument", ["masses", "charges"])
+    def test_given_values_for_names_no_atom_has_raise(self, argument):
+        with pytest.raises(ValueError, match=f"{argument}= names atom names that no atom has: Na, Xx"):
+            MDATrajectory(TRR, TPR, temperature=300.0, **{argument: {"Ow": 1.0, "Xx": 1.0, "Na": 2.0}})
 
     def test_iteration_and_slicing(self, traj, universe):
         frames = list(traj.iter_frames())
@@ -243,30 +281,45 @@ class TestValidation:
             np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
 
     @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
-    def test_two_frame_trr_with_its_second_frame_cut_names_the_remedy(self, tmp_path):
+    # Cut in the second frame's body, or in the version string of its header.
+    @pytest.mark.parametrize("keep", [lambda data: data[:-1000], lambda data: data[:len(data) // 2 + 12]])
+    def test_two_frame_trr_with_its_second_frame_cut_names_the_remedy(self, tmp_path, keep):
         path = write_frames(tmp_path / "two.trr", range(2))
-        Path(path).write_bytes(Path(path).read_bytes()[:-1000])
-        with pytest.raises(RuntimeError, match=r"second frame was cut short \(.*two\.trr\); keep its first frame with gmx trjconv -e"):
+        Path(path).write_bytes(keep(Path(path).read_bytes()))
+        with pytest.raises(RuntimeError, match=r"two\.trr ends partway through a frame; keep its complete frames with gmx trjconv -e") as e:
             MDATrajectory(path, TPR, temperature=300.0)
+        assert e.value.__cause__ is not None  # what MDAnalysis raised
+
+    @pytest.mark.parametrize("name, keep, expected", [
+        ("a.trr", lambda data: data, False),
+        ("a.trr", lambda data: data[:-1000], True),  # in the last frame's body
+        ("a.trr", lambda data: data[:len(data) // 3 * 2 + 12], True),  # in the last frame's header
+        ("a.trr", lambda data: data[:40], False),  # no complete frame
+        ("a.xtc", lambda data: data[:-1000], False),  # not a TRR file
+    ])
+    def test_trr_ending_partway_through_a_frame(self, tmp_path, name, keep, expected):
+        from revelsMD.trajectories.mda import _trr_ends_mid_frame
+        path = tmp_path / name
+        path.write_bytes(keep(Path(write_frames(tmp_path / "full.trr", range(3))).read_bytes()))
+        assert _trr_ends_mid_frame(str(path)) is expected
 
     @pytest.mark.parametrize("double", [False, True])
     @pytest.mark.parametrize("box", [True, False])
-    def test_trr_frame_size_is_read_from_its_header(self, tmp_path, double, box):
+    def test_trr_frame_size_is_read_from_its_header(self, double, box):
         # A frame as GROMACS writes it: magic, version string, the 13 block
         # sizes, time and lambda in the frame's precision, then the blocks.
         from revelsMD.trajectories.mda import _trr_frame_end
-        real, n_atoms = (8, "d") if double else (4, "f"), 2
-        size, code = real
+        size, code = (8, "d") if double else (4, "f")
+        n_atoms = 2
         version = b"GMX_trn_file"
         sizes = [0, 0, 9 * size if box else 0, 0, 0, 0, 0,
                  3 * n_atoms * size, 0, 3 * n_atoms * size, n_atoms, 7, 0]
         frame = (struct.pack(">3i", 1993, len(version) + 1, len(version)) + version
                  + struct.pack(">13i", *sizes) + struct.pack(f">2{code}", 0.0, 0.0)
                  + bytes(sum(sizes[:10])))
-        path = tmp_path / "frame.trr"
-        path.write_bytes(frame + frame)
-        assert _trr_frame_end(str(path), 0) == len(frame)
-        assert _trr_frame_end(str(path), len(frame)) == 2 * len(frame)
+        f = io.BytesIO(frame + frame)
+        assert _trr_frame_end(f, 0) == len(frame)
+        assert _trr_frame_end(f, len(frame)) == 2 * len(frame)
 
     def test_frames_mdanalysis_cannot_read_are_named(self, monkeypatch):
         from MDAnalysis.coordinates.TRR import TRRReader
@@ -329,8 +382,9 @@ class TestValidation:
         cut = tmp_path / name
         cut.write_bytes((WATER / source).read_bytes()[:length])
         trajectory, topology = (TRR, str(cut)) if which == "topology" else (str(cut), TPR)
-        with pytest.raises(RuntimeError, match=fr"MDAnalysis cannot read .*{name}.*: {raised}"):
+        with pytest.raises(RuntimeError, match=fr"MDAnalysis cannot read .*{name}.*: {raised}") as e:
             MDATrajectory(trajectory, topology, temperature=300.0)
+        assert "trjconv" not in str(e.value)
 
     def test_stop_iteration_does_not_end_a_callers_loop(self, tmp_path):
         cut = tmp_path / "cut.gro"
@@ -347,6 +401,7 @@ class TestValidation:
         with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*prod\.tpr with .*bad\.trr: OSError") as e:
             MDATrajectory([good, str(bad)], TPR, temperature=300.0)
         assert "good.trr" not in str(e.value)
+        assert isinstance(e.value.__cause__, OSError)  # bad.trr's own error
 
     def test_unreadable_and_directory_files_raise_the_os_error(self, tmp_path):
         import os

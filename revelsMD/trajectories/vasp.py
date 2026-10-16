@@ -44,7 +44,9 @@ class VasprunIndex:
     Ionic step ``k`` is the file's ``k``-th ``<calculation>`` element, which
     occupies bytes ``[starts[k], ends[k])``. ``basis`` is the first step's
     ``<varray name="basis">`` element and ``lattice`` its 3x3 matrix; every
-    step has the same lattice.
+    step has the same lattice. ``cut`` is the number of an incomplete final
+    step, which is not indexed. A file with no complete step has no atom
+    names, basis or lattice.
     """
 
     path: str
@@ -53,14 +55,21 @@ class VasprunIndex:
     lattice: np.ndarray
     starts: np.ndarray
     ends: np.ndarray
+    cut: int | None = None
+
+    @classmethod
+    def without_steps(cls, path: str) -> "VasprunIndex":
+        """The index of a file cut short before its first step was complete."""
+        empty = np.empty(0, dtype=np.int64)
+        return cls(path, [], b"", np.empty((0, 0)), empty, empty, cut=0)
 
 
 def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> VasprunIndex:
     """Index the ionic steps of one vasprun.xml without parsing them.
 
     A final ``<calculation>`` with no closing tag, as left by a run killed
-    while writing, is dropped with a warning; a file with no complete step
-    raises instead.
+    while writing, is recorded as ``cut`` and not indexed. So is the first
+    step of an empty file, or of one cut before its first ``<calculation>``.
 
     Parameters
     ----------
@@ -75,8 +84,8 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
     Raises
     ------
     ValueError
-        If the file is empty, holds more than one vasprun.xml document, or
-        has no ``<atominfo>`` atom list or no complete ionic step; if a
+        If the file holds more than one vasprun.xml document, or has a
+        ``<calculation>`` but no ``<atominfo>`` atom list; if a
         calculation other than the last is not closed; if a calculation
         lacks a structure, a lattice basis, positions or forces; if the
         atoms differ from ``reference``'s; or if the lattice changes
@@ -84,15 +93,18 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
     """
     with open(path, "rb") as f:
         if os.fstat(f.fileno()).st_size == 0:
-            raise ValueError(f"{path}: the file is empty")
+            return VasprunIndex.without_steps(path)
         with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
-            atom_names = _read_atom_names(m, path)
             _check_single_document(m, path)
+            if m.find(_CALCULATION_OPEN) == -1:
+                return VasprunIndex.without_steps(path)
+            atom_names = _read_atom_names(m, path)
             if reference is not None and atom_names != reference.atom_names:
                 raise ValueError(f"{path}: the atoms differ from those in {reference.path}")
             starts = array.array("q")
             ends = array.array("q")
             first_basis, first_lattice = b"", np.empty((0, 0))
+            cut = None
             start = m.find(_CALCULATION_OPEN)
             while start != -1:
                 k = len(starts)
@@ -100,8 +112,7 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
                 close = m.find(_CALCULATION_CLOSE, start)
                 following = m.find(_CALCULATION_OPEN, start + len(_CALCULATION_OPEN))
                 if close == -1 and following == -1:
-                    if k:  # with no complete step, the error below says why
-                        warn_cut_short(path, f"ionic step (calculation {k})")
+                    cut = k
                     break
                 if close == -1 or -1 < following < close:
                     raise ValueError(
@@ -121,13 +132,10 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
                 ends.append(end)
                 start = following
     if not starts:
-        raise ValueError(
-            f"{path}: no complete ionic steps (a run killed during its first "
-            "step leaves none)"
-        )
+        return VasprunIndex.without_steps(path)
     return VasprunIndex(
         path, atom_names, first_basis, first_lattice,
-        np.array(starts, dtype=np.int64), np.array(ends, dtype=np.int64),
+        np.array(starts, dtype=np.int64), np.array(ends, dtype=np.int64), cut,
     )
 
 
@@ -304,9 +312,9 @@ class VaspTrajectory(IndexedFileTrajectory):
     Raises
     ------
     ValueError
-        If a file is empty, holds more than one vasprun.xml document, or
-        has no atom list or no complete ionic step; if a calculation other
-        than the last in a file is not closed; if an ionic step lacks a
+        If no file has a complete ionic step; if a file holds more than
+        one vasprun.xml document, or has a step but no atom list; if a
+        calculation other than the last in a file is not closed; if an ionic step lacks a
         structure, a lattice basis, positions or forces; if the files list
         different atoms; if the lattice changes between steps; or if the
         cell is invalid.
@@ -314,8 +322,9 @@ class VaspTrajectory(IndexedFileTrajectory):
     Notes
     -----
     An incomplete final ionic step, as left by a run killed while writing,
-    is dropped with a warning; a file with no complete step raises. Files
-    are concatenated in the order given. Reading a step raises ValueError if
+    is dropped with a warning, as is a file with no complete step; if no
+    file has a complete step, this raises. Files are concatenated in the
+    order given. Reading a step raises ValueError if
     its positions or forces are malformed, do not match the atom count or
     contain NaN or infinity, or if its lattice differs from the first
     step's.
@@ -332,10 +341,23 @@ class VaspTrajectory(IndexedFileTrajectory):
         self.trajectory_file = trajectory_file
         paths = as_paths(trajectory_file)
 
-        # Later files are checked against the first file's atoms and lattice,
-        # so a lattice error names the first ionic step that differs.
-        first = index_vasprun(paths[0])
-        indices = [first] + [index_vasprun(path, first) for path in paths[1:]]
+        # Later files are checked against the atoms and lattice of the first
+        # file with a complete step, so a lattice error names the first ionic
+        # step that differs.
+        indices: list[VasprunIndex] = []
+        first: VasprunIndex | None = None
+        for path in paths:
+            indices.append(index_vasprun(path, first))
+            if first is None and len(indices[-1].starts):
+                first = indices[-1]
+        if first is None:
+            raise ValueError(
+                "no complete ionic steps in " + ", ".join(paths)
+                + " (a run killed during its first step leaves none)"
+            )
+        for index in indices:
+            if index.cut is not None:
+                warn_cut_short(index.path, f"ionic step (calculation {index.cut})")
         self._atom_names = first.atom_names
 
         # Every ionic step of every file is kept, so a frame's position in

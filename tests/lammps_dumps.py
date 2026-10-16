@@ -6,8 +6,11 @@ shift s, atom i is at (i + s, i + 0.5 + s, i + 0.25 + s) with force
 (-i, timestep, i), and rows are written in the order 20, 3, 40, 12, 21, 7.
 """
 
+from pathlib import Path
+
 import numpy as np
 
+SMALL_DATA = str(Path(__file__).parent / "data" / "lammps_small" / "data.small.data")
 IDS = (20, 3, 40, 12, 21, 7)
 IDS_SORTED = np.array(sorted(IDS))
 ORTHO_BOUNDS = "0.0 10.0\n0.0 10.0\n0.0 10.0\n"
@@ -18,10 +21,11 @@ def atom_type(i: int) -> int:
     return 1 if i in (3, 12, 21) else 2
 
 
-def rows(timestep: int, shift: float = 0.0) -> list[str]:
+def rows(timestep: int, shift: float = 0.0, fy: str | None = None) -> list[str]:
+    """Atom rows of a frame; ``fy`` replaces the timestep as every atom's y force."""
     return [
         f"{i} {atom_type(i)} {i + shift!r} {i + 0.5 + shift!r} {i + 0.25 + shift!r} "
-        f"{-i} {timestep} {i}"
+        f"{-i} {timestep if fy is None else fy} {i}"
         for i in IDS
     ]
 
@@ -57,3 +61,12 @@ def forces(timestep: int) -> np.ndarray:
 def write(path, *frames: str) -> str:
     path.write_text("".join(frames))
     return str(path)
+
+
+def load(dumps, **kwargs):
+    """A LammpsTrajectory of ``dumps`` with the lammps_small data file."""
+    from revelsMD.trajectories import LammpsTrajectory
+    kwargs.setdefault("atom_style", "id type x y z")
+    kwargs.setdefault("temperature", 1.0)
+    kwargs.setdefault("units", "lj")
+    return LammpsTrajectory(dumps, SMALL_DATA, **kwargs)

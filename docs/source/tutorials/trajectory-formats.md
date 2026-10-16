@@ -65,8 +65,10 @@ other style, pass the layout as a column string; for a data file without the
 comment, pass a column string or one of the style names above. MDAnalysis
 ignores column names it does not know; charges are read only from a column
 named `charge` (not `q`). Masses are read from the data file's `Masses`
-section. Neither is guessed: without them, `get_charges` and `get_masses`
-raise an error, and so do densities that need them.
+section. Neither is guessed: give missing ones by atom type with the `masses`
+and `charges` arguments, which also replace the data file's values for the
+types they name. Without either, `get_charges` and `get_masses` raise an
+error, and so do densities that need them.
 
 ```python
 traj = LammpsTrajectory(
@@ -100,13 +102,12 @@ that would discard the whole earlier file.
 The last frame of any file may be incomplete, as left by a job killed while
 writing: it is dropped with a warning. So is an empty file, or one holding
 only the start of a frame header, from a job that stopped before writing a
-frame. An incomplete frame anywhere else raises an error, so a file written
+frame. If no file has a complete frame, an error is raised instead. An incomplete frame anywhere else raises an error, so a file written
 with `dump_modify append yes` across a restart must be split at the restart.
 
-Text between frames, such as the `ITEM: UNITS` and `ITEM: TIME` lines of
-`dump_modify units yes` and `time yes`, is skipped. Text holding the lines of
-a frame header without its `ITEM: TIMESTEP` line, as a damaged frame does,
-raises an error. A dump whose `ITEM: UNITS` names a unit style other than
+The `ITEM: UNITS` and `ITEM: TIME` lines that `dump_modify units yes` and
+`time yes` write between frames are skipped; any other text between frames,
+as a damaged frame leaves, raises an error. A dump whose `ITEM: UNITS` names a unit style other than
 `units` raises an error, so pass the style the run used.
 
 Atoms are identified by LAMMPS type number, as a string:
@@ -147,8 +148,9 @@ missing steps between them, cannot be checked. Pass each file separately: a
 file holding two `vasprun.xml` documents joined with `cat` raises an error.
 
 A `vasprun.xml` from a run that was killed before it finished is read up to its
-last complete ionic step; an ionic step cut short is dropped with a warning. A
-file with no complete ionic step raises an error.
+last complete ionic step; an ionic step cut short is dropped with a warning, as
+is a file with no complete ionic step. If no file has a complete step, an error
+is raised instead.
 
 The lattice must be the same in every ionic step; a run whose lattice changes
 raises an error.
@@ -194,13 +196,20 @@ Frames that several files contain are read from each, so join restart files
 written with `gmx mdrun -noappend`, which repeat a frame at each restart,
 with `gmx trjcat` first. A last TRR frame cut short, as left by a job killed
 while writing, is dropped with a warning; MDAnalysis cannot open a TRR file
-whose second frame is cut short, so keep its first frame with
+whose second frame is cut short, so keep its complete frames with
 `gmx trjconv -e`. Files of other formats cut short raise an error naming the
 file.
 
 Charges and masses are those the topology records, never guessed from atom
-names: a `.tpr` records both, and a `.gro` or `.pdb` neither, so charge and
-polarisation densities and rigid molecules' centres of mass need a `.tpr`.
+names: a `.tpr`, `.psf` or AMBER `prmtop` records both, and a `.gro` or `.pdb`
+neither. Give missing ones by atom name with the `masses` and `charges`
+arguments, which also replace the topology's values for the names they list:
+
+```python
+traj = MDATrajectory('prod.trr', 'conf.gro', temperature=300.0,
+                     masses={'Ow': 15.999, 'Hw1': 1.008, 'Hw2': 1.008},
+                     charges={'Ow': -0.8476, 'Hw1': 0.4238, 'Hw2': 0.4238})
+```
 
 The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:

@@ -1,5 +1,6 @@
 """LammpsTrajectory on small dump files written for each case."""
 
+import itertools
 import shutil
 from pathlib import Path
 
@@ -7,22 +8,28 @@ import numpy as np
 import pytest
 
 from file_limits import open_descriptors, open_file_limit
-from lammps_dumps import IDS_SORTED, atom_type, forces, frame, positions, rows, write
+from lammps_dumps import (
+    IDS_SORTED, SMALL_DATA as DATA, atom_type, forces, frame, load, positions, rows, write,
+)
 from traced_memory import bytes_per_extra_item
-from revelsMD.density import DensityGrid
+from revelsMD.density import DensityGrid, Selection
 from revelsMD.rdf import RDF
 from revelsMD.trajectories import DataUnavailableError, LammpsTrajectory
 from revelsMD.trajectories._base import compute_beta
 
-SMALL = Path(__file__).parent / "data" / "lammps_small"
-DATA = str(SMALL / "data.small.data")
 
 
-def load(dumps, **kwargs):
-    kwargs.setdefault("atom_style", "id type x y z")
-    kwargs.setdefault("temperature", 1.0)
-    kwargs.setdefault("units", "lj")
-    return LammpsTrajectory(dumps, DATA, **kwargs)
+# Every way frames are read for analysis.
+ANALYSES = [
+    lambda traj: list(traj.iter_frames()),
+    lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(traj, "1"),
+    lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
+        traj, "1", compute_lambda=True, block_size=2),
+    lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
+        traj, "1", compute_lambda=True, blocking="interleaved", sections=2),
+    lambda traj: RDF(traj, "1", "2").accumulate(traj),
+]
+ANALYSIS_NAMES = ["iter_frames", "grid", "contiguous blocks", "interleaved blocks", "rdf"]
 
 
 @pytest.fixture
@@ -232,27 +239,37 @@ class TestOpenFiles:
         np.testing.assert_array_equal(got[-1].positions, positions(float((n_files - 1) % 7)))
 
 
-    @pytest.mark.parametrize("consumer", [
-        "iter_frames", "grid", "contiguous blocks", "interleaved blocks", "rdf",
-    ])
-    def test_no_file_is_left_open_after_a_bad_frame(self, tmp_path, consumer):
-        run = {
-            "iter_frames": lambda traj: list(traj.iter_frames()),
-            "grid": lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(traj, "1"),
-            "contiguous blocks": lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
-                traj, "1", compute_lambda=True, block_size=2),
-            "interleaved blocks": lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
-                traj, "1", compute_lambda=True, blocking="interleaved", sections=2),
-            "rdf": lambda traj: RDF(traj, "1", "2").accumulate(traj),
-        }[consumer]
-        broken = [r.replace(" 100 ", " nan ") for r in rows(100)]
+    @pytest.mark.parametrize("run", ANALYSES, ids=ANALYSIS_NAMES)
+    def test_no_file_is_left_open_after_a_bad_frame(self, tmp_path, run):
         good = load(write(tmp_path / "good.dump", frame(0), frame(100), frame(200)))
-        bad = load(write(tmp_path / "bad.dump", frame(0), frame(100, atom_rows=broken), frame(200)))
+        bad = load(write(tmp_path / "bad.dump", frame(0), frame(100, atom_rows=rows(100, fy="nan")), frame(200)))
         run(good)  # anything opened once per process, such as by tqdm, is opened now
+        self.check_files_closed(run, bad, "NaN")
+
+    # The analysis itself fails at its second frame, outside the reader.
+    @pytest.mark.parametrize("run", ANALYSES[1:], ids=ANALYSIS_NAMES[1:])
+    def test_no_file_is_left_open_after_the_analysis_fails(self, tmp_path, monkeypatch, run):
+        traj = load(write(tmp_path / "a.dump", frame(0), frame(100), frame(200)))
+        run(traj)  # anything opened once per process, such as by tqdm, is opened now
+        calls = itertools.count()
+
+        def failing(method):
+            def wrapper(*args, **kwargs):
+                if next(calls) == 1:
+                    raise ValueError("the analysis failed")
+                return method(*args, **kwargs)
+            return wrapper
+
+        monkeypatch.setattr(Selection, "extract", failing(Selection.extract))
+        monkeypatch.setattr(RDF, "deposit", failing(RDF.deposit))
+        self.check_files_closed(run, traj, "the analysis failed")
+
+    @staticmethod
+    def check_files_closed(run, traj, error):
         before = open_descriptors()
         # The exception is kept, as a notebook or debugger keeps it, while files are counted.
-        with pytest.raises(ValueError, match="NaN") as kept:
-            run(bad)
+        with pytest.raises(ValueError, match=error) as kept:
+            run(traj)
         assert kept.value is not None and open_descriptors() == before
 
 
@@ -340,7 +357,7 @@ class TestValidation:
 
     @pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
     def test_non_finite_values_raise_when_read(self, tmp_path, value):
-        broken = [r.replace(" 100 ", f" {value} ") for r in rows(100)]
+        broken = rows(100, fy=value)
         a = write(tmp_path / "a.dump", frame(0), frame(100, atom_rows=broken))
         traj = load(a)
         with pytest.raises(ValueError, match=r"a\.dump, frame 1 \(timestep 100\): the forces contain NaN"):
@@ -443,6 +460,21 @@ class TestTopology:
             traj.get_masses("1")
         np.testing.assert_array_equal(
             LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj").get_masses("1"), [1.0] * 3)
+        # Masses given by type, as strings or numbers, fill the gap.
+        given = LammpsTrajectory(six_frames, str(path), temperature=1.0, units="lj",
+                                 masses={"1": 12.0, 2: 1.0}, charges={1: -0.5})
+        np.testing.assert_array_equal(given.get_masses("1"), [12.0] * 3)
+        np.testing.assert_array_equal(given.get_masses("2"), [1.0] * 3)
+        np.testing.assert_array_equal(given.get_charges("1"), [-0.5] * 3)
+
+    def test_given_masses_win_over_the_data_file(self, six_frames):
+        traj = LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj", masses={"1": 5.0})
+        np.testing.assert_array_equal(traj.get_masses("1"), [5.0] * 3)
+        np.testing.assert_array_equal(traj.get_masses("2"), [2.0] * 3)
+
+    def test_given_masses_for_types_no_atom_has_raise(self, six_frames):
+        with pytest.raises(ValueError, match="masses= names atom types that no atom has: 3"):
+            LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj", masses={3: 1.0})
 
     def test_full_style_data_file(self):
         lj = Path(__file__).parent / "data" / "example_1_LJ"
@@ -457,7 +489,7 @@ class TestTopology:
             inferred.mdanalysis_universe.atoms.ids, explicit.mdanalysis_universe.atoms.ids)
 
 
-TRICLINIC = str(SMALL / "dump_triclinic.lammps")
+TRICLINIC = str(Path(DATA).parent / "dump_triclinic.lammps")
 TRICLINIC_CELL = np.array([[10.0, 0.0, 0.0], [2.0, 10.0, 0.0], [1.0, -1.5, 10.0]])
 
 

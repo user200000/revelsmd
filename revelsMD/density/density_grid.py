@@ -475,7 +475,7 @@ class DensityGrid:
         # Invalidate any previous derived state — accumulator data is changing,
         # so cached results would be stale.
         self._invalidate_derived_state()
-        if not compute_lambda and self._welford is not None:
+        if not compute_lambda and self._welford is not None and self._welford.has_data:
             warnings.warn(
                 "Calling accumulate() with compute_lambda=False discards existing "
                 "lambda statistics. Use compute_lambda=True to preserve them.",
@@ -486,7 +486,9 @@ class DensityGrid:
 
         if not compute_lambda:
             # Simple accumulation — stream frames directly, no block overhead.
-            with contextlib.closing(trajectory.iter_frames(start, stop, period)) as frames:
+            with contextlib.closing(trajectory.iter_frames(
+                frame_indices.start, frame_indices.stop, frame_indices.step
+            )) as frames:
                 for frame in tqdm(frames, total=len(frame_indices)):
                     deposit_positions, deposit_forces, weights = self._selection.extract(frame)
                     self.deposit(deposit_positions, deposit_forces, weights, kernel=kernel)
@@ -532,7 +534,9 @@ class DensityGrid:
                 effective_block_size = block_size if block_size is not None else 1
                 if effective_block_size <= 0:
                     raise ValueError("block_size must be a positive integer")
-                with contextlib.closing(trajectory.iter_frames(start, stop, period)) as frames:
+                with contextlib.closing(trajectory.iter_frames(
+                    frame_indices.start, frame_indices.stop, frame_indices.step
+                )) as frames:
                     self._accumulate_blocks(
                         contiguous_blocks(frames, effective_block_size),
                         kernel,
@@ -561,10 +565,14 @@ class DensityGrid:
         Parameters
         ----------
         blocks : BlockSource
-            Generator of blocks, where each block is an iterator of
-            Frame instances; it is closed when accumulation ends or fails.
+            Generator of blocks of Frame instances; each block, and the
+            generator, is closed when it has been read or reading fails.
         kernel : str
             Deposition kernel name.
+
+        A block's frames are added to the grid and the lambda statistics
+        only once all of them have been deposited and the block's densities
+        computed, so a block whose reading fails is discarded whole.
         """
         # Initialise Welford accumulator if first call with compute_lambda
         if self._welford is None:
@@ -587,29 +595,23 @@ class DensityGrid:
                 block_counter.fill(0)
                 block_count = 0
 
-                for frame in block:
-                    deposit_positions, deposit_forces, weights = self._selection.extract(frame)
+                with contextlib.closing(block):
+                    for frame in block:
+                        deposit_positions, deposit_forces, weights = self._selection.extract(frame)
 
-                    self._deposit_to_arrays(
-                        block_force_x, block_force_y, block_force_z, block_counter,
-                        deposit_positions, deposit_forces, weights, kernel,
-                    )
+                        self._deposit_to_arrays(
+                            block_force_x, block_force_y, block_force_z, block_counter,
+                            deposit_positions, deposit_forces, weights, kernel,
+                        )
 
-                    # One frame per deposit, however many species arrays it
-                    # carries (consistent with deposit()): block_count is the
-                    # number of frames in the block, which is also the correct
-                    # Welford weight below.
-                    block_count += 1
+                        # One frame per deposit, however many species arrays it
+                        # carries (consistent with deposit()): block_count is the
+                        # number of frames in the block, which is also the correct
+                        # Welford weight below.
+                        block_count += 1
 
-                # Add block data to main accumulators
-                self.force_x += block_force_x
-                self.force_y += block_force_y
-                self.force_z += block_force_z
-                self.counter += block_counter
-                self.count += block_count
-                self.frames_processed += block_count
-
-                # Compute block densities for Welford update
+                # Compute block densities for the Welford update before
+                # changing any state, so the commit below is short.
                 block_rho_force, block_rho_count = self._compute_densities_from_arrays(
                     block_force_x, block_force_y, block_force_z,
                     block_counter, block_count
@@ -617,6 +619,12 @@ class DensityGrid:
                 block_delta = block_rho_force - block_rho_count
 
                 self._welford.update(block_delta, block_rho_force, weight=block_count)
+                self.force_x += block_force_x
+                self.force_y += block_force_y
+                self.force_z += block_force_z
+                self.counter += block_counter
+                self.count += block_count
+                self.frames_processed += block_count
 
     def _deposit_to_arrays(
         self,

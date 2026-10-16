@@ -330,11 +330,11 @@ class TestRDFAccumulatePeriod:
 
 class TestRDFFrameBounds:
 
-    @pytest.mark.parametrize("start, stop", [(3, None), (-4, None), (0, 4), (0, -4), (2, 1)])
-    def test_frames_outside_the_trajectory_or_none_raise(self, water_trajectory, start, stop):
+    def test_start_past_the_last_frame_raises(self, water_trajectory):
+        # frame_range, tested in test_trajectories, checks the bounds.
         from revelsMD.rdf import RDF
         with pytest.raises(ValueError):
-            RDF(water_trajectory, 'O', 'H').accumulate(water_trajectory, start=start, stop=stop)
+            RDF(water_trajectory, 'O', 'H').accumulate(water_trajectory, start=3)
 
     def test_negative_bounds_count_from_the_end(self, water_trajectory):
         from revelsMD.rdf import RDF

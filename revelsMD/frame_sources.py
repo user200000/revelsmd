@@ -13,7 +13,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Generator, Iterator, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
@@ -72,8 +72,19 @@ class Frame:
                 f"forces has {self.forces.shape[0]}"
             )
 
-#: A generator of blocks, where each block is an iterator of frames.
-BlockSource = Generator[Iterator[Frame], None, None]
+class Block(Protocol):
+    """An iterator of frames that its reader closes when done with it."""
+
+    def __iter__(self) -> Iterator[Frame]: ...
+
+    def __next__(self) -> Frame: ...
+
+    def close(self) -> None: ...
+
+
+#: A generator of blocks. Whatever reads a block closes it, which releases
+#: any file the block holds open.
+BlockSource = Generator[Block, None, None]
 
 
 def contiguous_blocks(
@@ -111,15 +122,14 @@ def contiguous_blocks(
         raise ValueError("block_size must be >= 1")
 
     it = iter(frame_iterator)
-    while (first := next(it, None)) is not None:
+    for first in it:
         block = _Block(first, it, block_size)
         del first  # the block holds the first frame only until it is read
         yield block
         if not block.read_to_end():
             raise RuntimeError(
                 "a block of frames was requested before the previous block was "
-                "read to its end; contiguous blocks share one stream of frames, "
-                "so read each block fully before requesting the next"
+                "read to its end"
             )
 
 
@@ -139,11 +149,14 @@ class _Block:
             return frame
         return next(self._rest)
 
+    def close(self) -> None:
+        """Nothing to release: the stream belongs to the caller of contiguous_blocks."""
+
     def read_to_end(self) -> bool:
         """Whether every frame of the block has been read.
 
-        A block read only partly loses a frame of the stream, which is then
-        abandoned.
+        If a frame is left, this reads it from the stream; the caller then
+        raises, so the frame is not needed.
         """
         return self._first is None and next(self._rest, None) is None
 
@@ -173,8 +186,8 @@ def interleaved_blocks(
     ------
     iterator of Frame
         One block of frames. Each block is an independent generator;
-        blocks do not share iteration state. Closing this generator closes
-        the block it last yielded.
+        blocks do not share iteration state. A part-read block holds its
+        file open until it is closed.
 
     Raises
     ------
@@ -191,7 +204,6 @@ def interleaved_blocks(
         section_indices = frame_indices[k::sections]
         if len(section_indices) == 0:
             continue  # defensive: callers should not request sections > frames
-        section: Generator[Frame, None, None]
         if (
             isinstance(trajectory, Trajectory)
             and isinstance(section_indices, range)
@@ -199,13 +211,8 @@ def interleaved_blocks(
             and 0 <= section_indices[0]
             and section_indices[-1] < trajectory.frames
         ):
-            section = trajectory.iter_frames(
+            yield trajectory.iter_frames(
                 section_indices[0], section_indices[-1] + 1, section_indices.step
             )
         else:
-            section = (trajectory.get_frame(i) for i in section_indices)
-        try:
-            yield section
-        except GeneratorExit:
-            section.close()  # release the file a part-read section holds open
-            raise
+            yield (trajectory.get_frame(i) for i in section_indices)

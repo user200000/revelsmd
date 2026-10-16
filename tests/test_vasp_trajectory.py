@@ -1,5 +1,6 @@
 """VaspTrajectory on the committed vasprun.xml and variants of it."""
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -191,6 +192,19 @@ class TestFiles:
         for got, (positions, forces) in zip(traj.iter_frames(), reference_frames()[:9], strict=True):
             np.testing.assert_array_equal(got.positions, positions)
             np.testing.assert_array_equal(got.forces, forces)
+
+    def test_files_without_a_complete_step(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        killed = write(tmp_path / "1.xml", head + calculations[0][:-200])
+        # Alone, it raises without warning first.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(ValueError, match=r"no complete ionic steps in .*1\.xml"):
+                VaspTrajectory(killed, temperature=600.0)
+        # Before its restart, it is dropped with a warning.
+        with pytest.warns(UserWarning, match=r"1\.xml: dropping the incomplete final ionic step \(calculation 0\)"):
+            traj = VaspTrajectory([killed, str(SOURCE)], temperature=600.0)
+        assert traj.frames == len(reference_frames())
 
     def test_killed_run_followed_by_its_restart(self, tmp_path):
         killed = truncated(tmp_path / "1.xml")

@@ -258,7 +258,9 @@ class RDF:
         If a frame cannot be read, the frames deposited before it are kept.
         """
         to_run = frame_range(trajectory.frames, start, stop, period)
-        with contextlib.closing(trajectory.iter_frames(start, stop, period)) as frames:
+        with contextlib.closing(
+            trajectory.iter_frames(to_run.start, to_run.stop, to_run.step)
+        ) as frames:
             for frame in tqdm(frames, total=len(to_run)):
                 self.deposit(frame)
 

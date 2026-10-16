@@ -8,8 +8,8 @@ and the helpers that index and read the dump format.
 import array
 import mmap
 import os
-import re
 from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import BinaryIO
 
 import numpy as np
@@ -18,7 +18,7 @@ from revelsMD.cell import fractional_to_cartesian
 from ._base import (
     TrajectoryFiles, TrajectoryPath,
     FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
-    open_universe, topology_values, warn_cut_short,
+    given_values, open_universe, topology_values, warn_cut_short,
 )
 
 
@@ -158,11 +158,10 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
 
 
 _TIMESTEP = b"ITEM: TIMESTEP"
-# The unit style that dump_modify units yes writes before a frame; a style
-# without its line end may have been cut short.
-_UNITS = re.compile(rb"ITEM: UNITS[ \t\r]*\n\s*(\S+)[ \t\r]*\n")
-# Lines of a frame header that follow its ITEM: TIMESTEP line.
-_FRAME_ITEMS = re.compile(rb"ITEM: (?:NUMBER OF ATOMS|BOX BOUNDS|ATOMS)")
+# The items that dump_modify units yes and time yes write before a frame,
+# each followed by a line holding its value.
+_UNITS = b"ITEM: UNITS"
+_BETWEEN_FRAMES = (_UNITS, b"ITEM: TIME")
 
 
 @dataclass(frozen=True, eq=False)
@@ -234,19 +233,18 @@ def index_dump(path: str) -> DumpIndex:
     Every complete frame is compared with the file's first complete frame;
     the first whose columns, box or atom count differ is recorded in
     ``mismatch`` rather than raised, since a restart file may replace it.
-    Text between frames, such as the ``ITEM: UNITS`` and ``ITEM: TIME``
-    lines of ``dump_modify units yes`` and ``time yes``, is skipped; unit
-    styles are recorded. An empty file, a file holding only the start of a
-    frame header, and text after the last frame's atom rows are frames cut
-    short.
+    The ``ITEM: UNITS`` and ``ITEM: TIME`` items that ``dump_modify units
+    yes`` and ``time yes`` write between frames are skipped; unit styles are
+    recorded. An empty file, a file holding only the start of a frame
+    header, and items after the last frame's atom rows are frames cut short.
 
     Raises
     ------
     ValueError
         If the file has no frames, if a frame other than the last is
         incomplete, if a frame has more rows than its header states, if a
-        frame header is malformed, if timesteps do not strictly increase,
-        or if a box is not supported.
+        frame header is malformed, if there is other text between frames,
+        if timesteps do not strictly increase, or if a box is not supported.
     """
     no_frames = DumpIndex(
         path, None, np.empty(0, np.int64), np.empty(0, np.int64), np.empty(0, np.int64),
@@ -263,11 +261,14 @@ def index_dump(path: str) -> DumpIndex:
                 position = m.find(_TIMESTEP, position + len(_TIMESTEP))
             if not frame_starts:
                 head = m[:5]
-                if head.startswith(b"ITEM:") or b"ITEM:".startswith(head):
-                    return no_frames
-                raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
+                if not (head.startswith(b"ITEM:") or b"ITEM:".startswith(head)):
+                    raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
+                # A job that stopped before writing a frame leaves at most the
+                # items written before one, cut short.
+                _between_frames(m, 0, len(m), path, {}, at_end=True)
+                return no_frames
             units: dict[str, None] = {}
-            _skip_text(m, 0, frame_starts[0], path, units)
+            _between_frames(m, 0, frame_starts[0], path, units, at_end=False)
             # A file cut off inside an "ITEM:" word leaves a tail that is not
             # yet recognisable as one. Drop that tail.
             limit = len(m)
@@ -297,8 +298,8 @@ def index_dump(path: str) -> DumpIndex:
                         )
                     partial = entry
                     continue
-                following = _skip_text(m, entry.data_end, end, path, units)
-                if k == n - 1 and following.strip():
+                last = k == n - 1
+                if _between_frames(m, entry.data_end, end, path, units, at_end=last) and last:
                     dropped_header = True
                 if first is None:
                     first = entry
@@ -326,27 +327,46 @@ def index_dump(path: str) -> DumpIndex:
     )
 
 
-def _skip_text(m: mmap.mmap, start: int, end: int, path: str, units: dict[str, None]) -> bytes:
-    """Return the text between frames at bytes [start, end), recording its unit styles.
+def _between_frames(
+    m: mmap.mmap, start: int, end: int, path: str, units: dict[str, None], *, at_end: bool
+) -> bool:
+    """Check the text between frames at bytes [start, end), recording its unit styles.
 
-    The unit styles of ``ITEM: UNITS`` lines are added to ``units``.
+    Between frames a dump holds only blank lines and the ``ITEM: UNITS`` and
+    ``ITEM: TIME`` items, each followed by its value; the unit styles are
+    added to ``units``. After the last frame (``at_end``) the text may be
+    cut short. Returns whether the text holds anything but blank lines.
 
     Raises
     ------
     ValueError
-        If the text holds the lines of a frame header, as a frame whose
-        ``ITEM: TIMESTEP`` line was damaged does.
+        If the text holds anything else, as a damaged frame does.
     """
     text = m[start:end]
-    damaged = _FRAME_ITEMS.search(text)
-    if damaged is not None:
-        raise ValueError(
-            f"{path}: a frame header without its ITEM: TIMESTEP line at byte "
-            f"{start + damaged.start()}; the frame is damaged"
-        )
-    for match in _UNITS.finditer(text):
-        units[match.group(1).decode("ascii", "backslashreplace")] = None
-    return text
+    lines = text.split(b"\n")
+    item: bytes | None = None
+    position = start
+    for k, raw in enumerate(lines):
+        line = raw.strip()
+        cut = at_end and k == len(lines) - 1  # the file ends inside this line
+        if not line:
+            pass
+        elif item is not None:  # the item's value
+            if item == _UNITS and not cut:
+                units[line.decode("ascii", "backslashreplace")] = None
+            item = None
+        elif line in _BETWEEN_FRAMES:
+            item = line
+        elif not (cut and any(word.startswith(line) for word in (*_BETWEEN_FRAMES, _TIMESTEP))):
+            raise ValueError(
+                f"{path}: unexpected text at byte {position}: {raw[:40]!r}; between "
+                "frames a dump holds only ITEM: UNITS and ITEM: TIME, so the file "
+                "may be damaged"
+            )
+        position += len(raw) + 1
+    if item is not None and not at_end:
+        raise ValueError(f"{path}: {item.decode()} without a value before byte {end}")
+    return bool(text.strip())
 
 
 def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> str | None:
@@ -461,7 +481,8 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
     Files must be given in run order: the files of a run, then those of
     each restart. Each file's frames replace every frame of the files
     before it from its own first timestep on, as when a run restarts from
-    a restart file. An incomplete final frame is dropped with a warning.
+    a restart file. An incomplete final frame is dropped with a warning,
+    unless no file has a complete frame, which raises.
     Every kept frame must have the columns, box and atom count of its
     file's first frame, and every file's first frame the box of the first
     file's; frames that are replaced are not compared.
@@ -473,10 +494,6 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         it, if a kept frame's header differs as above, or if there are no
         complete frames.
     """
-    for index in indices:
-        if index.partial is not None:
-            at = "" if index.partial.timestep is None else f" (timestep {index.partial.timestep})"
-            warn_cut_short(index.partial.path, f"frame{at}")
     files: list[DumpIndex] = []
     headers: list[DumpHeader] = []
     for index in indices:
@@ -487,6 +504,10 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         raise ValueError(
             "no complete frames in " + ", ".join(index.path for index in indices)
         )
+    for index in indices:
+        if index.partial is not None:
+            at = "" if index.partial.timestep is None else f" (timestep {index.partial.timestep})"
+            warn_cut_short(index.partial.path, f"frame{at}")
     kept = [len(index.timesteps) for index in files]
     for k in range(1, len(files)):
         first, previous = int(files[k].timesteps[0]), files[k - 1]
@@ -656,7 +677,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
     frames replace every frame of the files before it from its own first
     timestep on. An incomplete final frame, as left by a job killed while
     writing, is dropped with a warning, as is an empty file or one holding
-    only the start of a frame header. Frames that a later file replaces are
+    only the start of a frame header, unless no file has a complete frame,
+    which raises. Frames that a later file replaces are
     not compared with their file's first frame, so a run whose box or atom
     count went wrong after the restart point can be joined with its
     restart.
@@ -678,6 +700,11 @@ class LammpsTrajectory(IndexedFileTrajectory):
         ``atomic``, ``charge``, ``full``, ``molecular``, ``bond`` or
         ``angle``. By default the style is read from the data file's
         ``Atoms # <style>`` comment.
+    masses, charges : mapping, optional
+        Masses or charges by atom type (e.g. ``{'1': 15.999}``), used
+        instead of the data file's for the types given. Without them, masses
+        come from the data file's ``Masses`` section and charges from its
+        ``charge`` column; neither is guessed.
 
     Attributes
     ----------
@@ -723,6 +750,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
         temperature: float,
         units: str = 'real',
         atom_style: str | None = None,
+        masses: Mapping[str | int, float] | None = None,
+        charges: Mapping[str | int, float] | None = None,
     ):
         super().__init__(units=units, temperature=temperature)
 
@@ -744,11 +773,15 @@ class LammpsTrajectory(IndexedFileTrajectory):
             raise RuntimeError(f"{topology}: atom ids repeat; each atom must have its own id")
         self._topology_ids = topology_ids
         self._topology_types = np.array([str(t).encode() for t in universe.atoms.types])
+        def types() -> list[str]:
+            return [str(t) for t in universe.atoms.types]
+        self._masses = given_values(masses, types, "masses", "atom types")
+        self._charges = given_values(charges, types, "charges", "atom types")
 
         indices = [index_dump(path) for path in paths]
         for index in indices:
             for style in index.units:
-                if style.lower() != units.lower():
+                if style.lower() != self.units:
                     raise ValueError(
                         f"{index.path}: the dump was written with ITEM: UNITS {style}, "
                         f"but units='{units}'; pass units='{style}'"
@@ -813,11 +846,10 @@ class LammpsTrajectory(IndexedFileTrajectory):
         Raises
         ------
         DataUnavailableError
-            If the atom style has no charge column.
+            If neither ``charges`` nor the data file gives them.
         """
-        return topology_values(
-            self.mdanalysis_universe.select_atoms(f'type {atype}'), "charges", self._topology
-        )
+        atoms = self.mdanalysis_universe.select_atoms(f'type {atype}')
+        return topology_values(atoms, "charges", atype, self._charges, self._topology)
 
     def get_masses(self, atype: str) -> np.ndarray:
         """Return atomic masses for a given LAMMPS atom type.
@@ -835,11 +867,10 @@ class LammpsTrajectory(IndexedFileTrajectory):
         Raises
         ------
         DataUnavailableError
-            If mass data is absent from the topology file.
+            If neither ``masses`` nor the data file gives them.
         """
-        return topology_values(
-            self.mdanalysis_universe.select_atoms(f'type {atype}'), "masses", self._topology
-        )
+        atoms = self.mdanalysis_universe.select_atoms(f'type {atype}')
+        return topology_values(atoms, "masses", atype, self._masses, self._topology)
 
     def _where(self, index: int) -> str:
         """Name the file, the frame's position in it, and its timestep."""

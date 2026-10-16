@@ -32,6 +32,14 @@ def _frame_ids(blocks):
     return result
 
 
+def _numbered_trajectory(n=10):
+    """A NumpyTrajectory whose frame i has every position i."""
+    from revelsMD.trajectories import NumpyTrajectory
+    positions = np.arange(n, dtype=float)[:, None, None] * np.ones((n, 2, 3))
+    return NumpyTrajectory(positions, np.ones((n, 2, 3)), 20, 20, 20, ["A", "B"],
+                           temperature=300.0)
+
+
 class _FakeTrajectory:
     """Minimal trajectory stub supporting get_frame()."""
 
@@ -122,13 +130,20 @@ class TestContiguousBlocks:
         with pytest.raises(RuntimeError, match="before the previous block was read to its end"):
             next(blocks)
 
-    def test_consumers_that_stop_at_the_block_size_do_not_raise(self):
+    def test_an_unread_one_frame_block_is_reported(self):
+        blocks = contiguous_blocks(iter(_make_frames(3)), block_size=1)
+        next(blocks)
+        with pytest.raises(RuntimeError, match="before the previous block was read to its end"):
+            next(blocks)
+
+    @pytest.mark.parametrize("read", [
+        lambda block: list(itertools.islice(block, 3)),
+        lambda block: [f for _, f in zip(range(3), block)],
+    ], ids=["islice", "zip"])
+    def test_consumers_that_stop_at_the_block_size_do_not_raise(self, read):
         blocks = contiguous_blocks(iter(_make_frames(7)), block_size=3)
-        assert [[int(f.positions[0, 0]) for f in itertools.islice(block, 3)]
+        assert [[int(f.positions[0, 0]) for f in read(block)]
                 for block in blocks] == [[0, 1, 2], [3, 4, 5], [6]]
-        blocks = contiguous_blocks(iter(_make_frames(6)), block_size=3)
-        assert [[int(f.positions[0, 0]) for _, f in zip(range(3), block)]
-                for block in blocks] == [[0, 1, 2], [3, 4, 5]]
 
     def test_a_full_block_does_not_read_the_next_frame(self):
         pulled = []
@@ -146,7 +161,8 @@ class TestContiguousBlocks:
         class Item:
             pass
 
-        block = next(contiguous_blocks((Item() for _ in range(2)), block_size=2))
+        blocks = contiguous_blocks((Item() for _ in range(2)), block_size=2)
+        block = next(blocks)  # the generator is kept, so its locals are too
         first = weakref.ref(next(block))
         gc.collect()
         assert first() is None
@@ -166,11 +182,8 @@ class TestInterleavedBlocks:
 
     def test_range_sections_of_a_trajectory_are_read_in_order(self, monkeypatch):
         # A file loader then keeps each file open for a section's frames.
-        from revelsMD.trajectories import NumpyTrajectory
-        positions = np.arange(10, dtype=float)[:, None, None] * np.ones((10, 2, 3))
-        traj = NumpyTrajectory(positions, np.ones((10, 2, 3)), 20, 20, 20, ["A", "B"],
-                               temperature=300.0)
-        monkeypatch.setattr(NumpyTrajectory, "get_frame", lambda self, i: pytest.fail("get_frame used"))
+        traj = _numbered_trajectory()
+        monkeypatch.setattr(type(traj), "get_frame", lambda self, i: pytest.fail("get_frame used"))
         blocks = _frame_ids(interleaved_blocks(traj, range(1, 10), sections=4))
         assert blocks == [[1, 5, 9], [2, 6], [3, 7], [4, 8]]
 
@@ -179,28 +192,21 @@ class TestInterleavedBlocks:
         (range(9, -1, -1), [[9, 7, 5, 3, 1], [8, 6, 4, 2, 0]]),  # descending
     ])
     def test_sections_outside_the_iter_frames_path_read_every_frame(self, indices, expected):
-        from revelsMD.trajectories import NumpyTrajectory
-        positions = np.arange(10, dtype=float)[:, None, None] * np.ones((10, 2, 3))
-        traj = NumpyTrajectory(positions, np.ones((10, 2, 3)), 20, 20, 20, ["A", "B"],
-                               temperature=300.0)
-        assert _frame_ids(interleaved_blocks(traj, indices, sections=2)) == expected
+        assert _frame_ids(interleaved_blocks(_numbered_trajectory(), indices, sections=2)) == expected
 
     def test_a_section_past_the_last_frame_raises(self):
-        from revelsMD.trajectories import NumpyTrajectory
-        traj = NumpyTrajectory(np.zeros((10, 2, 3)), np.ones((10, 2, 3)), 20, 20, 20, ["A", "B"],
-                               temperature=300.0)
         with pytest.raises(IndexError):
-            _frame_ids(interleaved_blocks(traj, range(5, 12), sections=2))
+            _frame_ids(interleaved_blocks(_numbered_trajectory(), range(5, 12), sections=2))
 
-    def test_closing_the_blocks_closes_a_part_read_section(self):
-        from revelsMD.trajectories import NumpyTrajectory
-        traj = NumpyTrajectory(np.zeros((10, 2, 3)), np.ones((10, 2, 3)), 20, 20, 20, ["A", "B"],
-                               temperature=300.0)
-        blocks = interleaved_blocks(traj, range(10), sections=2)
-        section = next(blocks)
-        next(section)
-        blocks.close()
-        assert section.gi_frame is None
+    def test_a_section_is_read_whole_after_the_blocks_are_dropped(self):
+        # A section belongs to whoever reads it, however it was obtained.
+        section = next(interleaved_blocks(_numbered_trajectory(), range(10), sections=3))
+        gc.collect()
+        assert [int(f.positions[0, 0]) for f in section] == [0, 3, 6, 9]
+        first, second = itertools.islice(interleaved_blocks(_numbered_trajectory(), range(10), 3), 2)
+        next(first)
+        gc.collect()
+        assert _frame_ids([first, second]) == [[3, 6, 9], [1, 4, 7]]
 
     def test_three_sections(self):
         traj = _FakeTrajectory(9)

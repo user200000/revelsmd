@@ -10,7 +10,7 @@ import operator
 import os
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Generator, Iterable, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, BinaryIO, Literal, Self
@@ -314,11 +314,8 @@ def open_universe(topology: Any, trajectories: Sequence[str] = (), **options: An
             return MD.Universe(*arguments, **options)
     except RuntimeError:
         for path in paths if len(paths) > 1 else []:
-            try:
-                with reading_with_mdanalysis(f"{topology} with {path}"):
-                    MD.Universe(topology, path, **options)
-            except RuntimeError as alone:
-                raise alone
+            with reading_with_mdanalysis(f"{topology} with {path}"):
+                MD.Universe(topology, path, **options)
         raise
 
 
@@ -327,25 +324,52 @@ class DataUnavailableError(Exception):
     pass
 
 
-def topology_values(atoms: Any, name: Literal["charges", "masses"], topology: str) -> np.ndarray:
-    """Return the ``charges`` or ``masses`` of MDAnalysis ``atoms``.
+def given_values(
+    given: Mapping[Any, float] | None, labels: Callable[[], Iterable[str]], name: str, what: str
+) -> dict[str, float]:
+    """Return the per-label charges or masses a user gave, keyed by label string.
 
-    The Universe is opened by :func:`open_universe`, without guessing, so
-    the values are those ``topology`` records.
+    ``labels()`` returns the atoms' labels (their ``what``); it is called
+    only if values are given.
+
+    Raises
+    ------
+    ValueError
+        If a given label is not one of the atoms'.
+    """
+    values = {str(label): float(value) for label, value in (given or {}).items()}
+    unknown = sorted(set(values) - set(labels())) if values else []
+    if unknown:
+        raise ValueError(f"{name}= names {what} that no atom has: {', '.join(unknown)}")
+    return values
+
+
+def topology_values(
+    atoms: Any,
+    name: Literal["charges", "masses"],
+    label: str,
+    given: Mapping[str, float],
+    topology: str,
+) -> np.ndarray:
+    """Return the ``charges`` or ``masses`` of MDAnalysis ``atoms``, labelled ``label``.
+
+    A value given for the label wins; otherwise the values are those
+    ``topology`` records, since :func:`open_universe` guesses nothing.
 
     Raises
     ------
     DataUnavailableError
-        If the topology does not record them.
+        If neither gives them.
     """
+    if label in given:
+        return np.full(len(atoms), given[label])
     try:
         return np.array(getattr(atoms, name))
     except NoDataError:
-        source = "a Masses section" if name == "masses" else "a charge column"
         raise DataUnavailableError(
             f"{topology}: the topology records no {name}, and RevelsMD does not "
-            f"guess them; use a topology that records them, such as a GROMACS "
-            f".tpr file or a LAMMPS data file with {source}"
+            f"guess them; give them with {name}={{'{label}': ...}}, or use a "
+            f"topology that records them"
         ) from None
 
 
@@ -403,9 +427,9 @@ class Trajectory(ABC):
             Simulation temperature in Kelvin for 'real', 'metal', and 'mda' units.
             For 'lj' units, this is the dimensionless reduced temperature T*.
         """
-        self.units = units
+        self.units = units.lower().strip()
         self.temperature = temperature
-        self.beta = compute_beta(units, temperature)
+        self.beta = compute_beta(self.units, temperature)
 
     @property
     def cell_volume(self) -> float:
