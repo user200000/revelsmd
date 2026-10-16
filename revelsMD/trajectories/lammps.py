@@ -583,23 +583,23 @@ def read_dump_frame(
         ``expected_types``.
     """
     f.seek(start)
-    tokens = np.array(f.read(end - start).split())
-    if tokens.size != header.n_atoms * layout.n_columns:
+    tokens = f.read(end - start).split()
+    n_columns = layout.n_columns
+    if len(tokens) != header.n_atoms * n_columns:
         raise ValueError(
-            f"the atom rows do not all have the {layout.n_columns} columns "
-            "named in the header"
+            f"the atom rows do not all have the {n_columns} columns named in the header"
         )
-    table = tokens.reshape(header.n_atoms, layout.n_columns)
-    ids = table[:, layout.id_column].astype(np.int64)
+    # Only the needed columns are converted, each token with int() or
+    # float(), which reject anything but a number (NUL bytes included).
+    ids = np.array(tokens[layout.id_column::n_columns], dtype=np.int64)
     order = np.argsort(ids, kind="stable")
     if not np.array_equal(ids[order], expected_ids):
         raise ValueError(
             "frame atom ids do not match the topology: each topology id "
             "must appear exactly once"
         )
-    table = table[order]
     if expected_types is not None and layout.type_column is not None:
-        types = table[:, layout.type_column]
+        types = np.array(tokens[layout.type_column::n_columns], dtype=object)[order]
         differ = np.flatnonzero(types != expected_types)
         if differ.size:
             k = differ[0]
@@ -608,8 +608,10 @@ def read_dump_frame(
                 f"{expected_ids[k]} has type {types[k].decode()} in the dump and "
                 f"{expected_types[k].decode()} in the topology"
             )
-    positions = table[:, list(layout.coordinate_columns)].astype(np.float64)
-    forces = table[:, list(layout.force_columns)].astype(np.float64)
+    columns = (*layout.coordinate_columns, *layout.force_columns)
+    values = np.array([tokens[c::n_columns] for c in columns], dtype=np.float64)[:, order]
+    positions = np.ascontiguousarray(values[:3].T)
+    forces = np.ascontiguousarray(values[3:].T)
     if layout.scaled:
         positions = header.origin + fractional_to_cartesian(positions, header.cell)
     return positions, forces

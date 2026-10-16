@@ -816,6 +816,17 @@ class TestReadDumpFrame:
         with open(path, "rb") as f, pytest.raises(ValueError, match="ids do not match the topology"):
             read_dump_frame(f, dump.starts[0], dump.ends[0], dump.header, layout, wrong)
 
+    @pytest.mark.parametrize("column", [0, 2])  # an id, then a coordinate
+    def test_numbers_with_nul_bytes_raise(self, tmp_path, column):
+        # A crash can leave NUL bytes in a file; they are not part of a number.
+        atom_rows = rows(0)
+        fields = atom_rows[1].split()
+        fields[column] += "\0"
+        atom_rows[1] = " ".join(fields)
+        path = write(tmp_path / "a.dump", frame(0, atom_rows=atom_rows))
+        with pytest.raises(ValueError):
+            _read(path)
+
     def test_rows_with_missing_values_raise(self, tmp_path):
         atom_rows = [r.rsplit(" ", 1)[0] if k == 2 else r for k, r in enumerate(rows(0))]
         path = write(tmp_path / "a.dump", frame(0, atom_rows=atom_rows))
