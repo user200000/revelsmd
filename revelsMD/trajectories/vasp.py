@@ -1,9 +1,4 @@
-"""
-VASP trajectory backend for RevelsMD.
-
-This module provides the VaspTrajectory class for reading VASP vasprun.xml files,
-and the helpers that index and read them.
-"""
+"""VASP backend: VaspTrajectory and the helpers that index and read vasprun.xml."""
 
 import array
 import mmap
@@ -39,12 +34,11 @@ _VARRAY_CLOSE = b"</varray>"
 class VasprunIndex:
     """The atoms and the complete ionic steps of one vasprun.xml.
 
-    Ionic step ``k`` is the file's ``k``-th ``<calculation>`` element, which
-    occupies bytes ``[starts[k], ends[k])``. ``basis`` is the first step's
-    ``<varray name="basis">`` element and ``lattice`` its 3x3 matrix; every
-    step has the same lattice. ``cut`` is the number of an incomplete final
-    step, which is not indexed. A file with no complete step has no atom
-    names, basis or lattice.
+    Step ``k`` is the ``k``-th ``<calculation>``, in bytes ``[starts[k],
+    ends[k])``. ``basis`` is the first step's basis ``<varray>`` and
+    ``lattice`` its matrix, the same for every step. ``cut`` is the number
+    of an incomplete final step, which is not indexed. A file with no
+    complete step has no atom names, basis or lattice.
     """
 
     path: str
@@ -65,29 +59,12 @@ class VasprunIndex:
 def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> VasprunIndex:
     """Index the ionic steps of one vasprun.xml without parsing them.
 
-    A final ``<calculation>`` with no closing tag, as left by a run killed
-    while writing, is recorded as ``cut`` and not indexed. So is the first
-    step of an empty file, or of one cut before its first ``<calculation>``.
-
-    Parameters
-    ----------
-    path : str
-        The vasprun.xml file.
-    reference : VasprunIndex, optional
-        The index of the trajectory's first file, when this file is not the
-        first. The atoms must be the same, and every step's lattice is
-        compared with the first file's, so the first step that differs is
-        named. By default steps are compared with the file's first step.
-
-    Raises
-    ------
-    ValueError
-        If the file has a ``<calculation>`` but no ``<atominfo>`` atom
-        list; if a
-        calculation other than the last is not closed; if a calculation
-        lacks a structure, a lattice basis, positions or forces; if the
-        atoms differ from ``reference``'s; or if the lattice changes
-        between steps or differs from ``reference``'s.
+    An unclosed final ``<calculation>`` is recorded as ``cut``, as is step 0
+    of a file with no ``<calculation>``. Atoms and every step's lattice are
+    compared with ``reference`` (the first file with a step) if given, else
+    with the file's first step. Raises ValueError if the atom list is
+    missing, a calculation other than the last is unclosed or incomplete,
+    or the atoms or lattice differ.
     """
     with open(path, "rb") as f:
         if os.fstat(f.fileno()).st_size == 0:
@@ -188,10 +165,7 @@ def _read_atom_names(m: mmap.mmap, path: str) -> list[str]:
 
 
 def _float_varray(varray: etree.Element) -> np.ndarray:
-    """A float ``<varray>`` element as an array with one row per ``<v>``.
-
-    Rows of different lengths raise ValueError.
-    """
+    """A float ``<varray>`` as an array with one row per ``<v>``; ragged rows raise ValueError."""
     return np.array([(v.text or "").split() for v in varray.findall("v")], dtype=np.float64)
 
 
@@ -205,27 +179,10 @@ def read_vasp_frame(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Read the Cartesian positions and the forces of the ionic step in bytes [start, end).
 
-    The positions are those of the calculation's ``<structure>`` element
-    with no attributes, which is the one VASP writes for each ionic step.
-
-    Parameters
-    ----------
-    f : binary file object
-        The vasprun.xml, opened in binary mode.
-    start, end : int
-        The byte range of the ``<calculation>`` element.
-    n_atoms : int
-        The number of atoms.
-    cell : np.ndarray, optional
-        The trajectory's cell matrix. If given, the step's lattice must
-        equal it exactly.
-
-    Raises
-    ------
-    ValueError
-        If the byte range is not well-formed XML, if the step's basis,
-        positions or forces are missing or malformed, if they do not have
-        three values for each atom, or if the lattice differs from ``cell``.
+    Positions come from the calculation's ``<structure>`` with no
+    attributes, the one VASP writes for each ionic step. Raises ValueError
+    if the XML is malformed, the basis, positions or forces are missing or
+    not ``(n_atoms, 3)``, or the lattice differs from ``cell`` when given.
     """
     f.seek(start)
     try:
@@ -262,52 +219,31 @@ def read_vasp_frame(
 # -----------------------------------------------------------------------------
 
 class VaspTrajectory(IndexedFileTrajectory):
-    """
-    Represents a molecular dynamics trajectory obtained from VASP ``vasprun.xml`` output.
+    """A trajectory read from VASP ``vasprun.xml`` files, in the ``'metal'`` unit system.
 
-    The files are indexed when the trajectory is constructed and each ionic
-    step is read from disk as it is needed; the index keeps a few tens of
-    bytes per step.
+    The files are indexed on construction and each ionic step is read from
+    disk as needed. Several files are concatenated in the order given;
+    since vasprun.xml records no timesteps, their order and any repeated or
+    missing steps cannot be checked.
 
     Parameters
     ----------
     trajectory_file : str, path, or sequence of these
-        ``vasprun.xml`` file(s) from consecutive runs, joined in the order
-        given. vasprun.xml records no timesteps, so the order, and repeated
-        or missing steps between files, cannot be checked.
+        ``vasprun.xml`` file(s).
     temperature : float
-        Simulation temperature in Kelvin.
-
-    Attributes
-    ----------
-    frames : int
-        Number of complete ionic steps across all files.
-    cell_matrix : np.ndarray
-        Cell matrix with rows = lattice vectors, shape ``(3, 3)``.
-    temperature : float
-        Simulation temperature in Kelvin.
-    beta : float
-        Inverse thermal energy 1/(kB*T) in 1/eV.
+        Temperature in Kelvin.
 
     Raises
     ------
     ValueError
-        If no file has a complete ionic step; if a file has a step but no
-        atom list; if a calculation other than the last in a file is not
-        closed; if an ionic step lacks a structure, a lattice basis,
-        positions or forces; if the files list
-        different atoms; if the lattice changes between steps; or if the
-        cell is invalid.
+        If a file is malformed or lacks an ionic step's structure or
+        forces, the files list different atoms, the lattice changes or is
+        invalid, or no file has a complete ionic step.
 
     Notes
     -----
-    An incomplete final ionic step, as left by a run killed while writing,
-    is dropped with a warning, as is a file with no complete step; if no
-    file has a complete step, this raises. Files are concatenated in the
-    order given. Reading a step raises ValueError if
-    its positions or forces are malformed, do not match the atom count or
-    contain NaN or infinity, or if its lattice differs from the first
-    step's.
+    See :doc:`/tutorials/trajectory-formats` for how incomplete files are
+    handled.
     """
 
     def __init__(
@@ -352,23 +288,22 @@ class VaspTrajectory(IndexedFileTrajectory):
         self._validate_cell_matrix(self.cell_matrix, self._where(0))
 
     def get_indices(self, atype: str) -> np.ndarray:
-        """
-        Return indices of atoms corresponding to a given species.
+        """Return the indices of the atoms of an element.
 
         Parameters
         ----------
         atype : str
-            Element symbol (e.g., `'O'`, `'Si'`, `'Fe'`).
+            Element symbol (e.g. ``'O'``).
 
         Returns
         -------
         np.ndarray
-            Array of atom indices matching the requested species.
+            Row positions in the frames, whose atoms are in ``<atominfo>`` order.
 
         Raises
         ------
         ValueError
-            If no atom is of that species.
+            If no atom is of that element.
         """
         indices = np.flatnonzero(np.asarray(self._atom_names) == atype)
         if len(indices) == 0:

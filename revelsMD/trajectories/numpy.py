@@ -1,9 +1,4 @@
-"""
-NumPy array trajectory backend for RevelsMD.
-
-This module provides the NumpyTrajectory class for trajectories stored
-directly as NumPy arrays in memory.
-"""
+"""In-memory backend: NumpyTrajectory."""
 
 from collections.abc import Generator
 
@@ -14,55 +9,35 @@ from ._base import Trajectory, DataUnavailableError
 
 
 class NumpyTrajectory(Trajectory):
-    """
-    Represents a trajectory stored directly as NumPy arrays.
-
-    Designed for simulation data already resident in memory, or for synthetic
-    or analytical trajectories generated numerically.
+    """A trajectory held in memory as position and force arrays.
 
     Parameters
     ----------
     positions : np.ndarray
-        Atomic positions of shape ``(frames, atoms, 3)``.
+        Positions, shape ``(frames, atoms, 3)``.
     forces : np.ndarray
-        Atomic forces of shape ``(frames, atoms, 3)``.
+        Forces, the same shape as ``positions``.
     box_x, box_y, box_z : float, optional
-        Simulation box lengths in each Cartesian direction.
-        All three must be provided together.
-        Mutually exclusive with ``cell_matrix``.
+        Orthorhombic box lengths, all three or none; exclusive with
+        ``cell_matrix``.
     species_list : list of str, optional
-        Atom names corresponding to each atom index. If ``None``,
-        ``get_indices`` and related methods will not be available.
+        Label of each atom. Without it, ``get_indices``, ``get_charges`` and
+        ``get_masses`` raise.
     temperature : float
-        Simulation temperature in Kelvin.
+        Temperature in Kelvin (reduced temperature for ``'lj'``).
     units : str, optional
-        Unit system string (default: `'real'`).
+        Unit system (default ``'real'``).
     cell_matrix : np.ndarray, optional
-        Full 3x3 cell matrix with rows = lattice vectors.
-        Mutually exclusive with ``box_x``, ``box_y``, ``box_z``.
-    charge_list : np.ndarray, optional
-        Atomic charge array (optional).
-    mass_list : np.ndarray, optional
-        Atomic mass array (optional).
-
-    Attributes
-    ----------
-    temperature : float
-        Simulation temperature in Kelvin.
-    beta : float
-        Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
+        3x3 cell matrix, rows the lattice vectors; exclusive with
+        ``box_x``, ``box_y``, ``box_z``.
+    charge_list, mass_list : np.ndarray, optional
+        Charge and mass of each atom.
 
     Raises
     ------
     ValueError
-        If positions and forces are inconsistent, if box dimensions are
-        invalid, or if both/neither of ``cell_matrix`` and ``box_x/y/z``
-        are provided.
-
-    Notes
-    -----
-    This class provides a simple in-memory trajectory for use with
-    ``DensityGrid`` and ``RDF`` computations.
+        If the arrays' shapes disagree, or the cell is missing, given twice
+        or invalid.
     """
 
     def __init__(
@@ -126,23 +101,22 @@ class NumpyTrajectory(Trajectory):
             self.mass_list = mass_list
 
     def get_indices(self, atype: str) -> np.ndarray:
-        """
-        Return atom indices for a given species.
+        """Return the indices of the atoms with a given label.
 
         Parameters
         ----------
         atype : str
-            Atom species name to select (e.g., `'O'`, `'H'`, `'C'`).
+            Label from ``species_list`` (e.g. ``'O'``).
 
         Returns
         -------
         np.ndarray
-            Indices of selected atoms.
+            Row positions in the frames.
 
         Raises
         ------
         ValueError
-            If the species name is not present in the provided species list.
+            If there is no ``species_list`` or no atom has that label.
         """
         if self.species_string is None:
             raise ValueError("Species list was not provided for this trajectory.")
@@ -152,24 +126,19 @@ class NumpyTrajectory(Trajectory):
         return inds
 
     def get_charges(self, atype: str) -> np.ndarray:
-        """Return atomic charges for atoms of a given species.
+        """Return the charges of the atoms with a given label.
 
         Parameters
         ----------
         atype : str
-            Atom species name to select (e.g. ``'O'``, ``'H'``).
-
-        Returns
-        -------
-        np.ndarray
-            Array of atomic charges for the selected atoms.
+            Label from ``species_list``.
 
         Raises
         ------
         DataUnavailableError
-            If no ``charge_list`` was provided at construction.
+            If no ``charge_list`` was given.
         ValueError
-            If no ``species_list`` was provided, or no atoms match ``atype``.
+            If there is no ``species_list`` or no atom has that label.
         """
         if not hasattr(self, 'charge_list'):
             raise DataUnavailableError("Charge data not available for this trajectory.")
@@ -177,24 +146,19 @@ class NumpyTrajectory(Trajectory):
         return self.charge_list[indices]
 
     def get_masses(self, atype: str) -> np.ndarray:
-        """Return atomic masses for atoms of a given species.
+        """Return the masses of the atoms with a given label.
 
         Parameters
         ----------
         atype : str
-            Atom species name to select (e.g. ``'O'``, ``'H'``).
-
-        Returns
-        -------
-        np.ndarray
-            Array of atomic masses for the selected atoms.
+            Label from ``species_list``.
 
         Raises
         ------
         DataUnavailableError
-            If no ``mass_list`` was provided at construction.
+            If no ``mass_list`` was given.
         ValueError
-            If no ``species_list`` was provided, or no atoms match ``atype``.
+            If there is no ``species_list`` or no atom has that label.
         """
         if not hasattr(self, 'mass_list'):
             raise DataUnavailableError("Mass data not available for this trajectory.")
@@ -207,7 +171,7 @@ class NumpyTrajectory(Trajectory):
         stop: int,
         stride: int
     ) -> Generator[Frame, None, None]:
-        """Iterate over in-memory position/force arrays."""
+        """Yield the selected frames from the arrays."""
         for i in range(start, stop, stride):
             yield self._get_frame(i)
 

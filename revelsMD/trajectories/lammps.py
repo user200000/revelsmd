@@ -1,9 +1,4 @@
-"""
-LAMMPS trajectory backend for RevelsMD.
-
-This module provides the LammpsTrajectory class for reading LAMMPS dump files,
-and the helpers that index and read the dump format.
-"""
+"""LAMMPS backend: LammpsTrajectory and the helpers that index and read dump files."""
 
 import array
 import contextlib
@@ -49,31 +44,13 @@ FORCE_COLUMNS = ("fx", "fy", "fz")
 def parse_box(
     item_line: str, bound_lines: list[str]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Parse the ``ITEM: BOX BOUNDS`` header of a dump frame.
+    """Parse an ``ITEM: BOX BOUNDS`` line and the three bound lines after it.
 
-    Parameters
-    ----------
-    item_line : str
-        The ``ITEM: BOX BOUNDS ...`` line.
-    bound_lines : list of str
-        The three lines that follow it.
-
-    Returns
-    -------
-    cell : np.ndarray, shape (3, 3)
-        Rows are the lattice vectors a, b, c.
-    origin : np.ndarray, shape (3,)
-        The corner (xlo, ylo, zlo).
-    box : np.ndarray, shape (9,)
-        The six bounds as written, then the tilts xy, xz, yz (zero for an
-        orthogonal box). Equal arrays mean an identical box.
-
-    Raises
-    ------
-    ValueError
-        If any boundary is not periodic, the box is in the general
-        triclinic ``abc origin`` format, or the bounds are malformed or
-        not finite.
+    Returns the cell (rows a, b, c), the origin (xlo, ylo, zlo), and a box
+    array of the six bounds as written then the tilts xy, xz, yz (zero if
+    orthogonal); equal box arrays mean an identical box. Raises
+    ValueError for a box that is not fully periodic, is general triclinic
+    (``abc origin``), or is malformed or not finite.
     """
     words = item_line.split()[3:]
     if words[:1] == ["abc"]:
@@ -125,13 +102,8 @@ class ColumnLayout:
 def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
     """Locate the id, coordinate and force columns of a dump.
 
-    Coordinates are taken from the first of ``x y z``, ``xu yu zu``,
-    ``xs ys zs`` and ``xsu ysu zsu`` that is present.
-
-    Raises
-    ------
-    ValueError
-        If the id, the forces or every coordinate set is missing.
+    Coordinates come from the first set in ``COORDINATE_SETS`` present.
+    Raises ValueError if the id, the forces or every coordinate set is missing.
     """
     missing = []
     if "id" not in columns:
@@ -180,11 +152,7 @@ class DumpHeader:
 
 @dataclass(frozen=True)
 class PartialFrame:
-    """The frame at which a file ends early, as a job killed while writing leaves.
-
-    ``timestep`` is the frame's, if its header gives it, and ``reason`` says
-    why the frame cannot be read.
-    """
+    """A dump file's unreadable final frame: its timestep, if known, and why."""
 
     path: str
     timestep: int | None
@@ -193,7 +161,7 @@ class PartialFrame:
 
 @dataclass(frozen=True)
 class HeaderMismatch:
-    """The first frame of a dump file whose header differs from the file's first frame's."""
+    """The first frame of a dump file whose header differs from the first frame's."""
 
     frame: int
     message: str
@@ -201,13 +169,12 @@ class HeaderMismatch:
 
 @dataclass(frozen=True, eq=False)
 class DumpIndex:
-    """The complete frames of one dump file, and its incomplete final frame.
+    """The complete frames of one dump file, and its unreadable final frame.
 
-    Frame ``k`` has timestep ``timesteps[k]`` (strictly increasing) and its
-    atom rows occupy bytes ``[starts[k], ends[k])`` of the file. ``header``
-    is the first complete frame's, and is None if there are none. Frames
-    before ``mismatch.frame`` share it; if ``mismatch`` is None, all do.
-    ``units`` holds the unit styles the file's ``ITEM: UNITS`` lines name.
+    Frame ``k`` has timestep ``timesteps[k]`` (strictly increasing) and atom
+    rows in bytes ``[starts[k], ends[k])``. ``header`` is the first complete
+    frame's (None if there are none); frames before ``mismatch.frame``, or
+    all if ``mismatch`` is None, share it.
     """
 
     path: str
@@ -222,12 +189,7 @@ class DumpIndex:
 
 @dataclass(frozen=True)
 class _ScannedFrame:
-    """One complete frame, as found by the scan of its file.
-
-    ``header_lines`` are the stripped header lines from ``ITEM: NUMBER OF
-    ATOMS`` to ``ITEM: ATOMS``, and ``units`` the unit styles of the
-    ``ITEM: UNITS`` items before it.
-    """
+    """A complete frame; ``header_lines`` are its stripped lines from NUMBER OF ATOMS to ATOMS."""
 
     timestep: int
     data_start: int
@@ -249,18 +211,12 @@ class _Unreadable:
 def index_dump(path: str) -> DumpIndex:
     """Index the frames of one dump file without parsing the atom rows.
 
-    Frames are read in order. A frame that cannot be read ends the file
-    early if no readable frame follows it, as when a job is killed while
-    writing; it is recorded as ``partial``. Every complete frame is compared
-    with the file's first; the first whose columns, box or atom count differ
-    is recorded in ``mismatch`` rather than raised, since a restart file may
-    replace it. The unit styles of ``ITEM: UNITS`` items are recorded.
-
-    Raises
-    ------
-    ValueError
-        If a frame that cannot be read is followed by one that can, if
-        timesteps do not strictly increase, or if a box is not supported.
+    An unreadable frame with no readable frame after it is recorded as
+    ``partial``. The first frame whose columns, box or atom count differ
+    from the file's first is recorded as ``mismatch``, not raised, since a
+    later file may replace it. Raises ValueError if an unreadable frame is
+    followed by a readable one, timesteps do not strictly increase, or a
+    box is not supported.
     """
     timesteps, starts, ends = array.array("q"), array.array("q"), array.array("q")
     units: dict[str, None] = {}
@@ -349,16 +305,12 @@ def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> st
 def _read_frame(
     m: "mmap.mmap | bytes", path: str, start: int, first: _ScannedFrame | None
 ) -> "_ScannedFrame | _Unreadable":
-    """Read the frame at byte ``start``: any ITEM: UNITS and ITEM: TIME items, its header and its rows.
+    """Read the frame at byte ``start``, with any ITEM: UNITS and ITEM: TIME items before it.
 
-    A frame whose header lines are those of the file's first complete
-    frame, ``first``, shares its header rather than parsing a new one. The
-    frame ends after its atom rows and any blank lines.
-
-    Raises
-    ------
-    ValueError
-        If a complete header gives a box that is not supported.
+    A frame whose header lines equal ``first``'s shares its header. The
+    frame ends after its atom rows and any blank lines. A frame that cannot
+    be read is returned as ``_Unreadable``; only an unsupported box in a
+    complete header raises ValueError.
     """
     units: list[str] = []
     position = start
@@ -446,11 +398,9 @@ def _header_timestep(lines: list[str]) -> int | None:
 
 @dataclass(frozen=True, eq=False)
 class FrameTable(FileFrames):
-    """The frames of a trajectory joined from one or more dump files.
+    """:class:`FileFrames` with each frame's timestep (strictly increasing) and each file's header.
 
-    Frame ``i`` is stored as :class:`FileFrames` describes, has timestep
-    ``timesteps[i]`` (strictly increasing) and the header of its file,
-    ``headers[k]``. Only files that contribute frames are listed.
+    Only files that contribute frames are listed.
     """
 
     headers: list[DumpHeader]
@@ -458,23 +408,14 @@ class FrameTable(FileFrames):
 
 
 def combine_frames(indices: list[DumpIndex]) -> FrameTable:
-    """Join the frames of consecutive dump files into one trajectory.
+    """Join the frames of dump files, given in run order, into one trajectory.
 
-    Files must be given in run order: the files of a run, then those of
-    each restart. Each file's frames replace every frame of the files
-    before it from its own first timestep on, as when a run restarts from
-    a restart file. An incomplete final frame is dropped with a warning,
-    unless no file has a complete frame, which raises.
-    Every kept frame must have the columns, box and atom count of its
-    file's first frame, and every file's first frame the box of the first
-    file's; frames that are replaced are not compared.
-
-    Raises
-    ------
-    ValueError
-        If a file starts at or before the first timestep of the file before
-        it, if a kept frame's header differs as above, or if there are no
-        complete frames.
+    Each file's frames replace the earlier files' frames from its own first
+    timestep on, and incomplete final frames are dropped with a warning.
+    Kept frames must match their file's first frame, and each file's first
+    frame the first file's box; replaced frames are not compared. Raises
+    ValueError if a file starts at or before the first timestep of the file
+    before it, a kept frame's header differs, or there are no complete frames.
     """
     files: list[DumpIndex] = []
     headers: list[DumpHeader] = []
@@ -522,20 +463,10 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
 def resolve_atom_style(atom_style: str | None, topology_file: str) -> str:
     """Return the MDAnalysis column string for a LAMMPS data file.
 
-    Parameters
-    ----------
-    atom_style : str or None
-        An MDAnalysis column string (several words), a LAMMPS atom style
-        name from ``STYLE_COLUMNS``, or None to use the style named in the
-        data file's ``Atoms # <style>`` comment.
-    topology_file : str
-        The LAMMPS data file.
-
-    Raises
-    ------
-    ValueError
-        If the style is not given and the data file names none, or if the
-        style has no known column layout.
+    ``atom_style`` is a column string (several words, returned as is), a
+    style name in ``STYLE_COLUMNS``, or None for the data file's
+    ``Atoms # <style>`` comment. Raises ValueError if there is no style or
+    it has no known layout.
     """
     if atom_style is not None and len(atom_style.split()) > 1:
         return atom_style
@@ -576,36 +507,13 @@ def read_dump_frame(
     expected_ids: np.ndarray,
     expected_types: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Read the positions and forces of one indexed frame.
+    """Read the positions and forces from the atom rows in bytes ``[start, end)`` of ``f``.
 
-    Parameters
-    ----------
-    f : binary file object
-        The frame's dump file, opened in binary mode.
-    start, end : int
-        The byte range of the frame's atom rows.
-    header : DumpHeader
-        The header of the frame's file.
-    layout : ColumnLayout
-        The columns of the frame's file.
-    expected_ids : np.ndarray
-        The topology's atom ids in ascending order.
-    expected_types : np.ndarray, optional
-        The topology's atom types in the same order, as bytes. If given and
-        the dump has a ``type`` column, the frame's types must equal them.
-
-    Returns
-    -------
-    positions, forces : np.ndarray
-        Arrays of shape ``(n_atoms, 3)``, rows in ascending atom-id order.
-        Scaled coordinates are converted to Cartesian.
-
-    Raises
-    ------
-    ValueError
-        If the rows do not all have the header's columns, or if the frame's
-        ids are not exactly ``expected_ids`` or its types not
-        ``expected_types``.
+    Rows are returned in ascending atom-id order; scaled coordinates are
+    converted to Cartesian from the box origin. ``expected_ids`` are the
+    topology's ids, ascending, and ``expected_types`` its types in that
+    order, as bytes, checked if the dump has a ``type`` column. Raises
+    ValueError if a row lacks a column or the ids or types differ.
     """
     f.seek(start)
     tokens = f.read(end - start).split()
@@ -647,82 +555,50 @@ def read_dump_frame(
 # -----------------------------------------------------------------------------
 
 class LammpsTrajectory(IndexedFileTrajectory):
-    """
-    Represents a molecular dynamics trajectory obtained from LAMMPS output.
+    """A trajectory read from LAMMPS custom dump files, with a LAMMPS data file as topology.
 
-    Dump files are indexed when the trajectory is constructed and frames
-    are read from disk as they are needed; the index keeps a few tens of
-    bytes per frame. MDAnalysis provides the topology only.
-
-    Frames are returned with atoms in ascending id order, whatever order
-    the dump was written in. Several dump files from a run and its restarts
-    are joined in the order given, which must be run order: each file's
-    frames replace every frame of the files before it from its own first
-    timestep on. Frames are read in order; a frame that cannot be read, as
-    left by a job killed while writing, is dropped with a warning if no
-    readable frame follows it, and otherwise raises. Frames that a later
-    file replaces are not compared with their file's first frame, so a run
-    whose box or atom count went wrong after the restart point can be
-    joined with its restart.
+    Dump files are indexed on construction and frames are read from disk
+    as needed. Frames have atoms in ascending id order and positions as
+    written. Several dump files from a run and its restarts are joined in
+    the order given, which must be run order: each file's frames replace
+    the earlier files' frames from its own first timestep on.
 
     Parameters
     ----------
     trajectory_file : str, path, or sequence of these
-        LAMMPS custom dump file(s). Each must have ``id``, ``fx fy fz`` and
-        one of ``x y z``, ``xu yu zu``, ``xs ys zs`` or ``xsu ysu zsu``.
+        LAMMPS custom dump file(s), with ``id``, ``fx fy fz`` and one of
+        ``x y z``, ``xu yu zu``, ``xs ys zs`` or ``xsu ysu zsu``.
     topology_file : str or path
         LAMMPS data file.
     temperature : float
-        Simulation temperature in Kelvin (reduced temperature for 'lj').
+        Temperature in Kelvin (reduced temperature for ``'lj'``).
     units : str, optional
-        LAMMPS unit system (default: ``'real'``).
+        LAMMPS unit system (default ``'real'``).
     atom_style : str, optional
         Layout of the data file's Atoms section: an MDAnalysis column string
-        such as ``'id type x y z'``, or one of the LAMMPS styles
-        ``atomic``, ``charge``, ``full``, ``molecular``, ``bond`` or
-        ``angle``. By default the style is read from the data file's
-        ``Atoms # <style>`` comment.
+        such as ``'id type x y z'``, or a LAMMPS style name. By default it
+        is read from the data file's ``Atoms # <style>`` comment.
     masses, charges : mapping, optional
-        Masses or charges by atom type (e.g. ``{'1': 15.999}``), used
-        instead of the data file's for the types given. Without them, masses
-        come from the data file's ``Masses`` section and charges from its
-        ``charge`` column; neither is guessed.
-
-    Attributes
-    ----------
-    temperature : float
-        Simulation temperature in Kelvin.
-    beta : float
-        Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
+        Masses or charges by atom type (e.g. ``{'1': 15.999}``), replacing
+        the data file's for those types. Neither is guessed.
 
     Raises
     ------
     ValueError
-        If a frame that cannot be read is followed by one that can, if a
-        dump lacks required columns, if a box is
-        not fully periodic, if the box, the columns or the atom count change
-        between kept frames of one file, if the box differs between files,
-        if a frame's atom count differs from the topology's, if a dump's
-        ``ITEM: UNITS`` names a unit style other than ``units``, if the atom
-        style cannot be determined, if a file starts at or before the first
-        timestep of the file before it, or if there are no complete frames.
+        If a dump is damaged or lacks required columns, the box is not
+        fixed and fully periodic, an atom count differs from the topology's,
+        ``ITEM: UNITS`` does not match ``units``, the atom style is unknown,
+        the files are not in run order, or there are no complete frames.
     RuntimeError
-        If MDAnalysis cannot parse the topology (the message names it), or
-        if topology atom ids repeat.
+        If MDAnalysis cannot read the topology, or its atom ids repeat.
     OSError
-        If a dump file or the topology file cannot be opened
-        (``FileNotFoundError`` if it does not exist).
+        If a file cannot be opened.
 
     Notes
     -----
-    Reading a frame raises ValueError if its atom ids are not exactly the
-    topology's atom ids, if the dump has a ``type`` column whose types
-    differ from the topology's, or if a position or force is NaN or
-    infinite.
-
-    Positions are returned as written, in the simulation's coordinates;
-    scaled coordinates are converted with the box origin. MDAnalysis's own
-    dump reader instead shifts positions so the box starts at the origin.
+    See :doc:`/tutorials/trajectory-formats` for the requirements on dump
+    and data files, how restarts are joined, and how damaged or incomplete
+    frames are handled.
     """
 
     def __init__(
@@ -788,20 +664,17 @@ class LammpsTrajectory(IndexedFileTrajectory):
         self._validate_cell_matrix(self.cell_matrix, self._where(0))
 
     def get_indices(self, atype: str) -> np.ndarray:
-        """Return positional indices of the atoms of a given LAMMPS type.
-
-        Frames yielded by this trajectory are in ascending atom-id order,
-        and the returned indices are row positions in those frames.
+        """Return the indices of the atoms of a LAMMPS type.
 
         Parameters
         ----------
         atype : str
-            LAMMPS atom type as a string (e.g. ``'1'``, ``'2'``).
+            LAMMPS atom type as a string (e.g. ``'1'``).
 
         Returns
         -------
         np.ndarray
-            Row indices into the per-frame position and force arrays.
+            Row positions in the frames, whose atoms are in ascending id order.
 
         Raises
         ------
@@ -814,17 +687,12 @@ class LammpsTrajectory(IndexedFileTrajectory):
         return indices
 
     def get_charges(self, atype: str) -> np.ndarray:
-        """Return atomic charges for a given LAMMPS atom type.
+        """Return the charges of the atoms of a LAMMPS type.
 
         Parameters
         ----------
         atype : str
-            LAMMPS atom type as a string (e.g. ``'1'``, ``'2'``).
-
-        Returns
-        -------
-        np.ndarray
-            Array of atomic charges for the selected atoms.
+            LAMMPS atom type as a string (e.g. ``'1'``).
 
         Raises
         ------
@@ -835,17 +703,12 @@ class LammpsTrajectory(IndexedFileTrajectory):
         return topology_values(atoms, "charges", atype, self._charges, self._topology)
 
     def get_masses(self, atype: str) -> np.ndarray:
-        """Return atomic masses for a given LAMMPS atom type.
+        """Return the masses of the atoms of a LAMMPS type.
 
         Parameters
         ----------
         atype : str
-            LAMMPS atom type as a string (e.g. ``'1'``, ``'2'``).
-
-        Returns
-        -------
-        np.ndarray
-            Array of atomic masses for the selected atoms.
+            LAMMPS atom type as a string (e.g. ``'1'``).
 
         Raises
         ------

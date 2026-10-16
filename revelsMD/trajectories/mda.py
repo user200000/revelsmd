@@ -1,9 +1,4 @@
-"""
-MDAnalysis trajectory backend for RevelsMD.
-
-This module provides the MDATrajectory class for reading trajectories
-via MDAnalysis.
-"""
+"""MDAnalysis backend: MDATrajectory."""
 
 import os
 import warnings
@@ -25,80 +20,44 @@ from ._base import (
 
 
 class MDATrajectory(Trajectory):
-    """
-    Represents a molecular dynamics trajectory handled by **MDAnalysis**.
+    """A trajectory read through MDAnalysis, in Angstrom and kJ/(mol Angstrom).
 
-    This class acts as a unified interface for reading, validating, and accessing
-    data from MDAnalysis-compatible trajectory and topology files.
-
-    Positions and forces are converted to MDAnalysis units (Angstrom and
-    kJ/(mol Angstrom)), so the trajectory format must record its length and
-    force units: GROMACS TRR and TNG, AMBER NetCDF, and H5MD files that
-    give units. LAMMPS dumps do not, and are read with
-    :class:`~revelsMD.trajectories.LammpsTrajectory`.
+    The format must record its length and force units (GROMACS TRR and TNG,
+    AMBER NetCDF, H5MD with units), and every frame must hold positions,
+    forces and the first frame's box. Several files are concatenated in
+    the order given; frames they share are read from each.
 
     Parameters
     ----------
     trajectory_file : str, path, or sequence of these
-        Path to a trajectory file in which every frame stores positions and
-        forces (e.g. a `.trr` written with ``nstfout`` equal to ``nstxout``
-        and ``nstvout`` 0 or a multiple of it), or a list of files, whose
-        frames are concatenated in the order given. Frames that files share,
-        such as the frame GROMACS repeats at each restart written with
-        ``-noappend``, are counted once per file; join such files with
-        ``gmx trjcat`` first.
+        Trajectory file(s).
     topology_file : str, bytes or path
-        Path to the topology file (e.g., `.tpr`, `.pdb`, `.gro`), or an
-        MDAnalysis stream.
+        Topology file (e.g. ``.tpr``, ``.gro``), or an MDAnalysis stream.
     temperature : float
-        Simulation temperature in Kelvin.
+        Temperature in Kelvin.
     masses, charges : mapping, optional
-        Masses or charges by atom name (e.g. ``{'Ow': 15.999}``), used
-        instead of the topology's for the names given. Without them, the
-        values are those the topology records (a `.tpr` records both, a
-        `.gro` neither); neither is guessed.
-
-    Attributes
-    ----------
-    frames : int
-        Number of trajectory frames. ``mdanalysis_universe.trajectory``
-        also holds a last frame that cannot be read, which is not counted.
-    cell_matrix : np.ndarray
-        Cell matrix with rows = lattice vectors, shape ``(3, 3)``.
-    units : str
-        Unit system identifier (`'mda'`).
-    temperature : float
-        Simulation temperature in Kelvin.
-    beta : float
-        Inverse thermal energy 1/(kB*T) in mol/kJ.
+        Masses or charges by atom name (e.g. ``{'Ow': 15.999}``), replacing
+        the topology's for those names. Neither is guessed.
 
     Raises
     ------
     ValueError
-        If no topology file is provided, if no trajectory file is given, if
-        MDAnalysis does not know the format's length or force units, if an
-        H5MD file saves positions and forces at different steps, if the
-        first frame has no box, no positions or no forces, or if the cell
-        matrix is invalid.
+        If no file is given, the format records no length or force units,
+        an H5MD file saves positions and forces at different steps, or the
+        first frame has no box, positions or forces, or an invalid cell.
     RuntimeError
-        If MDAnalysis cannot parse the trajectory or topology files (the
-        message names the file, and the exception MDAnalysis raised), for
-        example an H5MD file when ``h5py`` is not installed, or if the steps
-        of an H5MD file cannot be read.
+        If MDAnalysis cannot read a file (e.g. H5MD without ``h5py``).
     OSError
-        If a file cannot be opened: ``FileNotFoundError``,
-        ``PermissionError`` or ``IsADirectoryError``.
+        If a file cannot be opened.
     ImportError
-        If a TNG file is read without ``pytng`` installed.
+        If a TNG file is read without ``pytng``.
 
     Notes
     -----
-    A file's last frame, if MDAnalysis cannot read it, as when a job is
-    killed while writing, is dropped with a warning. Reading any other frame
-    raises ValueError if MDAnalysis cannot read it, if it has no positions,
-    no forces or no
-    box, if its box differs from the first frame's, or if its positions or
-    forces contain NaN or infinity; the message names the file and frame.
+    ``mdanalysis_universe.trajectory`` also holds a final frame that cannot
+    be read, which ``frames`` does not count. See
+    :doc:`/tutorials/trajectory-formats` for the formats and settings that
+    work.
     """
 
     def __init__(
@@ -174,21 +133,18 @@ class MDATrajectory(Trajectory):
         self._validate_cell_matrix(self.cell_matrix, paths[0])
 
     def get_indices(self, atype: str) -> np.ndarray:
-        """
-        Return positional indices of atoms matching a given atom name.
-
-        The indices are row positions in the frames yielded by this
-        trajectory, independent of the atom numbering in the topology file.
+        """Return the indices of the atoms with a given name.
 
         Parameters
         ----------
         atype : str
-            Atom name to select (e.g., `'O'`, `'H'`, `'C'`).
+            Atom name (e.g. ``'Ow'``).
 
         Returns
         -------
         np.ndarray
-            Row indices into the per-frame position and force arrays.
+            Row positions in the frames, independent of the topology's atom
+            numbering.
 
         Raises
         ------
@@ -201,18 +157,12 @@ class MDATrajectory(Trajectory):
         return indices
 
     def get_charges(self, atype: str) -> np.ndarray:
-        """
-        Return atomic charges for atoms of a given name.
+        """Return the charges of the atoms with a given name.
 
         Parameters
         ----------
         atype : str
-            Atom name to select.
-
-        Returns
-        -------
-        np.ndarray
-            Array of atomic charges.
+            Atom name.
 
         Raises
         ------
@@ -223,18 +173,12 @@ class MDATrajectory(Trajectory):
         return topology_values(atoms, "charges", atype, self._charges, self._topology)
 
     def get_masses(self, atype: str) -> np.ndarray:
-        """
-        Return atomic masses for atoms of a given name.
+        """Return the masses of the atoms with a given name.
 
         Parameters
         ----------
         atype : str
-            Atom name to select.
-
-        Returns
-        -------
-        np.ndarray
-            Array of atomic masses.
+            Atom name.
 
         Raises
         ------
@@ -275,11 +219,7 @@ class MDATrajectory(Trajectory):
 
 
 def _readable(reader, frame: int) -> bool:
-    """Whether MDAnalysis can read ``frame`` of ``reader``.
-
-    MDAnalysis's warnings while trying are not shown; the caller warns
-    about a frame it cannot read.
-    """
+    """Whether MDAnalysis can read ``frame`` of ``reader``, with its warnings silenced."""
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -294,11 +234,10 @@ def _readable(reader, frame: int) -> bool:
 def _check_reader(reader) -> None:
     """Raise unless MDAnalysis converts a reader's positions and forces to its units.
 
-    MDAnalysis converts lengths and forces only for formats that record
-    their units; for others it returns the numbers in the file unchanged.
-    H5MD files store a step for each saved position and force, and the
-    reader pairs them by position in the file, so the steps must agree; the
-    check reads the reader's particle group, and raises if it cannot.
+    MDAnalysis returns the file's numbers unchanged for formats that do not
+    record their units. The H5MD reader pairs positions and forces by their
+    order in the file, so their steps must agree (RuntimeError if the steps
+    cannot be read).
     """
     missing = [quantity for quantity in ("length", "force") if reader.units.get(quantity) is None]
     if missing:

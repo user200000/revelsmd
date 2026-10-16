@@ -1,9 +1,4 @@
-"""
-Base classes for trajectory handling in RevelsMD.
-
-This module defines the abstract base class and common exceptions used by
-all trajectory backends.
-"""
+"""Base class, shared helpers and exceptions for the trajectory backends."""
 
 import contextlib
 import operator
@@ -27,28 +22,10 @@ from revelsMD.frame_sources import Frame
 def normalize_bounds(
     n_frames: int, start: int, stop: int | None, stride: int
 ) -> tuple[int, int, int]:
-    """Normalise the representation of start/stop/stride bounds.
+    """Resolve slice bounds to non-negative (start, stop, stride) for ``range()``.
 
-    Converts negative indices to positive and resolves ``None`` stop.
-    Out-of-bounds values are clamped, not rejected — callers that need
-    strict validation (e.g. user-facing APIs) should check bounds
-    *before* calling this function. Only positive strides are supported.
-
-    Parameters
-    ----------
-    n_frames : int
-        Total number of frames.
-    start : int
-        Start index (can be negative).
-    stop : int or None
-        Stop index (can be negative or None for end of trajectory).
-    stride : int
-        Step between frames. Must be >= 1.
-
-    Returns
-    -------
-    tuple of (int, int, int)
-        Normalised (start, stop, stride) suitable for use with ``range()``.
+    Out-of-range values are clamped, not rejected (:func:`frame_range`
+    rejects them). Raises ValueError if ``stride`` is less than 1.
     """
     if stride < 1:
         raise ValueError(f"stride must be >= 1, got {stride}")
@@ -70,9 +47,8 @@ def read_frames_one_file_at_a_time(
 ) -> Generator[Frame, None, None]:
     """Yield ``read(handle, i)`` for each index, keeping at most one file open.
 
-    Consecutive indices in the same file share one open handle; the file is
-    closed when the path changes and when iteration ends, raises or is
-    abandoned.
+    The file is closed when the path changes and when iteration ends, raises
+    or is abandoned.
     """
     handle: BinaryIO | None = None
     current: str | None = None
@@ -111,22 +87,10 @@ def warn_cut_short(path: str, what: str) -> None:
 
 
 def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> None:
-    """Raise unless a frame's cell is exactly the first frame's.
+    """Raise ValueError naming ``where`` unless ``cell`` equals ``reference`` exactly.
 
-    Parameters
-    ----------
-    cell : np.ndarray
-        The frame's cell, in whatever representation the loader compares
-        (a cell matrix, box bounds, or box dimensions).
-    reference : np.ndarray
-        The first frame's cell in the same representation.
-    where : str
-        File and frame, for the error message.
-
-    Raises
-    ------
-    ValueError
-        If the two differ in any element.
+    Both may be in any representation the loader compares (cell matrix,
+    box bounds or box dimensions), as long as it is the same one.
     """
     if not np.array_equal(cell, reference):
         raise ValueError(
@@ -136,20 +100,7 @@ def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> Non
 
 
 def check_finite(positions: np.ndarray, forces: np.ndarray, where: str) -> None:
-    """Raise if a frame's positions or forces contain NaN or infinity.
-
-    Parameters
-    ----------
-    positions, forces : np.ndarray
-        The frame's arrays.
-    where : str
-        File and frame, for the error message.
-
-    Raises
-    ------
-    ValueError
-        If any element of either array is not finite.
-    """
+    """Raise ValueError naming ``where`` if the positions or forces contain NaN or infinity."""
     for name, values in (("positions", positions), ("forces", forces)):
         if not np.isfinite(values).all():
             raise ValueError(f"{where}: the {name} contain NaN or infinite values")
@@ -160,13 +111,7 @@ TrajectoryFiles = TrajectoryPath | Iterable[TrajectoryPath]
 
 
 def as_paths(files: TrajectoryFiles) -> list[str]:
-    """Return a list of path strings from one path or several, in the order given.
-
-    Raises
-    ------
-    ValueError
-        If no paths are given.
-    """
+    """Return one path or several as a list of strings, in order; ValueError if none."""
     if isinstance(files, (str, bytes, os.PathLike)):
         return [os.fsdecode(files)]
     paths = [os.fsdecode(path) for path in files]
@@ -178,16 +123,10 @@ def as_paths(files: TrajectoryFiles) -> list[str]:
 def frame_range(n_frames: int, start: int, stop: int | None, period: int) -> range:
     """Return the frames that ``start``, ``stop`` and ``period`` select.
 
-    Negative indices count from the end, as for ``iter_frames``. Unlike
-    :func:`normalize_bounds`, which clamps, this raises for an index
-    outside the trajectory or an empty selection, which are almost
-    certainly mistakes.
-
-    Raises
-    ------
-    ValueError
-        If ``start`` or ``stop`` lies outside ``[-n_frames, n_frames]``, if
-        ``period`` is less than 1, or if no frames are selected.
+    Negative indices count from the end. Unlike :func:`normalize_bounds`,
+    raises ValueError if ``start`` or ``stop`` is outside
+    ``[-n_frames, n_frames]``, ``period`` is less than 1, or no frames are
+    selected.
     """
     for name, index in (("start", start), ("stop", stop)):
         if index is not None and not -n_frames <= index <= n_frames:
@@ -213,28 +152,11 @@ _BOLTZMANN_CONSTANTS: dict[str, float] = {
 
 
 def compute_beta(units: str, temperature: float) -> float:
-    """
-    Compute beta = 1/(kB*T) for the given unit system and temperature.
+    """Return beta = 1/(kB*T) in the energy units of ``units``.
 
-    Parameters
-    ----------
-    units : str
-        Unit system ('lj', 'real', 'metal', 'mda').
-    temperature : float
-        Temperature in Kelvin for 'real', 'metal', and 'mda' units.
-        For 'lj' (Lennard-Jones reduced units), this is the dimensionless
-        reduced temperature T* = kB*T/epsilon.
-
-    Returns
-    -------
-    float
-        Inverse thermal energy in the appropriate units.
-
-    Raises
-    ------
-    ValueError
-        If the unit system is not recognised, or if temperature is not
-        finite and positive.
+    ``temperature`` is in Kelvin, or the reduced temperature T* = kB*T/epsilon
+    for ``'lj'``. Raises ValueError for an unknown unit system or a
+    temperature that is not finite and positive.
     """
     units = units.lower().strip()
     if units not in _BOLTZMANN_CONSTANTS:
@@ -262,11 +184,9 @@ NOT_PARSE_ERRORS = (
 class reading_with_mdanalysis:
     """Context manager: raise ``error`` naming ``files`` if MDAnalysis cannot read them.
 
-    MDAnalysis raises many exception types for a file it can open but not
-    parse (ValueError, KeyError, OSError, EOFError, StopIteration and
-    others), so every Exception is relabelled except those in
-    ``NOT_PARSE_ERRORS``. It is a class rather than a generator-based
-    context manager, which would let StopIteration escape unchanged.
+    MDAnalysis raises many exception types for a file it cannot parse, so
+    every Exception except ``NOT_PARSE_ERRORS`` is relabelled. A class, since
+    a generator-based context manager would let StopIteration escape.
     """
 
     def __init__(self, files: str, error: type[Exception] = RuntimeError) -> None:
@@ -290,17 +210,12 @@ class reading_with_mdanalysis:
 
 
 def open_universe(topology: Any, trajectories: Sequence[str] = (), **options: Any) -> MD.Universe:
-    """Open an MDAnalysis Universe, naming the files if they cannot be read.
+    """Open an MDAnalysis Universe that guesses no atom attributes (types, masses, ...).
 
-    Nothing is guessed: atom types, masses and other attributes are those
-    the topology records.
-
-    Topology and trajectory paths are opened first, so a file that cannot
-    be opened raises the operating system's error (FileNotFoundError,
-    PermissionError, IsADirectoryError) naming it; a topology that is not a
-    path, such as an MDAnalysis stream, is passed on as it is. If MDAnalysis
-    cannot read the files, RuntimeError names them and the exception it
-    raised.
+    Paths are opened first, so a file that cannot be opened raises the
+    operating system's error; a topology that is not a path (an MDAnalysis
+    stream) is passed on as it is. RuntimeError names the files if
+    MDAnalysis cannot read them.
     """
     paths = list(trajectories)
     for path in ([topology] if isinstance(topology, str) else []) + paths:
@@ -319,15 +234,10 @@ class DataUnavailableError(Exception):
 def given_values(
     given: Mapping[Any, float] | None, labels: Callable[[], Iterable[str]], name: str, what: str
 ) -> dict[str, float]:
-    """Return the per-label charges or masses a user gave, keyed by label string.
+    """Return the user's per-label charges or masses keyed by label string.
 
-    ``labels()`` returns the atoms' labels (their ``what``); it is called
-    only if values are given.
-
-    Raises
-    ------
-    ValueError
-        If a given label is not one of the atoms'.
+    ``labels()`` is called only if values are given. Raises ValueError if a
+    given label is not one of the atoms'.
     """
     values = {str(label): float(value) for label, value in (given or {}).items()}
     unknown = sorted(set(values) - set(labels())) if values else []
@@ -345,13 +255,8 @@ def topology_values(
 ) -> np.ndarray:
     """Return the ``charges`` or ``masses`` of MDAnalysis ``atoms``, labelled ``label``.
 
-    A value given for the label wins; otherwise the values are those
-    ``topology`` records, since :func:`open_universe` guesses nothing.
-
-    Raises
-    ------
-    DataUnavailableError
-        If neither gives them.
+    A value in ``given`` wins; otherwise those the topology records.
+    Raises DataUnavailableError if neither gives them.
     """
     if label in given:
         return np.full(len(atoms), given[label])
@@ -366,35 +271,20 @@ def topology_values(
 
 
 class Trajectory(ABC):
-    """
-    Abstract base class defining the interface for trajectory objects.
+    """Abstract base class: the interface every trajectory backend implements.
 
-    All trajectory backends must implement this interface to ensure consistent
-    access patterns across different file formats and data sources.
-
-    Required Attributes
-    -------------------
+    Attributes
+    ----------
     frames : int
-        Number of frames in the trajectory.
+        Number of frames.
     cell_matrix : np.ndarray, shape (3, 3)
-        Cell matrix with rows = lattice vectors.
+        Cell matrix; rows are lattice vectors.
     units : str
-        Unit system identifier (e.g., 'real', 'metal', 'mda', 'lj').
+        Unit system: ``'real'``, ``'metal'``, ``'mda'`` or ``'lj'``.
     temperature : float
-        Simulation temperature in Kelvin for 'real', 'metal', and 'mda' units.
-        For 'lj' units, this is the dimensionless reduced temperature T*.
+        Temperature in Kelvin, or the reduced temperature T* for ``'lj'``.
     beta : float
         Inverse thermal energy 1/(kB*T) in the trajectory's unit system.
-
-    Properties
-    ----------
-    box_x, box_y, box_z : float
-        Simulation box dimensions (orthorhombic cells only).
-        Raises ``AttributeError`` for non-orthorhombic cells.
-    cell_volume : float
-        Volume of the simulation cell.
-    is_orthorhombic : bool
-        Whether the cell is orthorhombic (all off-diagonal elements negligible).
     """
 
     # Required attributes - subclasses must set these
@@ -405,20 +295,7 @@ class Trajectory(ABC):
     beta: float
 
     def __init__(self, *, units: str, temperature: float) -> None:
-        """
-        Initialise common trajectory attributes.
-
-        Subclasses should call ``super().__init__(units=..., temperature=...)``
-        before setting their own attributes.
-
-        Parameters
-        ----------
-        units : str
-            Unit system identifier (e.g., 'real', 'metal', 'mda', 'lj').
-        temperature : float
-            Simulation temperature in Kelvin for 'real', 'metal', and 'mda' units.
-            For 'lj' units, this is the dimensionless reduced temperature T*.
-        """
+        """Set ``units``, ``temperature`` and ``beta``; subclasses call this first."""
         self.units = units.lower().strip()
         self.temperature = temperature
         self.beta = compute_beta(self.units, temperature)
@@ -473,31 +350,12 @@ class Trajectory(ABC):
     def _normalize_bounds(
         self, start: int, stop: int | None, stride: int
     ) -> tuple[int, int, int]:
-        """Normalise start/stop bounds following Python slice semantics.
-
-        Delegates to the module-level :func:`normalize_bounds` using
-        ``self.frames`` as the frame count.
-        """
+        """:func:`normalize_bounds` for this trajectory's frames."""
         return normalize_bounds(self.frames, start, stop, stride)
 
     @staticmethod
     def _validate_cell_matrix(cell_matrix: np.ndarray, where: str | None = None) -> None:
-        """
-        Validate that a cell matrix is well-formed.
-
-        Parameters
-        ----------
-        cell_matrix : np.ndarray
-            Expected shape (3, 3), all elements finite, positive volume.
-        where : str, optional
-            File and frame the cell comes from, prefixed to the error message.
-
-        Raises
-        ------
-        ValueError
-            If the cell matrix has wrong shape, non-finite elements, or
-            zero/negative volume.
-        """
+        """Raise ValueError naming ``where`` unless the cell is 3x3, finite and of non-zero volume."""
         prefix = f"{where}: " if where is not None else ""
         if cell_matrix.shape != (3, 3):
             raise ValueError(
@@ -515,18 +373,17 @@ class Trajectory(ABC):
 
     @abstractmethod
     def get_indices(self, atype: str) -> np.ndarray:
-        """Return atom indices for a given species or type.
+        """Return the indices of the atoms of a species or type.
 
         Parameters
         ----------
         atype : str
-            Atom species or type name (format is backend-specific).
+            Species or type name, in the backend's convention.
 
         Returns
         -------
         np.ndarray
-            Row positions into the per-frame position and force arrays for
-            atoms matching the given species or type.
+            Row positions into the per-frame position and force arrays.
 
         Raises
         ------
@@ -536,48 +393,36 @@ class Trajectory(ABC):
         ...
 
     def get_charges(self, atype: str) -> np.ndarray:
-        """Return atomic charges for atoms of a given species or type.
+        """Return the charges of the atoms of a species or type.
 
-        Subclasses should override this method if charge data is available.
-        The default implementation raises ``DataUnavailableError``.
+        Backends with charges override this; the default raises.
 
         Parameters
         ----------
         atype : str
-            Atom species or type name (format is backend-specific).
-
-        Returns
-        -------
-        np.ndarray
-            Array of atomic charges for the selected atoms.
+            Species or type name, in the backend's convention.
 
         Raises
         ------
         DataUnavailableError
-            If charge data is not available for this trajectory backend.
+            If the trajectory has no charges.
         """
         raise DataUnavailableError("Charge data not available for this trajectory type.")
 
     def get_masses(self, atype: str) -> np.ndarray:
-        """Return atomic masses for atoms of a given species or type.
+        """Return the masses of the atoms of a species or type.
 
-        Subclasses should override this method if mass data is available.
-        The default implementation raises ``DataUnavailableError``.
+        Backends with masses override this; the default raises.
 
         Parameters
         ----------
         atype : str
-            Atom species or type name (format is backend-specific).
-
-        Returns
-        -------
-        np.ndarray
-            Array of atomic masses for the selected atoms.
+            Species or type name, in the backend's convention.
 
         Raises
         ------
         DataUnavailableError
-            If mass data is not available for this trajectory backend.
+            If the trajectory has no masses.
         """
         raise DataUnavailableError("Mass data not available for this trajectory type.")
 
@@ -587,24 +432,27 @@ class Trajectory(ABC):
         stop: int | None = None,
         stride: int = 1
     ) -> Generator[Frame, None, None]:
-        """
-        Iterate over trajectory frames, yielding Frame instances.
+        """Iterate over frames, with slice semantics for the bounds.
 
         Parameters
         ----------
         start : int, optional
-            First frame index (default: 0). Negative indices count from end.
+            First frame (default 0); negative counts from the end.
         stop : int, optional
-            Stop iteration before this frame (default: None, meaning all frames).
-            Negative indices count from end.
+            Frame to stop before (default: the end); negative counts from the end.
         stride : int, optional
-            Step between frames (default: 1).
+            Step between frames (default 1).
 
         Yields
         ------
         Frame
-            A dataclass with ``positions`` and ``forces`` arrays,
-            each of shape (n_atoms, 3).
+            ``positions`` and ``forces``, each of shape ``(n_atoms, 3)``.
+
+        Raises
+        ------
+        ValueError
+            If ``stride`` is less than 1, or a frame cannot be read or has
+            NaN or infinite values.
         """
         start, stop, stride = self._normalize_bounds(start, stop, stride)
         return self._checked(range(start, stop, stride), self._iter_frames_impl(start, stop, stride))
@@ -633,27 +481,21 @@ class Trajectory(ABC):
         stop: int,
         stride: int
     ) -> Generator[Frame, None, None]:
-        """
-        Internal implementation of frame iteration.
-
-        Subclasses implement this with normalized (non-negative) bounds.
-        """
+        """Yield frames ``range(start, stop, stride)``; the bounds are already normalised."""
         ...
 
     def get_frame(self, index: int) -> Frame:
-        """
-        Return positions and forces for a specific frame by index.
+        """Return one frame.
 
         Parameters
         ----------
         index : int
-            Frame index to retrieve. Negative indices count from the end.
+            Frame index; negative counts from the end.
 
         Returns
         -------
         Frame
-            A dataclass with ``positions`` and ``forces`` arrays,
-            each of shape (n_atoms, 3).
+            ``positions`` and ``forces``, each of shape ``(n_atoms, 3)``.
 
         Raises
         ------
@@ -663,7 +505,7 @@ class Trajectory(ABC):
             If ``index`` is out of range.
         ValueError
             If the frame cannot be read, fails the backend's checks, or has
-            NaN or infinite positions or forces.
+            NaN or infinite values.
         """
         index = operator.index(index)
         if not -self.frames <= index < self.frames:
