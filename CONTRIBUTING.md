@@ -56,14 +56,15 @@ from typing import Iterator
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory, DataUnavailableError
+from ._base import Trajectory, DataUnavailableError, check_finite
 
 
 class MyTrajectory(Trajectory):
-    def __init__(self, ..., units: str, temperature: float) -> None:
+    def __init__(self, path: str, ..., units: str, temperature: float) -> None:
         super().__init__(units=units, temperature=temperature)
         # Base __init__ sets self.units, self.temperature, and self.beta.
         # You must also set:
+        self.path = path
         self.frames: int = ...          # total number of frames
         self.cell_matrix: np.ndarray = ...  # shape (3, 3), rows = lattice vectors
 ```
@@ -79,19 +80,15 @@ def get_indices(self, atype: str) -> np.ndarray:
     ...
 ```
 
-**`_get_frame(index)`** — return a single frame by index. The public `get_frame()` checks the index first:
+**`_get_frame(index)`** — return a single frame by index. The public `get_frame()` checks the index and converts negative indices first, so `0 <= index < frames`:
 
 ```python
-from revelsMD.trajectories._base import check_finite
-
 def _get_frame(self, index: int) -> Frame:
     positions = ...  # shape (n_atoms, 3)
     forces = ...     # shape (n_atoms, 3)
     check_finite(positions, forces, f"{self.path}, frame {index}")
     return Frame(positions=positions, forces=forces)
 ```
-
-The public `get_frame()` converts negative indices, so `0 <= index < frames`.
 
 **`_iter_frames_impl(start, stop, stride)`** — yield frames over a normalised slice. This is called by the public `iter_frames()` method after bounds normalisation; `start`, `stop`, and `stride` are guaranteed to be non-negative integers:
 
@@ -105,7 +102,7 @@ def _iter_frames_impl(
 
 `_get_frame` and `_iter_frames_impl` should return `Frame` instances imported from `revelsMD.frame_sources`, and raise `ValueError` naming the file and frame for a frame with NaN or infinite values (`check_finite` in `revelsMD.trajectories._base`) or with a cell other than the first frame's (`check_fixed_cell`). In `__init__`, validate the cell with `self._validate_cell_matrix(cell, where)`, naming the file, and issue warnings with `warn_user`, which attributes them to the user's code. A backend that reads several files should accept them through `as_paths`, which rejects unordered collections and repeated files.
 
-A backend whose frames are byte ranges of files can extend `IndexedFileTrajectory` instead, as the LAMMPS and VASP backends do: set `self._frames` to a `FileFrames.join(...)` table and implement `_where(index)` (the file and frame, for messages) and `_read_arrays(f, index)` (positions and forces from the open file). The base class provides `_get_frame`, `_iter_frames_impl`, the error wrapping and the finite check.
+A backend whose frames are byte ranges of files can extend `IndexedFileTrajectory` instead, as the LAMMPS and VASP backends do. Its `__init__` sets `self._frames` to a `FileFrames.join(...)` table and `self.frames = len(self._frames)`, and it implements `_where(index)` (the file and frame, for messages) and `_read_arrays(f, index)` (positions and forces from the open file). `_read_arrays` raises `ValueError` without the file or frame, which the base class adds; other exceptions pass through unchanged. The base class provides `_get_frame`, `_iter_frames_impl`, that error wrapping and the finite check; it does not check the cell.
 
 ### 3. Optionally override `get_charges` and `get_masses`
 

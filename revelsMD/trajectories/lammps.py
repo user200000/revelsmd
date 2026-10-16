@@ -9,7 +9,6 @@ import array
 import mmap
 import os
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import BinaryIO
 
@@ -19,8 +18,9 @@ import numpy as np
 
 from revelsMD.cell import fractional_to_cartesian
 from ._base import (
-    MDANALYSIS_PARSE_ERRORS, DataUnavailableError, FileFrames, IndexedFileTrajectory,
-    as_paths, check_fixed_cell, warn_user,
+    TrajectoryFiles,
+    DataUnavailableError, FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
+    reading_with_mdanalysis, replaced_frames_dropped, warn_user,
 )
 
 
@@ -160,9 +160,13 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
 
 
 _TIMESTEP = b"ITEM: TIMESTEP"
-_PREAMBLE_ITEMS = (b"ITEM: UNITS", b"ITEM: TIME")
-# A unit style name or a time, as LAMMPS writes after ITEM: UNITS or ITEM: TIME.
-_PREAMBLE_VALUE = re.compile(rb"[a-z]{0,8}|[-+0-9.eE]{0,32}")
+# The lines dump_modify units yes and time yes write before ITEM: TIMESTEP,
+# and the values that follow them: a unit style (the longest, electron, has
+# eight letters) or a time.
+_PREAMBLE_VALUES = {
+    b"ITEM: UNITS": re.compile(rb"[a-z]{0,8}"),
+    b"ITEM: TIME": re.compile(rb"[-+0-9.eE]{0,32}"),
+}
 
 
 @dataclass(frozen=True, eq=False)
@@ -241,7 +245,8 @@ def index_dump(path: str) -> DumpIndex:
         If the file has no frames, if a frame other than the last is
         incomplete, if a frame has more rows than its header states, if a
         frame header is malformed, if timesteps do not strictly increase,
-        or if a box is not supported.
+        if a box is not supported, or if there is text before or between
+        frames other than ``ITEM: UNITS`` and ``ITEM: TIME`` lines.
     """
     no_frames = DumpIndex(
         path, None, np.empty(0, np.int64), np.empty(0, np.int64), np.empty(0, np.int64),
@@ -261,7 +266,10 @@ def index_dump(path: str) -> DumpIndex:
                     return no_frames
                 raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
             if _preamble_status(m[:frame_starts[0]]) != "complete":
-                raise ValueError(f"{path}: unexpected text before the first frame")
+                raise ValueError(
+                    f"{path}: unexpected text before the first frame: "
+                    f"{_excerpt(m, 0, frame_starts[0])}"
+                )
             # A file cut off inside the next frame's header leaves part of an
             # "ITEM:" line after its last newline. Drop that tail.
             limit = len(m)
@@ -298,7 +306,9 @@ def index_dump(path: str) -> DumpIndex:
                 following = _preamble_status(m[entry.data_end:end])
                 if following is None or (following == "cut" and k < n - 1):
                     raise ValueError(
-                        f"{path}, timestep {entry.timestep}: unexpected text after the atom rows"
+                        f"{path}, timestep {entry.timestep}: unexpected text after the "
+                        f"atom rows at byte {entry.data_end}: "
+                        f"{_excerpt(m, entry.data_end, end)}"
                     )
                 if k == n - 1 and entry.data_end < end:
                     dropped_header = True
@@ -338,16 +348,20 @@ def _preamble_status(text: bytes) -> str | None:
     lines = text.split(b"\n")
     complete = [line.strip() for line in lines[:-1] if line.strip()]
     cut = lines[-1].strip()
-    for k, line in enumerate(complete):
-        if k % 2 == 0 and line not in _PREAMBLE_ITEMS:
+    items, values = complete[0::2], complete[1::2]
+    for item, value in zip(items, values + [cut]):
+        if item not in _PREAMBLE_VALUES or not _PREAMBLE_VALUES[item].fullmatch(value):
             return None
-        if k % 2 == 1 and not _PREAMBLE_VALUE.fullmatch(line):
-            return None
-    if len(complete) % 2 == 1:
-        return "cut" if _PREAMBLE_VALUE.fullmatch(cut) else None
+    if len(items) > len(values):
+        return "cut"
     if not cut:
         return "complete"
-    return "cut" if any(item.startswith(cut) for item in (*_PREAMBLE_ITEMS, _TIMESTEP)) else None
+    return "cut" if any(item.startswith(cut) for item in (*_PREAMBLE_VALUES, _TIMESTEP)) else None
+
+
+def _excerpt(m: mmap.mmap, start: int, end: int) -> str:
+    """Up to 40 bytes of the file from ``start``, for error messages."""
+    return repr(m[start:min(end, start + 40)])
 
 
 def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> str | None:
@@ -458,8 +472,8 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
     Files must be given in run order: the files of a run, then those of
     each restart. Each file's frames replace every frame of the file
     before it from its own first timestep on, with a warning for replaced
-    frames that no joined file's timesteps cover. An incomplete final
-    frame is dropped, with a warning unless the next file's frames replace
+    frames outside every joined file's range of kept timesteps. An
+    incomplete final frame is dropped, with a warning unless the next file's frames replace
     it. Every kept frame must have the columns, box and atom count of its
     file's first frame, and every file's first frame the box of the first
     file's; frames that are replaced are not compared.
@@ -474,8 +488,9 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
     files: list[DumpIndex] = []
     headers: list[DumpHeader] = []
     kept: list[int] = []
-    # (replacing file, replaced file, the replaced frames' timesteps)
-    replacements: list[tuple[str, str, np.ndarray]] = []
+    # (replacing file, replaced file, replacing file's first timestep,
+    # the replaced frames' timesteps)
+    replacements: list[tuple[str, str, int, np.ndarray]] = []
     pending: PartialFrame | None = None
     for index in indices:
         if index.header is not None:
@@ -499,7 +514,7 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
                 n_kept = int(np.searchsorted(previous.timesteps[:kept[-1]], first))
                 if n_kept < kept[-1]:
                     replacements.append(
-                        (index.path, previous.path, previous.timesteps[n_kept:kept[-1]])
+                        (index.path, previous.path, first, previous.timesteps[n_kept:kept[-1]])
                     )
                 kept[-1] = n_kept
             files.append(index)
@@ -515,21 +530,17 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         raise ValueError(
             "no complete frames in " + ", ".join(index.path for index in indices)
         )
-    # A replaced frame is lost unless it lies within the timesteps of a
-    # file's kept frames.
+    # A replaced frame is lost unless it lies within some file's range of
+    # kept timesteps.
     spans = [
         (int(index.timesteps[0]), int(index.timesteps[k - 1])) for index, k in zip(files, kept)
     ]
-    for replacing, replaced, timesteps in replacements:
+    for replacing, replaced, start, timesteps in replacements:
         lost = [int(t) for t in timesteps if not any(lo <= t <= hi for lo, hi in spans)]
         if lost:
-            at = f"timestep {lost[0]}" if len(lost) == 1 else f"timesteps {lost[0]} to {lost[-1]}"
-            count = "1 frame is" if len(lost) == 1 else f"{len(lost)} frames are"
-            warn_user(
-                f"{replacing} replaces the frames of {replaced} from timestep "
-                f"{int(timesteps[0])} on, but no joined file covers {at}; "
-                f"{count} dropped from {replaced}"
-            )
+            warn_user(replaced_frames_dropped(
+                replacing, replaced, "timestep", start, len(lost), lost[0], lost[-1]
+            ))
     for index, header, n_kept in zip(files, headers, kept):
         check_fixed_cell(
             header.box, headers[0].box, f"{index.path}, timestep {int(index.timesteps[0])}"
@@ -602,12 +613,12 @@ def _data_file_style(topology_file: str) -> str | None:
 
     The first line of a data file is a title and is not searched.
     """
-    with open(topology_file) as f:
+    with open(topology_file, "rb") as f:
         next(f, None)
         for line in f:
-            if line.split()[:1] == ["Atoms"]:
-                words = line.partition("#")[2].split()
-                return words[0] if words else None
+            if line.split()[:1] == [b"Atoms"]:
+                words = line.partition(b"#")[2].split()
+                return words[0].decode("ascii", "replace") if words else None
     return None
 
 
@@ -700,8 +711,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
     the dump was written in. Several dump files from a run and its restarts
     are joined in the order given, which must be run order: each file's
     frames replace every frame of the file before it from its own first
-    timestep on, with a warning for replaced frames that no joined file's
-    timesteps cover. An incomplete final frame, as left by a job killed
+    timestep on, with a warning for replaced frames outside every joined
+    file's range of kept timesteps. An incomplete final frame, as left by a job killed
     while writing, is dropped with a warning unless the next file's frames
     replace it, and so is an empty file or one holding only the start of a
     frame header. Frames that a later file replaces
@@ -743,12 +754,15 @@ class LammpsTrajectory(IndexedFileTrajectory):
         if a frame's atom count differs from the
         topology's, if the atom style cannot be determined, if a file
         starts at or before the first timestep of the file before it, if
-        the same file is given twice, or if there are no complete frames.
+        the same file is given twice, if a file holds text before or
+        between frames other than the ``ITEM: UNITS`` and ``ITEM: TIME``
+        lines of ``dump_modify units yes`` and ``time yes``, or if there are
+        no complete frames.
     TypeError
         If ``trajectory_file`` is an unordered collection such as a set.
     RuntimeError
-        If MDAnalysis cannot parse the topology, or if topology atom ids
-        repeat.
+        If MDAnalysis cannot parse the topology (the message names it), or
+        if topology atom ids repeat.
     OSError
         If a dump file or the topology file cannot be opened
         (``FileNotFoundError`` if it does not exist).
@@ -767,7 +781,7 @@ class LammpsTrajectory(IndexedFileTrajectory):
 
     def __init__(
         self,
-        trajectory_file: "str | os.PathLike[str] | Sequence[str | os.PathLike[str]]",
+        trajectory_file: TrajectoryFiles,
         topology_file: "str | os.PathLike[str] | None" = None,
         *,
         temperature: float,
@@ -785,19 +799,13 @@ class LammpsTrajectory(IndexedFileTrajectory):
         paths = as_paths(trajectory_file)
 
         columns = resolve_atom_style(atom_style, topology)
-        try:
+        with reading_with_mdanalysis(topology):
             universe = MD.Universe(topology, topology_format="DATA", atom_style=columns)
-        except MDANALYSIS_PARSE_ERRORS as e:
-            raise RuntimeError(
-                f"{topology}: MDAnalysis cannot read the LAMMPS data file: {e!r}"
-            ) from e
         self.mdanalysis_universe = universe
 
         topology_ids = np.asarray(universe.atoms.ids)
         if not np.all(np.diff(topology_ids) > 0):
-            raise RuntimeError(
-                "Topology atom ids repeat; each atom must have its own id."
-            )
+            raise RuntimeError(f"{topology}: atom ids repeat; each atom must have its own id")
         self._topology_ids = topology_ids
         self._topology_types = np.array([str(t).encode() for t in universe.atoms.types])
 

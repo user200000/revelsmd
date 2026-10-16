@@ -115,13 +115,13 @@ def interleaved_blocks(
 ) -> BlockSource:
     """Yield blocks of frames using an interleaved index pattern.
 
-    Section *k* receives frames at indices ``frame_indices[k::sections]``.
-    This requires random access via ``trajectory.get_frame()``.
+    Section *k* receives frames at indices ``frame_indices[k::sections]``,
+    read with ``trajectory.get_frame()``.
 
     Parameters
     ----------
     trajectory : Trajectory
-        Trajectory object with a ``get_frame(index)`` method.
+        The trajectory to read.
     frame_indices : range or sequence of int
         Frame indices to distribute across sections (supports slicing).
     sections : int
@@ -136,17 +136,10 @@ def interleaved_blocks(
     Raises
     ------
     ValueError
-        If the trajectory does not support random frame access.
+        If ``sections`` is less than 1.
     """
     if sections < 1:
         raise ValueError("sections must be >= 1")
-
-    if not callable(getattr(trajectory, "get_frame", None)):
-        raise ValueError(
-            "Interleaved blocking requires a trajectory that supports "
-            "random frame access (get_frame). Use blocking='contiguous' "
-            "for sequential-only backends."
-        )
 
     for k in range(sections):
         section_indices = frame_indices[k::sections]

@@ -38,11 +38,6 @@ class _FakeTrajectory:
         return self._frames[index]
 
 
-class _SequentialOnlyTrajectory:
-    """Trajectory stub without get_frame()."""
-    pass
-
-
 # ---------------------------------------------------------------------------
 # contiguous_blocks
 # ---------------------------------------------------------------------------
@@ -146,11 +141,6 @@ class TestInterleavedBlocks:
         blocks = _frame_ids(interleaved_blocks(traj, range(0, 10, 2), sections=2))
         # range(0,10,2) = [0,2,4,6,8]; interleaved with 2 sections: [0,4,8], [2,6]
         assert blocks == [[0, 4, 8], [2, 6]]
-
-    def test_raises_without_get_frame(self):
-        traj = _SequentialOnlyTrajectory()
-        with pytest.raises(ValueError, match="random frame access"):
-            list(interleaved_blocks(traj, range(5), sections=2))
 
     def test_invalid_sections_zero(self):
         traj = _FakeTrajectory(5)

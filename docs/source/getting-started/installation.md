@@ -29,6 +29,9 @@ The following packages are installed automatically:
 - **tqdm** — progress bars
 - **lxml** — XML parsing
 
+Reading GROMACS TNG files through MDAnalysis also needs **pytng**, and H5MD
+files **h5py**; install them separately if you use these formats.
+
 ## Numba acceleration
 
 RevelsMD uses Numba for JIT-compiled numerical kernels. On first import, Numba will compile the kernels; subsequent imports are faster.

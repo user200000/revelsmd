@@ -776,11 +776,21 @@ class TestAsPaths:
         from revelsMD.trajectories._base import as_paths
         (tmp_path / "a.dump").write_text("x")
         (tmp_path / "b.dump").write_text("x")
-        monkeypatch.setattr(os, "stat", lambda path: SimpleNamespace(st_dev=1, st_ino=0))
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "link.dump").symlink_to(tmp_path / "a.dump")
+        real_stat = os.stat
+
+        def stat_without_inodes(path, *args, **kwargs):
+            if str(tmp_path) in os.fspath(path):
+                return SimpleNamespace(st_dev=1, st_ino=0)
+            return real_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, "stat", stat_without_inodes)
         assert as_paths([tmp_path / "a.dump", tmp_path / "b.dump"]) == [
             str(tmp_path / "a.dump"), str(tmp_path / "b.dump")]
-        with pytest.raises(ValueError, match="is given twice"):
-            as_paths([tmp_path / "a.dump", tmp_path / "sub" / ".." / "a.dump"])
+        for alias in (tmp_path / "sub" / ".." / "a.dump", tmp_path / "link.dump"):
+            with pytest.raises(ValueError, match="is given twice"):
+                as_paths([tmp_path / "a.dump", alias])
 
     def test_array_of_paths(self, tmp_path):
         from revelsMD.trajectories._base import as_paths

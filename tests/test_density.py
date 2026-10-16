@@ -1149,34 +1149,6 @@ class TestBlockingParameter:
         )
         assert gs._welford is None
 
-    def test_interleaved_raises_without_get_frame(self, multi_frame_trajectory):
-        """Interleaved blocking raises if trajectory lacks get_frame()."""
-
-        class SequentialOnly:
-            """Wraps trajectory but without get_frame."""
-            def __init__(self, traj):
-                self.box_x = traj.box_x
-                self.box_y = traj.box_y
-                self.box_z = traj.box_z
-                self.cell_matrix = traj.cell_matrix
-                self.units = traj.units
-                self.temperature = traj.temperature
-                self.beta = traj.beta
-                self.frames = traj.frames
-                self.get_indices = traj.get_indices
-                self.get_charges = traj.get_charges
-                self.get_masses = traj.get_masses
-                self.iter_frames = traj.iter_frames
-
-        seq_traj = SequentialOnly(multi_frame_trajectory)
-
-        gs = DensityGrid(seq_traj, "number", nbins=4)
-        with pytest.raises(ValueError, match="random frame access"):
-            gs.accumulate(
-                seq_traj, atom_names="H",
-                compute_lambda=True, sections=2, blocking="interleaved",
-            )
-
     def test_remainder_block_included_with_lower_weight(self, multi_frame_trajectory):
         """Remainder block contributes to Welford with proportional weight."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)

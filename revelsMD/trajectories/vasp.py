@@ -8,7 +8,7 @@ and the helpers that index and read them.
 import array
 import mmap
 import os
-from collections.abc import Sequence
+import re
 from dataclasses import dataclass
 from typing import BinaryIO
 
@@ -17,6 +17,7 @@ from lxml import etree  # type: ignore[import-untyped]
 
 from revelsMD.cell import fractional_to_cartesian
 from ._base import (
+    TrajectoryFiles,
     FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell, warn_user,
 )
 
@@ -59,6 +60,7 @@ _POSITIONS = b'<varray name="positions"'
 _FORCES = b'<varray name="forces"'
 _BASIS = b'<varray name="basis"'
 _VARRAY_CLOSE = b"</varray>"
+_DOCUMENT_MARKERS = re.compile(rb"<\?xml|<atominfo>")
 
 
 @dataclass(frozen=True, eq=False)
@@ -197,16 +199,18 @@ def _parse_basis_at(element: bytes, where: str) -> np.ndarray:
 def _check_single_document(m: mmap.mmap, path: str) -> None:
     """Raise if the file holds more than one vasprun.xml, as ``cat a b > c`` makes.
 
-    A second XML declaration or ``<atominfo>`` marks a second document.
+    A second XML declaration or ``<atominfo>`` marks a second document. The
+    file is scanned once for both.
     """
-    for marker in (b"<?xml", b"<atominfo>"):
-        first = m.find(marker)
-        second = m.find(marker, first + 1) if first != -1 else -1
-        if second != -1:
+    seen: set[bytes] = set()
+    for match in _DOCUMENT_MARKERS.finditer(m):
+        marker = match.group()
+        if marker in seen:
             raise ValueError(
-                f"{path}: a second {marker.decode()} at byte {second}; the file "
+                f"{path}: a second {marker.decode()} at byte {match.start()}; the file "
                 "holds more than one vasprun.xml, so pass them as separate files"
             )
+        seen.add(marker)
 
 
 def _read_atom_names(m: mmap.mmap, path: str) -> list[str]:
@@ -281,7 +285,8 @@ def read_vasp_frame(
     if cell is not None and not np.array_equal(lattice, cell):
         raise ValueError(
             "the lattice of the step's own <structure> differs from the trajectory's "
-            "cell; another <structure> element in the calculation was indexed instead"
+            "cell; the calculation may hold another <structure> element that was "
+            "indexed in its place, or the file may have changed since it was indexed"
         )
     positions = fractional_to_cartesian(_float_varray(fractional), lattice)
     force_array = _float_varray(forces)
@@ -349,7 +354,7 @@ class VaspTrajectory(IndexedFileTrajectory):
 
     def __init__(
         self,
-        trajectory_file: "str | os.PathLike[str] | Sequence[str | os.PathLike[str]]",
+        trajectory_file: TrajectoryFiles,
         *,
         temperature: float,
     ):

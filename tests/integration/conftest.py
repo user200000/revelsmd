@@ -281,9 +281,10 @@ def multispecies_trajectory():
 def parse_dump(path):
     """Positions and forces of every frame, rows in ascending id order.
 
-    Plain Python: the file is split into frames at ``ITEM: TIMESTEP``, the
-    columns are located from each frame's ``ITEM: ATOMS`` line and every
-    value is converted with ``float()``.
+    Plain Python, for dumps with ``x y z`` coordinates and no ``ITEM:
+    UNITS`` or ``ITEM: TIME`` lines: the file is split into frames at
+    ``ITEM: TIMESTEP``, the columns are located from each frame's ``ITEM:
+    ATOMS`` line and every value is converted with ``float()``.
     """
     text = Path(path).read_text()
     frames = []
@@ -331,23 +332,27 @@ def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
     frames = parse_dump(lammps_ts.trajectory_file)[start:stop:stride]
     positions = np.array([p for p, _ in frames])
     forces = np.array([f for _, f in frames])
+    # The box lengths of the dump's first frame, from its orthogonal bounds.
+    lines = Path(lammps_ts.trajectory_file).read_text().splitlines()
+    bounds_at = next(i for i, line in enumerate(lines) if line.startswith("ITEM: BOX BOUNDS")) + 1
+    lengths = [float(hi) - float(lo) for lo, hi in (line.split()[:2] for line in lines[bounds_at:bounds_at + 3])]
 
     # Build species list from atom types
     species = [str(atom.type) for atom in universe.atoms]
 
     return NumpyTrajectory(
         positions, forces,
-        lammps_ts.box_x, lammps_ts.box_y, lammps_ts.box_z,
+        *lengths,
         species, temperature=lammps_ts.temperature, units=lammps_ts.units
     )
 
 
 def mda_to_numpy(mda_ts, start=0, stop=None, stride=1):
     """
-    Build a NumpyTrajectory by reading an MDATrajectory's files with MDAnalysis.
+    Build a NumpyTrajectory by reading an MDATrajectory's file with MDAnalysis.
 
     Frames are read from the MDAnalysis universe directly, not through
-    MDATrajectory.
+    MDATrajectory, so the trajectory must come from a single file.
 
     Parameters
     ----------

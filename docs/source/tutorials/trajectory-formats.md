@@ -101,6 +101,10 @@ from a job that stopped before writing a frame, is dropped in the same way.
 An incomplete frame anywhere else raises an error, so a file written with
 `dump_modify append yes` across a restart must be split at the restart.
 
+A dump file must hold only frames: other text before or between frames,
+apart from the `ITEM: UNITS` and `ITEM: TIME` lines written by
+`dump_modify units yes` and `time yes`, raises an error.
+
 Atoms are identified by LAMMPS type number, as a string:
 
 ```python
@@ -182,12 +186,20 @@ print(traj.cell_matrix)
 ```
 
 Pass a list of files, in run order, to read a run and its restarts as one
-trajectory. They are joined by time as LAMMPS dumps are by timestep: each
-file's frames replace the previous file's frames from its own first time on,
+trajectory. They are joined by step as LAMMPS dumps are by timestep: each
+file's frames replace the previous file's frames from its own first step on,
 so the frame GROMACS repeats at the start of each file written with
-`-noappend` is read once. Replaced frames whose times no joined file covers
-are dropped with a warning, and a file that starts at or before the first
-time of the file before it raises an error.
+`-noappend` is read once. Formats that record no steps (AMBER NetCDF) are
+joined by time instead, and NetCDF files without times cannot be joined.
+Replaced frames outside every joined file's range of kept steps are dropped
+with a warning, and a file that starts at or before the first step of the
+file before it raises an error. Gaps in steps between the files are not
+detected, and steps must increase within each file (frames are checked as
+they are read).
+
+Files from independent runs, whose steps each start again from zero, are not
+a run and its restarts: load each as its own trajectory and accumulate them
+into the same grid or RDF.
 
 The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:

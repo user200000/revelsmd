@@ -10,6 +10,7 @@ import os
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, BinaryIO, Iterator, Self
 
@@ -87,14 +88,37 @@ def read_frames_one_file_at_a_time(
             handle.close()
 
 
-# Not made absolute: frames' file names are as imported, and a package
-# imported through a relative or ".." path must still match.
+# Not made absolute: the file names that stack frames record (co_filename)
+# are as imported, and a package imported through a relative or ".." path
+# must still match.
 _PACKAGE_DIR = os.path.dirname(os.path.dirname(__file__)) + os.sep
 
 
 def warn_user(message: str) -> None:
     """Issue a UserWarning attributed to the first caller outside RevelsMD."""
     warnings.warn(message, UserWarning, skip_file_prefixes=(_PACKAGE_DIR,))
+
+
+def replaced_frames_dropped(
+    replacing: str, replaced: str, unit: str, start: object, count: int,
+    first: object, last: object,
+) -> str:
+    """The warning for replaced frames outside every joined file's range of kept frames.
+
+    ``unit`` is what orders frames ("timestep", "step" or "time"); the
+    replaced frames run from ``start``, and ``count`` of them, from
+    ``first`` to ``last``, lie outside every joined file's range of kept
+    frames.
+    """
+    lost = (
+        f"its frame at {unit} {first} lies" if count == 1
+        else f"{count} of its frames, between {unit}s {first} and {last}, lie"
+    )
+    return (
+        f"{replacing} replaces the frames of {replaced} from {unit} {start} on; "
+        f"{lost} outside every joined file's range of kept {unit}s and "
+        f"{'is' if count == 1 else 'are'} dropped"
+    )
 
 
 def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> None:
@@ -142,10 +166,14 @@ def check_finite(positions: np.ndarray, forces: np.ndarray, where: str) -> None:
             raise ValueError(f"{where}: the {name} contain NaN or infinite values")
 
 
-def as_paths(
-    files: "str | os.PathLike[str] | Sequence[str | os.PathLike[str]]",
-) -> list[str]:
-    """Return a list of path strings from one path or a sequence of paths.
+TrajectoryPath = str | bytes | os.PathLike[str] | os.PathLike[bytes]
+TrajectoryFiles = TrajectoryPath | Sequence[TrajectoryPath] | np.ndarray
+
+
+def as_paths(files: TrajectoryFiles) -> list[str]:
+    """Return a list of path strings from one path, a sequence of paths or
+    a one-dimensional array of paths. Paths may be str, bytes or path
+    objects.
 
     Raises
     ------
@@ -157,14 +185,13 @@ def as_paths(
     """
     if isinstance(files, (str, bytes, os.PathLike)):
         return [os.fsdecode(files)]
-    if isinstance(files, np.ndarray) and files.ndim == 1:
-        files = files.tolist()
-    if not isinstance(files, Sequence):
+    items = files.tolist() if isinstance(files, np.ndarray) and files.ndim == 1 else files
+    if not isinstance(items, Sequence):
         raise TypeError(
             "trajectory files must be a path or a sequence of paths in run "
-            f"order, not {type(files).__name__}"
+            f"order, not {type(items).__name__}"
         )
-    paths = [os.fsdecode(path) for path in files]
+    paths = [os.fsdecode(path) for path in items]
     if not paths:
         raise ValueError("At least one trajectory file is required.")
     seen: dict[object, str] = {}
@@ -230,9 +257,21 @@ def compute_beta(units: str, temperature: float) -> float:
     return 1.0 / (_BOLTZMANN_CONSTANTS[units] * temperature)
 
 
-# What MDAnalysis raises for a file it can open but not parse. OSError,
-# for a missing or unreadable file, is not included and passes through.
-MDANALYSIS_PARSE_ERRORS = (ValueError, KeyError, IndexError, TypeError)
+@contextmanager
+def reading_with_mdanalysis(files: str) -> Iterator[None]:
+    """Raise RuntimeError naming ``files`` if MDAnalysis cannot parse them.
+
+    MDAnalysis raises many exception types for a file it can open but not
+    parse (ValueError, KeyError, OSError, EOFError, StopIteration and
+    others), so all are caught except a missing or unreadable file and a
+    missing optional package, which pass through unchanged.
+    """
+    try:
+        yield
+    except (FileNotFoundError, PermissionError, IsADirectoryError, ImportError):
+        raise
+    except Exception as e:
+        raise RuntimeError(f"MDAnalysis cannot read {files}: {type(e).__name__}: {e}") from e
 
 
 class DataUnavailableError(Exception):
@@ -593,7 +632,7 @@ class IndexedFileTrajectory(Trajectory):
 
     @abstractmethod
     def _where(self, index: int) -> str:
-        """The file and frame ``index``, for error messages."""
+        """The file and the position within it of frame ``index``, for error messages."""
         ...
 
     @abstractmethod

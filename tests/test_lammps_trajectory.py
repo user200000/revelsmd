@@ -96,10 +96,22 @@ class TestReading:
             LammpsTrajectory(six_frames, str(tmp_path / "missing.data"),
                              temperature=1.0, units="lj", atom_style=atom_style)
 
+    def test_repeated_topology_ids_raise(self, six_frames, tmp_path):
+        repeated = tmp_path / "repeated.data"
+        repeated.write_text(Path(DATA).read_text().replace("\n21 1 21.0", "\n20 1 21.0"))
+        with pytest.raises(RuntimeError, match=r"repeated\.data: atom ids repeat"):
+            LammpsTrajectory(six_frames, str(repeated), temperature=1.0, units="lj")
+
+    def test_binary_topology_without_a_style_raises(self, six_frames, tmp_path):
+        binary = tmp_path / "binary.data"
+        binary.write_bytes(b"title\n\xff\xfe\x00\x01 atoms\n")
+        with pytest.raises(ValueError, match=r"binary\.data: no 'Atoms # <style>' comment"):
+            LammpsTrajectory(six_frames, str(binary), temperature=1.0, units="lj")
+
     def test_unparseable_topology(self, six_frames, tmp_path):
         broken = tmp_path / "broken.data"
         broken.write_text("title\n\n6 atoms\n\nAtoms # atomic\n\n1 x\n")
-        with pytest.raises(RuntimeError, match="broken.data: MDAnalysis cannot read the LAMMPS data file"):
+        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*broken\.data: "):
             LammpsTrajectory(six_frames, str(broken), temperature=1.0, units="lj")
 
 

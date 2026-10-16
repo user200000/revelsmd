@@ -459,8 +459,6 @@ class TestBinnedAccumulation:
 
     def test_single_value_single_bin(self):
         """One value lands in one bin."""
-        from revelsMD.rdf.rdf_helpers import accumulate_binned_contributions
-
         values = np.array([1.5])
         distances = np.array([0.5])
         bins = np.array([0.0, 1.0, 2.0, 3.0])
@@ -474,8 +472,6 @@ class TestBinnedAccumulation:
 
     def test_multiple_values_same_bin(self):
         """Multiple values accumulate in same bin."""
-        from revelsMD.rdf.rdf_helpers import accumulate_binned_contributions
-
         values = np.array([1.0, 2.0, 3.0])
         distances = np.array([0.5, 0.7, 0.9])  # All in bin 0
         bins = np.array([0.0, 1.0, 2.0, 3.0])
@@ -486,8 +482,6 @@ class TestBinnedAccumulation:
 
     def test_values_in_last_bin_zeroed(self):
         """Values in final bin are excluded (matching original behaviour)."""
-        from revelsMD.rdf.rdf_helpers import accumulate_binned_contributions
-
         values = np.array([1.0, 2.0])
         distances = np.array([0.5, 2.5])  # Second value in last bin
         bins = np.array([0.0, 1.0, 2.0, 3.0])
@@ -499,8 +493,6 @@ class TestBinnedAccumulation:
 
     def test_out_of_range_distances(self):
         """Distances outside bin range handled correctly."""
-        from revelsMD.rdf.rdf_helpers import accumulate_binned_contributions
-
         values = np.array([1.0, 2.0, 3.0])
         distances = np.array([-0.5, 1.5, 10.0])  # -0.5 before bins, 10 after
         bins = np.array([0.0, 1.0, 2.0, 3.0])
@@ -514,8 +506,6 @@ class TestBinnedAccumulation:
 
     def test_nan_handling(self):
         """NaN values converted to zero."""
-        from revelsMD.rdf.rdf_helpers import accumulate_binned_contributions
-
         values = np.array([1.0, np.nan, 3.0])
         distances = np.array([0.5, 1.5, 2.5])
         bins = np.array([0.0, 1.0, 2.0, 3.0])
@@ -527,8 +517,6 @@ class TestBinnedAccumulation:
 
     def test_matches_original_loop(self):
         """Output matches the original backward loop implementation."""
-        from revelsMD.rdf.rdf_helpers import accumulate_binned_contributions
-
         np.random.seed(42)
         n_pairs = 1000
         n_bins = 50
@@ -945,8 +933,6 @@ class TestPairwiseContributionsNumba:
             compute_pairwise_contributions_numba,
             accumulate_binned_contributions_numba,
         )
-        from revelsMD.rdf.rdf_helpers import accumulate_binned_contributions
-
         np.random.seed(42)
         pos = np.random.uniform(0, 10, (50, 3))
         forces = np.random.randn(50, 3)
