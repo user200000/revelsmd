@@ -83,7 +83,7 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
     """Index the ionic steps of one vasprun.xml without parsing them.
 
     A final ``<calculation>`` with no closing tag, as left by a run killed
-    while writing, is dropped with a warning.
+    while writing, is dropped, with a warning if earlier steps are complete.
 
     Parameters
     ----------
@@ -151,7 +151,10 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
                 ends.append(end)
                 start = following
     if not starts:
-        raise ValueError(f"{path}: no complete ionic steps")
+        raise ValueError(
+            f"{path}: no complete ionic steps (a run killed during its first "
+            "step leaves none)"
+        )
     return VasprunIndex(
         path, atom_names, first_basis, first_lattice,
         np.array(starts, dtype=np.int64), np.array(ends, dtype=np.int64),
@@ -194,16 +197,16 @@ def _parse_basis_at(element: bytes, where: str) -> np.ndarray:
 def _check_single_document(m: mmap.mmap, path: str) -> None:
     """Raise if the file holds more than one vasprun.xml, as ``cat a b > c`` makes.
 
-    VASP starts every vasprun.xml with an XML declaration, so a second one
-    marks a second document.
+    A second XML declaration or ``<atominfo>`` marks a second document.
     """
-    first = m.find(b"<?xml")
-    second = m.find(b"<?xml", first + 1) if first != -1 else -1
-    if second != -1:
-        raise ValueError(
-            f"{path}: a second <?xml at byte {second}; the file "
-            "holds more than one vasprun.xml, so pass them as separate files"
-        )
+    for marker in (b"<?xml", b"<atominfo>"):
+        first = m.find(marker)
+        second = m.find(marker, first + 1) if first != -1 else -1
+        if second != -1:
+            raise ValueError(
+                f"{path}: a second {marker.decode()} at byte {second}; the file "
+                "holds more than one vasprun.xml, so pass them as separate files"
+            )
 
 
 def _read_atom_names(m: mmap.mmap, path: str) -> list[str]:
@@ -334,7 +337,8 @@ class VaspTrajectory(IndexedFileTrajectory):
     Notes
     -----
     An incomplete final ionic step, as left by a run killed while writing,
-    is dropped with a warning. Reading a step raises ValueError if its
+    is dropped with a warning; a file with no complete step raises.
+    Reading a step raises ValueError if its
     positions or forces are malformed, do not match the atom count or
     contain NaN or infinity, or if its lattice differs from the first
     step's.
@@ -401,6 +405,7 @@ class VaspTrajectory(IndexedFileTrajectory):
     # (in <atominfo>) are not read.
 
     def _where(self, index: int) -> str:
+        """Name the file and calculation of frame ``index``."""
         return f"{self._frames.path(index)}, calculation {int(self._calculation[index])}"
 
     def _read_arrays(self, f: BinaryIO, index: int) -> tuple[np.ndarray, np.ndarray]:

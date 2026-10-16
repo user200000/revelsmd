@@ -166,6 +166,19 @@ class TestFiles:
         with pytest.raises(ValueError, match=r"v\.xml, calculation 3: the forces contain NaN"):
             traj.get_frame(3)
 
+    def test_zero_volume_lattice_raises_naming_the_file(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        flat = [with_basis(c, lambda b: b * np.array([[1.0], [1.0], [0.0]])) for c in calculations]
+        path = write(tmp_path / "flat.xml", join(head, flat, tail))
+        with pytest.raises(ValueError, match=r"flat\.xml, calculation 0: Cell matrix must have positive volume"):
+            VaspTrajectory(path, temperature=600.0)
+
+    def test_file_without_its_xml_declaration_appended_raises(self, tmp_path):
+        text = SOURCE.read_bytes()
+        second = text[text.find(b"?>") + 2:]
+        with pytest.raises(ValueError, match="a second <atominfo>"):
+            VaspTrajectory(write(tmp_path / "cat.xml", text + second), temperature=600.0)
+
     def test_same_file_twice_raises(self):
         with pytest.raises(ValueError, match="is given twice"):
             VaspTrajectory([str(SOURCE), str(SOURCE)], temperature=600.0)

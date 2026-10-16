@@ -72,6 +72,14 @@ class TestReading:
         traj = LammpsTrajectory((a, b), Path(DATA), temperature=1.0, units="lj")
         assert traj.frames == 2
 
+    def test_get_frame_names_negative_frames_by_position(self, tmp_path):
+        bad_ids = [r.replace("40 2", "41 2", 1) for r in rows(200)]
+        a = write(tmp_path / "a.dump", frame(0), frame(100), frame(200, atom_rows=bad_ids))
+        with pytest.raises(ValueError, match=r"a\.dump, frame 2 \(timestep 200\)"):
+            load(a).get_frame(-1)
+        with pytest.raises(IndexError, match="frame -4 is out of range for 3 frames"):
+            load(a).get_frame(-4)
+
     def test_get_frame_needs_an_integer(self, six_frames):
         traj = load(six_frames)
         with pytest.raises(TypeError):
@@ -225,6 +233,11 @@ class TestValidation:
         a = write(tmp_path / "a.dump", frame(0, columns="id type x y z", atom_rows=atom_rows))
         with pytest.raises(ValueError, match="lack fx fy fz"):
             load(a)
+
+    def test_zero_volume_box_raises_naming_the_file(self, tmp_path):
+        z = write(tmp_path / "z.dump", frame(0, bounds="0.0 10.0\n0.0 10.0\n5.0 5.0\n"))
+        with pytest.raises(ValueError, match=r"z\.dump, frame 0 \(timestep 0\): Cell matrix must have positive volume"):
+            load(z)
 
     def test_atom_count_must_match_the_topology(self, tmp_path):
         a = write(tmp_path / "a.dump", frame(0, atom_rows=rows(0)[:5], n_atoms=5))

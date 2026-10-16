@@ -176,6 +176,12 @@ class TestValidation:
         with pytest.raises(ValueError, match="nan.trr, frame 1: the forces contain NaN"):
             traj.get_frame(1)
 
+    def test_degenerate_box_raises_naming_the_file(self, tmp_path):
+        dims = np.array([1e-5, 1e-5, 1e-5, 90.0, 90.0, 90.0])
+        path = write_variant(tmp_path / "flat.trr", lambda ts: setattr(ts, "dimensions", dims))
+        with pytest.raises(ValueError, match=r"flat\.trr: Cell matrix must have positive volume"):
+            MDATrajectory(path, TPR, temperature=300.0)
+
     def test_trajectory_without_a_box_raises_at_construction(self, tmp_path):
         path = write_variant(tmp_path / "nobox.trr", lambda ts: setattr(ts, "dimensions", np.zeros(6)))
         with pytest.raises(ValueError, match="nobox.trr: the trajectory has no simulation box"):
@@ -195,6 +201,9 @@ class TestValidation:
         traj = MDATrajectory([TRR, partial], TPR, temperature=300.0)
         with pytest.raises(ValueError, match=r"partial\.trr, frame 1: no forces"):
             traj.get_frame(11)
+        assert traj.get_frame(10).forces.shape == traj.get_frame(9).forces.shape
+        with pytest.raises(ValueError, match=r"partial\.trr, frame 1: no forces"):
+            traj.get_frame(-2)
         with pytest.raises(ValueError, match=r"partial\.trr, frame 1: no forces"):
             list(traj.iter_frames(start=10))
 

@@ -250,6 +250,21 @@ class TestIndexDump:
         assert index.mismatch.message.startswith(
             f"{path}, timestep 200: the cell differs from the first frame's")
 
+    @pytest.mark.parametrize("bounds", [
+        "0.0 10.5\n0.0 10.0\n0.0 10.0\n",
+        "0.0 10.0\n0.0 10.5\n0.0 10.0\n",
+        "0.0 10.0\n0.0 10.0\n0.0 10.5\n",
+        "-0.5 10.0\n0.0 10.0\n0.0 10.0\n",
+    ])
+    def test_any_bound_changing_within_a_file_is_recorded(self, tmp_path, bounds):
+        path = write(tmp_path / "a.dump", frame(0), frame(100), frame(200, bounds=bounds))
+        assert index_dump(path).mismatch.frame == 2
+
+    def test_boundary_flags_changing_within_a_file_raise(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100, box_item="pp pp ff"))
+        with pytest.raises(ValueError, match=r"a\.dump, timestep 100: box boundaries must be periodic"):
+            index_dump(path)
+
     def test_tilt_change_with_the_same_bounds_is_recorded(self, tmp_path):
         # Tilts (xy, xz) = (2, -1) and (-1, 2) give the same bounding box.
         first = frame(0, box_item="xy xz yz pp pp pp", bounds="-1.0 12.0 2.0\n0.0 10.5 -1.0\n0.0 10.0 0.0\n")
@@ -302,6 +317,7 @@ class TestIndexDump:
     @pytest.mark.parametrize("text", [
         "", "I", "ITEM: TI", "ITEM: TIMES", "ITEM: UNITS\nlj\n", "ITEM: UNITS\nl",
         "ITEM: TIME\n0.5\nITEM: TIM", "ITEM: UNITS\nlj\nITEM: TIME\n0.5\n",
+        "ITEM: UNITS\r\nlj\r\n", "ITEM: UNITS\nlj\n ITEM: TI", "ITEM: TIME\n0.5",
     ])
     def test_file_cut_before_its_first_frame_has_only_a_partial_frame(self, tmp_path, text):
         path = write(tmp_path / "a.dump", text)
@@ -311,8 +327,11 @@ class TestIndexDump:
         assert index.partial == PartialFrame(path, None)
 
     @pytest.mark.parametrize("text", [
-        "hello\n", "ITEM: UNITS\nlj\ngarbage\n", "ITEM: UNITS\nlj\n" + "x" * 5000,
-        "ITEM: NUMBER OF ATOMS\n6\n",
+        "hello\n", "ITEM: UNITS\nlj\ngarbage\n", "ITEM: NUMBER OF ATOMS\n6\n",
+        "ITEM: UNITS\nlj\n" * 400,  # a valid start, but too long to be one
+        "ITEM: UNITS\nlj\nhello",  # a cut line that starts no header item
+        "ITEM: UNITS\n<html><body>404\n",  # not a unit style
+        "ITEM: TIME\n" + "1" * 40,  # too long for a time
     ])
     def test_non_dump_file_raises(self, tmp_path, text):
         with pytest.raises(ValueError, match="not a LAMMPS dump"):
@@ -478,12 +497,47 @@ class TestCombineFrames:
     def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
         with pytest.warns(UserWarning, match=(
                 r"run1\.dump replaces the frames of .*run0\.dump from timestep 200 on, "
-                r"and the joined trajectory ends at timestep 300; the frames of "
-                r".*run0\.dump after that, up to timestep 400, are dropped")):
+                r"but no joined file covers timestep 400; 1 frame is dropped from .*run0\.dump")):
             paths, frames = _combined(
                 tmp_path, [frame(0), frame(100), frame(200), frame(300), frame(400)],
                 [frame(200), frame(300)])
         assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
+
+    @staticmethod
+    def _dropped_warnings(record):
+        return [str(w.message) for w in record if "no joined file covers" in str(w.message)]
+
+    @pytest.mark.parametrize("files, lost", [
+        # A restart killed early, then one from after the replaced frames.
+        ([range(0, 1001, 100), range(500, 701, 100), range(900, 2001, 100)], "timestep 800;"),
+        # Restarts that leave a hole in the earlier file's replaced frames.
+        ([range(0, 1001, 100), range(500, 601, 100), range(700, 801, 100), range(1100, 2001, 100)],
+         "timesteps 900 to 1000; 2 frames are"),
+    ])
+    def test_replaced_frames_in_a_gap_between_later_files_warn(self, tmp_path, files, lost):
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            _combined(tmp_path, *[[frame(t) for t in ts] for ts in files])
+        dropped = self._dropped_warnings(record)
+        assert len(dropped) == 1 and lost in dropped[0] and "run1.dump replaces" in dropped[0]
+
+    def test_each_restart_is_judged_on_its_own_replaced_frames(self, tmp_path):
+        # run1 leaves run0's 900 and 1000 uncovered; run2 covers what it replaces of run1.
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            _combined(tmp_path, [frame(t) for t in range(0, 1001, 100)],
+                      [frame(500), frame(600), frame(700)], [frame(600), frame(800)])
+        dropped = self._dropped_warnings(record)
+        assert len(dropped) == 1 and "run1.dump replaces" in dropped[0]
+        assert "timesteps 900 to 1000" in dropped[0]
+        # run1 covers what it replaces of run0; run2 leaves run1's 700 to 900 uncovered.
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            _combined(tmp_path / "..", [frame(t) for t in range(0, 401, 100)],
+                      [frame(t) for t in range(300, 901, 100)], [frame(500), frame(600)])
+        dropped = self._dropped_warnings(record)
+        assert len(dropped) == 1 and "run2.dump replaces" in dropped[0]
+        assert "timesteps 700 to 900" in dropped[0]
 
     def test_replaced_frames_covered_by_a_later_restart_are_silent(self, tmp_path):
         # run1 is a restart killed early, and run2 restarts from it and runs on.
@@ -547,6 +601,14 @@ class TestCombineFrames:
                 timesteps = [start + 100 * j for j in range(rng.randint(1, 5))]
                 files.append((str(directory / f"run{k}.dump"), timesteps))
             expected = plain_join(files)
+            lost = []
+            if expected is not None:
+                spans = {}
+                for path, t in expected:
+                    lo, hi = spans.get(path, (t, t))
+                    spans[path] = (min(lo, t), max(hi, t))
+                lost = [t for path, ts in files for t in ts if (path, t) not in expected
+                        and not any(lo <= t <= hi for lo, hi in spans.values())]
             # Sometimes give one frame after a file's first a different box:
             # an error if and only if that frame is kept.
             changed = None
@@ -559,8 +621,8 @@ class TestCombineFrames:
             grown = "0.0 10.5\n0.0 10.0\n0.0 10.0\n"
             texts = [[frame(t, bounds=grown) if (path, t) == changed else frame(t) for t in ts]
                      for path, ts in files]
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
+            with warnings.catch_warnings(record=True) as record:
+                warnings.simplefilter("always")
                 if expected is None:
                     with pytest.raises(ValueError, match="at or before the start of"):
                         _combined(directory, *texts)
@@ -571,6 +633,7 @@ class TestCombineFrames:
                     continue
                 _, got = _combined(directory, *texts)
             assert got == expected
+            assert bool(self._dropped_warnings(record)) == bool(lost)
             steps = [t for _, t in got]
             assert steps == sorted(set(steps))
             assert [t for p, t in got if p == files[-1][0]] == files[-1][1]

@@ -31,9 +31,8 @@ Section *k* receives every *k*-th frame: section 0 gets frames
 This spreads each block across the trajectory, improving variance estimates
 when slow relaxations are present.
 
-Interleaved blocking requires random frame access, so the backend must
-implement `get_frame()`. `NumpyTrajectory` and file-backed formats with
-random access (e.g. `LammpsTrajectory`) satisfy this.
+Interleaved blocking reads frames by index with `get_frame()`, which every
+backend provides.
 
 ```python
 grid = DensityGrid(traj, density_type='number', nbins=100)

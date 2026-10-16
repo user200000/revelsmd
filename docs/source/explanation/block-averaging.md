@@ -40,8 +40,8 @@ Section $k$ receives every $n$-th frame starting at offset $k$. With
 `blocking='interleaved'` and `sections=4`, section 0 gets frames
 $[0, 4, 8, \ldots]$, section 1 gets $[1, 5, 9, \ldots]$, and so on.
 
-Interleaved blocking requires random access via `get_frame()`, so it is only
-available for backends that support it. It gives better statistical independence
+Interleaved blocking reads frames by index with `get_frame()`, which every
+backend provides; file backends seek to each frame. It gives better statistical independence
 between sections when equilibration varies over the trajectory: each section
 samples the full time range rather than a contiguous window.
 
@@ -55,7 +55,7 @@ grid.accumulate(traj, atom_names='O', compute_lambda=True,
 Use contiguous blocking unless you have reason to prefer interleaved. It is
 simpler, works with all backends, and suffices for well-converged trajectories.
 Interleaved blocking is useful when each block should represent the full ensemble
-rather than a temporal slice, but requires `get_frame()` support.
+rather than a temporal slice.
 
 At least two blocks must be accumulated (across all `accumulate()` calls on the
 same `DensityGrid`) before `rho_lambda` can be computed. Fewer than two raises

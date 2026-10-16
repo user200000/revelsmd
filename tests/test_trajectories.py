@@ -57,6 +57,49 @@ def test_numpy_state_non_finite_box_raises(bad):
                         temperature=300.0)
 
 
+@pytest.mark.parametrize("box", [(-1, 10, 10), (10, -1, 10), (10, 10, -1)])
+def test_numpy_state_negative_box_raises(box):
+    with pytest.raises(ValueError, match="positive"):
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), *box, ["O", "H"], temperature=300.0)
+
+
+def test_numpy_state_get_frame_out_of_range_raises():
+    state = NumpyTrajectory(np.zeros((3, 2, 3)), np.ones((3, 2, 3)), 10, 10, 10, ["O", "H"],
+                            temperature=300.0)
+    for index in (3, -4):
+        with pytest.raises(IndexError, match=f"frame {index} is out of range for 3 frames"):
+            state.get_frame(index)
+
+
+def test_warnings_point_at_the_caller_with_a_relative_import_path(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+    repo = Path(__file__).resolve().parent.parent
+    work = tmp_path / "notebooks"
+    work.mkdir()
+    (work / "a.dump").write_text("ITEM: TIMESTEP\n")
+    script = work / "run.py"
+    script.write_text(
+        "import sys, warnings\n"
+        f"sys.path.insert(0, {str(Path('..') / Path(__import__('os').path.relpath(repo, tmp_path)))!r})\n"
+        "from revelsMD.trajectories.lammps import combine_frames, index_dump\n"
+        "with warnings.catch_warnings(record=True) as record:\n"
+        "    warnings.simplefilter('always')\n"
+        "    try:\n"
+        "        combine_frames([index_dump('a.dump')])\n"
+        "    except ValueError:\n"
+        "        pass\n"
+        "import revelsMD\n"
+        "print(revelsMD.__file__)\n"
+        "print(record[0].filename)\n"
+    )
+    out = subprocess.run([sys.executable, "run.py"], cwd=work, capture_output=True, text=True,
+                         check=True).stdout.splitlines()
+    assert ".." in out[0]
+    assert out[1].endswith("run.py")
+
+
 def test_numpy_state_get_frame_needs_an_integer():
     state = NumpyTrajectory(np.zeros((3, 2, 3)), np.ones((3, 2, 3)), 10, 10, 10, ["O", "H"],
                             temperature=300.0)
@@ -74,7 +117,7 @@ def test_numpy_state_non_finite_frame_raises_when_read():
     next(frames)
     with pytest.raises(ValueError, match="frame 1: the forces contain NaN or infinite"):
         next(frames)
-    with pytest.raises(ValueError, match="frame -2: the forces contain NaN or infinite"):
+    with pytest.raises(ValueError, match="frame 1: the forces contain NaN or infinite"):
         state.get_frame(-2)
 
 
@@ -729,6 +772,23 @@ class TestAsPaths:
         with pytest.raises(TypeError, match="not dict_keys"):
             as_paths({"a.dump": 0}.keys())
 
+    def test_bytes_paths(self):
+        from revelsMD.trajectories._base import as_paths
+        assert as_paths(b"a.dump") == ["a.dump"]
+        assert as_paths([b"a.dump", "b.dump"]) == ["a.dump", "b.dump"]
+
+    def test_same_file_found_without_inode_numbers(self, tmp_path, monkeypatch):
+        import os
+        from types import SimpleNamespace
+        from revelsMD.trajectories._base import as_paths
+        (tmp_path / "a.dump").write_text("x")
+        (tmp_path / "b.dump").write_text("x")
+        monkeypatch.setattr(os, "stat", lambda path: SimpleNamespace(st_dev=1, st_ino=0))
+        assert as_paths([tmp_path / "a.dump", tmp_path / "b.dump"]) == [
+            str(tmp_path / "a.dump"), str(tmp_path / "b.dump")]
+        with pytest.raises(ValueError, match="is given twice"):
+            as_paths([tmp_path / "a.dump", tmp_path / "sub" / ".." / "a.dump"])
+
     def test_array_of_paths(self, tmp_path):
         from revelsMD.trajectories._base import as_paths
         assert as_paths(np.array(["a.dump", "b.dump"])) == ["a.dump", "b.dump"]
@@ -788,6 +848,22 @@ class TestReadFramesOneFileAtATime:
         frames = read_frames_one_file_at_a_time([0, 1], lambda i: paths[i], read)
         assert list(frames) == [b"a", b"b"]
         assert len(handles) == 2 and all(h.closed for h in handles)
+
+    def test_each_file_is_opened_once_per_run_of_frames(self, tmp_path, monkeypatch):
+        import builtins
+        from revelsMD.trajectories import _base
+        paths = self._files(tmp_path)
+        opened = []
+
+        def counting_open(path, mode):
+            opened.append(path)
+            return builtins.open(path, mode)
+
+        monkeypatch.setattr(_base, "open", counting_open, raising=False)
+        frames = _base.read_frames_one_file_at_a_time(
+            [0, 0, 1, 1], lambda i: paths[i], lambda handle, index: index)
+        assert list(frames) == [0, 0, 1, 1]
+        assert opened == paths
 
     def test_file_is_closed_when_reading_raises(self, tmp_path):
         from revelsMD.trajectories._base import read_frames_one_file_at_a_time

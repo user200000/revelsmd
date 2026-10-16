@@ -79,15 +79,19 @@ def get_indices(self, atype: str) -> np.ndarray:
     ...
 ```
 
-**`_get_frame(index)`** — return a single frame by index. The public `get_frame()` converts the index with `operator.index` first, so `index` is an `int`, possibly negative:
+**`_get_frame(index)`** — return a single frame by index. The public `get_frame()` checks the index first:
 
 ```python
+from revelsMD.trajectories._base import check_finite
+
 def _get_frame(self, index: int) -> Frame:
     positions = ...  # shape (n_atoms, 3)
     forces = ...     # shape (n_atoms, 3)
-    check_finite(positions, forces, f"frame {index}")
+    check_finite(positions, forces, f"{self.path}, frame {index}")
     return Frame(positions=positions, forces=forces)
 ```
+
+The public `get_frame()` converts negative indices, so `0 <= index < frames`.
 
 **`_iter_frames_impl(start, stop, stride)`** — yield frames over a normalised slice. This is called by the public `iter_frames()` method after bounds normalisation; `start`, `stop`, and `stride` are guaranteed to be non-negative integers:
 
@@ -99,7 +103,9 @@ def _iter_frames_impl(
         yield self._get_frame(i)
 ```
 
-Both methods should return `Frame` instances imported from `revelsMD.frame_sources`, and raise `ValueError` naming the file and frame for a frame with NaN or infinite values (`check_finite` in `revelsMD.trajectories._base` does this) or with a cell other than the first frame's (`check_fixed_cell`). A backend that reads several files should accept them through `as_paths`, which rejects unordered collections and repeated files. A backend whose frames are byte ranges of files can extend `IndexedFileTrajectory` instead, as the LAMMPS and VASP backends do.
+`_get_frame` and `_iter_frames_impl` should return `Frame` instances imported from `revelsMD.frame_sources`, and raise `ValueError` naming the file and frame for a frame with NaN or infinite values (`check_finite` in `revelsMD.trajectories._base`) or with a cell other than the first frame's (`check_fixed_cell`). In `__init__`, validate the cell with `self._validate_cell_matrix(cell, where)`, naming the file, and issue warnings with `warn_user`, which attributes them to the user's code. A backend that reads several files should accept them through `as_paths`, which rejects unordered collections and repeated files.
+
+A backend whose frames are byte ranges of files can extend `IndexedFileTrajectory` instead, as the LAMMPS and VASP backends do: set `self._frames` to a `FileFrames.join(...)` table and implement `_where(index)` (the file and frame, for messages) and `_read_arrays(f, index)` (positions and forces from the open file). The base class provides `_get_frame`, `_iter_frames_impl`, the error wrapping and the finite check.
 
 ### 3. Optionally override `get_charges` and `get_masses`
 

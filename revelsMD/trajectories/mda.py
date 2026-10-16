@@ -106,6 +106,10 @@ class MDATrajectory(Trajectory):
         trajectory = mdanalysis_universe.trajectory
         self.frames = len(trajectory)
         readers = _readers(trajectory)
+        if len(readers) != len(paths):
+            raise RuntimeError(
+                f"MDAnalysis opened {len(readers)} readers for {len(paths)} files"
+            )
         # Frame i is frame i - _first_frames[k] of paths[k].
         self._paths = paths
         self._first_frames = np.cumsum([0] + [len(r) for r in readers[:-1]])
@@ -253,7 +257,7 @@ def _check_reader(reader) -> None:
         try:
             position_steps = particles["position/step"][()]
             force_steps = particles["force/step"][()]
-        except (KeyError, OSError) as e:
+        except (KeyError, OSError, TypeError) as e:
             raise RuntimeError(f"{cannot_check}: {e}") from e
         if not np.array_equal(position_steps, force_steps):
             raise ValueError(

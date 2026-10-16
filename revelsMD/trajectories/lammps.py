@@ -8,6 +8,7 @@ and the helpers that index and read the dump format.
 import array
 import mmap
 import os
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import BinaryIO
@@ -160,6 +161,8 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
 
 _TIMESTEP = b"ITEM: TIMESTEP"
 _PREAMBLE_ITEMS = (b"ITEM: UNITS", b"ITEM: TIME")
+# A unit style name or a time, as LAMMPS writes after ITEM: UNITS or ITEM: TIME.
+_PREAMBLE_VALUE = re.compile(rb"[a-z]{0,8}|[-+0-9.eE]{0,32}")
 
 
 @dataclass(frozen=True, eq=False)
@@ -323,8 +326,10 @@ def _is_cut_first_header(text: bytes) -> bool:
     for k, line in enumerate(complete):
         if k % 2 == 0 and line.strip() not in _PREAMBLE_ITEMS:
             return False
+        if k % 2 == 1 and not _PREAMBLE_VALUE.fullmatch(line.strip()):
+            return False
     if len(complete) % 2 == 1:
-        return True  # cut inside a value line
+        return _PREAMBLE_VALUE.fullmatch(cut.strip()) is not None
     return any(item.startswith(cut.strip()) for item in (*_PREAMBLE_ITEMS, _TIMESTEP))
 
 
@@ -393,9 +398,11 @@ def _index_frame(
     # Blank lines after the atom rows are ignored; a last row without a
     # newline may be cut short, so it is not complete.
     rows = m[position:rows_end]
-    content = rows.rstrip(b" \t\r\n")
-    terminated = b"\n" in rows[len(content):]
-    n_rows = content.count(b"\n") + bool(content)
+    content_end = len(rows)
+    while content_end and rows[content_end - 1] in b" \t\r\n":
+        content_end -= 1
+    terminated = rows.find(b"\n", content_end) != -1
+    n_rows = rows.count(b"\n", 0, content_end) + (content_end > 0)
     complete_rows = n_rows if terminated or n_rows == 0 else n_rows - 1
     if complete_rows < n_atoms:
         return PartialFrame(path, timestep)
@@ -433,8 +440,8 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
 
     Files must be given in run order: the files of a run, then those of
     each restart. Each file's frames replace every frame of the file
-    before it from its own first timestep on, with a warning if replaced
-    frames run past the end of the joined trajectory. An incomplete final
+    before it from its own first timestep on, with a warning for replaced
+    frames that no joined file's timesteps cover. An incomplete final
     frame is dropped, with a warning unless the next file's frames replace
     it. Every kept frame must have the columns, box and atom count of its
     file's first frame, and every file's first frame the box of the first
@@ -450,8 +457,8 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
     files: list[DumpIndex] = []
     headers: list[DumpHeader] = []
     kept: list[int] = []
-    # (replacing file, replaced file, first replaced and last replaced timestep)
-    replacements: list[tuple[str, str, int, int]] = []
+    # (replacing file, replaced file, the replaced frames' timesteps)
+    replacements: list[tuple[str, str, np.ndarray]] = []
     pending: PartialFrame | None = None
     for index in indices:
         if index.header is not None:
@@ -474,8 +481,9 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
                 previous = files[-1]
                 n_kept = int(np.searchsorted(previous.timesteps[:kept[-1]], first))
                 if n_kept < kept[-1]:
-                    assert last is not None
-                    replacements.append((index.path, previous.path, first, last))
+                    replacements.append(
+                        (index.path, previous.path, previous.timesteps[n_kept:kept[-1]])
+                    )
                 kept[-1] = n_kept
             files.append(index)
             headers.append(index.header)
@@ -490,14 +498,20 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         raise ValueError(
             "no complete frames in " + ", ".join(index.path for index in indices)
         )
-    end = int(files[-1].timesteps[-1])
-    for replacing, replaced, first, last in replacements:
-        if last > end:
+    # A replaced frame is lost unless it lies within the timesteps of a
+    # file's kept frames.
+    spans = [
+        (int(index.timesteps[0]), int(index.timesteps[k - 1])) for index, k in zip(files, kept)
+    ]
+    for replacing, replaced, timesteps in replacements:
+        lost = [int(t) for t in timesteps if not any(lo <= t <= hi for lo, hi in spans)]
+        if lost:
+            at = f"timestep {lost[0]}" if len(lost) == 1 else f"timesteps {lost[0]} to {lost[-1]}"
+            count = "1 frame is" if len(lost) == 1 else f"{len(lost)} frames are"
             warn_user(
                 f"{replacing} replaces the frames of {replaced} from timestep "
-                f"{first} on, and the joined trajectory ends at timestep {end}; "
-                f"the frames of {replaced} after that, up to timestep {last}, "
-                "are dropped"
+                f"{int(timesteps[0])} on, but no joined file covers {at}; "
+                f"{count} dropped from {replaced}"
             )
     for index, header, n_kept in zip(files, headers, kept):
         check_fixed_cell(
@@ -669,10 +683,11 @@ class LammpsTrajectory(IndexedFileTrajectory):
     the dump was written in. Several dump files from a run and its restarts
     are joined in the order given, which must be run order: each file's
     frames replace every frame of the file before it from its own first
-    timestep on, with a warning if replaced frames run past the end of the
-    joined trajectory. An incomplete final frame, as left by a job killed
+    timestep on, with a warning for replaced frames that no joined file's
+    timesteps cover. An incomplete final frame, as left by a job killed
     while writing, is dropped with a warning unless the next file's frames
-    replace it, and so is an empty file. Frames that a later file replaces
+    replace it, and so is an empty file or one holding only the start of a
+    frame header. Frames that a later file replaces
     are not compared with their file's first frame, so a run whose box or
     atom count went wrong after the restart point can be joined with its
     restart.
@@ -861,6 +876,7 @@ class LammpsTrajectory(IndexedFileTrajectory):
             raise DataUnavailableError("Mass data not available for this LAMMPS trajectory.")
 
     def _where(self, index: int) -> str:
+        """Name the file, frame and timestep of frame ``index``."""
         table = self._frames
         return f"{table.path(index)}, frame {index} (timestep {int(table.timesteps[index])})"
 

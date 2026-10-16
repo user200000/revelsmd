@@ -11,7 +11,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, BinaryIO, Iterator
+from typing import Any, BinaryIO, Iterator, Self
 
 import numpy as np
 import scipy.constants as constants
@@ -87,7 +87,9 @@ def read_frames_one_file_at_a_time(
             handle.close()
 
 
-_PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + os.sep
+# Not made absolute: frames' file names are as imported, and a package
+# imported through a relative or ".." path must still match.
+_PACKAGE_DIR = os.path.dirname(os.path.dirname(__file__)) + os.sep
 
 
 def warn_user(message: str) -> None:
@@ -153,8 +155,8 @@ def as_paths(
     ValueError
         If no paths are given, or if the same file is given twice.
     """
-    if isinstance(files, (str, os.PathLike)):
-        return [os.fspath(files)]
+    if isinstance(files, (str, bytes, os.PathLike)):
+        return [os.fsdecode(files)]
     if isinstance(files, np.ndarray) and files.ndim == 1:
         files = files.tolist()
     if not isinstance(files, Sequence):
@@ -162,18 +164,20 @@ def as_paths(
             "trajectory files must be a path or a sequence of paths in run "
             f"order, not {type(files).__name__}"
         )
-    paths = [os.fspath(path) for path in files]
+    paths = [os.fsdecode(path) for path in files]
     if not paths:
         raise ValueError("At least one trajectory file is required.")
-    seen: dict[tuple[int, int], str] = {}
+    seen: dict[object, str] = {}
     for path in paths:
         try:
             stat = os.stat(path)
         except OSError:
             continue  # the loader reports the file it cannot open
-        if stat.st_ino == 0:
-            continue  # the file system gives no file identity
-        key = (stat.st_dev, stat.st_ino)
+        # Without inode numbers, fall back to the resolved path.
+        key: object = (
+            (stat.st_dev, stat.st_ino) if stat.st_ino
+            else os.path.normcase(os.path.realpath(path))
+        )
         if key in seen:
             raise ValueError(f"{path}: the same file as {seen[key]} is given twice")
         seen[key] = path
@@ -393,6 +397,11 @@ class Trajectory(ABC):
         np.ndarray
             Row positions into the per-frame position and force arrays for
             atoms matching the given species or type.
+
+        Raises
+        ------
+        ValueError
+            If no atom matches.
         """
         ...
 
@@ -503,12 +512,19 @@ class Trajectory(ABC):
         ------
         TypeError
             If ``index`` is not an integer.
+        IndexError
+            If ``index`` is out of range.
+        ValueError
+            If the frame cannot be read or fails the backend's checks.
         """
-        return self._get_frame(operator.index(index))
+        index = operator.index(index)
+        if not -self.frames <= index < self.frames:
+            raise IndexError(f"frame {index} is out of range for {self.frames} frames")
+        return self._get_frame(index % self.frames)
 
     @abstractmethod
     def _get_frame(self, index: int) -> Frame:
-        """Return frame ``index``, an int that may be negative."""
+        """Return frame ``index``, where ``0 <= index < frames``."""
         ...
 
 
@@ -517,7 +533,8 @@ class FileFrames:
     """Where each frame of a trajectory joined from several files is stored.
 
     Frame ``i`` is bytes ``[starts[i], ends[i])`` of ``paths[file[i]]``.
-    ``file`` does not decrease. The arrays are read-only.
+    ``file`` does not decrease. Tables made by :meth:`join` have read-only
+    arrays.
     """
 
     paths: list[str]
@@ -532,11 +549,11 @@ class FileFrames:
         starts: list[np.ndarray],
         ends: list[np.ndarray],
         **fields: Any,
-    ) -> Any:
+    ) -> Self:
         """Join per-file byte ranges, in file order, into one table.
 
         ``fields`` are passed on to a subclass's constructor; array fields
-        are made read-only too.
+        are made read-only in place, so pass arrays the table can own.
         """
         arrays = {
             "file": np.repeat(
@@ -554,7 +571,7 @@ class FileFrames:
         return len(self.file)
 
     def path(self, i: int) -> str:
-        """The path of frame ``i``; negative indices count from the end."""
+        """The path of frame ``i``."""
         return self.paths[self.file[i]]
 
 
