@@ -193,10 +193,28 @@ class TestIndexDump:
         )
         index = index_dump(path)
         assert index.timesteps.tolist() == [0, 100]
-        assert index.partial is None
+        # The final ITEM: TIME begins a frame that was never written.
+        assert index.partial == PartialFrame(path, None)
         assert index.ends[0] <= index.starts[1]
         assert read_block(path, index, 0) == "".join(r + "\n" for r in rows(0))
         assert read_block(path, index, 1) == "".join(r + "\n" for r in rows(100, 1.0))
+
+    @pytest.mark.parametrize("text, message", [
+        ("hello world\n" + frame(0), "unexpected text before the first frame"),
+        ("ITEM: UNITS\nlj\nITEM: BONDS\n" + frame(0), "unexpected text before the first frame"),
+        (frame(0) + "ITEM: BONDS\n1 2 3\n" + frame(100), "timestep 0: unexpected text after the atom rows"),
+        (frame(0) + "ITEM: TIME\n" + frame(100), "timestep 0: unexpected text after the atom rows"),
+        (frame(0) + "ITEM: BONDS\n1 2 3\n", "timestep 0: unexpected text after the atom rows"),
+    ])
+    def test_unknown_text_around_frames_raises(self, tmp_path, text, message):
+        with pytest.raises(ValueError, match=r"a\.dump" + ".*" + message):
+            index_dump(write(tmp_path / "a.dump", text))
+
+    def test_value_cut_at_the_end_is_a_cut_header(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), "ITEM: TIME\n0.")
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.partial == PartialFrame(path, None)
 
     @pytest.mark.parametrize("tail", [
         "I", "IT", "ITE", "ITEM", "ITEM:", "ITEM: ", "ITEM: TI", "ITEM: TIMESTE",

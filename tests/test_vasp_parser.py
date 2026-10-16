@@ -258,7 +258,7 @@ class TestReadVaspFrame:
 
     def test_lattice_differing_from_the_cell_raises(self):
         index = index_vasprun(str(SOURCE))
-        with open(SOURCE, "rb") as f, pytest.raises(ValueError, match="the lattice differs from the first"):
+        with open(SOURCE, "rb") as f, pytest.raises(ValueError, match="the lattice of the step's own <structure> differs"):
             read_vasp_frame(f, index.starts[0], index.ends[0], 324, index_cell(index) * 1.1)
 
     def test_wrong_atom_count_raises(self):

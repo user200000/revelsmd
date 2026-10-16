@@ -181,6 +181,14 @@ print(traj.frames)
 print(traj.cell_matrix)
 ```
 
+Pass a list of files, in run order, to read a run and its restarts as one
+trajectory. They are joined by time as LAMMPS dumps are by timestep: each
+file's frames replace the previous file's frames from its own first time on,
+so the frame GROMACS repeats at the start of each file written with
+`-noappend` is read once. Replaced frames whose times no joined file covers
+are dropped with a warning, and a file that starts at or before the first
+time of the file before it raises an error.
+
 The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:
 

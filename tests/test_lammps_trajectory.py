@@ -90,10 +90,17 @@ class TestReading:
         with pytest.raises(ValueError, match="no atoms of type '3'"):
             load(six_frames).get_indices("3")
 
-    def test_unreadable_topology(self, six_frames, tmp_path):
-        with pytest.raises(RuntimeError, match="Failed to load LAMMPS topology"):
+    @pytest.mark.parametrize("atom_style", ["id type x y z", None])
+    def test_missing_topology(self, six_frames, tmp_path, atom_style):
+        with pytest.raises(FileNotFoundError, match="missing.data"):
             LammpsTrajectory(six_frames, str(tmp_path / "missing.data"),
-                             temperature=1.0, units="lj", atom_style="id type x y z")
+                             temperature=1.0, units="lj", atom_style=atom_style)
+
+    def test_unparseable_topology(self, six_frames, tmp_path):
+        broken = tmp_path / "broken.data"
+        broken.write_text("title\n\n6 atoms\n\nAtoms # atomic\n\n1 x\n")
+        with pytest.raises(RuntimeError, match="broken.data: MDAnalysis cannot read the LAMMPS data file"):
+            LammpsTrajectory(six_frames, str(broken), temperature=1.0, units="lj")
 
 
 class TestMultipleFiles:

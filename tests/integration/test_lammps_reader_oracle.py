@@ -5,31 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from .conftest import parse_dump
+
 TEST_DATA_DIR = Path(__file__).parents[1] / "data"
 EXAMPLE1 = TEST_DATA_DIR / "example_1_LJ"
 
 
-def parse_dump(path):
-    """Positions and forces of every frame, rows in ascending id order.
-
-    Plain Python: the file is split into frames at ``ITEM: TIMESTEP``, the
-    columns are located from each frame's ``ITEM: ATOMS`` line and every
-    value is converted with ``float()``.
-    """
-    text = Path(path).read_text()
-    frames = []
-    for block in text.split("ITEM: TIMESTEP\n")[1:]:
-        lines = block.splitlines()
-        n_atoms = int(lines[2])
-        assert lines[7].startswith("ITEM: ATOMS")
-        columns = lines[7].split()[2:]
-        rows = [line.split() for line in lines[8:8 + n_atoms]]
-        assert len(rows) == n_atoms and len(lines) == 8 + n_atoms
-        rows.sort(key=lambda row: int(row[columns.index("id")]))
-        positions = [[float(row[columns.index(c)]) for c in ("x", "y", "z")] for row in rows]
-        forces = [[float(row[columns.index(c)]) for c in ("fx", "fy", "fz")] for row in rows]
-        frames.append((np.array(positions), np.array(forces)))
-    return frames
 
 
 @pytest.fixture(scope="module")

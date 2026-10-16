@@ -278,14 +278,41 @@ def multispecies_trajectory():
 # Conversion helpers for cross-backend tests
 # ---------------------------------------------------------------------------
 
+def parse_dump(path):
+    """Positions and forces of every frame, rows in ascending id order.
+
+    Plain Python: the file is split into frames at ``ITEM: TIMESTEP``, the
+    columns are located from each frame's ``ITEM: ATOMS`` line and every
+    value is converted with ``float()``.
+    """
+    text = Path(path).read_text()
+    frames = []
+    for block in text.split("ITEM: TIMESTEP\n")[1:]:
+        lines = block.splitlines()
+        n_atoms = int(lines[2])
+        assert lines[7].startswith("ITEM: ATOMS")
+        columns = lines[7].split()[2:]
+        rows = [line.split() for line in lines[8:8 + n_atoms]]
+        assert len(rows) == n_atoms and len(lines) == 8 + n_atoms
+        rows.sort(key=lambda row: int(row[columns.index("id")]))
+        positions = [[float(row[columns.index(c)]) for c in ("x", "y", "z")] for row in rows]
+        forces = [[float(row[columns.index(c)]) for c in ("fx", "fy", "fz")] for row in rows]
+        frames.append((np.array(positions), np.array(forces)))
+    return frames
+
+
 def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
     """
-    Convert a LammpsTrajectory to NumpyTrajectory.
+    Build a NumpyTrajectory from a LammpsTrajectory's dump file.
+
+    The frames are read with :func:`parse_dump`, not with the loader, so
+    results from the two trajectories compare the loader with an
+    independent parse.
 
     Parameters
     ----------
     lammps_ts : LammpsTrajectory
-        Source trajectory
+        Source trajectory, read from a single dump file
     start, stop, stride : int
         Frame selection parameters
 
@@ -301,9 +328,9 @@ def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
     if stop is None or stop == -1:
         stop = lammps_ts.frames
 
-    frames = list(lammps_ts.iter_frames(start=start, stop=stop, stride=stride))
-    positions = np.array([frame.positions for frame in frames])
-    forces = np.array([frame.forces for frame in frames])
+    frames = parse_dump(lammps_ts.trajectory_file)[start:stop:stride]
+    positions = np.array([p for p, _ in frames])
+    forces = np.array([f for _, f in frames])
 
     # Build species list from atom types
     species = [str(atom.type) for atom in universe.atoms]
@@ -317,7 +344,10 @@ def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
 
 def mda_to_numpy(mda_ts, start=0, stop=None, stride=1):
     """
-    Convert an MDATrajectory to NumpyTrajectory.
+    Build a NumpyTrajectory by reading an MDATrajectory's files with MDAnalysis.
+
+    Frames are read from the MDAnalysis universe directly, not through
+    MDATrajectory.
 
     Parameters
     ----------

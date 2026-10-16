@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 import scipy.constants as constants
 from abc import ABC
-from unittest.mock import patch
 
 from revelsMD.trajectories import (
     MDATrajectory,
@@ -17,12 +16,6 @@ from revelsMD.trajectories._base import Trajectory, compute_beta, normalize_boun
 # -----------------------------------------------------------------------------
 # MDATrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("fail"))
-def test_mda_raises_on_universe_failure(mock_universe):
-    with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
-        MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
-
-
 def test_mda_raises_no_topology():
     with pytest.raises(ValueError, match="topology file is required"):
         MDATrajectory("traj.xtc", "", temperature=300.0)

@@ -230,6 +230,11 @@ def compute_beta(units: str, temperature: float) -> float:
     return 1.0 / (_BOLTZMANN_CONSTANTS[units] * temperature)
 
 
+# What MDAnalysis raises for a file it can open but not parse. OSError,
+# for a missing or unreadable file, is not included and passes through.
+MDANALYSIS_PARSE_ERRORS = (ValueError, KeyError, IndexError, TypeError)
+
+
 class DataUnavailableError(Exception):
     """Raised when requested data (charges, masses) is not available for a trajectory type."""
     pass

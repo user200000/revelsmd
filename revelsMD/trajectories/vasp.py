@@ -279,7 +279,10 @@ def read_vasp_frame(
         raise ValueError("the ionic step lacks a basis, positions or forces")
     lattice = _float_varray(basis)
     if cell is not None and not np.array_equal(lattice, cell):
-        raise ValueError("the lattice differs from the first ionic step's")
+        raise ValueError(
+            "the lattice of the step's own <structure> differs from the trajectory's "
+            "cell; another <structure> element in the calculation was indexed instead"
+        )
     positions = fractional_to_cartesian(_float_varray(fractional), lattice)
     force_array = _float_varray(forces)
     if positions.shape != (n_atoms, 3) or force_array.shape != (n_atoms, 3):

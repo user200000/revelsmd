@@ -17,7 +17,9 @@ from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-unty
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory, as_paths, check_finite, check_fixed_cell
+from ._base import (
+    MDANALYSIS_PARSE_ERRORS, Trajectory, as_paths, check_finite, check_fixed_cell, warn_user,
+)
 
 
 class MDATrajectory(Trajectory):
@@ -39,7 +41,8 @@ class MDATrajectory(Trajectory):
         Path to a trajectory file in which every frame stores positions and
         forces (e.g. a `.trr` written with ``nstfout`` equal to ``nstxout``
         and ``nstvout`` 0 or a multiple of it), or a list of such files in
-        run order, which MDAnalysis joins.
+        run order. Each file's frames replace the previous file's frames
+        from its own first time on, as for a restart.
     topology_file : str
         Path to the topology file (e.g., `.tpr`, `.pdb`, `.gro`).
     temperature : float
@@ -62,15 +65,19 @@ class MDATrajectory(Trajectory):
     ------
     ValueError
         If no topology file is provided, if no trajectory file is given or
-        the same file is given twice, if MDAnalysis does not know the
+        the same file is given twice, if a file starts at or before the
+        first time of the file before it, if MDAnalysis does not know the
         format's length or force units, if an H5MD file saves positions and
         forces at different steps, if the first frame has no box, no
         positions or no forces, or if the cell matrix is invalid.
     TypeError
         If ``trajectory_file`` is an unordered collection such as a set.
     RuntimeError
-        If MDAnalysis fails to load the trajectory or topology file, or if
+        If MDAnalysis cannot parse the trajectory or topology file, or if
         the steps of an H5MD file cannot be read.
+    OSError
+        If a file cannot be opened or MDAnalysis cannot recognise it
+        (``FileNotFoundError`` if it does not exist).
 
     Notes
     -----
@@ -99,18 +106,17 @@ class MDATrajectory(Trajectory):
             mdanalysis_universe = MD.Universe(
                 topology_file, paths[0] if len(paths) == 1 else paths
             )
-        except Exception as e:
-            raise RuntimeError(f"Failed to load MDAnalysis Universe: {e}") from e
+        except MDANALYSIS_PARSE_ERRORS as e:
+            raise RuntimeError(f"Failed to load MDAnalysis Universe: {e!r}") from e
 
         self.mdanalysis_universe = mdanalysis_universe
         trajectory = mdanalysis_universe.trajectory
-        self.frames = len(trajectory)
         readers = _readers(trajectory)
         if len(readers) != len(paths):
             raise RuntimeError(
                 f"MDAnalysis opened {len(readers)} readers for {len(paths)} files"
             )
-        # Frame i is frame i - _first_frames[k] of paths[k].
+        # MDAnalysis frame j is frame j - _first_frames[k] of paths[k].
         self._paths = paths
         self._first_frames = np.cumsum([0] + [len(r) for r in readers[:-1]])
 
@@ -132,6 +138,10 @@ class MDATrajectory(Trajectory):
             )
         for reader in readers:
             _check_reader(reader)
+        # Frame i is MDAnalysis frame _kept[i]; None keeps every frame.
+        self._kept = _restart_frames(readers, paths) if len(paths) > 1 else None
+        trajectory.rewind()
+        self.frames = len(trajectory) if self._kept is None else len(self._kept)
         self._dimensions = np.array(dims, dtype=np.float64)
         self.cell_matrix = np.array(triclinic_vectors(dims), dtype=np.float64)
         self._validate_cell_matrix(self.cell_matrix, paths[0])
@@ -196,7 +206,7 @@ class MDATrajectory(Trajectory):
         return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
 
     def _where(self, frame: int) -> str:
-        """The file and the frame within it of trajectory frame ``frame``."""
+        """The file and the frame within it of MDAnalysis frame ``frame``."""
         k = int(np.searchsorted(self._first_frames, frame, side="right")) - 1
         return f"{self._paths[k]}, frame {frame - int(self._first_frames[k])}"
 
@@ -220,11 +230,63 @@ class MDATrajectory(Trajectory):
         stride: int
     ) -> Iterator[Frame]:
         """Iterate using MDAnalysis trajectory slicing."""
-        for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
+        trajectory = self.mdanalysis_universe.trajectory
+        selected = (
+            trajectory[start:stop:stride] if self._kept is None
+            else trajectory[self._kept[start:stop:stride]]
+        )
+        for ts in selected:
             yield self._frame(ts)
 
     def _get_frame(self, index: int) -> Frame:
-        return self._frame(self.mdanalysis_universe.trajectory[index])
+        frame = index if self._kept is None else int(self._kept[index])
+        return self._frame(self.mdanalysis_universe.trajectory[frame])
+
+
+def _restart_frames(readers: list, paths: list[str]) -> np.ndarray:
+    """The MDAnalysis frames kept when files from a run and its restarts are joined.
+
+    As for LAMMPS dumps, each file's frames replace the previous file's
+    frames from its own first time on; this drops the frame GROMACS repeats
+    at the start of each file written with ``-noappend``. Replaced frames
+    whose times no kept file covers are reported with a warning.
+
+    Raises
+    ------
+    ValueError
+        If a file starts at or before the first time of the file before it.
+    """
+    kept = [len(reader) for reader in readers]
+    firsts = [float(reader[0].time) for reader in readers]
+    replaced: list[tuple[int, list[float]]] = []
+    for k in range(1, len(readers)):
+        previous = readers[k - 1]
+        if firsts[k] <= firsts[k - 1]:
+            raise ValueError(
+                f"{paths[k]} starts at time {firsts[k]}, at or before the start of "
+                f"{paths[k - 1]} (time {firsts[k - 1]}); files must be in run order"
+            )
+        times: list[float] = []
+        while float(previous[kept[k - 1] - 1].time) >= firsts[k]:
+            times.insert(0, float(previous.ts.time))
+            kept[k - 1] -= 1
+        if times:
+            replaced.append((k, times))
+    spans = [
+        (firsts[k], float(reader[kept[k] - 1].time)) for k, reader in enumerate(readers)
+    ]
+    for k, times in replaced:
+        lost = [t for t in times if not any(lo <= t <= hi for lo, hi in spans)]
+        if lost:
+            warn_user(
+                f"{paths[k]} replaces the frames of {paths[k - 1]} from time "
+                f"{times[0]} on, but no joined file covers times {lost[0]} to "
+                f"{lost[-1]}; {len(lost)} frames are dropped from {paths[k - 1]}"
+            )
+    offsets = np.cumsum([0] + [len(reader) for reader in readers[:-1]])
+    return np.concatenate(
+        [offset + np.arange(n, dtype=np.int64) for offset, n in zip(offsets, kept)]
+    )
 
 
 def _check_reader(reader) -> None:

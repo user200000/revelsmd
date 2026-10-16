@@ -1,5 +1,6 @@
 """MDATrajectory on the committed water trajectory and variants written from it."""
 
+import warnings
 from pathlib import Path
 
 import MDAnalysis as MD
@@ -26,6 +27,23 @@ def write_variant(path, edit=None, n_frames=3):
                 edit(ts)
             writer.write(universe.atoms)
     return str(path)
+
+
+def write_frames(path, frames, edit=None):
+    """Write the given frames of the water trajectory, applying edit(ts) to each."""
+    universe = MD.Universe(TPR, TRR)
+    with MD.Writer(str(path), n_atoms=universe.atoms.n_atoms) as writer:
+        for ts in universe.trajectory[list(frames)]:
+            if edit is not None:
+                edit(ts)
+            writer.write(universe.atoms)
+    return str(path)
+
+
+def shift_time(offset):
+    def edit(ts):
+        ts.time = ts.time + offset
+    return edit
 
 
 @pytest.fixture(scope="module")
@@ -188,16 +206,52 @@ class TestValidation:
             MDATrajectory(path, TPR, temperature=300.0)
 
     def test_list_of_files_is_joined(self, tmp_path, universe):
-        first = write_variant(tmp_path / "a.trr", n_frames=3)
+        first = write_variant(tmp_path / "a.trr", shift_time(-1e6), n_frames=3)
         traj = MDATrajectory([first, TRR], TPR, temperature=300.0)
         assert traj.frames == 13
         np.testing.assert_array_equal(traj.get_frame(3).forces, universe.trajectory[0].forces)
+
+    @pytest.mark.parametrize("first, second", [
+        (range(0, 5), range(5, 10)),  # consecutive
+        (range(0, 5), range(4, 10)),  # -noappend: the restart repeats frame 4
+        (range(0, 8), range(4, 10)),  # a restart from frame 4 of a longer run
+    ])
+    def test_restart_files_are_joined_by_time(self, tmp_path, universe, first, second):
+        a = write_frames(tmp_path / "a.trr", first)
+        b = write_frames(tmp_path / "b.trr", second)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            traj = MDATrajectory([a, b], TPR, temperature=300.0)
+        assert traj.frames == 10
+        for k, frame in enumerate(traj.iter_frames()):
+            np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
+        for k in (3, 4, 5, -1):
+            np.testing.assert_array_equal(traj.get_frame(k).forces, universe.trajectory[k].forces)
+        got = list(traj.iter_frames(start=3, stop=9, stride=2))
+        for frame, k in zip(got, (3, 5, 7), strict=True):
+            np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
+
+    def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
+        a = write_frames(tmp_path / "a.trr", range(0, 8))
+        b = write_frames(tmp_path / "b.trr", range(3, 6))
+        with pytest.warns(UserWarning, match=r"b\.trr replaces the frames of .*a\.trr .* 2 frames are dropped"):
+            traj = MDATrajectory([a, b], TPR, temperature=300.0)
+        assert traj.frames == 6
+
+    def test_file_starting_before_the_previous_one_raises(self, tmp_path):
+        a = write_frames(tmp_path / "a.trr", range(3, 6))
+        b = write_frames(tmp_path / "b.trr", range(0, 5))
+        with pytest.raises(ValueError, match=r"b\.trr starts at time .* at or before the start of .*a\.trr"):
+            MDATrajectory([a, b], TPR, temperature=300.0)
 
     def test_errors_in_a_list_name_the_file_and_its_frame(self, tmp_path):
         def drop_forces(ts):
             if ts.frame == 1:
                 ts.has_forces = False
-        partial = write_variant(tmp_path / "partial.trr", drop_forces)
+        def later_without_forces(ts):
+            drop_forces(ts)
+            ts.time = ts.time + 1e6
+        partial = write_variant(tmp_path / "partial.trr", later_without_forces)
         traj = MDATrajectory([TRR, partial], TPR, temperature=300.0)
         with pytest.raises(ValueError, match=r"partial\.trr, frame 1: no forces"):
             traj.get_frame(11)
@@ -219,9 +273,19 @@ class TestValidation:
         with pytest.raises(TypeError, match="not set"):
             MDATrajectory({TRR}, TPR, temperature=300.0)
 
-    def test_unreadable_files(self, tmp_path):
-        with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
+    # MDAnalysis's TRR reader fails while closing a file it never opened.
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+    def test_missing_files(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="missing.tpr"):
             MDATrajectory(TRR, str(tmp_path / "missing.tpr"), temperature=300.0)
+        with pytest.raises(OSError, match="missing.trr"):
+            MDATrajectory(str(tmp_path / "missing.trr"), TPR, temperature=300.0)
+
+    def test_files_mdanalysis_cannot_parse(self, tmp_path):
+        dump = tmp_path / "small.lammpsdump"
+        dump.write_bytes(LAMMPS_DUMP.read_bytes())
+        with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe.*same number of atoms"):
+            MDATrajectory(str(dump), TPR, temperature=300.0)
 
     def test_unknown_atom_name_raises(self, traj):
         with pytest.raises(ValueError, match="no atoms named 'Na'"):
@@ -268,8 +332,14 @@ class TestUnits:
         path = write_variant(tmp_path / "unitless.h5md")
         with h5py.File(path, "r+") as f:
             del f["particles/trajectory/force/value"].attrs["unit"]
+        # MDAnalysis refuses to convert units it cannot read.
         with pytest.raises(RuntimeError, match="H5MD file must have readable units"):
             MDATrajectory(path, TPR, temperature=300.0)
+        # The unit check rejects the reader MDAnalysis opens without conversion.
+        from revelsMD.trajectories.mda import _check_reader
+        reader = MD.Universe(TPR, path, convert_units=False).trajectory
+        with pytest.raises(ValueError, match="unitless.h5md: MDAnalysis does not know the length and force units"):
+            _check_reader(reader)
 
     def test_every_file_of_a_list_is_checked(self, tmp_path):
         good = write_variant(tmp_path / "good.h5md", n_frames=4)

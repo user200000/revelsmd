@@ -144,7 +144,7 @@ class TestFiles:
         calculations = [nest_a_scaled_copy(c) for c in calculations]
         traj = VaspTrajectory(write(tmp_path / "v.xml", join(head, calculations, tail)),
                               temperature=600.0)
-        with pytest.raises(ValueError, match=r"v\.xml, calculation 0: the lattice differs"):
+        with pytest.raises(ValueError, match=r"v\.xml, calculation 0: the lattice of the step's own <structure> differs"):
             traj.get_frame(0)
 
     def test_malformed_xml_raises_when_read(self, tmp_path):

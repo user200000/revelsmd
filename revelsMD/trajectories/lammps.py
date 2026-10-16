@@ -19,8 +19,8 @@ import numpy as np
 
 from revelsMD.cell import fractional_to_cartesian
 from ._base import (
-    DataUnavailableError, FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
-    warn_user,
+    MDANALYSIS_PARSE_ERRORS, DataUnavailableError, FileFrames, IndexedFileTrajectory,
+    as_paths, check_fixed_cell, warn_user,
 )
 
 
@@ -257,9 +257,11 @@ def index_dump(path: str) -> DumpIndex:
                 frame_starts.append(position)
                 position = m.find(_TIMESTEP, position + len(_TIMESTEP))
             if not frame_starts:
-                if len(m) < 4096 and _is_cut_first_header(m[:]):
+                if len(m) < 4096 and _preamble_status(m[:]) is not None:
                     return no_frames
                 raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
+            if _preamble_status(m[:frame_starts[0]]) != "complete":
+                raise ValueError(f"{path}: unexpected text before the first frame")
             # A file cut off inside the next frame's header leaves part of an
             # "ITEM:" line after its last newline. Drop that tail.
             limit = len(m)
@@ -290,6 +292,16 @@ def index_dump(path: str) -> DumpIndex:
                         )
                     partial = entry
                     continue
+                # Only the next frame's ITEM: UNITS and ITEM: TIME lines may
+                # follow the atom rows; at the end of the file they are the
+                # start of a frame that was cut short.
+                following = _preamble_status(m[entry.data_end:end])
+                if following is None or (following == "cut" and k < n - 1):
+                    raise ValueError(
+                        f"{path}, timestep {entry.timestep}: unexpected text after the atom rows"
+                    )
+                if k == n - 1 and entry.data_end < end:
+                    dropped_header = True
                 if first is None:
                     first = entry
                 else:
@@ -315,22 +327,27 @@ def index_dump(path: str) -> DumpIndex:
     )
 
 
-def _is_cut_first_header(text: bytes) -> bool:
-    """Whether a file with no timestep line holds only the start of a frame header.
+def _preamble_status(text: bytes) -> str | None:
+    """Classify text that may precede a frame's ``ITEM: TIMESTEP`` line.
 
-    That is, complete ``ITEM: UNITS`` or ``ITEM: TIME`` lines each followed
-    by a value, then at most the start of one more line.
+    Returns ``"complete"`` for whole ``ITEM: UNITS`` or ``ITEM: TIME`` lines,
+    each followed by its value (or for no text), ``"cut"`` if the text then
+    stops partway through a line or before a value, and None for anything
+    else. Blank lines are ignored.
     """
     lines = text.split(b"\n")
-    complete, cut = lines[:-1], lines[-1]
+    complete = [line.strip() for line in lines[:-1] if line.strip()]
+    cut = lines[-1].strip()
     for k, line in enumerate(complete):
-        if k % 2 == 0 and line.strip() not in _PREAMBLE_ITEMS:
-            return False
-        if k % 2 == 1 and not _PREAMBLE_VALUE.fullmatch(line.strip()):
-            return False
+        if k % 2 == 0 and line not in _PREAMBLE_ITEMS:
+            return None
+        if k % 2 == 1 and not _PREAMBLE_VALUE.fullmatch(line):
+            return None
     if len(complete) % 2 == 1:
-        return _PREAMBLE_VALUE.fullmatch(cut.strip()) is not None
-    return any(item.startswith(cut.strip()) for item in (*_PREAMBLE_ITEMS, _TIMESTEP))
+        return "cut" if _PREAMBLE_VALUE.fullmatch(cut) else None
+    if not cut:
+        return "complete"
+    return "cut" if any(item.startswith(cut) for item in (*_PREAMBLE_ITEMS, _TIMESTEP)) else None
 
 
 def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> str | None:
@@ -730,12 +747,11 @@ class LammpsTrajectory(IndexedFileTrajectory):
     TypeError
         If ``trajectory_file`` is an unordered collection such as a set.
     RuntimeError
-        If MDAnalysis cannot read the topology, or if topology atom ids
+        If MDAnalysis cannot parse the topology, or if topology atom ids
         repeat.
     OSError
-        If a dump file cannot be opened (``FileNotFoundError`` if it does
-        not exist), or the topology file when the atom style is read from
-        it.
+        If a dump file or the topology file cannot be opened
+        (``FileNotFoundError`` if it does not exist).
 
     Notes
     -----
@@ -771,8 +787,10 @@ class LammpsTrajectory(IndexedFileTrajectory):
         columns = resolve_atom_style(atom_style, topology)
         try:
             universe = MD.Universe(topology, topology_format="DATA", atom_style=columns)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load LAMMPS topology with MDAnalysis: {e}") from e
+        except MDANALYSIS_PARSE_ERRORS as e:
+            raise RuntimeError(
+                f"{topology}: MDAnalysis cannot read the LAMMPS data file: {e!r}"
+            ) from e
         self.mdanalysis_universe = universe
 
         topology_ids = np.asarray(universe.atoms.ids)
