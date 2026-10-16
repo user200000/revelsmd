@@ -32,7 +32,8 @@ the general triclinic `abc origin` format). All three boundaries must be
 periodic (`pp pp pp`), and the box must be the same in every frame: a dump
 whose box changes raises an error. If the dump has a `type` column, each
 atom's type must match the data file: reading a frame raises an error if
-any atom's type differs.
+any atom's type differs, so runs that change types (`fix atom/swap`,
+`set type`) cannot be read.
 
 Positions are returned as written. MDAnalysis's own dump reader shifts
 them so the box starts at the origin, so the two can differ by the box
@@ -86,16 +87,16 @@ traj = LammpsTrajectory(
 List the files in run order. Each file's frames replace the previous file's
 frames from its own first timestep on, as after a restart from a restart
 file; if the replaced frames run past the new file's last timestep, a
-warning says which are dropped. Replaced frames are not checked, so a run
-whose box or atom count went wrong after the restart point joins with its
-restart. A file that starts at or before the first timestep of the file
+warning says which are dropped, unless a later file covers them. Replaced
+frames are not compared with their file's first frame, so a run whose box or
+atom count went wrong after the restart point joins with its restart. A file that starts at or before the first timestep of the file
 before it raises an error, since that would discard the whole earlier file.
 Gaps in timesteps between files are not detected.
 
 The last frame of any file may be incomplete, as left by a job killed while
 writing: it is dropped with a warning, or silently if the next file's frames
-replace it. An empty file, from a job that stopped before writing a frame, is
-dropped in the same way. An incomplete frame anywhere else raises an error, so
+replace it. An empty file, or one holding only the start of a frame header,
+from a job that stopped before writing a frame, is dropped in the same way. An incomplete frame anywhere else raises an error, so
 a file written with `dump_modify append yes` across a restart must be split
 at the restart.
 
@@ -137,7 +138,8 @@ missing steps between them, cannot be checked. Pass each file separately: a
 file holding two `vasprun.xml` documents joined with `cat` raises an error.
 
 A `vasprun.xml` from a run that was killed before it finished is read up to its
-last complete ionic step; an ionic step cut short is dropped with a warning.
+last complete ionic step; an ionic step cut short is dropped with a warning. A
+file with no complete ionic step raises an error.
 
 The lattice must be the same in every ionic step; a run whose lattice changes
 raises an error.

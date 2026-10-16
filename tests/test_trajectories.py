@@ -729,6 +729,10 @@ class TestAsPaths:
         with pytest.raises(TypeError, match="not dict_keys"):
             as_paths({"a.dump": 0}.keys())
 
+    def test_array_of_paths(self, tmp_path):
+        from revelsMD.trajectories._base import as_paths
+        assert as_paths(np.array(["a.dump", "b.dump"])) == ["a.dump", "b.dump"]
+
     def test_empty_sequence_is_rejected(self):
         from revelsMD.trajectories._base import as_paths
         with pytest.raises(ValueError, match="At least one trajectory file"):

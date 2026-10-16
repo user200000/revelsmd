@@ -125,11 +125,12 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
                 close = m.find(_CALCULATION_CLOSE, start)
                 following = m.find(_CALCULATION_OPEN, start + len(_CALCULATION_OPEN))
                 if close == -1 and following == -1:
-                    warn_user(
-                        f"{path}: dropping the incomplete final ionic step "
-                        f"(calculation {k}); the file appears to have "
-                        f"been cut short, so its {k} complete steps are used"
-                    )
+                    if k:
+                        warn_user(
+                            f"{path}: dropping the incomplete final ionic step "
+                            f"(calculation {k}); the file appears to have "
+                            f"been cut short, so its {k} complete steps are used"
+                        )
                     break
                 if close == -1 or -1 < following < close:
                     raise ValueError(

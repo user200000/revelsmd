@@ -1,6 +1,7 @@
 """Unit tests for the vasprun.xml index and frame reader."""
 
 import io
+import warnings
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -117,7 +118,8 @@ class TestIndexVasprun:
     def test_run_killed_during_its_first_step_raises(self, tmp_path):
         head, calculations, _ = split(SOURCE.read_bytes())
         path = write(tmp_path / "vasprun.xml", head + calculations[0][:-200])
-        with pytest.warns(UserWarning, match="incomplete final ionic step"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             with pytest.raises(ValueError, match="no complete ionic steps"):
                 index_vasprun(path)
 

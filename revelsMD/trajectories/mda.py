@@ -11,6 +11,8 @@ from typing import Iterator
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
 from MDAnalysis.coordinates.H5MD import H5MDReader  # type: ignore[import-untyped]
+from MDAnalysis.coordinates.LAMMPS import DumpReader  # type: ignore[import-untyped]
+from MDAnalysis.coordinates.chain import ChainReader  # type: ignore[import-untyped]
 from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-untyped]
 import numpy as np
 
@@ -35,8 +37,9 @@ class MDATrajectory(Trajectory):
     ----------
     trajectory_file : str, path, or sequence of these
         Path to a trajectory file in which every frame stores positions and
-        forces (e.g. a `.trr` written with both at the same steps), or a
-        list of such files in run order, which MDAnalysis joins.
+        forces (e.g. a `.trr` written with ``nstfout`` equal to ``nstxout``
+        and ``nstvout`` 0 or a multiple of it), or a list of such files in
+        run order, which MDAnalysis joins.
     topology_file : str
         Path to the topology file (e.g., `.tpr`, `.pdb`, `.gro`).
     temperature : float
@@ -58,15 +61,16 @@ class MDATrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If no topology file is provided, if the same file is given twice,
-        if MDAnalysis does not know the
+        If no topology file is provided, if no trajectory file is given or
+        the same file is given twice, if MDAnalysis does not know the
         format's length or force units, if an H5MD file saves positions and
         forces at different steps, if the first frame has no box, no
         positions or no forces, or if the cell matrix is invalid.
     TypeError
         If ``trajectory_file`` is an unordered collection such as a set.
     RuntimeError
-        If MDAnalysis fails to load the trajectory or topology file.
+        If MDAnalysis fails to load the trajectory or topology file, or if
+        the steps of an H5MD file cannot be read.
 
     Notes
     -----
@@ -101,7 +105,7 @@ class MDATrajectory(Trajectory):
         self.mdanalysis_universe = mdanalysis_universe
         trajectory = mdanalysis_universe.trajectory
         self.frames = len(trajectory)
-        readers = getattr(trajectory, "readers", [trajectory])
+        readers = _readers(trajectory)
         # Frame i is frame i - _first_frames[k] of paths[k].
         self._paths = paths
         self._first_frames = np.cumsum([0] + [len(r) for r in readers[:-1]])
@@ -230,26 +234,37 @@ def _check_reader(reader) -> None:
     """
     units = reader.units
     if units.get("length") is None or units.get("force") is None:
+        hint = "; read LAMMPS dumps with LammpsTrajectory" if isinstance(reader, DumpReader) else ""
         raise ValueError(
             f"{reader.filename}: MDAnalysis does not know the length and force "
             f"units of this format ({type(reader).__name__}), so the forces "
-            "cannot be converted to kJ/(mol Angstrom); read LAMMPS dumps with "
-            "LammpsTrajectory"
+            f"cannot be converted to kJ/(mol Angstrom){hint}"
         )
     if not isinstance(reader, H5MDReader):
         return
+    cannot_check = (
+        f"{reader.filename}: cannot check that this H5MD file saves positions "
+        "and forces at the same steps"
+    )
     particles = getattr(reader, "_particle_group", None)
     if particles is None:
-        raise RuntimeError(
-            f"{reader.filename}: cannot check that this H5MD file saves positions "
-            "and forces at the same steps with this version of MDAnalysis"
-        )
+        raise RuntimeError(f"{cannot_check} with this version of MDAnalysis")
     if "position" in particles and "force" in particles:
-        position_steps = particles["position/step"][()]
-        force_steps = particles["force/step"][()]
+        try:
+            position_steps = particles["position/step"][()]
+            force_steps = particles["force/step"][()]
+        except (KeyError, OSError) as e:
+            raise RuntimeError(f"{cannot_check}: {e}") from e
         if not np.array_equal(position_steps, force_steps):
             raise ValueError(
                 f"{reader.filename}: the forces are saved at different steps "
                 "from the positions; every frame needs both"
             )
+
+
+def _readers(trajectory) -> list:
+    """The readers of an MDAnalysis trajectory, one per file."""
+    if isinstance(trajectory, ChainReader):
+        return list(trajectory.readers)
+    return [trajectory]
 

@@ -71,7 +71,8 @@ def parse_box(
     ------
     ValueError
         If any boundary is not periodic, the box is in the general
-        triclinic ``abc origin`` format, or the bounds are malformed.
+        triclinic ``abc origin`` format, or the bounds are malformed or
+        not finite.
     """
     words = item_line.split()[3:]
     if words[:1] == ["abc"]:
@@ -87,6 +88,8 @@ def parse_box(
     values = np.array([line.split() for line in bound_lines], dtype=np.float64)
     if values.shape != (3, width):
         raise ValueError(f"malformed box bounds: {bound_lines}")
+    if not np.isfinite(values).all():
+        raise ValueError(f"box bounds must be finite: {bound_lines}")
     if triclinic:
         xy, xz, yz = (float(v) for v in values[:, 2])
     else:
@@ -156,6 +159,7 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
 
 
 _TIMESTEP = b"ITEM: TIMESTEP"
+_PREAMBLE_ITEMS = (b"ITEM: UNITS", b"ITEM: TIME")
 
 
 @dataclass(frozen=True, eq=False)
@@ -250,7 +254,7 @@ def index_dump(path: str) -> DumpIndex:
                 frame_starts.append(position)
                 position = m.find(_TIMESTEP, position + len(_TIMESTEP))
             if not frame_starts:
-                if _is_cut_first_header(m[:64]):
+                if len(m) < 4096 and _is_cut_first_header(m[:]):
                     return no_frames
                 raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
             # A file cut off inside the next frame's header leaves part of an
@@ -308,9 +312,20 @@ def index_dump(path: str) -> DumpIndex:
     )
 
 
-def _is_cut_first_header(head: bytes) -> bool:
-    """Whether a file with no timestep line holds only the start of a frame header."""
-    return head.startswith((b"ITEM: UNITS", b"ITEM: TIME")) or _TIMESTEP.startswith(head)
+def _is_cut_first_header(text: bytes) -> bool:
+    """Whether a file with no timestep line holds only the start of a frame header.
+
+    That is, complete ``ITEM: UNITS`` or ``ITEM: TIME`` lines each followed
+    by a value, then at most the start of one more line.
+    """
+    lines = text.split(b"\n")
+    complete, cut = lines[:-1], lines[-1]
+    for k, line in enumerate(complete):
+        if k % 2 == 0 and line.strip() not in _PREAMBLE_ITEMS:
+            return False
+    if len(complete) % 2 == 1:
+        return True  # cut inside a value line
+    return any(item.startswith(cut.strip()) for item in (*_PREAMBLE_ITEMS, _TIMESTEP))
 
 
 def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> str | None:
@@ -418,12 +433,12 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
 
     Files must be given in run order: the files of a run, then those of
     each restart. Each file's frames replace every frame of the file
-    before it from its own first timestep on, with a warning if the
-    replaced frames run past the file's last timestep. An incomplete final
+    before it from its own first timestep on, with a warning if replaced
+    frames run past the end of the joined trajectory. An incomplete final
     frame is dropped, with a warning unless the next file's frames replace
-    it. Frames are checked only if they are kept: every kept frame must
-    have the columns, box and atom count of its file's first frame, and
-    every file's first frame the box of the first file's.
+    it. Every kept frame must have the columns, box and atom count of its
+    file's first frame, and every file's first frame the box of the first
+    file's; frames that are replaced are not compared.
 
     Raises
     ------
@@ -435,6 +450,8 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
     files: list[DumpIndex] = []
     headers: list[DumpHeader] = []
     kept: list[int] = []
+    # (replacing file, replaced file, first replaced and last replaced timestep)
+    replacements: list[tuple[str, str, int, int]] = []
     pending: PartialFrame | None = None
     for index in indices:
         if index.header is not None:
@@ -456,15 +473,9 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
             if files:
                 previous = files[-1]
                 n_kept = int(np.searchsorted(previous.timesteps[:kept[-1]], first))
-                end = int(index.timesteps[-1])
-                assert last is not None
-                if n_kept < kept[-1] and last > end:
-                    warn_user(
-                        f"{index.path} replaces the frames of {previous.path} from "
-                        f"timestep {first} on, but ends at timestep {end}; the "
-                        f"frames of {previous.path} up to timestep {last} "
-                        "after that are dropped"
-                    )
+                if n_kept < kept[-1]:
+                    assert last is not None
+                    replacements.append((index.path, previous.path, first, last))
                 kept[-1] = n_kept
             files.append(index)
             headers.append(index.header)
@@ -479,6 +490,15 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         raise ValueError(
             "no complete frames in " + ", ".join(index.path for index in indices)
         )
+    end = int(files[-1].timesteps[-1])
+    for replacing, replaced, first, last in replacements:
+        if last > end:
+            warn_user(
+                f"{replacing} replaces the frames of {replaced} from timestep "
+                f"{first} on, and the joined trajectory ends at timestep {end}; "
+                f"the frames of {replaced} after that, up to timestep {last}, "
+                "are dropped"
+            )
     for index, header, n_kept in zip(files, headers, kept):
         check_fixed_cell(
             header.box, headers[0].box, f"{index.path}, timestep {int(index.timesteps[0])}"
@@ -649,12 +669,13 @@ class LammpsTrajectory(IndexedFileTrajectory):
     the dump was written in. Several dump files from a run and its restarts
     are joined in the order given, which must be run order: each file's
     frames replace every frame of the file before it from its own first
-    timestep on, with a warning if the replaced frames run past the file's
-    last timestep. An incomplete final frame, as left by a job killed while
-    writing, is dropped with a warning unless the next file's frames replace
-    it, and so is an empty file. Frames that a later file replaces are not
-    checked, so a run whose box or atom count went wrong after the restart
-    point can be joined with its restart.
+    timestep on, with a warning if replaced frames run past the end of the
+    joined trajectory. An incomplete final frame, as left by a job killed
+    while writing, is dropped with a warning unless the next file's frames
+    replace it, and so is an empty file. Frames that a later file replaces
+    are not compared with their file's first frame, so a run whose box or
+    atom count went wrong after the restart point can be joined with its
+    restart.
 
     Parameters
     ----------
@@ -686,7 +707,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
     ValueError
         If a dump file is malformed or lacks required columns, if a box is
         not fully periodic, if the box, the columns or the atom count change
-        between kept frames, if a frame's atom count differs from the
+        between kept frames of one file, if the box differs between files,
+        if a frame's atom count differs from the
         topology's, if the atom style cannot be determined, if a file
         starts at or before the first timestep of the file before it, if
         the same file is given twice, or if there are no complete frames.

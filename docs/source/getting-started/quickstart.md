@@ -123,7 +123,7 @@ from revelsMD.trajectories import VaspTrajectory
 ts = VaspTrajectory("vasprun.xml", temperature=600.0)
 ```
 
-**MDAnalysis** (formats that store forces with their units, such as GROMACS `.trr`)
+**MDAnalysis** (GROMACS `.trr` and `.tng`, AMBER NetCDF, H5MD with units)
 
 ```python
 from revelsMD.trajectories import MDATrajectory

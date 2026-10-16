@@ -148,13 +148,15 @@ def as_paths(
     Raises
     ------
     TypeError
-        If ``files`` is neither a path nor a sequence (a set, for example,
-        has no order).
+        If ``files`` is neither a path, a sequence nor a one-dimensional
+        array (a set, for example, has no order).
     ValueError
         If no paths are given, or if the same file is given twice.
     """
     if isinstance(files, (str, os.PathLike)):
         return [os.fspath(files)]
+    if isinstance(files, np.ndarray) and files.ndim == 1:
+        files = files.tolist()
     if not isinstance(files, Sequence):
         raise TypeError(
             "trajectory files must be a path or a sequence of paths in run "
@@ -169,6 +171,8 @@ def as_paths(
             stat = os.stat(path)
         except OSError:
             continue  # the loader reports the file it cannot open
+        if stat.st_ino == 0:
+            continue  # the file system gives no file identity
         key = (stat.st_dev, stat.st_ino)
         if key in seen:
             raise ValueError(f"{path}: the same file as {seen[key]} is given twice")

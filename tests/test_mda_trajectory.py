@@ -58,10 +58,11 @@ class TestReading:
             np.testing.assert_array_equal(frame.forces, ts.forces)
         assert len(list(traj.iter_frames(stop=-1))) == 9
 
-    def test_sliced_iteration_returns_the_selected_frames(self, traj, universe):
-        frames = list(traj.iter_frames(start=2, stop=8, stride=2))
+    @pytest.mark.parametrize("start, expected", [(2, (2, 4, 6)), (3, (3, 5, 7))])
+    def test_sliced_iteration_returns_the_selected_frames(self, traj, universe, start, expected):
+        frames = list(traj.iter_frames(start=start, stop=8, stride=2))
         assert len(frames) == 3
-        for frame, k in zip(frames, (2, 4, 6)):
+        for frame, k in zip(frames, expected):
             ts = universe.trajectory[k]
             np.testing.assert_array_equal(frame.positions, ts.positions)
             np.testing.assert_array_equal(frame.forces, ts.forces)
@@ -228,6 +229,26 @@ class TestUnits:
         with pytest.raises(ValueError, match="small.lammpsdump: MDAnalysis does not know the length and force units.*LammpsTrajectory"):
             MDATrajectory(str(dump), str(dump), temperature=300.0)
 
+    @pytest.mark.filterwarnings("ignore:Unknown masses")
+    def test_dl_poly_history_is_rejected(self, tmp_path):
+        # Two argon atoms in two frames, positions, velocities and forces
+        # (keytrj 2, imcon 1); MDAnalysis gives DL_POLY no force unit.
+        frames = []
+        for step in (0, 10):
+            atoms = "".join(
+                f"Ar {i} 39.948 0.0\n {x} {x} {x}\n 0.0 0.0 0.0\n 100.0 -50.0 25.0\n"
+                for i, x in ((1, 1.0), (2, 5.0))
+            )
+            frames.append(
+                f"timestep {step} 2 2 1 0.001\n10.0 0.0 0.0\n0.0 10.0 0.0\n0.0 0.0 10.0\n"
+                + atoms
+            )
+        history = tmp_path / "run.history"
+        history.write_text("test history\n 2 1 2\n" + "".join(frames))
+        with pytest.raises(ValueError, match="run.history: MDAnalysis does not know the length and force units") as e:
+            MDATrajectory(str(history), str(history), temperature=300.0)
+        assert "LammpsTrajectory" not in str(e.value)
+
     def test_h5md_with_units_is_read(self, tmp_path, universe):
         path = write_variant(tmp_path / "water.h5md")
         traj = MDATrajectory(path, TPR, temperature=300.0)
@@ -239,6 +260,24 @@ class TestUnits:
         with h5py.File(path, "r+") as f:
             del f["particles/trajectory/force/value"].attrs["unit"]
         with pytest.raises(RuntimeError, match="H5MD file must have readable units"):
+            MDATrajectory(path, TPR, temperature=300.0)
+
+    def test_every_file_of_a_list_is_checked(self, tmp_path):
+        good = write_variant(tmp_path / "good.h5md", n_frames=4)
+        bad = write_variant(tmp_path / "bad.h5md", n_frames=4)
+        with h5py.File(bad, "r+") as f:
+            group = f["particles/trajectory/force"]
+            steps = group["step"][()]
+            del group["step"]
+            group["step"] = steps * 2
+        with pytest.raises(ValueError, match="bad.h5md: the forces are saved at different steps"):
+            MDATrajectory([good, bad], TPR, temperature=300.0)
+
+    def test_h5md_without_force_steps_cannot_be_checked(self, tmp_path):
+        path = write_variant(tmp_path / "nosteps.h5md")
+        with h5py.File(path, "r+") as f:
+            del f["particles/trajectory/force/step"]
+        with pytest.raises(RuntimeError, match="nosteps.h5md: cannot check"):
             MDATrajectory(path, TPR, temperature=300.0)
 
     def test_h5md_step_check_fails_closed(self, tmp_path):

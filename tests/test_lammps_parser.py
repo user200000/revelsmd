@@ -90,6 +90,11 @@ class TestParseBox:
         with pytest.raises(ValueError, match="not supported"):
             parse_box("ITEM: BOX BOUNDS abc origin pp pp pp", ["10 0 0 0"] * 3)
 
+    @pytest.mark.parametrize("bad", ["nan", "inf"])
+    def test_non_finite_bounds_are_rejected(self, bad):
+        with pytest.raises(ValueError, match="box bounds must be finite"):
+            parse_box("ITEM: BOX BOUNDS pp pp pp", ["0.0 10.0", f"0.0 {bad}", "0.0 10.0"])
+
     def test_wrong_number_of_bound_values_is_rejected(self):
         with pytest.raises(ValueError, match="box bounds"):
             parse_box(TRICLINIC, ["0 10", "0 10", "0 10"])
@@ -294,7 +299,10 @@ class TestIndexDump:
         with pytest.raises(ValueError, match="a.dump, timestep 0: box boundaries must be periodic"):
             index_dump(path)
 
-    @pytest.mark.parametrize("text", ["", "ITEM: TIMES", "ITEM: UNITS\nlj\n", "ITEM: TIME\n0.5\nITEM: TIM"])
+    @pytest.mark.parametrize("text", [
+        "", "I", "ITEM: TI", "ITEM: TIMES", "ITEM: UNITS\nlj\n", "ITEM: UNITS\nl",
+        "ITEM: TIME\n0.5\nITEM: TIM", "ITEM: UNITS\nlj\nITEM: TIME\n0.5\n",
+    ])
     def test_file_cut_before_its_first_frame_has_only_a_partial_frame(self, tmp_path, text):
         path = write(tmp_path / "a.dump", text)
         index = index_dump(path)
@@ -302,9 +310,36 @@ class TestIndexDump:
         assert index.timesteps.tolist() == []
         assert index.partial == PartialFrame(path, None)
 
-    def test_non_dump_file_raises(self, tmp_path):
+    @pytest.mark.parametrize("text", [
+        "hello\n", "ITEM: UNITS\nlj\ngarbage\n", "ITEM: UNITS\nlj\n" + "x" * 5000,
+        "ITEM: NUMBER OF ATOMS\n6\n",
+    ])
+    def test_non_dump_file_raises(self, tmp_path, text):
         with pytest.raises(ValueError, match="not a LAMMPS dump"):
-            index_dump(write(tmp_path / "other.txt", "hello\n"))
+            index_dump(write(tmp_path / "other.txt", text))
+
+    def test_timestep_out_of_range_raises(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(2**63))
+        with pytest.raises(ValueError, match=r"a\.dump: timestep 9223372036854775808 is out of range"):
+            index_dump(path)
+
+    def test_non_ascii_header_raises(self, tmp_path):
+        path = tmp_path / "a.dump"
+        path.write_bytes(frame(0).replace("NUMBER OF ATOMS", "NUMBER OF \u00c5TOMS").encode())
+        with pytest.raises(ValueError, match=r"a\.dump: non-ASCII frame header at byte"):
+            index_dump(str(path))
+
+    def test_crlf_with_blank_lines_after_the_rows(self, tmp_path):
+        lf = write(tmp_path / "lf.dump", frame(0), frame(100, 1.0))
+        text = frame(0) + "\n \n" + frame(100, 1.0) + "\n"
+        crlf = tmp_path / "crlf.dump"
+        crlf.write_bytes(text.replace("\n", "\r\n").encode())
+        index = index_dump(str(crlf))
+        assert index.timesteps.tolist() == [0, 100]
+        assert index.partial is None
+        for k in (0, 1):
+            for got, expected in zip(_read(str(crlf), k), _read(lf, k)):
+                np.testing.assert_array_equal(got, expected)
 
 
 def _combined(tmp_path, *files):
@@ -401,6 +436,13 @@ class TestCombineFrames:
                 tmp_path, [frame(0), frame(100), "ITEM: TIM"], [frame(200), frame(300)])
         assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
 
+    def test_joined_arrays_are_read_only(self, tmp_path):
+        paths = [write(tmp_path / "a.dump", frame(0)), write(tmp_path / "b.dump", frame(100))]
+        table = combine_frames([index_dump(p) for p in paths])
+        for values in (table.file, table.timesteps, table.starts, table.ends):
+            with pytest.raises(ValueError, match="read-only"):
+                values[0] = 1
+
     def test_no_complete_frames_raises(self, tmp_path):
         with pytest.warns(UserWarning):
             with pytest.raises(ValueError, match="no complete frames"):
@@ -436,11 +478,22 @@ class TestCombineFrames:
     def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
         with pytest.warns(UserWarning, match=(
                 r"run1\.dump replaces the frames of .*run0\.dump from timestep 200 on, "
-                r"but ends at timestep 300; the frames of .*run0\.dump up to timestep 400")):
+                r"and the joined trajectory ends at timestep 300; the frames of "
+                r".*run0\.dump after that, up to timestep 400, are dropped")):
             paths, frames = _combined(
                 tmp_path, [frame(0), frame(100), frame(200), frame(300), frame(400)],
                 [frame(200), frame(300)])
         assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
+
+    def test_replaced_frames_covered_by_a_later_restart_are_silent(self, tmp_path):
+        # run1 is a restart killed early, and run2 restarts from it and runs on.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            paths, frames = _combined(
+                tmp_path, [frame(t) for t in range(0, 1001, 100)],
+                [frame(500), frame(600), frame(700)], [frame(600), frame(800), frame(2000)])
+        assert frames == [(paths[0], t) for t in range(0, 401, 100)] + [
+            (paths[1], 500), (paths[2], 600), (paths[2], 800), (paths[2], 2000)]
 
     def test_restart_reaching_the_end_of_the_frames_it_replaces_is_silent(self, tmp_path):
         with warnings.catch_warnings():

@@ -72,19 +72,20 @@ Calling `super().__init__()` is required — it sets `units`, `temperature`, and
 
 ### 2. Implement the required abstract methods
 
-**`get_indices(atype)`** — return the integer indices of all atoms of a given type:
+**`get_indices(atype)`** — return the integer indices of all atoms of a given type, and raise `ValueError` if there are none:
 
 ```python
 def get_indices(self, atype: str) -> np.ndarray:
     ...
 ```
 
-**`get_frame(index)`** — return a single frame by index:
+**`_get_frame(index)`** — return a single frame by index. The public `get_frame()` converts the index with `operator.index` first, so `index` is an `int`, possibly negative:
 
 ```python
-def get_frame(self, index: int) -> Frame:
+def _get_frame(self, index: int) -> Frame:
     positions = ...  # shape (n_atoms, 3)
     forces = ...     # shape (n_atoms, 3)
+    check_finite(positions, forces, f"frame {index}")
     return Frame(positions=positions, forces=forces)
 ```
 
@@ -95,10 +96,10 @@ def _iter_frames_impl(
     self, start: int, stop: int, stride: int
 ) -> Iterator[Frame]:
     for i in range(start, stop, stride):
-        yield self.get_frame(i)
+        yield self._get_frame(i)
 ```
 
-All three methods should return `Frame` instances imported from `revelsMD.frame_sources`.
+Both methods should return `Frame` instances imported from `revelsMD.frame_sources`, and raise `ValueError` naming the file and frame for a frame with NaN or infinite values (`check_finite` in `revelsMD.trajectories._base` does this) or with a cell other than the first frame's (`check_fixed_cell`). A backend that reads several files should accept them through `as_paths`, which rejects unordered collections and repeated files. A backend whose frames are byte ranges of files can extend `IndexedFileTrajectory` instead, as the LAMMPS and VASP backends do.
 
 ### 3. Optionally override `get_charges` and `get_masses`
 
@@ -133,6 +134,6 @@ Add a test file under `tests/`. At minimum, cover:
 
 - Construction from valid inputs.
 - `get_indices` returns the correct atom indices.
-- `get_frame` returns a `Frame` with the expected positions and forces.
+- `get_frame` returns a `Frame` with the expected positions and forces, including for negative indices.
 - `iter_frames` yields the correct number of frames in the correct order.
 - `get_charges` and `get_masses` raise `DataUnavailableError` if not implemented, or return correct values if they are.

@@ -131,6 +131,31 @@ class TestFiles:
         with pytest.raises(ValueError, match=r"2\.xml, calculation 2:"):
             list(traj.iter_frames())
 
+    def test_lattice_differing_from_the_indexed_one_raises_when_read(self, tmp_path):
+        # The index takes the first bare <structure> in the bytes, here one
+        # nested in another element with a scaled lattice; the reader takes
+        # the step's own, so the two lattices differ.
+        def nest_a_scaled_copy(calculation):
+            own = calculation[calculation.find(b"<structure>"):
+                              calculation.find(b"</structure>") + len(b"</structure>")]
+            nested = b"<extra>" + with_basis(own, lambda b: b * 1.1) + b"</extra>\n"
+            return calculation.replace(b"<structure>", nested + b"<structure>", 1)
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations = [nest_a_scaled_copy(c) for c in calculations]
+        traj = VaspTrajectory(write(tmp_path / "v.xml", join(head, calculations, tail)),
+                              temperature=600.0)
+        with pytest.raises(ValueError, match=r"v\.xml, calculation 0: the lattice differs"):
+            traj.get_frame(0)
+
+    def test_malformed_xml_raises_when_read(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        start = calculations[2].find(b"<v>", calculations[2].find(b'<varray name="forces"'))
+        calculations[2] = calculations[2][:start] + b"<v" + calculations[2][start + 3:]
+        traj = VaspTrajectory(write(tmp_path / "v.xml", join(head, calculations, tail)),
+                              temperature=600.0)
+        with pytest.raises(ValueError, match=r"v\.xml, calculation 2: malformed XML"):
+            traj.get_frame(2)
+
     def test_non_finite_forces_raise_when_read(self, tmp_path):
         def nan_force(calculation):
             start = calculation.find(b"<v>", calculation.find(b'<varray name="forces"')) + 3
