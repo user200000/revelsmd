@@ -20,7 +20,7 @@ import numpy as np
 from revelsMD.frame_sources import Frame
 from ._base import (
     TrajectoryFiles, TrajectoryPath, Trajectory, as_paths, check_fixed_cell, open_universe,
-    reading_with_mdanalysis, warn_cut_short,
+    reading_with_mdanalysis, topology_values, warn_cut_short,
 )
 
 
@@ -203,8 +203,13 @@ class MDATrajectory(Trajectory):
         -------
         np.ndarray
             Array of atomic charges.
+
+        Raises
+        ------
+        DataUnavailableError
+            If the topology has no charges.
         """
-        return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').charges)
+        return topology_values(self.mdanalysis_universe.select_atoms(f'name {atype}'), "charges")
 
     def get_masses(self, atype: str) -> np.ndarray:
         """
@@ -219,8 +224,13 @@ class MDATrajectory(Trajectory):
         -------
         np.ndarray
             Array of atomic masses.
+
+        Raises
+        ------
+        DataUnavailableError
+            If the topology has no masses.
         """
-        return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
+        return topology_values(self.mdanalysis_universe.select_atoms(f'name {atype}'), "masses")
 
     def _locate(self, index: int) -> tuple[int, int]:
         """The file of frame ``index`` and the frame's position in it."""

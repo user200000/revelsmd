@@ -9,7 +9,7 @@ import pytest
 from file_limits import open_descriptors, open_file_limit
 from lammps_dumps import IDS_SORTED, atom_type, forces, frame, positions, rows, write
 from traced_memory import bytes_per_extra_item
-from revelsMD.trajectories import LammpsTrajectory
+from revelsMD.trajectories import DataUnavailableError, LammpsTrajectory
 from revelsMD.trajectories._base import compute_beta
 
 SMALL = Path(__file__).parent / "data" / "lammps_small"
@@ -294,9 +294,9 @@ class TestValidation:
         a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0))
         b = write(tmp_path / "b.dump", frame(200, 2.0), frame(300, atom_rows=bad_ids))
         traj = load([a, b])
-        with pytest.raises(ValueError, match=r"b\.dump, frame 3 \(timestep 300\): frame atom ids do not match"):
+        with pytest.raises(ValueError, match=r"b\.dump, frame 1 \(timestep 300\): frame atom ids do not match"):
             traj.get_frame(3)
-        with pytest.raises(ValueError, match=r"b\.dump, frame 3 \(timestep 300\)"):
+        with pytest.raises(ValueError, match=r"b\.dump, frame 1 \(timestep 300\)"):
             list(traj.iter_frames())
 
     def test_data_file_with_other_types_raises_when_read(self, six_frames, tmp_path):
@@ -394,6 +394,11 @@ class TestTopology:
                 # MDAnalysis stores charges in single precision.
                 np.testing.assert_array_equal(
                     traj.get_charges(atype), np.array(expected, dtype=np.float32))
+
+    def test_charges_of_an_atomic_style_data_file_are_unavailable(self, six_frames):
+        traj = LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj")
+        with pytest.raises(DataUnavailableError, match="Charge data not available"):
+            traj.get_charges("1")
 
     def test_full_style_data_file(self):
         lj = Path(__file__).parent / "data" / "example_1_LJ"

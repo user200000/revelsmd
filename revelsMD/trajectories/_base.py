@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, BinaryIO, Iterator, Literal, Self
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
+from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
 import numpy as np
 import scipy.constants as constants
 
@@ -285,6 +286,18 @@ def open_universe(topology, trajectories: Sequence[str] = (), **options):
 class DataUnavailableError(Exception):
     """Raised when requested data (charges, masses) is not available for a trajectory type."""
     pass
+
+
+def topology_values(atoms: Any, name: Literal["charges", "masses"]) -> np.ndarray:
+    """Return the ``charges`` or ``masses`` of MDAnalysis ``atoms``.
+
+    Raises DataUnavailableError if the topology does not record them.
+    """
+    try:
+        return np.array(getattr(atoms, name))
+    except NoDataError:
+        what = "Charge" if name == "charges" else "Mass"
+        raise DataUnavailableError(f"{what} data not available in this topology.") from None
 
 
 class Trajectory(ABC):

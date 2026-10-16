@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 import pytest
 
-from revelsMD.trajectories import MDATrajectory
+from revelsMD.trajectories import DataUnavailableError, MDATrajectory
 from revelsMD.trajectories._base import compute_beta
 
 DATA = Path(__file__).parent / "data"
@@ -48,6 +48,11 @@ class TestReading:
         selection = universe.select_atoms("name Ow")
         np.testing.assert_array_equal(traj.get_charges("Ow"), selection.charges)
         np.testing.assert_array_equal(traj.get_masses("Ow"), selection.masses)
+
+    def test_charges_of_a_topology_without_them_are_unavailable(self):
+        traj = MDATrajectory(TRR, str(WATER / "prod.gro"), temperature=300.0)
+        with pytest.raises(DataUnavailableError, match="Charge data not available"):
+            traj.get_charges("Ow")
 
     def test_iteration_and_slicing(self, traj, universe):
         frames = list(traj.iter_frames())

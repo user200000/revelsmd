@@ -12,14 +12,13 @@ import re
 from dataclasses import dataclass
 from typing import BinaryIO
 
-from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
 import numpy as np
 
 from revelsMD.cell import fractional_to_cartesian
 from ._base import (
     TrajectoryFiles, TrajectoryPath,
-    DataUnavailableError, FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
-    open_universe, warn_cut_short,
+    FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
+    open_universe, topology_values, warn_cut_short,
 )
 
 
@@ -794,10 +793,7 @@ class LammpsTrajectory(IndexedFileTrajectory):
         DataUnavailableError
             If the atom style has no charge column.
         """
-        try:
-            return self.mdanalysis_universe.select_atoms(f'type {atype}').charges
-        except NoDataError:
-            raise DataUnavailableError("Charge data not available for this LAMMPS trajectory.")
+        return topology_values(self.mdanalysis_universe.select_atoms(f'type {atype}'), "charges")
 
     def get_masses(self, atype: str) -> np.ndarray:
         """Return atomic masses for a given LAMMPS atom type.
@@ -817,15 +813,13 @@ class LammpsTrajectory(IndexedFileTrajectory):
         DataUnavailableError
             If mass data is absent from the topology file.
         """
-        try:
-            return self.mdanalysis_universe.select_atoms(f'type {atype}').masses
-        except NoDataError:
-            raise DataUnavailableError("Mass data not available for this LAMMPS trajectory.")
+        return topology_values(self.mdanalysis_universe.select_atoms(f'type {atype}'), "masses")
 
     def _where(self, index: int) -> str:
-        """Name the file, frame and timestep of frame ``index``."""
+        """Name the file, the frame's position in it, and its timestep."""
         table = self._frames
-        return f"{table.path(index)}, frame {index} (timestep {int(table.timesteps[index])})"
+        k, frame = table.locate(index)
+        return f"{table.paths[k]}, frame {frame} (timestep {int(table.timesteps[index])})"
 
     def _read_arrays(self, f: BinaryIO, index: int) -> tuple[np.ndarray, np.ndarray]:
         table = self._frames
