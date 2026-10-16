@@ -1,5 +1,6 @@
 """Unit tests for the LAMMPS dump helpers."""
 
+import collections
 import random
 import re
 import warnings
@@ -212,7 +213,35 @@ class TestIndexDump:
 
     def test_blank_lines_within_the_preamble_are_accepted(self, tmp_path):
         path = write(tmp_path / "a.dump", "ITEM: UNITS\n\nlj\n\nITEM: TIME\n0\n\n", frame(0))
-        assert index_dump(path).timesteps.tolist() == [0]
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.units == ("lj",)
+
+    def test_unit_style_cut_short_after_the_last_frame_is_a_cut_header(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100), "ITEM: UNITS\nre")
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0, 100]
+        assert index.units == ()
+        assert index.partial == PartialFrame(path, None)
+
+    @pytest.mark.parametrize("at", [0, 1])
+    def test_frame_without_its_timestep_line_raises(self, tmp_path, at):
+        frames = [frame(0), frame(100), frame(200)]
+        frames[at] = frames[at].replace("ITEM: TIMESTEP", "ITEM: TIMESTEQ")
+        byte = sum(len(f) for f in frames[:at]) + frames[at].index("ITEM: NUMBER OF ATOMS")
+        path = write(tmp_path / "a.dump", *frames)
+        with pytest.raises(ValueError, match=fr"a\.dump: a frame header without its ITEM: TIMESTEP line at byte {byte}; the frame is damaged"):
+            index_dump(path)
+
+    def test_frame_header_overwritten_with_nul_bytes_raises(self, tmp_path):
+        # A crash can leave NUL bytes in place of a frame's first lines.
+        cut = frame(100)[frame(100).index("ITEM: NUMBER OF ATOMS"):]
+        path = write(tmp_path / "a.dump", "\0" * 20 + cut, frame(200))
+        with pytest.raises(ValueError, match=r"a\.dump: a frame header without its ITEM: TIMESTEP line at byte 20"):
+            index_dump(path)
+        path = write(tmp_path / "b.dump", frame(0), "\0" * 20 + cut, frame(200))
+        with pytest.raises(ValueError, match=fr"b\.dump, timestep 0: .*unexpected text at byte {len(frame(0))}"):
+            index_dump(path)
 
     def test_cut_preamble_after_the_last_frame_is_a_cut_header(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0), "ITEM: UNITS\nlj\nITEM: U")
@@ -229,8 +258,10 @@ class TestIndexDump:
     def test_text_after_the_rows_names_its_byte(self, tmp_path, extra):
         path = write(tmp_path / "a.dump", frame(0), extra)
         offset = len(frame(0))
-        with pytest.raises(ValueError, match=fr"timestep 0: the atom rows do not match the header's 6 atoms; unexpected text at byte {offset}: b'"):
+        with pytest.raises(ValueError, match=fr"timestep 0: the atom rows do not match the header's 6 atoms; unexpected text at byte {offset}: b'") as raised:
             index_dump(path)
+        # At most 40 bytes of the text are shown.
+        assert str(raised.value).endswith(repr(extra.encode()[:40]))
 
     def test_one_atom_frame_of_blank_rows_is_incomplete(self, tmp_path):
         blank = frame(100, atom_rows=["", ""], n_atoms=1)
@@ -618,6 +649,7 @@ class TestCombineFrames:
             return [(m.group(1), int(m.group(2)) if m.group(2) else None)
                     for m in map(pattern.match, messages) if m]
 
+        outcomes = collections.Counter()
         rng = random.Random(20261015)
         for case in range(150):
             directory = tmp_path / str(case)
@@ -660,17 +692,22 @@ class TestCombineFrames:
             with warnings.catch_warnings(record=True) as record:
                 warnings.simplefilter("always")
                 if expected is None:
+                    outcomes["order"] += 1
                     with pytest.raises(ValueError, match="at or before the start of"):
                         _combined(directory, *texts)
                     continue
                 if not expected:
+                    outcomes["no frames"] += 1
                     with pytest.raises(ValueError, match="no complete frames"):
                         _combined(directory, *texts)
                     continue
                 if changed in expected:
+                    outcomes["box"] += 1
                     with pytest.raises(ValueError, match=f"timestep {changed[1]}: the cell differs"):
                         _combined(directory, *texts)
                     continue
+                outcomes["joined"] += 1
+                outcomes["joined with a replaced box change"] += changed is not None
                 _, got = _combined(directory, *texts)
             assert got == expected
             # Every incomplete final frame is dropped with a warning, and
@@ -682,6 +719,9 @@ class TestCombineFrames:
             assert steps == sorted(set(steps))
             last_with_frames = [(path, ts) for path, ts, _ in files if ts][-1]
             assert [t for p, t in got if p == last_with_frames[0]] == last_with_frames[1]
+        # Every outcome occurs, so none of the checks above is vacuous.
+        assert all(outcomes[k] >= 5 for k in (
+            "order", "no frames", "box", "joined", "joined with a replaced box change")), outcomes
 
 class TestResolveAtomStyle:
 
@@ -742,6 +782,7 @@ class TestReadDumpFrame:
         np.testing.assert_array_equal(positions, expected_positions(1.0))
         np.testing.assert_array_equal(forces, expected_forces(100))
         assert positions.dtype == np.float64 and forces.dtype == np.float64
+        assert positions.flags.c_contiguous and forces.flags.c_contiguous
 
     def test_scaled_coordinates_are_converted(self, tmp_path):
         cell = np.array([[10.0, 0, 0], [2.0, 10.0, 0], [1.0, -1.5, 10.0]])

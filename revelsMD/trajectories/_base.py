@@ -292,6 +292,9 @@ class reading_with_mdanalysis:
 def open_universe(topology: Any, trajectories: Sequence[str] = (), **options: Any) -> MD.Universe:
     """Open an MDAnalysis Universe, naming any file that cannot be read.
 
+    Nothing is guessed: atom types, masses and other attributes are those
+    the topology records.
+
     Topology and trajectory paths are opened first, so a file that cannot
     be opened raises the operating system's error (FileNotFoundError,
     PermissionError, IsADirectoryError) naming it; a topology that is not a
@@ -305,6 +308,7 @@ def open_universe(topology: Any, trajectories: Sequence[str] = (), **options: An
         open(path, "rb").close()
     files = f"{topology} with {', '.join(paths)}" if paths else str(topology)
     arguments = [topology] + ([paths[0] if len(paths) == 1 else paths] if paths else [])
+    options = {"to_guess": (), **options}
     try:
         with reading_with_mdanalysis(files):
             return MD.Universe(*arguments, **options)
@@ -323,16 +327,26 @@ class DataUnavailableError(Exception):
     pass
 
 
-def topology_values(atoms: Any, name: Literal["charges", "masses"]) -> np.ndarray:
+def topology_values(atoms: Any, name: Literal["charges", "masses"], topology: str) -> np.ndarray:
     """Return the ``charges`` or ``masses`` of MDAnalysis ``atoms``.
 
-    Raises DataUnavailableError if the topology does not record them.
+    The Universe is opened by :func:`open_universe`, without guessing, so
+    the values are those ``topology`` records.
+
+    Raises
+    ------
+    DataUnavailableError
+        If the topology does not record them.
     """
     try:
         return np.array(getattr(atoms, name))
     except NoDataError:
-        what = "Charge" if name == "charges" else "Mass"
-        raise DataUnavailableError(f"{what} data not available in this topology.") from None
+        source = "a Masses section" if name == "masses" else "a charge column"
+        raise DataUnavailableError(
+            f"{topology}: the topology records no {name}, and RevelsMD does not "
+            f"guess them; use a topology that records them, such as a GROMACS "
+            f".tpr file or a LAMMPS data file with {source}"
+        ) from None
 
 
 class Trajectory(ABC):

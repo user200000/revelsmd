@@ -119,7 +119,16 @@ class MDATrajectory(Trajectory):
             else topology_file
         )
         self._topology = str(topology)
-        mdanalysis_universe = open_universe(topology, paths)
+        try:
+            mdanalysis_universe = open_universe(topology, paths)
+        except RuntimeError as e:
+            cut = [path for path in paths if _trr_second_frame_is_cut(path)]
+            if not cut:
+                raise
+            raise RuntimeError(
+                f"{e}. MDAnalysis cannot open a TRR file whose second frame was "
+                f"cut short ({', '.join(cut)}); keep its first frame with gmx trjconv -e"
+            ) from e.__cause__
 
         self.mdanalysis_universe = mdanalysis_universe
         trajectory = mdanalysis_universe.trajectory
@@ -150,9 +159,14 @@ class MDATrajectory(Trajectory):
         for reader, path in zip(readers, paths):
             _check_reader(reader)
             n = len(reader)
-            if n and isinstance(reader, TRRReader) and _trr_frame_is_cut(path, reader._xdr.offsets[-1]):
-                warn_cut_short(path, f"frame (frame {n - 1})")
-                n -= 1
+            if n and isinstance(reader, TRRReader):
+                # A last frame cut in its body is listed by MDAnalysis; one cut
+                # in its header is not, and leaves bytes after the last listed frame.
+                listed_end = _trr_frame_end(path, reader._xdr.offsets[-1])
+                size = os.path.getsize(path)
+                if listed_end != size:
+                    n -= listed_end > size
+                    warn_cut_short(path, f"frame (frame {n})")
             complete.append(n)
         # Frame i is frame i - _first[k] of file k, which is MDAnalysis frame
         # i - _first[k] + _mdanalysis_first[k]; a cut final frame is skipped.
@@ -209,7 +223,9 @@ class MDATrajectory(Trajectory):
         DataUnavailableError
             If the topology has no charges.
         """
-        return topology_values(self.mdanalysis_universe.select_atoms(f'name {atype}'), "charges")
+        return topology_values(
+            self.mdanalysis_universe.select_atoms(f'name {atype}'), "charges", self._topology
+        )
 
     def get_masses(self, atype: str) -> np.ndarray:
         """
@@ -230,7 +246,9 @@ class MDATrajectory(Trajectory):
         DataUnavailableError
             If the topology has no masses.
         """
-        return topology_values(self.mdanalysis_universe.select_atoms(f'name {atype}'), "masses")
+        return topology_values(
+            self.mdanalysis_universe.select_atoms(f'name {atype}'), "masses", self._topology
+        )
 
     def _where(self, index: int) -> str:
         k, local = locate(self._first, index)
@@ -262,11 +280,16 @@ class MDATrajectory(Trajectory):
             yield self._get_frame(index)
 
 
-def _trr_frame_is_cut(path: str, offset: int) -> bool:
-    """Whether the TRR frame at ``offset`` runs past the end of the file.
+def _trr_frame_end(path: str, offset: int) -> int:
+    """The byte at which the TRR frame starting at ``offset`` ends.
 
     The frame's size is read from its header: the sizes of its blocks,
     and its precision, which GROMACS infers from the box or coordinate size.
+
+    Raises
+    ------
+    struct.error
+        If the file ends inside the frame's header.
     """
     with open(path, "rb") as f:
         f.seek(offset)
@@ -277,7 +300,23 @@ def _trr_frame_is_cut(path: str, offset: int) -> bool:
     data = max(sizes[7:10])
     double = box == 9 * 8 if box else bool(n_atoms) and data == n_atoms * 3 * 8
     header = 12 + (length + 3) // 4 * 4 + 52 + 2 * (8 if double else 4)
-    return offset + header + sum(sizes[:10]) > os.path.getsize(path)
+    return offset + header + sum(sizes[:10])
+
+
+def _trr_second_frame_is_cut(path: str) -> bool:
+    """Whether ``path`` is a TRR file whose second frame is cut short.
+
+    MDAnalysis reads the second frame of a TRR file when opening it, and
+    cannot open one whose second frame is incomplete.
+    """
+    if not path.lower().endswith(".trr"):
+        return False
+    try:
+        size = os.path.getsize(path)
+        second = _trr_frame_end(path, 0)
+        return second < size and _trr_frame_end(path, second) > size
+    except (OSError, struct.error):
+        return False
 
 
 def _check_reader(reader) -> None:
@@ -289,13 +328,13 @@ def _check_reader(reader) -> None:
     reader pairs them by position in the file, so the steps must agree; the
     check reads the reader's particle group, and raises if it cannot.
     """
-    units = reader.units
-    if units.get("length") is None or units.get("force") is None:
+    missing = [quantity for quantity in ("length", "force") if reader.units.get(quantity) is None]
+    if missing:
         hint = "; read LAMMPS dumps with LammpsTrajectory" if isinstance(reader, DumpReader) else ""
         raise ValueError(
-            f"{reader.filename}: MDAnalysis does not know the length and force "
-            f"units of this format ({type(reader).__name__}), so the forces "
-            f"cannot be converted to kJ/(mol Angstrom){hint}"
+            f"{reader.filename}: MDAnalysis knows no {' or '.join(missing)} units "
+            f"for this format ({type(reader).__name__}), which may store no "
+            f"forces at all, so forces in kJ/(mol Angstrom) cannot be read{hint}"
         )
     if not isinstance(reader, H5MDReader):
         return

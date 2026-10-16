@@ -40,8 +40,8 @@ Section $k$ receives every $n$-th frame starting at offset $k$. With
 `blocking='interleaved'` and `sections=4`, section 0 gets frames
 $[0, 4, 8, \ldots]$, section 1 gets $[1, 5, 9, \ldots]$, and so on.
 
-Interleaved blocking reads frames by index with `get_frame()`, which every
-backend provides; file backends seek to each frame. It gives better statistical independence
+Interleaved blocking reads each section in one pass over the trajectory,
+skipping the frames of other sections. It gives better statistical independence
 between sections when equilibration varies over the trajectory: each section
 samples the full time range rather than a contiguous window.
 

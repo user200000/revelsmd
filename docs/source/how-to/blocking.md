@@ -26,13 +26,13 @@ block may be shorter if the frame count is not evenly divisible.
 
 ## Interleaved blocking
 
-Section *k* receives every *k*-th frame: section 0 gets frames
-0, N, 2N, …; section 1 gets frames 1, N+1, 2N+1, …; and so on.
+With *N* sections, section *k* receives every *N*-th frame from frame *k*:
+section 0 gets frames 0, N, 2N, …; section 1 gets frames 1, N+1, 2N+1, …; and so on.
 This spreads each block across the trajectory, improving variance estimates
 when slow relaxations are present.
 
-Interleaved blocking reads frames by index with `get_frame()`, which every
-backend provides.
+Each section is read in one pass over the trajectory, skipping the frames of
+other sections.
 
 ```python
 grid = DensityGrid(traj, density_type='number', nbins=100)

@@ -59,7 +59,8 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
     """Index the ionic steps of one vasprun.xml without parsing them.
 
     A final ``<calculation>`` with no closing tag, as left by a run killed
-    while writing, is dropped, with a warning if earlier steps are complete.
+    while writing, is dropped with a warning; a file with no complete step
+    raises instead.
 
     Parameters
     ----------
@@ -99,7 +100,8 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
                 close = m.find(_CALCULATION_CLOSE, start)
                 following = m.find(_CALCULATION_OPEN, start + len(_CALCULATION_OPEN))
                 if close == -1 and following == -1:
-                    warn_cut_short(path, f"ionic step (calculation {k})")
+                    if k:  # with no complete step, the error below says why
+                        warn_cut_short(path, f"ionic step (calculation {k})")
                     break
                 if close == -1 or -1 < following < close:
                     raise ValueError(

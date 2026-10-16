@@ -1562,6 +1562,15 @@ class TestSelectionValidation:
 
         mock_validate.assert_called_once_with('NUMBER')
 
+    def test_molecule_without_mass_raises(self, trajectory, mocker):
+        # One water of three has no mass, as a topology with zero masses gives.
+        masses = {'O': np.array([16.0, 0.0, 16.0]), 'H1': np.array([1.0, 0.0, 1.0]),
+                  'H2': np.array([1.0, 0.0, 1.0])}
+        mocker.patch.object(trajectory, 'get_masses', side_effect=masses.__getitem__)
+        with pytest.raises(ValueError, match="centre of mass is undefined"):
+            Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
+        Selection(trajectory, ['O', 'H1', 'H2'], centre_location=0, rigid=True)
+
 
 class TestSelectionGetForces:
     """Tests for Selection.get_forces() method."""

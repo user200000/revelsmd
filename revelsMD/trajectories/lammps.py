@@ -158,8 +158,11 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
 
 
 _TIMESTEP = b"ITEM: TIMESTEP"
-# The unit style that dump_modify units yes writes before a frame.
-_UNITS = re.compile(rb"ITEM: UNITS[ \t\r]*\n[ \t]*(\S+)")
+# The unit style that dump_modify units yes writes before a frame; a style
+# without its line end may have been cut short.
+_UNITS = re.compile(rb"ITEM: UNITS[ \t\r]*\n\s*(\S+)[ \t\r]*\n")
+# Lines of a frame header that follow its ITEM: TIMESTEP line.
+_FRAME_ITEMS = re.compile(rb"ITEM: (?:NUMBER OF ATOMS|BOX BOUNDS|ATOMS)")
 
 
 @dataclass(frozen=True, eq=False)
@@ -264,15 +267,14 @@ def index_dump(path: str) -> DumpIndex:
                     return no_frames
                 raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
             units: dict[str, None] = {}
-            _record_units(m[:frame_starts[0]], units)
-            # A file cut off inside the next frame's header leaves part of an
-            # "ITEM:" line after its last newline. Drop that tail.
+            _skip_text(m, 0, frame_starts[0], path, units)
+            # A file cut off inside an "ITEM:" word leaves a tail that is not
+            # yet recognisable as one. Drop that tail.
             limit = len(m)
             dropped_header = False
             if m[-1:] != b"\n":
                 last_newline = m.rfind(b"\n")
-                tail = m[last_newline + 1:]
-                if b"ITEM:".startswith(tail) or tail.startswith(b"ITEM:"):
+                if b"ITEM:".startswith(m[last_newline + 1:]):
                     limit = last_newline + 1
                     dropped_header = True
             n = len(frame_starts)
@@ -295,8 +297,7 @@ def index_dump(path: str) -> DumpIndex:
                         )
                     partial = entry
                     continue
-                following = m[entry.data_end:end]
-                _record_units(following, units)
+                following = _skip_text(m, entry.data_end, end, path, units)
                 if k == n - 1 and following.strip():
                     dropped_header = True
                 if first is None:
@@ -325,10 +326,27 @@ def index_dump(path: str) -> DumpIndex:
     )
 
 
-def _record_units(text: bytes, units: dict[str, None]) -> None:
-    """Add the unit styles named by ``ITEM: UNITS`` lines in ``text`` to ``units``."""
+def _skip_text(m: mmap.mmap, start: int, end: int, path: str, units: dict[str, None]) -> bytes:
+    """Return the text between frames at bytes [start, end), recording its unit styles.
+
+    The unit styles of ``ITEM: UNITS`` lines are added to ``units``.
+
+    Raises
+    ------
+    ValueError
+        If the text holds the lines of a frame header, as a frame whose
+        ``ITEM: TIMESTEP`` line was damaged does.
+    """
+    text = m[start:end]
+    damaged = _FRAME_ITEMS.search(text)
+    if damaged is not None:
+        raise ValueError(
+            f"{path}: a frame header without its ITEM: TIMESTEP line at byte "
+            f"{start + damaged.start()}; the frame is damaged"
+        )
     for match in _UNITS.finditer(text):
         units[match.group(1).decode("ascii", "backslashreplace")] = None
+    return text
 
 
 def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> str | None:
@@ -459,7 +477,12 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         if index.partial is not None:
             at = "" if index.partial.timestep is None else f" (timestep {index.partial.timestep})"
             warn_cut_short(index.partial.path, f"frame{at}")
-    files = [index for index in indices if index.header is not None]
+    files: list[DumpIndex] = []
+    headers: list[DumpHeader] = []
+    for index in indices:
+        if index.header is not None:
+            files.append(index)
+            headers.append(index.header)
     if not files:
         raise ValueError(
             "no complete frames in " + ", ".join(index.path for index in indices)
@@ -477,8 +500,7 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         # Every earlier file's frames precede the previous file's first
         # timestep, so only the previous file's frames are replaced.
         kept[k - 1] = int(np.searchsorted(previous.timesteps, first))
-    headers = [index.header for index in files if index.header is not None]
-    for index, header, n_kept in zip(files, headers, kept):
+    for index, header, n_kept in zip(files, headers, kept, strict=True):
         check_fixed_cell(
             header.box, headers[0].box, f"{index.path}, timestep {int(index.timesteps[0])}"
         )
@@ -726,7 +748,7 @@ class LammpsTrajectory(IndexedFileTrajectory):
         indices = [index_dump(path) for path in paths]
         for index in indices:
             for style in index.units:
-                if style != units:
+                if style.lower() != units.lower():
                     raise ValueError(
                         f"{index.path}: the dump was written with ITEM: UNITS {style}, "
                         f"but units='{units}'; pass units='{style}'"
@@ -793,7 +815,9 @@ class LammpsTrajectory(IndexedFileTrajectory):
         DataUnavailableError
             If the atom style has no charge column.
         """
-        return topology_values(self.mdanalysis_universe.select_atoms(f'type {atype}'), "charges")
+        return topology_values(
+            self.mdanalysis_universe.select_atoms(f'type {atype}'), "charges", self._topology
+        )
 
     def get_masses(self, atype: str) -> np.ndarray:
         """Return atomic masses for a given LAMMPS atom type.
@@ -813,7 +837,9 @@ class LammpsTrajectory(IndexedFileTrajectory):
         DataUnavailableError
             If mass data is absent from the topology file.
         """
-        return topology_values(self.mdanalysis_universe.select_atoms(f'type {atype}'), "masses")
+        return topology_values(
+            self.mdanalysis_universe.select_atoms(f'type {atype}'), "masses", self._topology
+        )
 
     def _where(self, index: int) -> str:
         """Name the file, the frame's position in it, and its timestep."""

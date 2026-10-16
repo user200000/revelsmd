@@ -115,6 +115,11 @@ class TestReading:
         with pytest.raises(ValueError, match=r"a\.dump: the dump was written with ITEM: UNITS metal, but units='lj'; pass units='metal'"):
             load(a)
         assert load(a, units="metal").units == "metal"
+        assert load(a, units="Metal").frames == 1
+        # Every frame's style is checked, not only the first.
+        b = write(tmp_path / "b.dump", "ITEM: UNITS\nmetal\n", frame(0), "ITEM: UNITS\nreal\n", frame(100))
+        with pytest.raises(ValueError, match=r"b\.dump: the dump was written with ITEM: UNITS real"):
+            load(b, units="metal")
 
     def test_non_ascii_atom_style_names_the_file(self, six_frames, tmp_path):
         data = tmp_path / "odd.data"
@@ -423,8 +428,21 @@ class TestTopology:
 
     def test_charges_of_an_atomic_style_data_file_are_unavailable(self, six_frames):
         traj = LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj")
-        with pytest.raises(DataUnavailableError, match="Charge data not available"):
+        with pytest.raises(DataUnavailableError, match="records no charges"):
             traj.get_charges("1")
+
+    def test_masses_of_a_data_file_without_a_masses_section_are_unavailable(self, six_frames, tmp_path):
+        text = Path(DATA).read_text()
+        head, masses, rest = text.partition("Masses\n\n1 1.0\n2 2.0\n\n")
+        assert masses
+        path = tmp_path / "no_masses.data"
+        path.write_text(head + rest)
+        traj = LammpsTrajectory(six_frames, str(path), temperature=1.0, units="lj")
+        np.testing.assert_array_equal(traj.get_indices("1"), [0, 2, 4])
+        with pytest.raises(DataUnavailableError, match=r"no_masses\.data: the topology records no masses"):
+            traj.get_masses("1")
+        np.testing.assert_array_equal(
+            LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj").get_masses("1"), [1.0] * 3)
 
     def test_full_style_data_file(self):
         lj = Path(__file__).parent / "data" / "example_1_LJ"

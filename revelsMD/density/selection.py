@@ -97,6 +97,11 @@ class Selection:
                         f"When 'rigid=True', all atom selections must have the same number of indices, "
                         f"but got lengths {lengths} for atoms {atom_names}."
                     )
+                if needs_masses and not np.all(np.sum(self.masses, axis=0) > 0):
+                    raise ValueError(
+                        f"A molecule of atoms {atom_names} has a total mass that is not "
+                        f"positive, so its centre of mass is undefined."
+                    )
             if isinstance(centre_location, bool) or isinstance(centre_location, int):
                 if isinstance(centre_location, int) and centre_location >= len(atom_names):
                     raise ValueError("centre_location index exceeds number of provided atom names.")

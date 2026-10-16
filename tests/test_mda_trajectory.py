@@ -1,5 +1,7 @@
 """MDATrajectory on the committed water trajectory and variants written from it."""
 
+import gc
+import struct
 from pathlib import Path
 
 import MDAnalysis as MD
@@ -11,6 +13,17 @@ from revelsMD.trajectories import DataUnavailableError, MDATrajectory
 from revelsMD.trajectories._base import compute_beta
 
 DATA = Path(__file__).parent / "data"
+
+
+@pytest.fixture(autouse=True)
+def collect_failed_readers():
+    """Collect readers MDAnalysis failed to open within the test that made them.
+
+    Such a reader raises while being deleted; collected later, it would
+    report that in whatever test was running.
+    """
+    yield
+    gc.collect()
 WATER = DATA / "example_4_water"
 TPR = str(WATER / "prod.tpr")
 TRR = str(WATER / "prod.trr")
@@ -49,10 +62,14 @@ class TestReading:
         np.testing.assert_array_equal(traj.get_charges("Ow"), selection.charges)
         np.testing.assert_array_equal(traj.get_masses("Ow"), selection.masses)
 
-    def test_charges_of_a_topology_without_them_are_unavailable(self):
+    def test_charges_and_masses_are_never_guessed(self, universe):
+        # A .gro records names, but no charges, masses or types.
         traj = MDATrajectory(TRR, str(WATER / "prod.gro"), temperature=300.0)
-        with pytest.raises(DataUnavailableError, match="Charge data not available"):
-            traj.get_charges("Ow")
+        np.testing.assert_array_equal(
+            traj.get_indices("Ow"), np.flatnonzero(universe.atoms.names == "Ow"))
+        for name, read in (("charges", traj.get_charges), ("masses", traj.get_masses)):
+            with pytest.raises(DataUnavailableError, match=rf"prod\.gro: the topology records no {name}"):
+                read("Ow")
 
     def test_iteration_and_slicing(self, traj, universe):
         frames = list(traj.iter_frames())
@@ -202,14 +219,54 @@ class TestValidation:
         for frame, k in zip(traj.iter_frames(), expected, strict=True):
             np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
 
-    def test_cut_short_final_frame_is_dropped_with_a_warning(self, tmp_path, universe):
+    # The last frame is cut in its body, which MDAnalysis lists, or in its
+    # header, which it does not: 1, 40 or 80 bytes of the header are left.
+    @pytest.mark.parametrize("keep", [-1000, 1, 40, 80])
+    def test_cut_short_final_frame_is_dropped_with_a_warning(self, tmp_path, universe, keep):
         path = write_frames(tmp_path / "killed.trr", range(5))
         data = Path(path).read_bytes()
-        Path(path).write_bytes(data[:-1000])
+        last = len(data) - len(data) // 5  # the frames are the same size
+        Path(path).write_bytes(data[:keep] if keep < 0 else data[:last + keep])
         with pytest.warns(UserWarning, match=r"killed\.trr: dropping the incomplete final frame \(frame 4\)"):
             traj = MDATrajectory(path, TPR, temperature=300.0)
         assert traj.frames == 4
         np.testing.assert_array_equal(traj.get_frame(-1).forces, universe.trajectory[3].forces)
+
+    def test_killed_run_then_its_restart_reads_every_frame(self, tmp_path, universe):
+        killed = write_frames(tmp_path / "killed.trr", range(5))
+        Path(killed).write_bytes(Path(killed).read_bytes()[:-1000])
+        restart = write_frames(tmp_path / "restart.trr", range(4, 10))
+        with pytest.warns(UserWarning, match=r"killed\.trr: dropping"):
+            traj = MDATrajectory([killed, restart], TPR, temperature=300.0)
+        assert traj.frames == 10
+        for frame, k in zip(traj.iter_frames(), range(10), strict=True):
+            np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
+
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+    def test_two_frame_trr_with_its_second_frame_cut_names_the_remedy(self, tmp_path):
+        path = write_frames(tmp_path / "two.trr", range(2))
+        Path(path).write_bytes(Path(path).read_bytes()[:-1000])
+        with pytest.raises(RuntimeError, match=r"second frame was cut short \(.*two\.trr\); keep its first frame with gmx trjconv -e"):
+            MDATrajectory(path, TPR, temperature=300.0)
+
+    @pytest.mark.parametrize("double", [False, True])
+    @pytest.mark.parametrize("box", [True, False])
+    def test_trr_frame_size_is_read_from_its_header(self, tmp_path, double, box):
+        # A frame as GROMACS writes it: magic, version string, the 13 block
+        # sizes, time and lambda in the frame's precision, then the blocks.
+        from revelsMD.trajectories.mda import _trr_frame_end
+        real, n_atoms = (8, "d") if double else (4, "f"), 2
+        size, code = real
+        version = b"GMX_trn_file"
+        sizes = [0, 0, 9 * size if box else 0, 0, 0, 0, 0,
+                 3 * n_atoms * size, 0, 3 * n_atoms * size, n_atoms, 7, 0]
+        frame = (struct.pack(">3i", 1993, len(version) + 1, len(version)) + version
+                 + struct.pack(">13i", *sizes) + struct.pack(f">2{code}", 0.0, 0.0)
+                 + bytes(sum(sizes[:10])))
+        path = tmp_path / "frame.trr"
+        path.write_bytes(frame + frame)
+        assert _trr_frame_end(str(path), 0) == len(frame)
+        assert _trr_frame_end(str(path), len(frame)) == 2 * len(frame)
 
     def test_frames_mdanalysis_cannot_read_are_named(self, monkeypatch):
         from MDAnalysis.coordinates.TRR import TRRReader
@@ -287,8 +344,9 @@ class TestValidation:
         good = write_frames(tmp_path / "good.trr", range(0, 5))
         bad = tmp_path / "bad.trr"
         bad.write_bytes(Path(TRR).read_bytes()[:40])
-        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*prod\.tpr with .*bad\.trr: OSError"):
+        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*prod\.tpr with .*bad\.trr: OSError") as e:
             MDATrajectory([good, str(bad)], TPR, temperature=300.0)
+        assert "good.trr" not in str(e.value)
 
     def test_unreadable_and_directory_files_raise_the_os_error(self, tmp_path):
         import os
@@ -343,7 +401,7 @@ class TestUnits:
     def test_lammps_dump_is_rejected(self, tmp_path):
         dump = tmp_path / "small.lammpsdump"
         dump.write_bytes(LAMMPS_DUMP.read_bytes())
-        with pytest.raises(ValueError, match="small.lammpsdump: MDAnalysis does not know the length and force units.*LammpsTrajectory"):
+        with pytest.raises(ValueError, match="small.lammpsdump: MDAnalysis knows no length or force units.*LammpsTrajectory"):
             MDATrajectory(str(dump), str(dump), temperature=300.0)
 
     @pytest.mark.filterwarnings("ignore:Unknown masses")
@@ -362,7 +420,7 @@ class TestUnits:
             )
         history = tmp_path / "run.history"
         history.write_text("test history\n 2 1 2\n" + "".join(frames))
-        with pytest.raises(ValueError, match="run.history: MDAnalysis does not know the length and force units") as e:
+        with pytest.raises(ValueError, match="run.history: MDAnalysis knows no force units") as e:
             MDATrajectory(str(history), str(history), temperature=300.0)
         assert "LammpsTrajectory" not in str(e.value)
 
@@ -382,8 +440,17 @@ class TestUnits:
         # The unit check rejects the reader MDAnalysis opens without conversion.
         from revelsMD.trajectories.mda import _check_reader
         reader = MD.Universe(TPR, path, convert_units=False).trajectory
-        with pytest.raises(ValueError, match="unitless.h5md: MDAnalysis does not know the length and force units"):
+        with pytest.raises(ValueError, match="unitless.h5md: MDAnalysis knows no force units"):
             _check_reader(reader)
+
+    # MDAnalysis's reader fails while closing the file it could not open.
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+    def test_h5md_without_h5py_names_the_file(self, tmp_path, monkeypatch):
+        from MDAnalysis.coordinates import H5MD
+        path = write_frames(tmp_path / "water.h5md")
+        monkeypatch.setattr(H5MD, "HAS_H5PY", False)
+        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*water\.h5md: RuntimeError: .*h5py"):
+            MDATrajectory(path, TPR, temperature=300.0)
 
     def test_every_file_of_a_list_is_checked(self, tmp_path):
         good = write_frames(tmp_path / "good.h5md", range(4))

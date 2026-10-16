@@ -64,7 +64,9 @@ The column layout of the data file's `Atoms` section is read from the
 other style, pass the layout as a column string; for a data file without the
 comment, pass a column string or one of the style names above. MDAnalysis
 ignores column names it does not know; charges are read only from a column
-named `charge` (not `q`):
+named `charge` (not `q`). Masses are read from the data file's `Masses`
+section. Neither is guessed: without them, `get_charges` and `get_masses`
+raise an error, and so do densities that need them.
 
 ```python
 traj = LammpsTrajectory(
@@ -102,9 +104,10 @@ frame. An incomplete frame anywhere else raises an error, so a file written
 with `dump_modify append yes` across a restart must be split at the restart.
 
 Text between frames, such as the `ITEM: UNITS` and `ITEM: TIME` lines of
-`dump_modify units yes` and `time yes`, is skipped. A dump whose `ITEM: UNITS`
-names a unit style other than `units` raises an error, so pass the style the
-run used.
+`dump_modify units yes` and `time yes`, is skipped. Text holding the lines of
+a frame header without its `ITEM: TIMESTEP` line, as a damaged frame does,
+raises an error. A dump whose `ITEM: UNITS` names a unit style other than
+`units` raises an error, so pass the style the run used.
 
 Atoms are identified by LAMMPS type number, as a string:
 
@@ -190,7 +193,14 @@ Pass a list of files to read their frames, concatenated in the order given.
 Frames that several files contain are read from each, so join restart files
 written with `gmx mdrun -noappend`, which repeat a frame at each restart,
 with `gmx trjcat` first. A last TRR frame cut short, as left by a job killed
-while writing, is dropped with a warning.
+while writing, is dropped with a warning; MDAnalysis cannot open a TRR file
+whose second frame is cut short, so keep its first frame with
+`gmx trjconv -e`. Files of other formats cut short raise an error naming the
+file.
+
+Charges and masses are those the topology records, never guessed from atom
+names: a `.tpr` records both, and a `.gro` or `.pdb` neither, so charge and
+polarisation densities and rigid molecules' centres of mass need a `.tpr`.
 
 The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:

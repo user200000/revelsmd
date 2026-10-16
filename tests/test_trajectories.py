@@ -783,7 +783,7 @@ class TestReadingWithMDAnalysis:
                 raise error
 
     @pytest.mark.parametrize("error", [
-        FileNotFoundError(), PermissionError(), IsADirectoryError(), ImportError(),
+        FileNotFoundError(), PermissionError(), IsADirectoryError(), NotADirectoryError(), ImportError(),
         MemoryError(), RecursionError(), UserWarning("w"), KeyboardInterrupt(),
     ])
     def test_other_errors_pass_through(self, error):
@@ -807,6 +807,16 @@ class TestCheckFinite:
             check_finite(broken, good, "f, frame 3")
         with pytest.raises(ValueError, match="f, frame 3: the forces contain NaN or infinite"):
             check_finite(good, broken, "f, frame 3")
+
+
+class TestFiniteCheckNamesTheFrame:
+
+    def test_frame_found_by_a_strided_read_is_named_by_its_index(self):
+        forces = np.ones((10, 2, 3))
+        forces[5, 0, 0] = np.nan
+        traj = NumpyTrajectory(np.zeros((10, 2, 3)), forces, 10, 10, 10, ["O", "H"], temperature=300.0)
+        with pytest.raises(ValueError, match=r"^frame 5: the forces"):
+            list(traj.iter_frames(start=1, stride=2))
 
 
 class TestReadFramesOneFileAtATime:
