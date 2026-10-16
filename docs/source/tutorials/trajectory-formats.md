@@ -12,7 +12,11 @@ Reading a frame whose positions or forces contain NaN or infinity raises
 an error.
 
 Several files are joined in the order given, so pass a list or tuple in
-run order. `sorted(glob(...))` puts `run10` before `run2`; name files
+run order. They must be a run and its restarts: LAMMPS and MDAnalysis files
+whose timesteps start again from zero, as independent runs do, raise an
+error, and VASP files, which record no timesteps, are joined whatever their
+origin. Load each independent run as its own trajectory and accumulate them
+into the same grid or RDF. `sorted(glob(...))` puts `run10` before `run2`; name files
 with leading zeros or list them explicitly. A set, or the same file
 twice, raises an error.
 
@@ -89,10 +93,13 @@ frames from its own first timestep on, as after a restart from a restart
 file. A replaced frame whose timestep lies outside every joined file's range
 of kept timesteps is dropped with a warning naming it. Replaced frames are not
 compared with their file's first frame, so a run whose box or atom count went
-wrong after the restart point joins with its restart. A file that starts at
-or before the first timestep of the file before it raises an error, since that
-would discard the whole earlier file. Gaps in timesteps between the files as
-written are not detected.
+wrong after the restart point joins with its restart. A restart that dumps
+less often than the run it replaces does not warn: its frames cover that
+range of timesteps, and the replaced frames belong to the earlier run, so
+they are not used. A file that starts at or before the first timestep of the
+file before it raises an error, since that would discard the whole earlier
+file. Gaps in timesteps between or within the files as written are not
+detected.
 
 The last frame of any file may be incomplete, as left by a job killed while
 writing: it is dropped with a warning, or silently if the next file's frames
@@ -101,9 +108,11 @@ from a job that stopped before writing a frame, is dropped in the same way.
 An incomplete frame anywhere else raises an error, so a file written with
 `dump_modify append yes` across a restart must be split at the restart.
 
-A dump file must hold only frames: other text before or between frames,
-apart from the `ITEM: UNITS` and `ITEM: TIME` lines written by
-`dump_modify units yes` and `time yes`, raises an error.
+A dump file must hold only frames: other text before, between or after
+frames, apart from the `ITEM: UNITS` and `ITEM: TIME` lines written by
+`dump_modify units yes` and `time yes`, raises an error. A dump whose
+`ITEM: UNITS` names a unit style other than `units` raises an error, so
+pass the style the run used.
 
 Atoms are identified by LAMMPS type number, as a string:
 
@@ -186,20 +195,20 @@ print(traj.cell_matrix)
 ```
 
 Pass a list of files, in run order, to read a run and its restarts as one
-trajectory. They are joined by step as LAMMPS dumps are by timestep: each
-file's frames replace the previous file's frames from its own first step on,
-so the frame GROMACS repeats at the start of each file written with
-`-noappend` is read once. Formats that record no steps (AMBER NetCDF) are
-joined by time instead, and NetCDF files without times cannot be joined.
-Replaced frames outside every joined file's range of kept steps are dropped
-with a warning, and a file that starts at or before the first step of the
-file before it raises an error. Gaps in steps between the files are not
-detected, and steps must increase within each file (frames are checked as
-they are read).
-
-Files from independent runs, whose steps each start again from zero, are not
-a run and its restarts: load each as its own trajectory and accumulate them
-into the same grid or RDF.
+trajectory. Every frame's step is read when the trajectory is constructed
+(from the frame headers, for TRR files), and steps must strictly increase
+within each file. The files are joined by step as LAMMPS dumps are by
+timestep: each file's frames replace the previous file's frames from its own
+first step on, so the frame GROMACS repeats at the start of each file written
+with `-noappend` is read once. A restart must continue the step count, as
+`gmx mdrun -cpi` does; files whose steps start again from zero, including
+files written by MDAnalysis (which numbers steps from zero), cannot be joined.
+If any file records no steps (AMBER NetCDF), all are joined by time instead,
+and NetCDF files without times cannot be joined. Replaced frames outside
+every joined file's range of kept steps are dropped with a warning, and a
+file that starts at or before the first step of the file before it raises an
+error. Gaps in steps between the files are not detected. A last TRR frame
+cut short, as left by a job killed while writing, is dropped with a warning.
 
 The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:

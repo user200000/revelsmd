@@ -10,9 +10,8 @@ import os
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
-from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, BinaryIO, Iterator, Self
+from typing import Any, BinaryIO, Iterator, Literal, Self
 
 import numpy as np
 import scipy.constants as constants
@@ -101,21 +100,21 @@ def warn_user(message: str) -> None:
 
 def replaced_frames_dropped(
     replacing: str, replaced: str, unit: str, start: object, count: int,
-    first: object, last: object,
+    first: object, last: object, suffix: str = "",
 ) -> str:
     """The warning for replaced frames outside every joined file's range of kept frames.
 
-    ``unit`` is what orders frames ("timestep", "step" or "time"); the
-    replaced frames run from ``start``, and ``count`` of them, from
-    ``first`` to ``last``, lie outside every joined file's range of kept
-    frames.
+    ``unit`` is what orders frames ("timestep", "step" or "time") and
+    ``suffix`` follows each value (" ps" for times). The replaced frames
+    run from ``start``, and ``count`` of them, from ``first`` to ``last``,
+    lie outside every joined file's range of kept frames.
     """
     lost = (
-        f"its frame at {unit} {first} lies" if count == 1
-        else f"{count} of its frames, between {unit}s {first} and {last}, lie"
+        f"the frame at {unit} {first}{suffix} lies" if count == 1
+        else f"{count} of those frames, between {unit}s {first}{suffix} and {last}{suffix}, lie"
     )
     return (
-        f"{replacing} replaces the frames of {replaced} from {unit} {start} on; "
+        f"{replacing} replaces the frames of {replaced} from {unit} {start}{suffix} on; "
         f"{lost} outside every joined file's range of kept {unit}s and "
         f"{'is' if count == 1 else 'are'} dropped"
     )
@@ -186,7 +185,7 @@ def as_paths(files: TrajectoryFiles) -> list[str]:
     if isinstance(files, (str, bytes, os.PathLike)):
         return [os.fsdecode(files)]
     items = files.tolist() if isinstance(files, np.ndarray) and files.ndim == 1 else files
-    if not isinstance(items, Sequence):
+    if not isinstance(items, Sequence) or isinstance(items, (bytearray, memoryview)):
         raise TypeError(
             "trajectory files must be a path or a sequence of paths in run "
             f"order, not {type(items).__name__}"
@@ -257,21 +256,46 @@ def compute_beta(units: str, temperature: float) -> float:
     return 1.0 / (_BOLTZMANN_CONSTANTS[units] * temperature)
 
 
-@contextmanager
-def reading_with_mdanalysis(files: str) -> Iterator[None]:
-    """Raise RuntimeError naming ``files`` if MDAnalysis cannot parse them.
+# Exceptions that say something other than "MDAnalysis cannot parse this
+# file", and so are not relabelled: errors opening a file, a missing
+# optional package (pytng for TNG), resource exhaustion, and warnings turned
+# into errors.
+_NOT_PARSE_ERRORS = (
+    FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError,
+    ImportError, MemoryError, RecursionError, Warning,
+)
+
+
+class reading_with_mdanalysis:
+    """Context manager: raise RuntimeError naming ``files`` if MDAnalysis cannot parse them.
 
     MDAnalysis raises many exception types for a file it can open but not
     parse (ValueError, KeyError, OSError, EOFError, StopIteration and
-    others), so all are caught except a missing or unreadable file and a
-    missing optional package, which pass through unchanged.
+    others), so every Exception is relabelled except those in
+    ``_NOT_PARSE_ERRORS``. It is a class rather than a generator-based
+    context manager, which would let StopIteration escape unchanged.
     """
-    try:
-        yield
-    except (FileNotFoundError, PermissionError, IsADirectoryError, ImportError):
-        raise
-    except Exception as e:
-        raise RuntimeError(f"MDAnalysis cannot read {files}: {type(e).__name__}: {e}") from e
+
+    def __init__(self, files: str) -> None:
+        self.files = files
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, exc_type, exc, traceback) -> Literal[False]:
+        if exc is None or not isinstance(exc, Exception) or isinstance(exc, _NOT_PARSE_ERRORS):
+            return False
+        raise RuntimeError(
+            f"MDAnalysis cannot read {self.files}: {type(exc).__name__}: {exc}"
+        ) from exc
+
+
+def open_check(path: str) -> None:
+    """Raise the operating system's error if ``path`` cannot be opened for reading.
+
+    FileNotFoundError, PermissionError and IsADirectoryError name the file.
+    """
+    open(path, "rb").close()
 
 
 class DataUnavailableError(Exception):

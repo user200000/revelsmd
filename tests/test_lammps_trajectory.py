@@ -108,6 +108,21 @@ class TestReading:
         with pytest.raises(ValueError, match=r"binary\.data: no 'Atoms # <style>' comment"):
             LammpsTrajectory(six_frames, str(binary), temperature=1.0, units="lj")
 
+    def test_dump_units_must_match(self, tmp_path):
+        a = write(tmp_path / "a.dump", "ITEM: UNITS\nmetal\n", frame(0))
+        with pytest.raises(ValueError, match=r"a\.dump: the dump was written with ITEM: UNITS metal, but units='lj'; pass units='metal'"):
+            load(a)
+        assert load(a, units="metal").units == "metal"
+
+    def test_non_ascii_atom_style_names_the_file(self, six_frames, tmp_path):
+        data = tmp_path / "odd.data"
+        data.write_bytes(Path(DATA).read_bytes().replace(b"Atoms # atomic", "Atoms # \u00e5tomic".encode()))
+        with pytest.raises(ValueError, match=r"odd\.data: atom style '\\xc3\\xa5tomic' has no known column layout"):
+            LammpsTrajectory(six_frames, str(data), temperature=1.0, units="lj")
+
+    def test_bytes_topology(self, six_frames):
+        assert LammpsTrajectory(six_frames, DATA.encode(), temperature=1.0, units="lj").frames == 6
+
     def test_unparseable_topology(self, six_frames, tmp_path):
         broken = tmp_path / "broken.data"
         broken.write_text("title\n\n6 atoms\n\nAtoms # atomic\n\n1 x\n")

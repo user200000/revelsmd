@@ -18,9 +18,9 @@ import numpy as np
 
 from revelsMD.cell import fractional_to_cartesian
 from ._base import (
-    TrajectoryFiles,
+    TrajectoryFiles, TrajectoryPath,
     DataUnavailableError, FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
-    reading_with_mdanalysis, replaced_frames_dropped, warn_user,
+    open_check, reading_with_mdanalysis, replaced_frames_dropped, warn_user,
 )
 
 
@@ -160,13 +160,30 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
 
 
 _TIMESTEP = b"ITEM: TIMESTEP"
-# The lines dump_modify units yes and time yes write before ITEM: TIMESTEP,
-# and the values that follow them: a unit style (the longest, electron, has
-# eight letters) or a time.
-_PREAMBLE_VALUES = {
-    b"ITEM: UNITS": re.compile(rb"[a-z]{0,8}"),
-    b"ITEM: TIME": re.compile(rb"[-+0-9.eE]{0,32}"),
-}
+# The lines dump_modify units yes and time yes write before ITEM: TIMESTEP:
+# a LAMMPS unit style, or a time.
+_UNITS = b"ITEM: UNITS"
+_TIME = b"ITEM: TIME"
+_UNIT_STYLES = (b"lj", b"real", b"metal", b"si", b"cgs", b"electron", b"micro", b"nano")
+_FLOAT = re.compile(rb"[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?")
+# Any start of a float, for a value cut short.
+_FLOAT_START = re.compile(rb"[-+]?\d*\.?\d*([eE][-+]?\d*)?")
+
+
+@dataclass(frozen=True)
+class _Preamble:
+    """Text that may precede a frame's ``ITEM: TIMESTEP`` line.
+
+    ``status`` is ``"complete"`` for whole ``ITEM: UNITS`` and ``ITEM:
+    TIME`` lines each followed by its value (or for no text), ``"cut"`` if
+    the text then stops partway through a line or before a value, and None
+    for anything else, in which case ``bad`` is the offset of the first line
+    that is not allowed. ``units`` is the unit style named, if any.
+    """
+
+    status: str | None
+    units: str | None = None
+    bad: int = 0
 
 
 @dataclass(frozen=True, eq=False)
@@ -204,6 +221,8 @@ class DumpIndex:
     atom rows occupy bytes ``[starts[k], ends[k])`` of the file. ``header``
     is the first complete frame's, and is None if there are none. Frames
     before ``mismatch.frame`` share it; if ``mismatch`` is None, all do.
+    ``units`` is the unit style the file's ``ITEM: UNITS`` lines name, if
+    it has any.
     """
 
     path: str
@@ -213,6 +232,7 @@ class DumpIndex:
     ends: np.ndarray
     partial: PartialFrame | None
     mismatch: HeaderMismatch | None = None
+    units: str | None = None
 
 
 @dataclass(frozen=True)
@@ -262,14 +282,17 @@ def index_dump(path: str) -> DumpIndex:
                 frame_starts.append(position)
                 position = m.find(_TIMESTEP, position + len(_TIMESTEP))
             if not frame_starts:
-                if len(m) < 4096 and _preamble_status(m[:]) is not None:
+                if len(m) < 4096 and _parse_preamble(m[:]).status is not None:
                     return no_frames
                 raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
-            if _preamble_status(m[:frame_starts[0]]) != "complete":
+            leading = _parse_preamble(m[:frame_starts[0]])
+            if leading.status != "complete":
+                bad = leading.bad if leading.status is None else 0
                 raise ValueError(
-                    f"{path}: unexpected text before the first frame: "
-                    f"{_excerpt(m, 0, frame_starts[0])}"
+                    f"{path}: unexpected text before the first frame at byte {bad}: "
+                    f"{_excerpt(m, bad, frame_starts[0])}"
                 )
+            units = leading.units
             # A file cut off inside the next frame's header leaves part of an
             # "ITEM:" line after its last newline. Drop that tail.
             limit = len(m)
@@ -303,13 +326,20 @@ def index_dump(path: str) -> DumpIndex:
                 # Only the next frame's ITEM: UNITS and ITEM: TIME lines may
                 # follow the atom rows; at the end of the file they are the
                 # start of a frame that was cut short.
-                following = _preamble_status(m[entry.data_end:end])
-                if following is None or (following == "cut" and k < n - 1):
+                following = _parse_preamble(m[entry.data_end:end])
+                if following.status is None or (following.status == "cut" and k < n - 1):
+                    bad = entry.data_end + (following.bad if following.status is None else 0)
                     raise ValueError(
                         f"{path}, timestep {entry.timestep}: unexpected text after the "
-                        f"atom rows at byte {entry.data_end}: "
-                        f"{_excerpt(m, entry.data_end, end)}"
+                        f"atom rows at byte {bad}: {_excerpt(m, bad, end)}"
                     )
+                if following.units is not None:
+                    if units is not None and following.units != units:
+                        raise ValueError(
+                            f"{path}, timestep {entry.timestep}: ITEM: UNITS changes from "
+                            f"{units} to {following.units} within the file"
+                        )
+                    units = following.units
                 if k == n - 1 and entry.data_end < end:
                     dropped_header = True
                 if first is None:
@@ -333,30 +363,53 @@ def index_dump(path: str) -> DumpIndex:
                 partial = PartialFrame(path, None)
     header = first.header if first is not None else None
     return DumpIndex(
-        path, header, timesteps[:count], starts[:count], ends[:count], partial, mismatch
+        path, header, timesteps[:count], starts[:count], ends[:count], partial, mismatch, units
     )
 
 
-def _preamble_status(text: bytes) -> str | None:
+def _parse_preamble(text: bytes) -> _Preamble:
     """Classify text that may precede a frame's ``ITEM: TIMESTEP`` line.
 
-    Returns ``"complete"`` for whole ``ITEM: UNITS`` or ``ITEM: TIME`` lines,
-    each followed by its value (or for no text), ``"cut"`` if the text then
-    stops partway through a line or before a value, and None for anything
-    else. Blank lines are ignored.
+    Blank lines are ignored.
     """
+    item: bytes | None = None  # the item whose value comes next
+    units: bytes | None = None
+    offset = 0
     lines = text.split(b"\n")
-    complete = [line.strip() for line in lines[:-1] if line.strip()]
-    cut = lines[-1].strip()
-    items, values = complete[0::2], complete[1::2]
-    for item, value in zip(items, values + [cut]):
-        if item not in _PREAMBLE_VALUES or not _PREAMBLE_VALUES[item].fullmatch(value):
-            return None
-    if len(items) > len(values):
-        return "cut"
-    if not cut:
-        return "complete"
-    return "cut" if any(item.startswith(cut) for item in (*_PREAMBLE_VALUES, _TIMESTEP)) else None
+    for k, raw in enumerate(lines):
+        line = raw.strip()
+        last = k == len(lines) - 1
+        if not line and not last:
+            pass
+        elif item is None:
+            if last:
+                if not line:
+                    return _Preamble("complete", _decoded(units))
+                if any(name.startswith(line) for name in (_UNITS, _TIME, _TIMESTEP)):
+                    return _Preamble("cut", _decoded(units))
+                return _Preamble(None, _decoded(units), offset)
+            if line not in (_UNITS, _TIME):
+                return _Preamble(None, _decoded(units), offset)
+            item = line
+        else:
+            if last:
+                cut = (
+                    any(style.startswith(line) for style in _UNIT_STYLES) if item == _UNITS
+                    else _FLOAT_START.fullmatch(line) is not None
+                )
+                return _Preamble("cut" if cut else None, _decoded(units), offset)
+            whole = line in _UNIT_STYLES if item == _UNITS else _FLOAT.fullmatch(line) is not None
+            if not whole:
+                return _Preamble(None, _decoded(units), offset)
+            if item == _UNITS:
+                units = line
+            item = None
+        offset += len(raw) + 1
+    raise AssertionError("unreachable: the last line returns")
+
+
+def _decoded(units: bytes | None) -> str | None:
+    return units.decode("ascii") if units is not None else None
 
 
 def _excerpt(m: mmap.mmap, start: int, end: int) -> str:
@@ -438,9 +491,13 @@ def _index_frame(
     if complete_rows < n_atoms:
         return PartialFrame(path, timestep)
     if n_rows > n_atoms:
+        extra = 0
+        for _ in range(n_atoms):
+            extra = rows.index(b"\n", extra) + 1
         raise ValueError(
             f"{path}, timestep {timestep}: the atom rows do not match the "
-            f"header's {n_atoms} atoms"
+            f"header's {n_atoms} atoms; unexpected text at byte {position + extra}: "
+            f"{rows[extra:extra + 40]!r}"
         )
     return _ScannedFrame(timestep, position, rows_end, header, header_lines)
 
@@ -500,7 +557,8 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
                     f"{index.path} starts at timestep {first}, at or before the "
                     f"start of {files[-1].path} (timestep "
                     f"{int(files[-1].timesteps[0])}); timesteps must continue "
-                    "from one file to the next"
+                    "from file to file, as in a run and its restarts. Load "
+                    "independent runs as separate trajectories"
                 )
             last = int(files[-1].timesteps[kept[-1] - 1]) if files else None
             if pending is not None and not _superseded(pending, last, first):
@@ -602,8 +660,8 @@ def resolve_atom_style(atom_style: str | None, topology_file: str) -> str:
         )
     if style not in STYLE_COLUMNS:
         raise ValueError(
-            f"atom style '{style}' has no known column layout; pass atom_style "
-            "as a column string, e.g. 'id type x y z'"
+            f"{topology_file}: atom style '{style}' has no known column layout; pass "
+            "atom_style as a column string, e.g. 'id type x y z'"
         )
     return STYLE_COLUMNS[style]
 
@@ -618,7 +676,7 @@ def _data_file_style(topology_file: str) -> str | None:
         for line in f:
             if line.split()[:1] == [b"Atoms"]:
                 words = line.partition(b"#")[2].split()
-                return words[0].decode("ascii", "replace") if words else None
+                return words[0].decode("ascii", "backslashreplace") if words else None
     return None
 
 
@@ -782,7 +840,7 @@ class LammpsTrajectory(IndexedFileTrajectory):
     def __init__(
         self,
         trajectory_file: TrajectoryFiles,
-        topology_file: "str | os.PathLike[str] | None" = None,
+        topology_file: TrajectoryPath | None = None,
         *,
         temperature: float,
         units: str = 'real',
@@ -795,7 +853,9 @@ class LammpsTrajectory(IndexedFileTrajectory):
 
         if topology_file is None:
             raise ValueError("A topology file is required for LAMMPS trajectories.")
-        topology = os.fspath(topology_file)
+        topology = os.fsdecode(topology_file)
+        open_check(topology)
+        self._topology = topology
         paths = as_paths(trajectory_file)
 
         columns = resolve_atom_style(atom_style, topology)
@@ -810,6 +870,12 @@ class LammpsTrajectory(IndexedFileTrajectory):
         self._topology_types = np.array([str(t).encode() for t in universe.atoms.types])
 
         indices = [index_dump(path) for path in paths]
+        for index in indices:
+            if index.units is not None and index.units != units:
+                raise ValueError(
+                    f"{index.path}: the dump was written with ITEM: UNITS {index.units}, "
+                    f"but units='{units}'; pass units='{index.units}'"
+                )
         # Every file's first frame is kept, so it must match the topology.
         for index in indices:
             if index.header is not None and index.header.n_atoms != len(topology_ids):
@@ -852,7 +918,7 @@ class LammpsTrajectory(IndexedFileTrajectory):
         """
         indices = self.mdanalysis_universe.select_atoms(f'type {atype}').ix
         if len(indices) == 0:
-            raise ValueError(f"{self.topology_file}: no atoms of type '{atype}'")
+            raise ValueError(f"{self._topology}: no atoms of type '{atype}'")
         return indices
 
     def get_charges(self, atype: str) -> np.ndarray:

@@ -365,14 +365,12 @@ class DensityGrid:
             How frames are grouped into blocks for lambda estimation
             (default: 'contiguous'). Only used when compute_lambda=True.
 
-            - ``'contiguous'``: each block is a sequential slice of frames.
-              Works with all trajectory backends (streaming, no random access
-              required). Block size is controlled by ``block_size``.
+            - ``'contiguous'``: each block is a sequential slice of frames,
+              read in order. Block size is controlled by ``block_size``.
             - ``'interleaved'``: section *k* gets every *k*-th frame
-              (e.g. frames [0,2,4,...] and [1,3,5,...] for 2 sections).
-              Requires a trajectory backend that supports random frame access
-              via ``get_frame()``. Number of sections is controlled by
-              ``sections``.
+              (e.g. frames [0,2,4,...] and [1,3,5,...] for 2 sections),
+              read by index with ``get_frame()``. Number of sections is
+              controlled by ``sections``.
         block_size : int or None, optional
             Number of frames per block for contiguous blocking. Only used when
             blocking='contiguous' and compute_lambda=True. If None, defaults

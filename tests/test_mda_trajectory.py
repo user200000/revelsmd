@@ -261,7 +261,7 @@ class TestValidation:
         assert traj.frames == 10
         for k, frame in enumerate(traj.iter_frames()):
             np.testing.assert_allclose(frame.forces, universe.trajectory[k].forces, rtol=1e-5)
-        with pytest.raises(ValueError, match=r"c\.ncdf starts at time 0\.0, at or before the start of .*b\.ncdf \(time 2\.0\); times must continue"):
+        with pytest.raises(ValueError, match=r"c\.ncdf starts at time 0\.0 ps, at or before the start of .*b\.ncdf \(time 2\.0 ps\); times must continue from file to file, as in a run and its restarts\. Load independent runs as separate trajectories"):
             MDATrajectory([b, write_frames(tmp_path / "c.ncdf", range(0, 3), forces=True)], TPR,
                           temperature=300.0)
 
@@ -278,14 +278,14 @@ class TestValidation:
         dropped = self._dropped(record)
         assert len(dropped) == 1
         assert "b.trr replaces the frames of" in dropped[0]
-        assert "2 of its frames, between steps 2500 and 3000, lie" in dropped[0]
+        assert "2 of those frames, between steps 2500 and 3000, lie" in dropped[0]
         assert traj.frames == 8
 
     @pytest.mark.parametrize("frames, replacing, lost", [
         # b leaves a's last two frames uncovered; c covers what it replaces of b.
-        ((range(0, 10), range(5, 7), range(6, 8)), "b.trr", "2 of its frames, between steps 4000 and 4500"),
+        ((range(0, 10), range(5, 7), range(6, 8)), "b.trr", "2 of those frames, between steps 4000 and 4500"),
         # b covers what it replaces of a; c leaves b's last three frames uncovered.
-        ((range(0, 5), range(3, 10), range(5, 7)), "c.trr", "3 of its frames, between steps 3500 and 4500"),
+        ((range(0, 5), range(3, 10), range(5, 7)), "c.trr", "3 of those frames, between steps 3500 and 4500"),
     ])
     def test_each_restart_is_judged_on_its_own_replaced_frames(self, tmp_path, frames, replacing, lost):
         files = [write_frames(tmp_path / f"{name}.trr", f) for name, f in zip("abc", frames)]
@@ -296,18 +296,87 @@ class TestValidation:
         assert len(dropped) == 1
         assert f"{replacing} replaces" in dropped[0] and lost in dropped[0]
 
-    def test_steps_must_increase_within_a_file(self, tmp_path):
-        steps = {0: 0, 1: 2500, 2: 4500, 3: 1000}
-        def reorder(ts):
+    @pytest.mark.parametrize("steps, bad", [
+        ((0, 2500, 4500, 1000), 3),
+        ((0, 500, 500, 1000), 2),  # a repeated step
+        ((0, 500, 1000, 1500, 2000, 2500, 1500, 2000, 2500, 3000), 6),  # cat of a run and its restart
+    ])
+    def test_steps_must_increase_within_a_file(self, tmp_path, steps, bad):
+        def renumber(ts):
             ts.data["step"] = steps[ts.frame]
-        path = write_frames(tmp_path / "c.trr", range(4), reorder)
-        traj = MDATrajectory(path, TPR, temperature=300.0)
-        with pytest.raises(ValueError, match=r"c\.trr, frame 3: steps do not increase within the file"):
+        path = write_frames(tmp_path / "c.trr", range(len(steps)), renumber)
+        with pytest.raises(ValueError, match=fr"c\.trr, frame {bad}: steps do not increase within the file \(step {steps[bad - 1]} at frame {bad - 1}, step {steps[bad]} at frame {bad}\)"):
+            MDATrajectory(path, TPR, temperature=300.0)
+
+    def test_replaced_frames_are_checked_too(self, tmp_path):
+        # Steps out of order in frames a restart replaces are still an error.
+        steps = {0: 0, 1: 500, 2: 2000, 3: 1000}
+        def renumber(ts):
+            ts.data["step"] = steps[ts.frame]
+        a = write_frames(tmp_path / "a.trr", range(4), renumber)
+        b = write_frames(tmp_path / "b.trr", range(3, 6))
+        with pytest.raises(ValueError, match=r"a\.trr, frame 3: steps do not increase"):
+            MDATrajectory([a, b], TPR, temperature=300.0)
+
+    def test_steps_that_wrap_past_32_bits_are_unwrapped(self, tmp_path, universe):
+        # GROMACS writes TRR steps as signed 32-bit integers.
+        top = 2**31
+        def near_wrap(base):
+            def renumber(ts):
+                step = base + 500 * ts.frame
+                ts.data["step"] = step - 2**32 if step >= top else step
+            return renumber
+        base = top - 2000
+        a = write_frames(tmp_path / "a.trr", range(0, 8), near_wrap(base))
+        b = write_frames(tmp_path / "b.trr", range(6, 10), near_wrap(base))
+        assert MD.Universe(TPR, a).trajectory[5].data["step"] < 0
+        assert MD.Universe(TPR, b).trajectory[0].data["step"] < 0
+        traj = MDATrajectory([a, b], TPR, temperature=300.0)
+        assert traj.frames == 10
+        for k, frame in enumerate(traj.iter_frames()):
+            np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
+
+    def test_cut_short_final_frame_is_dropped_with_a_warning(self, tmp_path, universe):
+        path = write_frames(tmp_path / "killed.trr", range(5))
+        data = Path(path).read_bytes()
+        Path(path).write_bytes(data[:-1000])
+        with pytest.warns(UserWarning, match=r"killed\.trr: dropping the incomplete final frame \(frame 4\)"):
+            traj = MDATrajectory(path, TPR, temperature=300.0)
+        assert traj.frames == 4
+        np.testing.assert_array_equal(traj.get_frame(-1).forces, universe.trajectory[3].forces)
+
+    def test_frames_mdanalysis_cannot_read_are_named(self, monkeypatch):
+        from MDAnalysis.coordinates.TRR import TRRReader
+        traj = MDATrajectory(TRR, TPR, temperature=300.0)
+        read_frame = TRRReader._read_frame
+
+        def failing(self, frame):
+            if frame == 3:
+                raise OSError("TRR read error = float")
+            return read_frame(self, frame)
+
+        monkeypatch.setattr(TRRReader, "_read_frame", failing)
+        with pytest.raises(ValueError, match=r"MDAnalysis cannot read .*prod\.trr, frame 3: OSError: TRR read error = float"):
+            traj.get_frame(3)
+        with pytest.raises(ValueError, match=r"prod\.trr, frame 3: OSError"):
             list(traj.iter_frames())
-        traj.get_frame(0)
-        traj.get_frame(3)
-        with pytest.raises(ValueError, match=r"c\.trr, frame 2: steps do not increase"):
-            traj.get_frame(2)
+
+    @pytest.mark.filterwarnings("ignore:Could not find netCDF4")
+    def test_trr_and_netcdf_are_joined_by_time(self, tmp_path, universe):
+        a = write_frames(tmp_path / "a.trr", range(0, 5))
+        b = write_frames(tmp_path / "b.ncdf", range(4, 10), forces=True)
+        traj = MDATrajectory([a, b], TPR, temperature=300.0)
+        assert traj.frames == 10
+        for k, frame in enumerate(traj.iter_frames()):
+            np.testing.assert_allclose(frame.forces, universe.trajectory[k].forces, rtol=1e-5)
+
+    def test_readers_must_match_the_files(self, tmp_path, monkeypatch):
+        from revelsMD.trajectories import mda
+        a = write_frames(tmp_path / "a.trr", range(0, 5))
+        b = write_frames(tmp_path / "b.trr", range(5, 10))
+        monkeypatch.setattr(mda, "_readers", lambda trajectory: [trajectory])
+        with pytest.raises(RuntimeError, match="MDAnalysis opened 1 readers for 2 files"):
+            MDATrajectory([a, b], TPR, temperature=300.0)
 
     def test_joined_trajectory_is_rewound(self, tmp_path):
         a = write_frames(tmp_path / "a.trr", range(0, 8))
@@ -318,14 +387,14 @@ class TestValidation:
     def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
         a = write_frames(tmp_path / "a.trr", range(0, 8))
         b = write_frames(tmp_path / "b.trr", range(3, 6))
-        with pytest.warns(UserWarning, match=r"b\.trr replaces the frames of .*a\.trr from step 1500 on; 2 of its frames, between steps 3000 and 3500, lie outside"):
+        with pytest.warns(UserWarning, match=r"b\.trr replaces the frames of .*a\.trr from step 1500 on; 2 of those frames, between steps 3000 and 3500, lie outside"):
             traj = MDATrajectory([a, b], TPR, temperature=300.0)
         assert traj.frames == 6
 
     def test_file_starting_before_the_previous_one_raises(self, tmp_path):
         a = write_frames(tmp_path / "a.trr", range(3, 6))
         b = write_frames(tmp_path / "b.trr", range(0, 5))
-        with pytest.raises(ValueError, match=r"b\.trr starts at step 0, at or before the start of .*a\.trr \(step 1500\); steps must continue"):
+        with pytest.raises(ValueError, match=r"b\.trr starts at step 0, at or before the start of .*a\.trr \(step 1500\); steps must continue from file to file, as in a run and its restarts\. Load independent runs as separate trajectories"):
             MDATrajectory([a, b], TPR, temperature=300.0)
 
     def test_errors_in_a_list_name_the_file_and_its_frame(self, tmp_path):
@@ -367,6 +436,72 @@ class TestValidation:
         with pytest.raises(TypeError, match="not set"):
             MDATrajectory({TRR}, TPR, temperature=300.0)
 
+    def test_topology_cut_short_raises_runtime_error(self, tmp_path):
+        # MDAnalysis raises StopIteration for this file; it must not escape,
+        # where it would silently end a caller's loop.
+        cut = tmp_path / "cut.gro"
+        cut.write_bytes((WATER / "prod.gro").read_bytes()[:6])
+        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*cut\.gro with .*prod\.trr: StopIteration"):
+            MDATrajectory(TRR, str(cut), temperature=300.0)
+        loaded = list(map(lambda top: MDATrajectory(TRR, top, temperature=300.0), [TPR]))
+        assert len(loaded) == 1
+        with pytest.raises(RuntimeError):
+            list(map(lambda top: MDATrajectory(TRR, top, temperature=300.0), [TPR, str(cut), TPR]))
+
+    @pytest.mark.parametrize("name, data, raised", [
+        ("empty.tpr", b"", "EOFError"),
+        ("cut.tpr", (WATER / "prod.tpr").read_bytes()[:200], "EOFError"),
+    ])
+    def test_topologies_mdanalysis_cannot_parse(self, tmp_path, name, data, raised):
+        path = tmp_path / name
+        path.write_bytes(data)
+        with pytest.raises(RuntimeError, match=fr"MDAnalysis cannot read .*{name} with .*: {raised}"):
+            MDATrajectory(TRR, str(path), temperature=300.0)
+
+    # MDAnalysis's readers fail while closing a file they could not open.
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+    def test_trajectory_mdanalysis_cannot_parse_is_named_in_a_list(self, tmp_path):
+        good = write_frames(tmp_path / "good.trr", range(0, 5))
+        bad = tmp_path / "bad.trr"
+        bad.write_bytes(Path(TRR).read_bytes()[:40])
+        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*prod\.tpr with .*bad\.trr: OSError"):
+            MDATrajectory([good, str(bad)], TPR, temperature=300.0)
+
+    def test_unreadable_and_directory_files_raise_the_os_error(self, tmp_path):
+        import os
+        directory = tmp_path / "x.trr"
+        directory.mkdir()
+        with pytest.raises(IsADirectoryError, match="x.trr"):
+            MDATrajectory(str(directory), TPR, temperature=300.0)
+        if os.name == "posix" and os.geteuid() != 0:
+            locked = tmp_path / "locked.trr"
+            locked.write_bytes(Path(TRR).read_bytes())
+            locked.chmod(0)
+            try:
+                with pytest.raises(PermissionError, match="locked.trr"):
+                    MDATrajectory(str(locked), TPR, temperature=300.0)
+            finally:
+                locked.chmod(0o600)
+
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+    def test_tng_without_pytng_raises_import_error(self, tmp_path):
+        import importlib.util
+        if importlib.util.find_spec("pytng") is not None:
+            pytest.skip("pytng is installed")
+        junk = tmp_path / "x.tng"
+        junk.write_bytes(b"not a tng file")
+        with pytest.raises(ImportError):
+            MDATrajectory(str(junk), TPR, temperature=300.0)
+
+    # MDAnalysis wraps the stream in another NamedStream, and warns.
+    @pytest.mark.filterwarnings("ignore:Constructed NamedStream from a NamedStream")
+    def test_bytes_and_stream_topologies(self, universe):
+        from io import StringIO
+        from MDAnalysis.lib.util import NamedStream
+        assert MDATrajectory(TRR, TPR.encode(), temperature=300.0).frames == 10
+        stream = NamedStream(StringIO((WATER / "prod.gro").read_text()), "prod.gro")
+        assert MDATrajectory(TRR, stream, temperature=300.0).frames == 10
+
     def test_missing_files(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="missing.tpr"):
             MDATrajectory(TRR, str(tmp_path / "missing.tpr"), temperature=300.0)
@@ -382,6 +517,90 @@ class TestValidation:
     def test_unknown_atom_name_raises(self, traj):
         with pytest.raises(ValueError, match="no atoms named 'Na'"):
             traj.get_indices("Na")
+
+
+class TestJoinRestarts:
+    """join_restarts on step arrays, against a plain list join."""
+
+    def test_random_joins_match_a_plain_list_join(self):
+        import random
+        from revelsMD.trajectories._mda_steps import join_restarts
+
+        def plain_join(files):
+            joined, previous, replacements = [], None, []
+            for path, steps in files:
+                if previous is not None and steps[0] <= previous[1][0]:
+                    return None, []
+                replaced = [t for p, t in joined if t >= steps[0]]
+                if replaced:
+                    replacements.append((path, previous[0], steps[0], replaced))
+                joined = [(p, t) for p, t in joined if t < steps[0]] + [(path, t) for t in steps]
+                previous = (path, steps)
+            return joined, replacements
+
+        rng = random.Random(20261016)
+        for case in range(400):
+            files, start = [], 0
+            for k in range(rng.randint(1, 5)):
+                start = max(0, start + rng.choices([-100, 0, 100, 200, 300, 700], [1, 1, 3, 3, 3, 2])[0])
+                interval = rng.choice([10, 50, 100, 200])
+                files.append((f"f{k}", [start + interval * j for j in range(rng.randint(1, 8))]))
+            expected, replacements = plain_join(files)
+            arrays = [np.array(steps, dtype=np.int64) for _, steps in files]
+            paths = [path for path, _ in files]
+            with warnings.catch_warnings(record=True) as record:
+                warnings.simplefilter("always")
+                if expected is None:
+                    with pytest.raises(ValueError, match="at or before the start of"):
+                        join_restarts(arrays, paths, "step")
+                    continue
+                kept = join_restarts(arrays, paths, "step")
+            got = [(path, int(t)) for (path, _), array, n in zip(files, arrays, kept) for t in array[:n]]
+            assert got == expected
+            spans = {}
+            for path, t in expected:
+                lo, hi = spans.get(path, (t, t))
+                spans[path] = (min(lo, t), max(hi, t))
+            predicted = []
+            for path, replaced_path, first, replaced in replacements:
+                lost = [t for t in replaced if not any(lo <= t <= hi for lo, hi in spans.values())]
+                if lost:
+                    predicted.append((path, replaced_path, first, len(lost), lost[0], lost[-1]))
+            reported = []
+            for w in record:
+                message = str(w.message)
+                path, replaced_path = message.split(" replaces the frames of ")[0], message.split(" replaces the frames of ")[1].split(" from step ")[0]
+                first = int(message.split(" from step ")[1].split(" on;")[0])
+                if "the frame at step" in message:
+                    t = int(message.split("the frame at step ")[1].split(" lies")[0])
+                    reported.append((path, replaced_path, first, 1, t, t))
+                else:
+                    count = int(message.split(" on; ")[1].split(" of those frames")[0])
+                    lo = int(message.split("between steps ")[1].split(" and ")[0])
+                    hi = int(message.split(" and ")[1].split(", lie")[0])
+                    reported.append((path, replaced_path, first, count, lo, hi))
+            assert reported == predicted
+
+    def test_files_without_steps_or_times_cannot_be_joined(self):
+        from revelsMD.trajectories._mda_steps import FrameKeys, order_keys
+        keys = [FrameKeys(None, None, 3), FrameKeys(None, np.array([0.0, 1.0]), 2)]
+        with pytest.raises(ValueError, match="a.nc: the file records neither steps nor times"):
+            order_keys(keys, ["a.nc", "b.nc"])
+        unit, arrays = order_keys(keys[:1], ["a.nc"])
+        assert unit == "time" and arrays[0].tolist() == [0, 1, 2]
+
+    def test_equal_single_precision_times_name_the_cause(self):
+        from revelsMD.trajectories._mda_steps import join_restarts
+        times = np.array([3e5, 3e5 + 0.02, 3e5 + 0.04], dtype=np.float32).astype(np.float64)
+        with pytest.raises(ValueError, match="times do not increase within the file .*single precision"):
+            join_restarts([times], ["a.ncdf"], "time")
+
+    def test_mixed_formats_order_by_time(self):
+        from revelsMD.trajectories._mda_steps import FrameKeys, order_keys
+        keys = [FrameKeys(np.array([0, 500]), np.array([0.0, 0.5]), 2),
+                FrameKeys(None, np.array([1.0, 1.5]), 2)]
+        unit, arrays = order_keys(keys, ["a.trr", "b.ncdf"])
+        assert unit == "time" and arrays[0].tolist() == [0.0, 0.5]
 
 
 class TestUnits:
@@ -450,6 +669,28 @@ class TestUnits:
             del f["particles/trajectory/force/step"]
         with pytest.raises(RuntimeError, match="nosteps.h5md: cannot check"):
             MDATrajectory(path, TPR, temperature=300.0)
+
+    def test_h5md_steps_that_cannot_be_read_cannot_be_checked(self):
+        from MDAnalysis.coordinates.H5MD import H5MDReader
+        from revelsMD.trajectories.mda import _check_reader
+
+        class Particles(dict):
+            def __getitem__(self, key):
+                raise OSError("unreadable dataset")
+
+        class Reader(H5MDReader):
+            def __init__(self):
+                pass
+
+            def __del__(self):
+                pass
+
+        reader = Reader()
+        reader.filename = "broken.h5md"
+        reader.units = {"length": "Angstrom", "force": "kJ/(mol*Angstrom)"}
+        reader._particle_group = Particles(position=None, force=None)
+        with pytest.raises(RuntimeError, match="broken.h5md: cannot check .*unreadable dataset"):
+            _check_reader(reader)
 
     def test_h5md_steps_stored_as_a_group_cannot_be_checked(self, tmp_path):
         path = write_variant(tmp_path / "groupsteps.h5md")

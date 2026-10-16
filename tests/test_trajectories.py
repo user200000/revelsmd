@@ -765,6 +765,19 @@ class TestAsPaths:
         with pytest.raises(TypeError, match="not dict_keys"):
             as_paths({"a.dump": 0}.keys())
 
+    def test_hard_link_is_the_same_file(self, tmp_path):
+        import os
+        from revelsMD.trajectories._base import as_paths
+        (tmp_path / "a.dump").write_text("x")
+        os.link(tmp_path / "a.dump", tmp_path / "b.dump")
+        with pytest.raises(ValueError, match="is given twice"):
+            as_paths([tmp_path / "a.dump", tmp_path / "b.dump"])
+
+    def test_bytearray_is_rejected(self):
+        from revelsMD.trajectories._base import as_paths
+        with pytest.raises(TypeError, match="not bytearray"):
+            as_paths(bytearray(b"a.dump"))
+
     def test_bytes_paths(self):
         from revelsMD.trajectories._base import as_paths
         assert as_paths(b"a.dump") == ["a.dump"]
@@ -809,6 +822,27 @@ class TestAsPaths:
         (tmp_path / "sub").mkdir()
         with pytest.raises(ValueError, match="the same file as .*a.dump is given twice"):
             as_paths([tmp_path / "a.dump", tmp_path / "b.dump", alias])
+
+
+class TestReadingWithMDAnalysis:
+    """Errors raised while MDAnalysis parses files become RuntimeError naming them."""
+
+    @pytest.mark.parametrize("error", [StopIteration(), EOFError(), OSError("XDR"), KeyError("x")])
+    def test_parse_errors_are_relabelled(self, error):
+        from revelsMD.trajectories._base import reading_with_mdanalysis
+        with pytest.raises(RuntimeError, match=f"MDAnalysis cannot read a.trr: {type(error).__name__}"):
+            with reading_with_mdanalysis("a.trr"):
+                raise error
+
+    @pytest.mark.parametrize("error", [
+        FileNotFoundError(), PermissionError(), IsADirectoryError(), ImportError(),
+        MemoryError(), RecursionError(), UserWarning("w"), KeyboardInterrupt(),
+    ])
+    def test_other_errors_pass_through(self, error):
+        from revelsMD.trajectories._base import reading_with_mdanalysis
+        with pytest.raises(type(error)):
+            with reading_with_mdanalysis("a.trr"):
+                raise error
 
 
 class TestCheckFinite:

@@ -56,18 +56,21 @@ from typing import Iterator
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory, DataUnavailableError, check_finite
+from ._base import Trajectory, DataUnavailableError, as_paths, check_finite
 
 
 class MyTrajectory(Trajectory):
-    def __init__(self, path: str, ..., units: str, temperature: float) -> None:
+    def __init__(self, trajectory_file, *, units: str, temperature: float) -> None:
         super().__init__(units=units, temperature=temperature)
         # Base __init__ sets self.units, self.temperature, and self.beta.
         # You must also set:
-        self.path = path
+        self.path = as_paths(trajectory_file)[0]
         self.frames: int = ...          # total number of frames
         self.cell_matrix: np.ndarray = ...  # shape (3, 3), rows = lattice vectors
+        self._validate_cell_matrix(self.cell_matrix, self.path)
 ```
+
+The `...` are for your backend to fill in.
 
 Calling `super().__init__()` is required — it sets `units`, `temperature`, and `beta`. After that, your `__init__` must set `frames` (an `int`) and `cell_matrix` (a `(3, 3)` NumPy array with rows equal to the lattice vectors).
 

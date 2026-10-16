@@ -53,7 +53,7 @@ grid.accumulate(traj, atom_names='O', compute_lambda=True,
 ### Choosing a strategy
 
 Use contiguous blocking unless you have reason to prefer interleaved. It is
-simpler, works with all backends, and suffices for well-converged trajectories.
+simpler, reads frames in order, and suffices for well-converged trajectories.
 Interleaved blocking is useful when each block should represent the full ensemble
 rather than a temporal slice.
 
