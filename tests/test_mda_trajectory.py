@@ -1,8 +1,6 @@
 """MDATrajectory on the committed water trajectory and variants written from it."""
 
 import gc
-import io
-import struct
 from pathlib import Path
 
 import MDAnalysis as MD
@@ -257,14 +255,9 @@ class TestValidation:
         for frame, k in zip(traj.iter_frames(), expected, strict=True):
             np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
 
-    # The last frame is cut in its body, which MDAnalysis lists, or in its
-    # header, which it does not: 1, 40 or 80 bytes of the header are left.
-    @pytest.mark.parametrize("keep", [-1000, 1, 40, 80])
-    def test_cut_short_final_frame_is_dropped_with_a_warning(self, tmp_path, universe, keep):
+    def test_cut_short_final_frame_is_dropped_with_a_warning(self, tmp_path, universe):
         path = write_frames(tmp_path / "killed.trr", range(5))
-        data = Path(path).read_bytes()
-        last = len(data) - len(data) // 5  # the frames are the same size
-        Path(path).write_bytes(data[:keep] if keep < 0 else data[:last + keep])
+        Path(path).write_bytes(Path(path).read_bytes()[:-1000])
         with pytest.warns(UserWarning, match=r"killed\.trr: dropping the incomplete final frame \(frame 4\)"):
             traj = MDATrajectory(path, TPR, temperature=300.0)
         assert traj.frames == 4
@@ -279,47 +272,6 @@ class TestValidation:
         assert traj.frames == 10
         for frame, k in zip(traj.iter_frames(), range(10), strict=True):
             np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
-
-    @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
-    # Cut in the second frame's body, or in the version string of its header.
-    @pytest.mark.parametrize("keep", [lambda data: data[:-1000], lambda data: data[:len(data) // 2 + 12]])
-    def test_two_frame_trr_with_its_second_frame_cut_names_the_remedy(self, tmp_path, keep):
-        path = write_frames(tmp_path / "two.trr", range(2))
-        Path(path).write_bytes(keep(Path(path).read_bytes()))
-        with pytest.raises(RuntimeError, match=r"two\.trr ends partway through a frame; keep its complete frames with gmx trjconv -e") as e:
-            MDATrajectory(path, TPR, temperature=300.0)
-        assert e.value.__cause__ is not None  # what MDAnalysis raised
-
-    @pytest.mark.parametrize("name, keep, expected", [
-        ("a.trr", lambda data: data, False),
-        ("a.trr", lambda data: data[:-1000], True),  # in the last frame's body
-        ("a.trr", lambda data: data[:len(data) // 3 * 2 + 12], True),  # in the last frame's header
-        ("a.trr", lambda data: data[:40], False),  # no complete frame
-        ("a.xtc", lambda data: data[:-1000], False),  # not a TRR file
-    ])
-    def test_trr_ending_partway_through_a_frame(self, tmp_path, name, keep, expected):
-        from revelsMD.trajectories.mda import _trr_ends_mid_frame
-        path = tmp_path / name
-        path.write_bytes(keep(Path(write_frames(tmp_path / "full.trr", range(3))).read_bytes()))
-        assert _trr_ends_mid_frame(str(path)) is expected
-
-    @pytest.mark.parametrize("double", [False, True])
-    @pytest.mark.parametrize("box", [True, False])
-    def test_trr_frame_size_is_read_from_its_header(self, double, box):
-        # A frame as GROMACS writes it: magic, version string, the 13 block
-        # sizes, time and lambda in the frame's precision, then the blocks.
-        from revelsMD.trajectories.mda import _trr_frame_end
-        size, code = (8, "d") if double else (4, "f")
-        n_atoms = 2
-        version = b"GMX_trn_file"
-        sizes = [0, 0, 9 * size if box else 0, 0, 0, 0, 0,
-                 3 * n_atoms * size, 0, 3 * n_atoms * size, n_atoms, 7, 0]
-        frame = (struct.pack(">3i", 1993, len(version) + 1, len(version)) + version
-                 + struct.pack(">13i", *sizes) + struct.pack(f">2{code}", 0.0, 0.0)
-                 + bytes(sum(sizes[:10])))
-        f = io.BytesIO(frame + frame)
-        assert _trr_frame_end(f, 0) == len(frame)
-        assert _trr_frame_end(f, len(frame)) == 2 * len(frame)
 
     def test_frames_mdanalysis_cannot_read_are_named(self, monkeypatch):
         from MDAnalysis.coordinates.TRR import TRRReader
@@ -336,14 +288,6 @@ class TestValidation:
             traj.get_frame(3)
         with pytest.raises(ValueError, match=r"prod\.trr, frame 3: OSError"):
             list(traj.iter_frames())
-
-    def test_readers_must_match_the_files(self, tmp_path, monkeypatch):
-        from revelsMD.trajectories import mda
-        a = write_frames(tmp_path / "a.trr", range(0, 5))
-        b = write_frames(tmp_path / "b.trr", range(5, 10))
-        monkeypatch.setattr(mda, "_readers", lambda trajectory: [trajectory])
-        with pytest.raises(RuntimeError, match="MDAnalysis opened 1 readers for 2 files"):
-            MDATrajectory([a, b], TPR, temperature=300.0)
 
     def test_errors_in_a_list_name_the_file_and_its_frame(self, tmp_path):
         def drop_forces(ts):
@@ -382,9 +326,8 @@ class TestValidation:
         cut = tmp_path / name
         cut.write_bytes((WATER / source).read_bytes()[:length])
         trajectory, topology = (TRR, str(cut)) if which == "topology" else (str(cut), TPR)
-        with pytest.raises(RuntimeError, match=fr"MDAnalysis cannot read .*{name}.*: {raised}") as e:
+        with pytest.raises(RuntimeError, match=fr"MDAnalysis cannot read .*{name}.*: {raised}"):
             MDATrajectory(trajectory, topology, temperature=300.0)
-        assert "trjconv" not in str(e.value)
 
     def test_stop_iteration_does_not_end_a_callers_loop(self, tmp_path):
         cut = tmp_path / "cut.gro"
@@ -398,10 +341,9 @@ class TestValidation:
         good = write_frames(tmp_path / "good.trr", range(0, 5))
         bad = tmp_path / "bad.trr"
         bad.write_bytes(Path(TRR).read_bytes()[:40])
-        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*prod\.tpr with .*bad\.trr: OSError") as e:
+        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*prod\.tpr with .*good\.trr, .*bad\.trr: OSError") as e:
             MDATrajectory([good, str(bad)], TPR, temperature=300.0)
-        assert "good.trr" not in str(e.value)
-        assert isinstance(e.value.__cause__, OSError)  # bad.trr's own error
+        assert isinstance(e.value.__cause__, OSError)  # what MDAnalysis raised
 
     def test_unreadable_and_directory_files_raise_the_os_error(self, tmp_path):
         import os

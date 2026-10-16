@@ -8,7 +8,6 @@ and the helpers that index and read them.
 import array
 import mmap
 import os
-import re
 from dataclasses import dataclass
 from typing import BinaryIO
 
@@ -34,7 +33,6 @@ _POSITIONS = b'<varray name="positions"'
 _FORCES = b'<varray name="forces"'
 _BASIS = b'<varray name="basis"'
 _VARRAY_CLOSE = b"</varray>"
-_DOCUMENT_MARKERS = re.compile(rb"<\?xml|<atominfo>")
 
 
 @dataclass(frozen=True, eq=False)
@@ -84,8 +82,8 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
     Raises
     ------
     ValueError
-        If the file holds more than one vasprun.xml document, or has a
-        ``<calculation>`` but no ``<atominfo>`` atom list; if a
+        If the file has a ``<calculation>`` but no ``<atominfo>`` atom
+        list; if a
         calculation other than the last is not closed; if a calculation
         lacks a structure, a lattice basis, positions or forces; if the
         atoms differ from ``reference``'s; or if the lattice changes
@@ -95,7 +93,6 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
         if os.fstat(f.fileno()).st_size == 0:
             return VasprunIndex.without_steps(path)
         with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
-            _check_single_document(m, path)
             if m.find(_CALCULATION_OPEN) == -1:
                 return VasprunIndex.without_steps(path)
             atom_names = _read_atom_names(m, path)
@@ -170,23 +167,6 @@ def _parse_basis_at(element: bytes, where: str) -> np.ndarray:
         return parse_basis(element)
     except (ValueError, etree.XMLSyntaxError) as e:
         raise ValueError(f"{where}: malformed lattice basis: {e}") from e
-
-
-def _check_single_document(m: mmap.mmap, path: str) -> None:
-    """Raise if the file holds more than one vasprun.xml, as ``cat a b > c`` makes.
-
-    A second XML declaration or ``<atominfo>`` marks a second document. The
-    file is scanned once for both.
-    """
-    seen: set[bytes] = set()
-    for match in _DOCUMENT_MARKERS.finditer(m):
-        marker = match.group()
-        if marker in seen:
-            raise ValueError(
-                f"{path}: a second {marker.decode()} at byte {match.start()}; the file "
-                "holds more than one vasprun.xml, so pass them as separate files"
-            )
-        seen.add(marker)
 
 
 def _read_atom_names(m: mmap.mmap, path: str) -> list[str]:
@@ -312,10 +292,10 @@ class VaspTrajectory(IndexedFileTrajectory):
     Raises
     ------
     ValueError
-        If no file has a complete ionic step; if a file holds more than
-        one vasprun.xml document, or has a step but no atom list; if a
-        calculation other than the last in a file is not closed; if an ionic step lacks a
-        structure, a lattice basis, positions or forces; if the files list
+        If no file has a complete ionic step; if a file has a step but no
+        atom list; if a calculation other than the last in a file is not
+        closed; if an ionic step lacks a structure, a lattice basis,
+        positions or forces; if the files list
         different atoms; if the lattice changes between steps; or if the
         cell is invalid.
 

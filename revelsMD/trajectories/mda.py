@@ -6,13 +6,11 @@ via MDAnalysis.
 """
 
 import os
-import struct
-from typing import BinaryIO
+import warnings
 from collections.abc import Generator, Mapping
 
 from MDAnalysis.coordinates.H5MD import H5MDReader  # type: ignore[import-untyped]
 from MDAnalysis.coordinates.LAMMPS import DumpReader  # type: ignore[import-untyped]
-from MDAnalysis.coordinates.TRR import TRRReader  # type: ignore[import-untyped]
 from MDAnalysis.coordinates.chain import ChainReader  # type: ignore[import-untyped]
 from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-untyped]
 from MDAnalysis.lib.util import NamedStream  # type: ignore[import-untyped]
@@ -21,7 +19,8 @@ import numpy as np
 from revelsMD.frame_sources import Frame
 from ._base import (
     TrajectoryFiles, TrajectoryPath, Trajectory, as_paths, check_fixed_cell, open_universe,
-    given_values, locate, reading_with_mdanalysis, topology_values, warn_cut_short,
+    NOT_PARSE_ERRORS, given_values, locate, reading_with_mdanalysis, topology_values,
+    warn_cut_short,
 )
 
 
@@ -63,7 +62,7 @@ class MDATrajectory(Trajectory):
     ----------
     frames : int
         Number of trajectory frames. ``mdanalysis_universe.trajectory``
-        also holds a last TRR frame cut short, which is not counted.
+        also holds a last frame that cannot be read, which is not counted.
     cell_matrix : np.ndarray
         Cell matrix with rows = lattice vectors, shape ``(3, 3)``.
     units : str
@@ -94,9 +93,10 @@ class MDATrajectory(Trajectory):
 
     Notes
     -----
-    A last TRR frame cut short, as left by a job killed while
-    writing, is dropped with a warning. Reading a frame raises ValueError
-    if MDAnalysis cannot read it, if it has no positions, no forces or no
+    A file's last frame, if MDAnalysis cannot read it, as when a job is
+    killed while writing, is dropped with a warning. Reading any other frame
+    raises ValueError if MDAnalysis cannot read it, if it has no positions,
+    no forces or no
     box, if its box differs from the first frame's, or if its positions or
     forces contain NaN or infinity; the message names the file and frame.
     """
@@ -127,17 +127,7 @@ class MDATrajectory(Trajectory):
             else topology_file
         )
         self._topology = str(topology)
-        try:
-            mdanalysis_universe = open_universe(topology, paths)
-        except RuntimeError as e:
-            # MDAnalysis reads a TRR file's second frame when opening it.
-            cut = [path for path in paths if _trr_ends_mid_frame(path)]
-            if not cut:
-                raise
-            raise RuntimeError(
-                f"{e}. {', '.join(cut)} ends partway through a frame; keep its "
-                "complete frames with gmx trjconv -e"
-            ) from e.__cause__
+        mdanalysis_universe = open_universe(topology, paths)
 
         self.mdanalysis_universe = mdanalysis_universe
         def names() -> list[str]:
@@ -146,10 +136,6 @@ class MDATrajectory(Trajectory):
         self._charges = given_values(charges, names, "charges", "atom names")
         trajectory = mdanalysis_universe.trajectory
         readers = _readers(trajectory)
-        if len(readers) != len(paths):
-            raise RuntimeError(
-                f"MDAnalysis opened {len(readers)} readers for {len(paths)} files"
-            )
         self._paths = paths
 
         dims = mdanalysis_universe.dimensions
@@ -158,6 +144,7 @@ class MDATrajectory(Trajectory):
                 f"{paths[0]}: the trajectory has no simulation box; "
                 "a periodic box is required"
             )
+        dims = np.array(dims, dtype=np.float64)  # a copy: reading frames changes it
         if not trajectory.ts.has_positions:
             raise ValueError(
                 f"{paths[0]}: the trajectory has no positions; "
@@ -172,23 +159,17 @@ class MDATrajectory(Trajectory):
         for reader, path in zip(readers, paths):
             _check_reader(reader)
             n = len(reader)
-            if n and isinstance(reader, TRRReader):
-                # A last frame cut in its body is listed by MDAnalysis; one cut
-                # in its header is not, and leaves bytes after the last listed frame.
-                with open(path, "rb") as f:
-                    listed_end = _trr_frame_end(f, reader._xdr.offsets[-1])
-                    size = os.fstat(f.fileno()).st_size
-                if listed_end > size:
-                    n -= 1
-                if listed_end != size:
-                    warn_cut_short(path, f"frame (frame {n})")
+            if n and not _readable(reader, n - 1):
+                n -= 1
+                warn_cut_short(path, f"frame (frame {n})")
             complete.append(n)
+        trajectory.rewind()
         # Frame i is frame i - _first[k] of file k, which is MDAnalysis frame
         # i - _first[k] + _mdanalysis_first[k]; a cut final frame is skipped.
         self._first = np.concatenate([[0], np.cumsum(complete)])
         self._mdanalysis_first = np.concatenate([[0], np.cumsum([len(r) for r in readers])])
         self.frames = int(self._first[-1])
-        self._dimensions = np.array(dims, dtype=np.float64)
+        self._dimensions = dims
         self.cell_matrix = np.array(triclinic_vectors(dims), dtype=np.float64)
         self._validate_cell_matrix(self.cell_matrix, paths[0])
 
@@ -293,47 +274,21 @@ class MDATrajectory(Trajectory):
             yield self._get_frame(index)
 
 
-def _trr_frame_end(f: BinaryIO, offset: int) -> int:
-    """The byte at which the TRR frame starting at ``offset`` of ``f`` ends.
+def _readable(reader, frame: int) -> bool:
+    """Whether MDAnalysis can read ``frame`` of ``reader``.
 
-    The frame's size is read from its header: the sizes of its blocks,
-    and its precision, which GROMACS infers from the box or coordinate size.
-
-    Raises
-    ------
-    struct.error
-        If the file ends inside the frame's header.
+    MDAnalysis's warnings while trying are not shown; the caller warns
+    about a frame it cannot read.
     """
-    f.seek(offset)
-    _, _, length = struct.unpack(">3i", f.read(12))
-    f.seek(offset + 12 + (length + 3) // 4 * 4)
-    sizes = struct.unpack(">13i", f.read(52))
-    box, n_atoms = sizes[2], sizes[10]
-    data = max(sizes[7:10])
-    double = box == 9 * 8 if box else bool(n_atoms) and data == n_atoms * 3 * 8
-    header = 12 + (length + 3) // 4 * 4 + 52 + 2 * (8 if double else 4)
-    return offset + header + sum(sizes[:10])
-
-
-def _trr_ends_mid_frame(path: str) -> bool:
-    """Whether ``path`` is a TRR file with complete frames that ends partway through one."""
-    if not path.lower().endswith(".trr"):
-        return False
-    end = 0  # the end of the complete frames
     try:
-        with open(path, "rb") as f:
-            size = os.fstat(f.fileno()).st_size
-            while True:
-                following = _trr_frame_end(f, end)
-                if following <= end:  # not a TRR frame header
-                    return False
-                if following >= size:
-                    return following > size and end > 0
-                end = following
-    except struct.error:  # the file ends inside a frame header
-        return end > 0
-    except OSError:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            reader[frame]
+    except NOT_PARSE_ERRORS:
+        raise
+    except Exception:
         return False
+    return True
 
 
 def _check_reader(reader) -> None:

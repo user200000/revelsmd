@@ -6,9 +6,11 @@ and the helpers that index and read the dump format.
 """
 
 import array
+import contextlib
 import mmap
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from collections.abc import Mapping
 from typing import BinaryIO
 
@@ -158,10 +160,11 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
 
 
 _TIMESTEP = b"ITEM: TIMESTEP"
-# The items that dump_modify units yes and time yes write before a frame,
-# each followed by a line holding its value.
+# The items that dump_modify units yes and time yes write before a frame's
+# ITEM: TIMESTEP line, each followed by a line holding its value.
 _UNITS = b"ITEM: UNITS"
-_BETWEEN_FRAMES = (_UNITS, b"ITEM: TIME")
+_PREAMBLE_ITEMS = (_UNITS, b"ITEM: TIME")
+_CONTENT = re.compile(rb"\S")
 
 
 @dataclass(frozen=True, eq=False)
@@ -177,10 +180,15 @@ class DumpHeader:
 
 @dataclass(frozen=True)
 class PartialFrame:
-    """An incomplete final frame, as left by a job killed while writing."""
+    """The frame at which a file ends early, as a job killed while writing leaves.
+
+    ``timestep`` is the frame's, if its header gives it, and ``reason`` says
+    why the frame cannot be read.
+    """
 
     path: str
     timestep: int | None
+    reason: str = field(default="the file is empty", compare=False)
 
 
 @dataclass(frozen=True)
@@ -217,7 +225,8 @@ class _ScannedFrame:
     """One complete frame, as found by the scan of its file.
 
     ``header_lines`` are the stripped header lines from ``ITEM: NUMBER OF
-    ATOMS`` to ``ITEM: ATOMS``.
+    ATOMS`` to ``ITEM: ATOMS``, and ``units`` the unit styles of the
+    ``ITEM: UNITS`` items before it.
     """
 
     timestep: int
@@ -225,148 +234,97 @@ class _ScannedFrame:
     data_end: int
     header: DumpHeader
     header_lines: list[str]
+    units: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _Unreadable:
+    """A frame that cannot be read: why, where, and its timestep if known."""
+
+    position: int
+    timestep: int | None
+    reason: str
 
 
 def index_dump(path: str) -> DumpIndex:
     """Index the frames of one dump file without parsing the atom rows.
 
-    Every complete frame is compared with the file's first complete frame;
-    the first whose columns, box or atom count differ is recorded in
-    ``mismatch`` rather than raised, since a restart file may replace it.
-    The ``ITEM: UNITS`` and ``ITEM: TIME`` items that ``dump_modify units
-    yes`` and ``time yes`` write between frames are skipped; unit styles are
-    recorded. An empty file, a file holding only the start of a frame
-    header, and items after the last frame's atom rows are frames cut short.
+    Frames are read in order. A frame that cannot be read ends the file
+    early if no readable frame follows it, as when a job is killed while
+    writing; it is recorded as ``partial``. Every complete frame is compared
+    with the file's first; the first whose columns, box or atom count differ
+    is recorded in ``mismatch`` rather than raised, since a restart file may
+    replace it. The unit styles of ``ITEM: UNITS`` items are recorded.
 
     Raises
     ------
     ValueError
-        If the file has no frames, if a frame other than the last is
-        incomplete, if a frame has more rows than its header states, if a
-        frame header is malformed, if there is other text between frames,
-        if timesteps do not strictly increase, or if a box is not supported.
+        If a frame that cannot be read is followed by one that can, if
+        timesteps do not strictly increase, or if a box is not supported.
     """
-    no_frames = DumpIndex(
-        path, None, np.empty(0, np.int64), np.empty(0, np.int64), np.empty(0, np.int64),
-        PartialFrame(path, None),
-    )
+    timesteps, starts, ends = array.array("q"), array.array("q"), array.array("q")
+    units: dict[str, None] = {}
+    first: _ScannedFrame | None = None
+    mismatch: HeaderMismatch | None = None
+    partial: PartialFrame | None = None
     with open(path, "rb") as f:
-        if os.fstat(f.fileno()).st_size == 0:
-            return no_frames
-        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
-            frame_starts = array.array("q")
-            position = m.find(_TIMESTEP)
-            while position != -1:
-                frame_starts.append(position)
-                position = m.find(_TIMESTEP, position + len(_TIMESTEP))
-            if not frame_starts:
-                head = m[:5]
-                if not (head.startswith(b"ITEM:") or b"ITEM:".startswith(head)):
-                    raise ValueError(f"{path}: no 'ITEM: TIMESTEP' line; not a LAMMPS dump file")
-                # A job that stopped before writing a frame leaves at most the
-                # items written before one, cut short.
-                _between_frames(m, 0, len(m), path, {}, at_end=True)
-                return no_frames
-            units: dict[str, None] = {}
-            _between_frames(m, 0, frame_starts[0], path, units, at_end=False)
-            # A file cut off inside an "ITEM:" word leaves a tail that is not
-            # yet recognisable as one. Drop that tail.
-            limit = len(m)
-            dropped_header = False
-            if m[-1:] != b"\n":
-                last_newline = m.rfind(b"\n")
-                if b"ITEM:".startswith(m[last_newline + 1:]):
-                    limit = last_newline + 1
-                    dropped_header = True
-            n = len(frame_starts)
-            timesteps = np.empty(n, dtype=np.int64)
-            starts = np.empty(n, dtype=np.int64)
-            ends = np.empty(n, dtype=np.int64)
-            first: _ScannedFrame | None = None
-            mismatch: HeaderMismatch | None = None
-            partial: PartialFrame | None = None
-            # Only the last frame may be incomplete, so complete frame k is
-            # the file's k-th.
-            for k in range(n):
-                end = frame_starts[k + 1] if k + 1 < n else limit
-                entry = _index_frame(m, path, frame_starts[k], end, first)
-                if isinstance(entry, PartialFrame):
-                    if k < n - 1:
+        size = os.fstat(f.fileno()).st_size
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) if size else contextlib.nullcontext(b"") as m:
+            position = 0
+            while _CONTENT.search(m, position) is not None:
+                frame = _read_frame(m, path, position, first)
+                if isinstance(frame, _Unreadable):
+                    where = f"{frame.reason} at byte {frame.position}"
+                    if _readable_frame_follows(m, path, frame.position, first):
                         raise ValueError(
-                            f"{path}: the frame at timestep {entry.timestep} is "
-                            "incomplete but is not the last frame in the file"
+                            f"{path}: {where}, but readable frames follow it; the file is damaged"
                         )
-                    partial = entry
-                    continue
-                last = k == n - 1
-                if _between_frames(m, entry.data_end, end, path, units, at_end=last) and last:
-                    dropped_header = True
+                    partial = PartialFrame(path, frame.timestep, where)
+                    break
                 if first is None:
-                    first = entry
+                    first = frame
                 else:
                     if mismatch is None:
-                        difference = _header_difference(entry, first.header, path)
+                        difference = _header_difference(frame, first.header, path)
                         if difference is not None:
-                            mismatch = HeaderMismatch(k, difference)
-                    previous = int(timesteps[k - 1])
-                    if entry.timestep <= previous:
+                            mismatch = HeaderMismatch(len(timesteps), difference)
+                    if frame.timestep <= timesteps[-1]:
                         raise ValueError(
                             f"{path}: timesteps do not increase "
-                            f"({previous} is followed by {entry.timestep})"
+                            f"({timesteps[-1]} is followed by {frame.timestep})"
                         )
-                timesteps[k] = entry.timestep
-                starts[k] = entry.data_start
-                ends[k] = entry.data_end
-            count = n - (partial is not None)
-            if partial is None and dropped_header:
-                partial = PartialFrame(path, None)
-    header = first.header if first is not None else None
+                units.update(dict.fromkeys(frame.units))
+                timesteps.append(frame.timestep)
+                starts.append(frame.data_start)
+                ends.append(frame.data_end)
+                position = frame.data_end
+    if first is None and partial is None:
+        partial = PartialFrame(path, None)
     return DumpIndex(
-        path, header, timesteps[:count], starts[:count], ends[:count], partial, mismatch,
-        tuple(units),
+        path, None if first is None else first.header,
+        np.array(timesteps, dtype=np.int64), np.array(starts, dtype=np.int64),
+        np.array(ends, dtype=np.int64), partial, mismatch, tuple(units),
     )
 
 
-def _between_frames(
-    m: mmap.mmap, start: int, end: int, path: str, units: dict[str, None], *, at_end: bool
+def _readable_frame_follows(
+    m: "mmap.mmap | bytes", path: str, position: int, first: _ScannedFrame | None
 ) -> bool:
-    """Check the text between frames at bytes [start, end), recording its unit styles.
+    """Whether a frame that can be read starts after byte ``position``."""
+    following = m.find(_TIMESTEP, position + 1)
+    while following != -1:
+        if isinstance(_read_frame(m, path, following, first), _ScannedFrame):
+            return True
+        following = m.find(_TIMESTEP, following + 1)
+    return False
 
-    Between frames a dump holds only blank lines and the ``ITEM: UNITS`` and
-    ``ITEM: TIME`` items, each followed by its value; the unit styles are
-    added to ``units``. After the last frame (``at_end``) the text may be
-    cut short. Returns whether the text holds anything but blank lines.
 
-    Raises
-    ------
-    ValueError
-        If the text holds anything else, as a damaged frame does.
-    """
-    text = m[start:end]
-    lines = text.split(b"\n")
-    item: bytes | None = None
-    position = start
-    for k, raw in enumerate(lines):
-        line = raw.strip()
-        cut = at_end and k == len(lines) - 1  # the file ends inside this line
-        if not line:
-            pass
-        elif item is not None:  # the item's value
-            if item == _UNITS and not cut:
-                units[line.decode("ascii", "backslashreplace")] = None
-            item = None
-        elif line in _BETWEEN_FRAMES:
-            item = line
-        elif not (cut and any(word.startswith(line) for word in (*_BETWEEN_FRAMES, _TIMESTEP))):
-            raise ValueError(
-                f"{path}: unexpected text at byte {position}: {raw[:40]!r}; between "
-                "frames a dump holds only ITEM: UNITS and ITEM: TIME, so the file "
-                "may be damaged"
-            )
-        position += len(raw) + 1
-    if item is not None and not at_end:
-        raise ValueError(f"{path}: {item.decode()} without a value before byte {end}")
-    return bool(text.strip())
+def _next_line(m: "mmap.mmap | bytes", position: int) -> tuple[bytes, int] | None:
+    """The stripped line at ``position`` and the position after it; None if it has no end."""
+    newline = m.find(b"\n", position)
+    if newline == -1:
+        return None
+    return m[position:newline].strip(), newline + 1
 
 
 def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> str | None:
@@ -388,39 +346,67 @@ def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> st
     return None
 
 
-def _index_frame(
-    m: mmap.mmap, path: str, start: int, end: int, first: _ScannedFrame | None
-) -> "_ScannedFrame | PartialFrame":
-    """Index one frame occupying bytes [start, end) of a mapped dump file.
+def _read_frame(
+    m: "mmap.mmap | bytes", path: str, start: int, first: _ScannedFrame | None
+) -> "_ScannedFrame | _Unreadable":
+    """Read the frame at byte ``start``: any ITEM: UNITS and ITEM: TIME items, its header and its rows.
 
     A frame whose header lines are those of the file's first complete
-    frame, ``first``, shares its header rather than parsing a new one.
+    frame, ``first``, shares its header rather than parsing a new one. The
+    frame ends after its atom rows and any blank lines.
+
+    Raises
+    ------
+    ValueError
+        If a complete header gives a box that is not supported.
     """
-    lines: list[str] = []
+    units: list[str] = []
     position = start
+    while True:
+        read = _next_line(m, position)
+        if read is None:
+            return _Unreadable(start, None, "a frame cut short")
+        line, after = read
+        if line == _TIMESTEP:
+            break
+        if line in _PREAMBLE_ITEMS:
+            value = _next_line(m, after)
+            while value is not None and not value[0]:
+                value = _next_line(m, value[1])
+            if value is None:
+                return _Unreadable(start, None, "a frame cut short")
+            if value[0].startswith(b"ITEM:"):
+                return _Unreadable(position, None, f"{line.decode()} without a value")
+            if line == _UNITS:
+                units.append(value[0].decode("ascii", "backslashreplace"))
+            after = value[1]
+        elif line:
+            return _Unreadable(position, None, f"unexpected text {line[:40]!r}")
+        position = after
+    frame_start = position
+    lines: list[str] = []
     while len(lines) < 9:
-        newline = m.find(b"\n", position, end)
+        newline = m.find(b"\n", position)
         if newline == -1:
-            return PartialFrame(path, _header_timestep(lines))
+            return _Unreadable(frame_start, _header_timestep(lines), "a frame header cut short")
         try:
             lines.append(m[position:newline].decode("ascii").strip())
-        except UnicodeDecodeError as e:
-            raise ValueError(f"{path}: non-ASCII frame header at byte {position}") from e
+        except UnicodeDecodeError:
+            return _Unreadable(position, _header_timestep(lines), "a non-ASCII frame header")
         position = newline + 1
     if (
-        lines[0] != "ITEM: TIMESTEP"
-        or lines[2] != "ITEM: NUMBER OF ATOMS"
+        lines[2] != "ITEM: NUMBER OF ATOMS"
         or not lines[4].startswith("ITEM: BOX BOUNDS")
         or not lines[8].startswith("ITEM: ATOMS")
     ):
-        raise ValueError(f"{path}: unexpected frame header at byte {start}: {lines}")
-    header_lines = lines[2:9]
+        return _Unreadable(frame_start, _header_timestep(lines), f"an unexpected frame header {lines}")
     try:
         timestep, n_atoms = int(lines[1]), int(lines[3])
-    except ValueError as e:
-        raise ValueError(f"{path}: malformed frame header at byte {start}: {e}") from e
+    except ValueError:
+        return _Unreadable(frame_start, None, "a malformed frame header")
     if not 0 <= timestep < 2**63:
-        raise ValueError(f"{path}: timestep {timestep} is out of range")
+        return _Unreadable(frame_start, None, f"an out-of-range timestep {timestep}")
+    header_lines = lines[2:9]
     if first is not None and header_lines == first.header_lines:
         header = first.header
     else:
@@ -429,10 +415,10 @@ def _index_frame(
         except ValueError as e:
             raise ValueError(f"{path}, timestep {timestep}: {e}") from e
         header = DumpHeader(n_atoms, tuple(lines[8].split()[2:]), cell, origin, box)
-    next_item = m.find(b"ITEM:", position, end)
-    rows_end = end if next_item == -1 else next_item
-    # Blank lines after the atom rows are ignored; a last row without a
-    # newline may be cut short, so it is not complete.
+    next_item = m.find(b"ITEM:", position)
+    rows_end = len(m) if next_item == -1 else next_item
+    # Blank lines after the atom rows belong to the frame; a last row
+    # without a newline may be cut short, so it is not complete.
     rows = m[position:rows_end]
     content_end = len(rows)
     while content_end and rows[content_end - 1] in b" \t\r\n":
@@ -441,17 +427,13 @@ def _index_frame(
     n_rows = rows.count(b"\n", 0, content_end) + (content_end > 0)
     complete_rows = n_rows if terminated or n_rows == 0 else n_rows - 1
     if complete_rows < n_atoms:
-        return PartialFrame(path, timestep)
-    if n_rows > n_atoms:
-        extra = 0
+        return _Unreadable(frame_start, timestep, "atom rows cut short")
+    data_end = rows_end
+    if n_rows > n_atoms:  # text follows the rows; the next frame starts there
+        data_end = position
         for _ in range(n_atoms):
-            extra = rows.index(b"\n", extra) + 1
-        raise ValueError(
-            f"{path}, timestep {timestep}: the atom rows do not match the "
-            f"header's {n_atoms} atoms; unexpected text at byte {position + extra}: "
-            f"{rows[extra:extra + 40]!r}"
-        )
-    return _ScannedFrame(timestep, position, rows_end, header, header_lines)
+            data_end = m.find(b"\n", data_end) + 1
+    return _ScannedFrame(timestep, position, data_end, header, header_lines, tuple(units))
 
 
 def _header_timestep(lines: list[str]) -> int | None:
@@ -501,9 +483,10 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
             files.append(index)
             headers.append(index.header)
     if not files:
-        raise ValueError(
-            "no complete frames in " + ", ".join(index.path for index in indices)
-        )
+        raise ValueError("no complete frames in " + "; ".join(
+            index.path if index.partial is None else f"{index.path} ({index.partial.reason})"
+            for index in indices
+        ))
     for index in indices:
         if index.partial is not None:
             at = "" if index.partial.timestep is None else f" (timestep {index.partial.timestep})"
@@ -675,13 +658,12 @@ class LammpsTrajectory(IndexedFileTrajectory):
     the dump was written in. Several dump files from a run and its restarts
     are joined in the order given, which must be run order: each file's
     frames replace every frame of the files before it from its own first
-    timestep on. An incomplete final frame, as left by a job killed while
-    writing, is dropped with a warning, as is an empty file or one holding
-    only the start of a frame header, unless no file has a complete frame,
-    which raises. Frames that a later file replaces are
-    not compared with their file's first frame, so a run whose box or atom
-    count went wrong after the restart point can be joined with its
-    restart.
+    timestep on. Frames are read in order; a frame that cannot be read, as
+    left by a job killed while writing, is dropped with a warning if no
+    readable frame follows it, and otherwise raises. Frames that a later
+    file replaces are not compared with their file's first frame, so a run
+    whose box or atom count went wrong after the restart point can be
+    joined with its restart.
 
     Parameters
     ----------
@@ -716,7 +698,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
     Raises
     ------
     ValueError
-        If a dump file is malformed or lacks required columns, if a box is
+        If a frame that cannot be read is followed by one that can, if a
+        dump lacks required columns, if a box is
         not fully periodic, if the box, the columns or the atom count change
         between kept frames of one file, if the box differs between files,
         if a frame's atom count differs from the topology's, if a dump's

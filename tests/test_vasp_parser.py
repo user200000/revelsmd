@@ -146,11 +146,6 @@ class TestIndexVasprun:
         with pytest.raises(ValueError, match="calculation 0: malformed lattice basis"):
             index_vasprun(path)
 
-    def test_concatenated_files_raise(self, tmp_path):
-        text = SOURCE.read_bytes()
-        with pytest.raises(ValueError, match="a second <\\?xml at byte .*more than one vasprun.xml"):
-            index_vasprun(write(tmp_path / "vasprun.xml", text + text))
-
     def test_atoms_are_compared_before_the_lattice(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
         atominfo = head.find(b"<atominfo>")

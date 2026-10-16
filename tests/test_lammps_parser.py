@@ -174,16 +174,47 @@ class TestIndexDump:
         assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, 100)
 
-    def test_incomplete_frame_before_the_end_raises(self, tmp_path):
-        short = frame(100, atom_rows=rows(100)[:4])
-        path = write(tmp_path / "a.dump", frame(0), short, frame(200))
-        with pytest.raises(ValueError, match="timestep 100 is incomplete but is not the last"):
+    # The ways a frame can fail to read: cut short, or damaged as a crash can
+    # leave it. Each stands in place of a frame.
+    DAMAGE = {
+        "rows cut short": frame(100, atom_rows=rows(100)[:4]),
+        "blank rows": frame(100, atom_rows=["", ""], n_atoms=1),
+        "no rows": frame(100, atom_rows=[]),
+        "stray row": "1 2 3 4 5 6 7 8\n",
+        "damaged timestep line": frame(100).replace("ITEM: TIMESTEP", "ITEM: TIMESTEQ"),
+        "header overwritten with NUL": "\0" * 20 + frame(100)[frame(100).index("ITEM: BOX"):],
+        "whole header overwritten": "\0" * 20 + frame(100)[frame(100).index("20 2"):],
+        "unknown item": "ITEM: BONDS\n1 2 3\n",
+        "item without a value": "ITEM: TIME\n",
+        "malformed atom count": frame(100).replace("\n6\n", "\nsix\n"),
+        "timestep out of range": frame(100).replace("\n100\n", f"\n{2**63}\n", 1),
+        "non-ASCII header": frame(100).replace("NUMBER OF ATOMS", "NUMBER OF \u00c5TOMS"),
+    }
+
+    @pytest.mark.parametrize("damage", DAMAGE.values(), ids=DAMAGE.keys())
+    def test_unreadable_frame_followed_by_a_readable_one_raises(self, tmp_path, damage):
+        path = write(tmp_path / "a.dump", frame(0), damage, frame(200))
+        with pytest.raises(ValueError, match=r"a\.dump: .* at byte \d+, but readable frames follow it; the file is damaged"):
             index_dump(path)
 
-    def test_more_rows_than_the_header_states_raises(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(0, n_atoms=5))
-        with pytest.raises(ValueError, match="timestep 0: the atom rows do not match"):
-            index_dump(path)
+    @pytest.mark.parametrize("damage", DAMAGE.values(), ids=DAMAGE.keys())
+    def test_unreadable_last_frame_ends_the_file(self, tmp_path, damage):
+        path = write(tmp_path / "a.dump", frame(0), damage)
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.partial is not None and index.partial.path == path
+
+    @pytest.mark.parametrize("text, reason", [
+        ("hello\n", "unexpected text b'hello' at byte 0"),
+        ("0 1 2\n3 4 5\n", "unexpected text b'0 1 2' at byte 0"),
+        ("x" * 50 + "\n", f"unexpected text {repr(b'x' * 40)} at byte 0"),  # 40 bytes shown
+        ("ITEM: NUMBER OF ATOMS\n6\n", "unexpected text b'ITEM: NUMBER OF ATOMS' at byte 0"),
+    ])
+    def test_file_with_no_readable_frame_raises_naming_why(self, tmp_path, text, reason):
+        index = index_dump(write(tmp_path / "other.txt", text))
+        assert index.timesteps.tolist() == [] and index.partial.reason == reason
+        with pytest.raises(ValueError, match=re.escape(f"other.txt ({reason})")):
+            combine_frames([index])
 
     def test_time_and_units_items_are_skipped(self, tmp_path):
         # dump_modify units yes / time yes write these before ITEM: TIMESTEP.
@@ -224,39 +255,9 @@ class TestIndexDump:
         assert index.units == ()
         assert index.partial == PartialFrame(path, None)
 
-    @pytest.mark.parametrize("at", [0, 1])
-    def test_frame_without_its_timestep_line_raises(self, tmp_path, at):
-        frames = [frame(0), frame(100), frame(200)]
-        frames[at] = frames[at].replace("ITEM: TIMESTEP", "ITEM: TIMESTEQ")
-        byte = sum(len(f) for f in frames[:at])
-        path = write(tmp_path / "a.dump", *frames)
-        with pytest.raises(ValueError, match=fr"a\.dump: unexpected text at byte {byte}: b'ITEM: TIMESTEQ'; .*may be damaged"):
-            index_dump(path)
-
-    @pytest.mark.parametrize("text, line", [
-        (frame(0).replace("ITEM: TIMESTEP", "ITEM: TIMESTEQ"), "ITEM: TIMESTEQ"),
-        ("ITEM: NUMBER OF ATOMS\n6\n", "ITEM: NUMBER OF ATOMS"),
-    ])
-    def test_file_whose_only_frame_lacks_its_timestep_line_raises(self, tmp_path, text, line):
-        path = write(tmp_path / "a.dump", text)
-        with pytest.raises(ValueError, match=fr"a\.dump: unexpected text at byte 0: b'{line}'"):
-            index_dump(path)
-
     def test_unit_style_lines_with_spaces_and_carriage_returns(self, tmp_path):
         path = write(tmp_path / "a.dump", "ITEM: UNITS \r\nmetal\r\n", frame(0))
         assert index_dump(path).units == ("metal",)
-
-    # A crash can leave NUL bytes in place of a frame's first lines, or of
-    # its whole header.
-    @pytest.mark.parametrize("item", ["ITEM: NUMBER OF ATOMS", "ITEM: BOX BOUNDS", "ITEM: ATOMS", "20 2"])
-    def test_frame_header_overwritten_with_nul_bytes_raises(self, tmp_path, item):
-        cut = frame(0)[frame(0).index(item):]
-        path = write(tmp_path / "a.dump", "\0" * 20 + cut, frame(100))
-        with pytest.raises(ValueError, match=r"a\.dump: unexpected text at byte 0: b'\\x00"):
-            index_dump(path)
-        path = write(tmp_path / "b.dump", frame(0), "\0" * 20 + cut, frame(200))
-        with pytest.raises(ValueError, match=fr"b\.dump, timestep 0: .*unexpected text at byte {len(frame(0))}"):
-            index_dump(path)
 
     def test_cut_preamble_after_the_last_frame_is_a_cut_header(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0), "ITEM: UNITS\nlj\nITEM: U")
@@ -268,38 +269,6 @@ class TestIndexDump:
         path = write(tmp_path / "a.dump", "ITEM: UNITS\nmetal\n", frame(0), "ITEM: UNITS\nelectron\n", frame(100))
         assert index_dump(path).units == ("metal", "electron")
         assert index_dump(write(tmp_path / "b.dump", frame(0))).units == ()
-
-    @pytest.mark.parametrize("extra", ["hello\n", "\0" * 50])
-    def test_text_after_the_rows_names_its_byte(self, tmp_path, extra):
-        path = write(tmp_path / "a.dump", frame(0), extra)
-        offset = len(frame(0))
-        with pytest.raises(ValueError, match=fr"timestep 0: the atom rows do not match the header's 6 atoms; unexpected text at byte {offset}: b'") as raised:
-            index_dump(path)
-        # At most 40 bytes of the text are shown.
-        assert str(raised.value).endswith(repr(extra.encode()[:40]))
-
-    def test_one_atom_frame_of_blank_rows_is_incomplete(self, tmp_path):
-        blank = frame(100, atom_rows=["", ""], n_atoms=1)
-        path = write(tmp_path / "a.dump", frame(0), blank, frame(200))
-        with pytest.raises(ValueError, match="timestep 100 is incomplete but is not the last"):
-            index_dump(path)
-
-    def test_header_without_rows_before_another_frame_raises(self, tmp_path):
-        empty = frame(100, atom_rows=[])
-        path = write(tmp_path / "a.dump", frame(0), empty, frame(200))
-        with pytest.raises(ValueError, match="timestep 100 is incomplete but is not the last"):
-            index_dump(path)
-
-    @pytest.mark.parametrize("text, message", [
-        ("hello world\n" + frame(0), "unexpected text at byte 0: b'hello world'"),
-        ("ITEM: UNITS\nlj\nITEM: BONDS\n" + frame(0), "unexpected text at byte 15: b'ITEM: BONDS'"),
-        (frame(0) + "ITEM: BONDS\n1 2 3\n" + frame(100), f"unexpected text at byte {len(frame(0))}: b'ITEM: BONDS'"),
-        (frame(0) + "ITEM: BONDS\n1 2 3\n", f"unexpected text at byte {len(frame(0))}: b'ITEM: BONDS'"),
-        (frame(0) + "ITEM: TIME\n" + frame(100), "ITEM: TIME without a value"),
-    ])
-    def test_other_text_between_frames_raises(self, tmp_path, text, message):
-        with pytest.raises(ValueError, match=fr"a\.dump: {re.escape(message)}"):
-            index_dump(write(tmp_path / "a.dump", text))
 
     def test_items_after_the_last_frame_are_a_cut_frame(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0) + "ITEM: TIME\n1.0\n")
@@ -331,11 +300,6 @@ class TestIndexDump:
         index = index_dump(path)
         assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, 100)
-
-    def test_other_unterminated_tail_raises(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(0) + "garbage")
-        with pytest.raises(ValueError, match="the atom rows do not match"):
-            index_dump(path)
 
     def test_timesteps_must_increase(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(100), frame(100, 1.0))
@@ -419,11 +383,6 @@ class TestIndexDump:
             for got, expected in zip(_read(blank, k), _read(lf, k)):
                 np.testing.assert_array_equal(got, expected)
 
-    def test_malformed_header_numbers_name_the_file(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(0).replace("\n6\n", "\nsix\n"))
-        with pytest.raises(ValueError, match=r"a\.dump: malformed frame header at byte 0"):
-            index_dump(path)
-
     def test_box_errors_name_the_file_and_timestep(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0, box_item="ff pp pp"))
         with pytest.raises(ValueError, match="a.dump, timestep 0: box boundaries must be periodic"):
@@ -441,22 +400,6 @@ class TestIndexDump:
         assert index.header is None
         assert index.timesteps.tolist() == []
         assert index.partial == PartialFrame(path, None)
-
-    @pytest.mark.parametrize("text", ["hello\n", "0 1 2\n3 4 5\n"])
-    def test_non_dump_file_raises(self, tmp_path, text):
-        with pytest.raises(ValueError, match="not a LAMMPS dump"):
-            index_dump(write(tmp_path / "other.txt", text))
-
-    def test_timestep_out_of_range_raises(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(2**63))
-        with pytest.raises(ValueError, match=r"a\.dump: timestep 9223372036854775808 is out of range"):
-            index_dump(path)
-
-    def test_non_ascii_header_raises(self, tmp_path):
-        path = tmp_path / "a.dump"
-        path.write_bytes(frame(0).replace("NUMBER OF ATOMS", "NUMBER OF \u00c5TOMS").encode())
-        with pytest.raises(ValueError, match=r"a\.dump: non-ASCII frame header at byte"):
-            index_dump(str(path))
 
     def test_crlf_with_blank_lines_after_the_rows(self, tmp_path):
         lf = write(tmp_path / "lf.dump", frame(0), frame(100, 1.0))

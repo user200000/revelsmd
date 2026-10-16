@@ -253,7 +253,7 @@ def compute_beta(units: str, temperature: float) -> float:
 # file", and so are not relabelled: errors opening a file, a missing
 # optional package (pytng for TNG), resource exhaustion, and warnings turned
 # into errors.
-_NOT_PARSE_ERRORS = (
+NOT_PARSE_ERRORS = (
     FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError,
     ImportError, MemoryError, RecursionError, Warning,
 )
@@ -265,7 +265,7 @@ class reading_with_mdanalysis:
     MDAnalysis raises many exception types for a file it can open but not
     parse (ValueError, KeyError, OSError, EOFError, StopIteration and
     others), so every Exception is relabelled except those in
-    ``_NOT_PARSE_ERRORS``. It is a class rather than a generator-based
+    ``NOT_PARSE_ERRORS``. It is a class rather than a generator-based
     context manager, which would let StopIteration escape unchanged.
     """
 
@@ -282,7 +282,7 @@ class reading_with_mdanalysis:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> Literal[False]:
-        if exc is None or not isinstance(exc, Exception) or isinstance(exc, _NOT_PARSE_ERRORS):
+        if exc is None or not isinstance(exc, Exception) or isinstance(exc, NOT_PARSE_ERRORS):
             return False
         raise self.error(
             f"MDAnalysis cannot read {self.files}: {type(exc).__name__}: {exc}"
@@ -290,7 +290,7 @@ class reading_with_mdanalysis:
 
 
 def open_universe(topology: Any, trajectories: Sequence[str] = (), **options: Any) -> MD.Universe:
-    """Open an MDAnalysis Universe, naming any file that cannot be read.
+    """Open an MDAnalysis Universe, naming the files if they cannot be read.
 
     Nothing is guessed: atom types, masses and other attributes are those
     the topology records.
@@ -300,23 +300,15 @@ def open_universe(topology: Any, trajectories: Sequence[str] = (), **options: An
     PermissionError, IsADirectoryError) naming it; a topology that is not a
     path, such as an MDAnalysis stream, is passed on as it is. If MDAnalysis
     cannot read the files, RuntimeError names them and the exception it
-    raised; with several trajectory files, each is opened alone to find the
-    one it cannot read.
+    raised.
     """
     paths = list(trajectories)
     for path in ([topology] if isinstance(topology, str) else []) + paths:
         open(path, "rb").close()
     files = f"{topology} with {', '.join(paths)}" if paths else str(topology)
     arguments = [topology] + ([paths[0] if len(paths) == 1 else paths] if paths else [])
-    options = {"to_guess": (), **options}
-    try:
-        with reading_with_mdanalysis(files):
-            return MD.Universe(*arguments, **options)
-    except RuntimeError:
-        for path in paths if len(paths) > 1 else []:
-            with reading_with_mdanalysis(f"{topology} with {path}"):
-                MD.Universe(topology, path, **options)
-        raise
+    with reading_with_mdanalysis(files):
+        return MD.Universe(*arguments, to_guess=(), **options)
 
 
 class DataUnavailableError(Exception):

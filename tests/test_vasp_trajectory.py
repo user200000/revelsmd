@@ -169,12 +169,6 @@ class TestFiles:
         with pytest.raises(ValueError, match=r"flat\.xml, calculation 0: Cell matrix must have positive volume"):
             VaspTrajectory(path, temperature=600.0)
 
-    def test_file_without_its_xml_declaration_appended_raises(self, tmp_path):
-        text = SOURCE.read_bytes()
-        second = text[text.find(b"?>") + 2:]
-        with pytest.raises(ValueError, match="a second <atominfo>"):
-            VaspTrajectory(write(tmp_path / "cat.xml", text + second), temperature=600.0)
-
     def test_files_with_different_atoms_raise(self, tmp_path):
         text = SOURCE.read_bytes()
         atominfo = text.find(b"<atominfo>")

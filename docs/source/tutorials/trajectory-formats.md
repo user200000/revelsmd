@@ -11,6 +11,13 @@ trajectories are not supported. Forces are required in every frame.
 Reading a frame whose positions or forces contain NaN or infinity raises
 an error.
 
+A file may end partway through a frame, as when a job is killed while
+writing or a run is still going. Frames are read in order, and a frame that
+cannot be read is dropped with a warning if no readable frame follows it.
+If one does, the file is damaged, and an error is raised. A file with no
+readable frame is dropped with a warning in the same way; if no file has
+one, an error is raised.
+
 Every quantity RevelsMD computes is an equilibrium average, so frames need
 not come from one continuous run or be in time order. Several files are read
 in the order given. Each format section says how its files are joined:
@@ -99,16 +106,12 @@ wrong after the restart point joins with its restart. A file that starts at
 or before the first timestep of the file before it raises an error, since
 that would discard the whole earlier file.
 
-The last frame of any file may be incomplete, as left by a job killed while
-writing: it is dropped with a warning. So is an empty file, or one holding
-only the start of a frame header, from a job that stopped before writing a
-frame. If no file has a complete frame, an error is raised instead. An incomplete frame anywhere else raises an error, so a file written
-with `dump_modify append yes` across a restart must be split at the restart.
-
-The `ITEM: UNITS` and `ITEM: TIME` lines that `dump_modify units yes` and
-`time yes` write between frames are skipped; any other text between frames,
-as a damaged frame leaves, raises an error. A dump whose `ITEM: UNITS` names a unit style other than
-`units` raises an error, so pass the style the run used.
+Timesteps must increase within a file, so a file written with
+`dump_modify append yes` across a restart must be split at the restart. The
+`ITEM: UNITS` and `ITEM: TIME` lines that `dump_modify units yes` and
+`time yes` write are read with the frame they precede. A dump whose
+`ITEM: UNITS` names a unit style other than `units` raises an error, so pass
+the style the run used.
 
 Atoms are identified by LAMMPS type number, as a string:
 
@@ -144,13 +147,11 @@ traj = VaspTrajectory(
 ```
 
 `vasprun.xml` records no timesteps, so the order of the files, and repeated or
-missing steps between them, cannot be checked. Pass each file separately: a
-file holding two `vasprun.xml` documents joined with `cat` raises an error.
+missing steps between them, cannot be checked. Pass each file separately rather
+than joining them with `cat`.
 
 A `vasprun.xml` from a run that was killed before it finished is read up to its
-last complete ionic step; an ionic step cut short is dropped with a warning, as
-is a file with no complete ionic step. If no file has a complete step, an error
-is raised instead.
+last complete ionic step, as described above.
 
 The lattice must be the same in every ionic step; a run whose lattice changes
 raises an error.
@@ -194,11 +195,10 @@ print(traj.cell_matrix)
 Pass a list of files to read their frames, concatenated in the order given.
 Frames that several files contain are read from each, so join restart files
 written with `gmx mdrun -noappend`, which repeat a frame at each restart,
-with `gmx trjcat` first. A last TRR frame cut short, as left by a job killed
-while writing, is dropped with a warning; MDAnalysis cannot open a TRR file
-whose second frame is cut short, so keep its complete frames with
-`gmx trjconv -e`. Files of other formats cut short raise an error naming the
-file.
+with `gmx trjcat` first. A file that ends partway through a frame is read as
+described above, but MDAnalysis must be able to open it: it cannot open a
+TRR file whose second frame is cut short, so keep the complete frames with
+`gmx trjconv -e`.
 
 Charges and masses are those the topology records, never guessed from atom
 names: a `.tpr`, `.psf` or AMBER `prmtop` records both, and a `.gro` or `.pdb`
