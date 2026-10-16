@@ -1,12 +1,9 @@
 """Unit tests for the vasprun.xml index and frame reader."""
 
 import io
-import warnings
-import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
-from lxml import etree
 
 from vasprun_variants import (
     SOURCE,
@@ -18,16 +15,11 @@ from vasprun_variants import (
     without_forces,
     without_structure,
     write,
+    independent_frames as _independent_frames,
 )
-from revelsMD.trajectories.vasp import index_vasprun, parse_basis, parse_varray, read_vasp_frame
+from revelsMD.trajectories.vasp import index_vasprun, parse_basis, read_vasp_frame
 
 SHEAR = np.array([[1.0, 0, 0], [0.3, 1.0, 0], [0.1, 0.2, 1.0]])
-
-
-def test_parse_varray_types():
-    assert np.allclose(parse_varray(etree.fromstring("<varray><v>1.0 2.0 3.0</v></varray>")), [[1, 2, 3]])
-    assert parse_varray(etree.fromstring('<varray type="int"><v>1 2 3</v></varray>')) == [[1, 2, 3]]
-    assert parse_varray(etree.fromstring('<varray type="logical"><v>T F T</v></varray>')) == [[True, False, True]]
 
 
 class TestIndexVasprun:
@@ -45,7 +37,7 @@ class TestIndexVasprun:
 
     def test_truncated_file_keeps_complete_steps_with_a_warning(self, tmp_path):
         path = truncated(tmp_path / "vasprun.xml")
-        with pytest.warns(UserWarning, match="incomplete final ionic step.*9 complete steps"):
+        with pytest.warns(UserWarning, match=r"dropping the incomplete final ionic step \(calculation 9\); the file appears to have been cut short"):
             index = index_vasprun(path)
         assert len(index.starts) == len(index.ends) == 9
 
@@ -118,8 +110,7 @@ class TestIndexVasprun:
     def test_run_killed_during_its_first_step_raises(self, tmp_path):
         head, calculations, _ = split(SOURCE.read_bytes())
         path = write(tmp_path / "vasprun.xml", head + calculations[0][:-200])
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
+        with pytest.warns(UserWarning, match=r"calculation 0\)"):
             with pytest.raises(ValueError, match="no complete ionic steps"):
                 index_vasprun(path)
 
@@ -174,23 +165,6 @@ class TestIndexVasprun:
 
 def index_cell(index):
     return parse_basis(index.basis)
-
-
-def _floats(elements):
-    """Rows of numbers from <v> elements, converted with float()."""
-    return np.array([[float(x) for x in v.text.split()] for v in elements])
-
-
-def _independent_frames(path):
-    """Positions (fractional @ basis) and forces of each ionic step, read with ElementTree."""
-    frames = []
-    for calculation in ET.parse(path).getroot().findall("calculation"):
-        structure = calculation.find("structure")
-        basis = _floats(structure.find("crystal").findall("varray[@name='basis']/v"))
-        fractional = _floats(structure.findall("varray[@name='positions']/v"))
-        forces = _floats(calculation.findall("varray[@name='forces']/v"))
-        frames.append((fractional @ basis, forces))
-    return frames
 
 
 @pytest.fixture(params=["committed", "sheared"])

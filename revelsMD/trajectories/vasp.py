@@ -18,39 +18,13 @@ from lxml import etree  # type: ignore[import-untyped]
 from revelsMD.cell import fractional_to_cartesian
 from ._base import (
     TrajectoryFiles,
-    FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell, warn_user,
+    FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell, warn_cut_short,
 )
 
 
 # -----------------------------------------------------------------------------
 # XML Parsing Helpers
 # -----------------------------------------------------------------------------
-
-def parse_varray(varray: etree.Element) -> list[list[float]] | list[list[int]] | list[list[bool]]:
-    """
-    Parse a ``<varray>`` XML element from ``vasprun.xml``.
-
-    Parameters
-    ----------
-    varray : etree.Element
-        The ``<varray>`` XML element containing numerical data.
-
-    Returns
-    -------
-    list of list of float or int or bool
-        Nested list of parsed values, with types determined by the ``type``
-        attribute of the ``<varray>`` tag (``float``, ``int``, or ``logical``).
-    """
-    varray_type = varray.get("type", None)
-    v_list = [(v.text or "").split() for v in varray.findall("v")]
-
-    if varray_type == "int":
-        return [[int(num) for num in v] for v in v_list]
-    elif varray_type == "logical":
-        return [[val == "T" for val in v] for v in v_list]
-    else:
-        return [[float(num) for num in v] for v in v_list]
-
 
 _CALCULATION_OPEN = b"<calculation>"
 _CALCULATION_CLOSE = b"</calculation>"
@@ -118,36 +92,28 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
             starts = array.array("q")
             ends = array.array("q")
             first_basis, first_lattice = b"", np.empty((0, 0))
-            reference_basis, reference_lattice = (
-                (reference.basis, reference.lattice) if reference is not None else (b"", None)
-            )
             start = m.find(_CALCULATION_OPEN)
             while start != -1:
                 k = len(starts)
+                where = f"{path}, calculation {k}"
                 close = m.find(_CALCULATION_CLOSE, start)
                 following = m.find(_CALCULATION_OPEN, start + len(_CALCULATION_OPEN))
                 if close == -1 and following == -1:
-                    if k:
-                        warn_user(
-                            f"{path}: dropping the incomplete final ionic step "
-                            f"(calculation {k}); the file appears to have "
-                            f"been cut short, so its {k} complete steps are used"
-                        )
+                    warn_cut_short(path, f"ionic step (calculation {k})")
                     break
                 if close == -1 or -1 < following < close:
                     raise ValueError(
-                        f"{path}, calculation {k}: no closing "
-                        "</calculation> before the next ionic step"
+                        f"{where}: no closing </calculation> before the next ionic step"
                     )
                 end = close + len(_CALCULATION_CLOSE)
-                where = f"{path}, calculation {k}"
                 basis = _calculation_basis(m, where, start, end)
                 if k == 0:
                     first_basis, first_lattice = basis, _parse_basis_at(basis, where)
-                    if reference_lattice is None:
-                        reference_basis, reference_lattice = first_basis, first_lattice
+                    reference_basis, reference_lattice = (
+                        (reference.basis, reference.lattice) if reference is not None
+                        else (first_basis, first_lattice)
+                    )
                 if basis != reference_basis:
-                    assert reference_lattice is not None
                     check_fixed_cell(_parse_basis_at(basis, where), reference_lattice, where)
                 starts.append(start)
                 ends.append(end)
@@ -232,8 +198,11 @@ def _read_atom_names(m: mmap.mmap, path: str) -> list[str]:
 
 
 def _float_varray(varray: etree.Element) -> np.ndarray:
-    """A float ``<varray>`` element as an array with one row per ``<v>``."""
-    return np.array(parse_varray(varray), dtype=np.float64)
+    """A float ``<varray>`` element as an array with one row per ``<v>``.
+
+    Rows of different lengths raise ValueError.
+    """
+    return np.array([(v.text or "").split() for v in varray.findall("v")], dtype=np.float64)
 
 
 def parse_basis(element: bytes) -> np.ndarray:
@@ -337,17 +306,15 @@ class VaspTrajectory(IndexedFileTrajectory):
         has no atom list or no complete ionic step; if a calculation other
         than the last in a file is not closed; if an ionic step lacks a
         structure, a lattice basis, positions or forces; if the files list
-        different atoms; if the lattice changes between steps; if the same
-        file is given twice; or if the cell is invalid.
-    TypeError
-        If ``trajectory_file`` is an unordered collection such as a set.
+        different atoms; if the lattice changes between steps; or if the
+        cell is invalid.
 
     Notes
     -----
     An incomplete final ionic step, as left by a run killed while writing,
-    is dropped with a warning; a file with no complete step raises.
-    Reading a step raises ValueError if its
-    positions or forces are malformed, do not match the atom count or
+    is dropped with a warning; a file with no complete step raises. Files
+    are concatenated in the order given. Reading a step raises ValueError if
+    its positions or forces are malformed, do not match the atom count or
     contain NaN or infinity, or if its lattice differs from the first
     step's.
     """
@@ -369,19 +336,16 @@ class VaspTrajectory(IndexedFileTrajectory):
         indices = [first] + [index_vasprun(path, first) for path in paths[1:]]
         self._atom_names = first.atom_names
 
-        self.cell_matrix = first.lattice.copy()
-        self._validate_cell_matrix(self.cell_matrix, f"{first.path}, calculation 0")
-
-        # Frame i is ionic step _calculation[i] of its file.
+        # Every ionic step of every file is kept, so a frame's position in
+        # its file is its calculation number.
         self._frames = FileFrames.join(
             [index.path for index in indices],
             [index.starts for index in indices],
             [index.ends for index in indices],
         )
-        self._calculation = np.concatenate(
-            [np.arange(len(index.starts), dtype=np.int32) for index in indices]
-        )
         self.frames = len(self._frames)
+        self.cell_matrix = first.lattice.copy()
+        self._validate_cell_matrix(self.cell_matrix, self._where(0))
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
@@ -414,7 +378,8 @@ class VaspTrajectory(IndexedFileTrajectory):
 
     def _where(self, index: int) -> str:
         """Name the file and calculation of frame ``index``."""
-        return f"{self._frames.path(index)}, calculation {int(self._calculation[index])}"
+        k, calculation = self._frames.locate(index)
+        return f"{self._frames.paths[k]}, calculation {calculation}"
 
     def _read_arrays(self, f: BinaryIO, index: int) -> tuple[np.ndarray, np.ndarray]:
         frames = self._frames

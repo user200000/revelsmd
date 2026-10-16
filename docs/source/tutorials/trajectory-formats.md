@@ -11,14 +11,13 @@ trajectories are not supported. Forces are required in every frame.
 Reading a frame whose positions or forces contain NaN or infinity raises
 an error.
 
-Several files are joined in the order given, so pass a list or tuple in
-run order. They must be a run and its restarts: LAMMPS and MDAnalysis files
-whose timesteps start again from zero, as independent runs do, raise an
-error, and VASP files, which record no timesteps, are joined whatever their
-origin. Load each independent run as its own trajectory and accumulate them
-into the same grid or RDF. `sorted(glob(...))` puts `run10` before `run2`; name files
-with leading zeros or list them explicitly. A set, or the same file
-twice, raises an error.
+Every quantity RevelsMD computes is an equilibrium average, so frames need
+not come from one continuous run or be in time order. Several files are read
+in the order given. Each format section says how its files are joined:
+LAMMPS dumps from a run and its restarts have their overlap removed, and
+MDAnalysis and VASP files are concatenated as they are. To pool independent
+runs of LAMMPS, load each as its own trajectory and accumulate them into the
+same grid or RDF.
 
 ## LAMMPS
 
@@ -88,29 +87,24 @@ traj = LammpsTrajectory(
 )
 ```
 
-List the files in run order. Each file's frames replace the previous file's
+List the files in run order. Each file's frames replace the earlier files'
 frames from its own first timestep on, as after a restart from a restart
-file. A warning names every replaced frame whose timestep is not in the
-joined trajectory, as when a restart ends before the frames it replaces, or
-dumps less often than the run it replaces. Replaced frames are not compared
-with their file's first frame, so a run whose box or atom count went wrong
-after the restart point joins with its restart. A file that starts at or
-before the first timestep of the file before it raises an error, since that
-would discard the whole earlier file. Gaps in timesteps between or within the
-files as written are not detected.
+file, so frames written twice are counted once. Replaced frames are not
+compared with their file's first frame, so a run whose box or atom count went
+wrong after the restart point joins with its restart. A file that starts at
+or before the first timestep of the file before it raises an error, since
+that would discard the whole earlier file.
 
 The last frame of any file may be incomplete, as left by a job killed while
-writing: it is dropped with a warning, or silently if the next file's frames
-replace it. An empty file, or one holding only the start of a frame header,
-from a job that stopped before writing a frame, is dropped in the same way.
-An incomplete frame anywhere else raises an error, so a file written with
-`dump_modify append yes` across a restart must be split at the restart.
+writing: it is dropped with a warning. So is an empty file, or one holding
+only the start of a frame header, from a job that stopped before writing a
+frame. An incomplete frame anywhere else raises an error, so a file written
+with `dump_modify append yes` across a restart must be split at the restart.
 
-A dump file must hold only frames: other text before, between or after
-frames, apart from the `ITEM: UNITS` and `ITEM: TIME` lines written by
-`dump_modify units yes` and `time yes`, raises an error. A dump whose
-`ITEM: UNITS` names a unit style other than `units` raises an error, so
-pass the style the run used.
+Text between frames, such as the `ITEM: UNITS` and `ITEM: TIME` lines of
+`dump_modify units yes` and `time yes`, is skipped. A dump whose `ITEM: UNITS`
+names a unit style other than `units` raises an error, so pass the style the
+run used.
 
 Atoms are identified by LAMMPS type number, as a string:
 
@@ -192,21 +186,11 @@ print(traj.frames)
 print(traj.cell_matrix)
 ```
 
-Pass a list of files, in run order, to read a run and its restarts as one
-trajectory. Every frame's step is read when the trajectory is constructed
-(from the frame headers, for TRR files), and steps must strictly increase
-within each file. The files are joined by step as LAMMPS dumps are by
-timestep: each file's frames replace the previous file's frames from its own
-first step on, so the frame GROMACS repeats at the start of each file written
-with `-noappend` is read once. A restart must continue the step count, as
-`gmx mdrun -cpi` does; files whose steps start again from zero, including
-files written by MDAnalysis (which numbers steps from zero), cannot be joined.
-If any file records no steps (AMBER NetCDF), all are joined by time instead,
-and NetCDF files without times cannot be joined. As for LAMMPS dumps, a
-warning names every replaced frame whose step is not in the joined
-trajectory, and a file that starts at or before the first step of the file
-before it raises an error. Gaps in steps between the files are not detected. A last TRR frame
-cut short, as left by a job killed while writing, is dropped with a warning.
+Pass a list of files to read their frames, concatenated in the order given.
+Frames that several files contain are read from each, so join restart files
+written with `gmx mdrun -noappend`, which repeat a frame at each restart,
+with `gmx trjcat` first. A last TRR frame cut short, as left by a job killed
+while writing, is dropped with a warning.
 
 The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:

@@ -6,11 +6,12 @@ via MDAnalysis.
 """
 
 import os
+import struct
 from typing import Iterator
 
-import MDAnalysis as MD  # type: ignore[import-untyped]
 from MDAnalysis.coordinates.H5MD import H5MDReader  # type: ignore[import-untyped]
 from MDAnalysis.coordinates.LAMMPS import DumpReader  # type: ignore[import-untyped]
+from MDAnalysis.coordinates.TRR import TRRReader  # type: ignore[import-untyped]
 from MDAnalysis.coordinates.chain import ChainReader  # type: ignore[import-untyped]
 from MDAnalysis.lib.mdamath import triclinic_vectors  # type: ignore[import-untyped]
 from MDAnalysis.lib.util import NamedStream  # type: ignore[import-untyped]
@@ -18,10 +19,9 @@ import numpy as np
 
 from revelsMD.frame_sources import Frame
 from ._base import (
-    TrajectoryFiles, TrajectoryPath, Trajectory, as_paths, check_finite, check_fixed_cell,
-    join_restarts, open_check, reading_with_mdanalysis, warn_user,
+    TrajectoryFiles, TrajectoryPath, Trajectory, as_paths, check_fixed_cell, open_universe,
+    reading_with_mdanalysis, warn_cut_short,
 )
-from ._mda_steps import frame_keys, order_keys
 
 
 class MDATrajectory(Trajectory):
@@ -42,10 +42,11 @@ class MDATrajectory(Trajectory):
     trajectory_file : str, path, or sequence of these
         Path to a trajectory file in which every frame stores positions and
         forces (e.g. a `.trr` written with ``nstfout`` equal to ``nstxout``
-        and ``nstvout`` 0 or a multiple of it), or a list of the files of a
-        run and its restarts, in run order. Each file's frames replace the
-        previous file's frames from its own first step on (first time, for
-        formats without steps). Independent runs are loaded separately.
+        and ``nstvout`` 0 or a multiple of it), or a list of files, whose
+        frames are concatenated in the order given. Frames that files share,
+        such as the frame GROMACS repeats at each restart written with
+        ``-noappend``, are counted once per file; join such files with
+        ``gmx trjcat`` first.
     topology_file : str, bytes or path
         Path to the topology file (e.g., `.tpr`, `.pdb`, `.gro`), or an
         MDAnalysis stream.
@@ -55,9 +56,8 @@ class MDATrajectory(Trajectory):
     Attributes
     ----------
     frames : int
-        Number of trajectory frames, after joining restart files.
-        ``mdanalysis_universe.trajectory`` still holds every frame of every
-        file.
+        Number of trajectory frames. ``mdanalysis_universe.trajectory``
+        also holds a last TRR frame cut short, which is not counted.
     cell_matrix : np.ndarray
         Cell matrix with rows = lattice vectors, shape ``(3, 3)``.
     units : str
@@ -70,16 +70,11 @@ class MDATrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If no topology file is provided, if no trajectory file is given or
-        the same file is given twice, if a file starts at or before the
-        first step of the file before it, if MDAnalysis does not know the
-        format's length or force units, if an H5MD file saves positions and
-        forces at different steps, if the first frame has no box, no
-        positions or no forces, or if the cell matrix is invalid.
-    TypeError
-        If ``trajectory_file`` is an unordered collection such as a set.
-        Also if steps (times, if any file records no steps) do not strictly
-        increase within a file.
+        If no topology file is provided, if no trajectory file is given, if
+        MDAnalysis does not know the format's length or force units, if an
+        H5MD file saves positions and forces at different steps, if the
+        first frame has no box, no positions or no forces, or if the cell
+        matrix is invalid.
     RuntimeError
         If MDAnalysis cannot parse the trajectory or topology files (the
         message names the file, and the exception MDAnalysis raised), for
@@ -93,8 +88,7 @@ class MDATrajectory(Trajectory):
 
     Notes
     -----
-    Every frame's step is read at construction (from the frame headers for
-    TRR files). A last TRR frame cut short, as left by a job killed while
+    A last TRR frame cut short, as left by a job killed while
     writing, is dropped with a warning. Reading a frame raises ValueError
     if MDAnalysis cannot read it, if it has no positions, no forces or no
     box, if its box differs from the first frame's, or if its positions or
@@ -117,19 +111,15 @@ class MDATrajectory(Trajectory):
         self.trajectory_file = trajectory_file
         self.topology_file = topology_file
 
-        # A topology given as a path is opened here first, so a file that
-        # cannot be opened raises the operating system's error; MDAnalysis
-        # streams are passed on as they are.
+        # MDAnalysis streams are passed on as they are.
         topology = (
             os.fsdecode(topology_file)
             if isinstance(topology_file, (str, bytes, os.PathLike))
             and not isinstance(topology_file, NamedStream)
             else topology_file
         )
-        for path in ([topology] if isinstance(topology, str) else []) + paths:
-            open_check(path)
         self._topology = str(topology)
-        mdanalysis_universe = _open_universe(topology, paths)
+        mdanalysis_universe = open_universe(topology, paths)
 
         self.mdanalysis_universe = mdanalysis_universe
         trajectory = mdanalysis_universe.trajectory
@@ -138,9 +128,7 @@ class MDATrajectory(Trajectory):
             raise RuntimeError(
                 f"MDAnalysis opened {len(readers)} readers for {len(paths)} files"
             )
-        # MDAnalysis frame j is frame j - _first_frames[k] of paths[k].
         self._paths = paths
-        self._first_frames = np.cumsum([0] + [len(r) for r in readers[:-1]])
 
         dims = mdanalysis_universe.dimensions
         if dims is None:
@@ -158,27 +146,19 @@ class MDATrajectory(Trajectory):
                 f"{paths[0]}: the trajectory has no forces; force "
                 "sampling needs forces in every frame"
             )
-        for reader in readers:
-            _check_reader(reader)
-        keys = []
+        complete = []
         for reader, path in zip(readers, paths):
-            with reading_with_mdanalysis(path):
-                keys.append(frame_keys(reader))
-            if keys[-1].complete < len(reader):
-                warn_user(
-                    f"{path}: dropping the incomplete final frame (frame {keys[-1].complete}); "
-                    "the file appears to have been cut short"
-                )
-        unit, arrays = order_keys(keys, paths)
-        joined = join_restarts(arrays, paths, unit)
-        joined.warn()
-        kept = joined.kept
-        # Frame i is MDAnalysis frame _kept[i].
-        self._kept = np.concatenate([
-            first + np.arange(n, dtype=np.int64) for first, n in zip(self._first_frames, kept)
-        ])
-        trajectory.rewind()
-        self.frames = len(self._kept)
+            _check_reader(reader)
+            n = len(reader)
+            if n and isinstance(reader, TRRReader) and _trr_frame_is_cut(path, reader._xdr.offsets[-1]):
+                warn_cut_short(path, f"frame (frame {n - 1})")
+                n -= 1
+            complete.append(n)
+        # Frame i is frame i - _first[k] of file k, which is MDAnalysis frame
+        # i - _first[k] + _mdanalysis_first[k]; a cut final frame is skipped.
+        self._first = np.concatenate([[0], np.cumsum(complete)])
+        self._mdanalysis_first = np.concatenate([[0], np.cumsum([len(r) for r in readers])])
+        self.frames = int(self._first[-1])
         self._dimensions = np.array(dims, dtype=np.float64)
         self.cell_matrix = np.array(triclinic_vectors(dims), dtype=np.float64)
         self._validate_cell_matrix(self.cell_matrix, paths[0])
@@ -242,18 +222,21 @@ class MDATrajectory(Trajectory):
         """
         return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
 
-    def _locate(self, frame: int) -> tuple[int, int]:
-        """The file and the frame within it of MDAnalysis frame ``frame``."""
-        k = int(np.searchsorted(self._first_frames, frame, side="right")) - 1
-        return k, frame - int(self._first_frames[k])
+    def _locate(self, index: int) -> tuple[int, int]:
+        """The file of frame ``index`` and the frame's position in it."""
+        k = int(np.searchsorted(self._first, index, side="right")) - 1
+        return k, index - int(self._first[k])
 
-    def _where(self, frame: int) -> str:
-        k, local = self._locate(frame)
+    def _where(self, index: int) -> str:
+        k, local = self._locate(index)
         return f"{self._paths[k]}, frame {local}"
 
-    def _frame(self, ts) -> Frame:
-        """Check one MDAnalysis timestep and return it as a Frame."""
-        where = self._where(ts.frame)
+    def _get_frame(self, index: int) -> Frame:
+        """Read frame ``index`` with MDAnalysis and check it."""
+        where = self._where(index)
+        k, local = self._locate(index)
+        with reading_with_mdanalysis(where, ValueError):
+            ts = self.mdanalysis_universe.trajectory[int(self._mdanalysis_first[k]) + local]
         if not ts.has_positions:
             raise ValueError(f"{where}: no positions")
         if not ts.has_forces:
@@ -261,16 +244,7 @@ class MDATrajectory(Trajectory):
         if ts.dimensions is None:
             raise ValueError(f"{where}: no simulation box")
         check_fixed_cell(np.array(ts.dimensions, dtype=np.float64), self._dimensions, where)
-        check_finite(ts.positions, ts.forces, where)
         return Frame(ts.positions.copy(), ts.forces.copy())
-
-    def _read(self, frame: int):
-        """MDAnalysis frame ``frame``, naming it if MDAnalysis cannot read it."""
-        try:
-            with reading_with_mdanalysis(self._where(frame)):
-                return self.mdanalysis_universe.trajectory[frame]
-        except RuntimeError as e:
-            raise ValueError(str(e)) from e.__cause__
 
     def _iter_frames_impl(
         self,
@@ -279,30 +253,26 @@ class MDATrajectory(Trajectory):
         stride: int
     ) -> Iterator[Frame]:
         """Read the selected frames in order."""
-        for frame in self._kept[start:stop:stride]:
-            yield self._frame(self._read(int(frame)))
-
-    def _get_frame(self, index: int) -> Frame:
-        return self._frame(self._read(int(self._kept[index])))
+        for index in range(start, stop, stride):
+            yield self._get_frame(index)
 
 
-def _open_universe(topology, paths: list[str]):
-    """Open the topology with the trajectory files, naming the file MDAnalysis cannot read.
+def _trr_frame_is_cut(path: str, offset: int) -> bool:
+    """Whether the TRR frame at ``offset`` runs past the end of the file.
 
-    If MDAnalysis cannot read several files together, each is opened alone
-    to find the one it cannot read.
+    The frame's size is read from its header: the sizes of its blocks,
+    and its precision, which GROMACS infers from the box or coordinate size.
     """
-    try:
-        with reading_with_mdanalysis(f"{topology} with {', '.join(paths)}"):
-            return MD.Universe(topology, paths[0] if len(paths) == 1 else paths)
-    except RuntimeError as joined:
-        for path in paths if len(paths) > 1 else []:
-            try:
-                with reading_with_mdanalysis(f"{topology} with {path}"):
-                    MD.Universe(topology, path)
-            except RuntimeError as alone:
-                raise alone from joined.__cause__
-        raise
+    with open(path, "rb") as f:
+        f.seek(offset)
+        _, _, length = struct.unpack(">3i", f.read(12))
+        f.seek(offset + 12 + (length + 3) // 4 * 4)
+        sizes = struct.unpack(">13i", f.read(52))
+    box, n_atoms = sizes[2], sizes[10]
+    data = max(sizes[7:10])
+    double = box == 9 * 8 if box else bool(n_atoms) and data == n_atoms * 3 * 8
+    header = 12 + (length + 3) // 4 * 4 + 52 + 2 * (8 if double else 4)
+    return offset + header + sum(sizes[:10]) > os.path.getsize(path)
 
 
 def _check_reader(reader) -> None:

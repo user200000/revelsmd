@@ -1,6 +1,5 @@
 """MDATrajectory on the committed water trajectory and variants written from it."""
 
-import warnings
 from pathlib import Path
 
 import MDAnalysis as MD
@@ -18,19 +17,8 @@ TRR = str(WATER / "prod.trr")
 LAMMPS_DUMP = DATA / "lammps_small" / "dump.lammps"
 
 
-def write_variant(path, edit=None, n_frames=3):
-    """Write the first frames of the water trajectory, applying edit(ts) to each."""
-    universe = MD.Universe(TPR, TRR)
-    with MD.Writer(str(path), n_atoms=universe.atoms.n_atoms) as writer:
-        for ts in universe.trajectory[:n_frames]:
-            if edit is not None:
-                edit(ts)
-            writer.write(universe.atoms)
-    return str(path)
-
-
-def write_frames(path, frames, edit=None, **writer_options):
-    """Write the given frames of the water trajectory, applying edit(ts) to each."""
+def write_frames(path, frames=range(3), edit=None, **writer_options):
+    """Write frames of the water trajectory (the first three by default), applying edit(ts) to each."""
     universe = MD.Universe(TPR, TRR)
     with MD.Writer(str(path), n_atoms=universe.atoms.n_atoms, **writer_options) as writer:
         for ts in universe.trajectory[list(frames)]:
@@ -38,14 +26,6 @@ def write_frames(path, frames, edit=None, **writer_options):
                 edit(ts)
             writer.write(universe.atoms)
     return str(path)
-
-
-def shift_time(offset):
-    """Move frames by ``offset`` ps (1000 steps of the water run per ps)."""
-    def edit(ts):
-        ts.time = ts.time + offset
-        ts.data["step"] = ts.data["step"] + int(offset * 1000)
-    return edit
 
 
 @pytest.fixture(scope="module")
@@ -101,7 +81,7 @@ class TestReading:
 
     def test_triclinic_box(self, tmp_path):
         dims = np.array([40.0, 38.0, 36.0, 80.0, 85.0, 70.0])
-        path = write_variant(tmp_path / "tri.trr", lambda ts: setattr(ts, "dimensions", dims))
+        path = write_frames(tmp_path / "tri.trr", edit=lambda ts: setattr(ts, "dimensions", dims))
         traj = MDATrajectory(path, TPR, temperature=300.0)
         # a along x, b in the xy plane, c completing the angles alpha, beta, gamma.
         a, b, c = 40.0, 38.0, 36.0
@@ -121,7 +101,7 @@ class TestReading:
 class TestValidation:
 
     def test_trajectory_without_forces_raises_at_construction(self, tmp_path):
-        path = write_variant(tmp_path / "positions.xtc")
+        path = write_frames(tmp_path / "positions.xtc")
         with pytest.raises(ValueError, match="positions.xtc: the trajectory has no forces"):
             MDATrajectory(path, TPR, temperature=300.0)
 
@@ -129,7 +109,7 @@ class TestValidation:
         def drop_forces(ts):
             if ts.frame == 1:
                 ts.has_forces = False
-        path = write_variant(tmp_path / "partial.trr", drop_forces)
+        path = write_frames(tmp_path / "partial.trr", edit=drop_forces)
         traj = MDATrajectory(path, TPR, temperature=300.0)
         frames = traj.iter_frames()
         next(frames)
@@ -141,7 +121,7 @@ class TestValidation:
             next(traj.iter_frames(start=1))
 
     def test_trajectory_without_positions_raises_at_construction(self, tmp_path):
-        path = write_variant(tmp_path / "forces.trr", lambda ts: setattr(ts, "has_positions", False))
+        path = write_frames(tmp_path / "forces.trr", edit=lambda ts: setattr(ts, "has_positions", False))
         with pytest.raises(ValueError, match="forces.trr: the trajectory has no positions"):
             MDATrajectory(path, TPR, temperature=300.0)
 
@@ -149,7 +129,7 @@ class TestValidation:
         def drop_positions(ts):
             if ts.frame == 1:
                 ts.has_positions = False
-        path = write_variant(tmp_path / "partial.trr", drop_positions)
+        path = write_frames(tmp_path / "partial.trr", edit=drop_positions)
         traj = MDATrajectory(path, TPR, temperature=300.0)
         frames = traj.iter_frames()
         next(frames)
@@ -162,7 +142,7 @@ class TestValidation:
         def grow(ts):
             if ts.frame == 2:
                 ts.dimensions = ts.dimensions * np.array([1.01, 1, 1, 1, 1, 1], dtype=np.float32)
-        path = write_variant(tmp_path / "npt.trr", grow)
+        path = write_frames(tmp_path / "npt.trr", edit=grow)
         traj = MDATrajectory(path, TPR, temperature=300.0)
         with pytest.raises(ValueError, match="npt.trr, frame 2: the cell differs"):
             list(traj.iter_frames())
@@ -173,7 +153,7 @@ class TestValidation:
         def shear(ts):
             if ts.frame == 1:
                 ts.dimensions = np.array([40, 40, 40, 90, 90, 89.5], dtype=np.float32)
-        path = write_variant(tmp_path / "sheared.trr", shear)
+        path = write_frames(tmp_path / "sheared.trr", edit=shear)
         traj = MDATrajectory(path, TPR, temperature=300.0)
         with pytest.raises(ValueError, match="sheared.trr, frame 1: the cell differs"):
             traj.get_frame(1)
@@ -182,7 +162,7 @@ class TestValidation:
         def drop_box(ts):
             if ts.frame == 1:
                 ts.dimensions = np.zeros(6)
-        path = write_variant(tmp_path / "boxless.trr", drop_box)
+        path = write_frames(tmp_path / "boxless.trr", edit=drop_box)
         traj = MDATrajectory(path, TPR, temperature=300.0)
         with pytest.raises(ValueError, match="boxless.trr, frame 1: no simulation box"):
             traj.get_frame(1)
@@ -191,127 +171,30 @@ class TestValidation:
         def blow_up(ts):
             if ts.frame == 1:
                 ts.forces[3, 1] = np.nan
-        path = write_variant(tmp_path / "nan.trr", blow_up)
+        path = write_frames(tmp_path / "nan.trr", edit=blow_up)
         traj = MDATrajectory(path, TPR, temperature=300.0)
         with pytest.raises(ValueError, match="nan.trr, frame 1: the forces contain NaN"):
             traj.get_frame(1)
 
     def test_degenerate_box_raises_naming_the_file(self, tmp_path):
         dims = np.array([1e-5, 1e-5, 1e-5, 90.0, 90.0, 90.0])
-        path = write_variant(tmp_path / "flat.trr", lambda ts: setattr(ts, "dimensions", dims))
+        path = write_frames(tmp_path / "flat.trr", edit=lambda ts: setattr(ts, "dimensions", dims))
         with pytest.raises(ValueError, match=r"flat\.trr: Cell matrix must have positive volume"):
             MDATrajectory(path, TPR, temperature=300.0)
 
     def test_trajectory_without_a_box_raises_at_construction(self, tmp_path):
-        path = write_variant(tmp_path / "nobox.trr", lambda ts: setattr(ts, "dimensions", np.zeros(6)))
+        path = write_frames(tmp_path / "nobox.trr", edit=lambda ts: setattr(ts, "dimensions", np.zeros(6)))
         with pytest.raises(ValueError, match="nobox.trr: the trajectory has no simulation box"):
             MDATrajectory(path, TPR, temperature=300.0)
 
-    def test_list_of_files_is_joined(self, tmp_path, universe):
-        first = write_variant(tmp_path / "a.trr", shift_time(-1e3), n_frames=3)
-        traj = MDATrajectory([first, TRR], TPR, temperature=300.0)
-        assert traj.frames == 13
-        np.testing.assert_array_equal(traj.get_frame(3).forces, universe.trajectory[0].forces)
-
-    @pytest.mark.parametrize("first, second", [
-        (range(0, 5), range(5, 10)),  # consecutive
-        (range(0, 5), range(4, 10)),  # -noappend: the restart repeats frame 4
-        (range(0, 8), range(4, 10)),  # a restart from frame 4 of a longer run
-    ])
-    def test_restart_files_are_joined_by_time(self, tmp_path, universe, first, second):
-        a = write_frames(tmp_path / "a.trr", first)
-        b = write_frames(tmp_path / "b.trr", second)
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            traj = MDATrajectory([a, b], TPR, temperature=300.0)
-        assert traj.frames == 10
-        for k, frame in enumerate(traj.iter_frames()):
-            np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
-        for k in (3, 4, 5, -1):
-            np.testing.assert_array_equal(traj.get_frame(k).forces, universe.trajectory[k].forces)
-        got = list(traj.iter_frames(start=3, stop=9, stride=2))
-        for frame, k in zip(got, (3, 5, 7), strict=True):
-            np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
-
-    def test_restart_starting_at_the_previous_files_start_raises(self, tmp_path):
-        a = write_frames(tmp_path / "a.trr", range(3, 6))
-        b = write_frames(tmp_path / "b.trr", range(3, 8))
-        with pytest.raises(ValueError, match=r"b\.trr starts at step 1500, at or before the start of .*a\.trr"):
-            MDATrajectory([a, b], TPR, temperature=300.0)
-
-    def test_restarts_are_joined_by_step_when_times_coincide(self, tmp_path, universe):
-        # Late in a long run, single-precision times of neighbouring frames
-        # are equal; the steps still tell them apart.
-        def late(ts):
-            ts.time = ts.time + 1e7
-            ts.data["step"] = ts.data["step"] + 1_000_000
-        a = write_frames(tmp_path / "a.trr", range(0, 8), late)
-        b = write_frames(tmp_path / "b.trr", range(5, 10), late)
-        assert MD.Universe(TPR, a).trajectory[5].time == MD.Universe(TPR, a).trajectory[4].time
+    def test_files_are_concatenated_as_given(self, tmp_path, universe):
+        # Frames the files share, as -noappend restarts repeat, are kept in each.
+        a = write_frames(tmp_path / "a.trr", range(0, 5))
+        b = write_frames(tmp_path / "b.trr", range(4, 10))
         traj = MDATrajectory([a, b], TPR, temperature=300.0)
-        assert traj.frames == 10
-        for k, frame in enumerate(traj.iter_frames()):
-            np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
-
-    @pytest.mark.filterwarnings("ignore:Could not find netCDF4")
-    def test_files_without_steps_are_joined_by_time(self, tmp_path, universe):
-        a = write_frames(tmp_path / "a.ncdf", range(0, 5), forces=True)
-        b = write_frames(tmp_path / "b.ncdf", range(4, 10), forces=True)
-        traj = MDATrajectory([a, b], TPR, temperature=300.0)
-        assert traj.frames == 10
-        for k, frame in enumerate(traj.iter_frames()):
-            np.testing.assert_allclose(frame.forces, universe.trajectory[k].forces, rtol=1e-5)
-        with pytest.raises(ValueError, match=r"c\.ncdf starts at time 0\.0 ps, at or before the start of .*b\.ncdf \(time 2\.0 ps\); times must continue from file to file, as in a run and its restarts\. Load independent runs as separate trajectories"):
-            MDATrajectory([b, write_frames(tmp_path / "c.ncdf", range(0, 3), forces=True)], TPR,
-                          temperature=300.0)
-
-    def test_replaced_frames_in_a_gap_between_later_files_warn(self, tmp_path):
-        files = [write_frames(tmp_path / f"{name}.trr", frames)
-                 for name, frames in (("a", range(0, 10)), ("b", range(3, 5)), ("c", range(7, 10)))]
-        with pytest.warns(UserWarning, match=(
-                r"b\.trr replaces the frames of .*a\.trr from step 1500 on; 2 of those frames, "
-                r"between steps 2500 and 3000, are not in the joined trajectory and dropped")):
-            traj = MDATrajectory(files, TPR, temperature=300.0)
-        assert traj.frames == 8
-
-    @pytest.mark.parametrize("steps, bad", [
-        ((0, 2500, 4500, 1000), 3),
-        ((0, 500, 500, 1000), 2),  # a repeated step
-        ((0, 500, 1000, 1500, 2000, 2500, 1500, 2000, 2500, 3000), 6),  # cat of a run and its restart
-    ])
-    def test_steps_must_increase_within_a_file(self, tmp_path, steps, bad):
-        def renumber(ts):
-            ts.data["step"] = steps[ts.frame]
-        path = write_frames(tmp_path / "c.trr", range(len(steps)), renumber)
-        with pytest.raises(ValueError, match=fr"c\.trr, frame {bad}: steps do not increase within the file \(step {steps[bad - 1]} at frame {bad - 1}, step {steps[bad]} at frame {bad}\)"):
-            MDATrajectory(path, TPR, temperature=300.0)
-
-    def test_replaced_frames_are_checked_too(self, tmp_path):
-        # Steps out of order in frames a restart replaces are still an error.
-        steps = {0: 0, 1: 500, 2: 2000, 3: 1000}
-        def renumber(ts):
-            ts.data["step"] = steps[ts.frame]
-        a = write_frames(tmp_path / "a.trr", range(4), renumber)
-        b = write_frames(tmp_path / "b.trr", range(3, 6))
-        with pytest.raises(ValueError, match=r"a\.trr, frame 3: steps do not increase"):
-            MDATrajectory([a, b], TPR, temperature=300.0)
-
-    def test_steps_that_wrap_past_32_bits_are_unwrapped(self, tmp_path, universe):
-        # GROMACS writes TRR steps as signed 32-bit integers.
-        top = 2**31
-        def near_wrap(base):
-            def renumber(ts):
-                step = base + 500 * ts.frame
-                ts.data["step"] = step - 2**32 if step >= top else step
-            return renumber
-        base = top - 2000
-        a = write_frames(tmp_path / "a.trr", range(0, 8), near_wrap(base))
-        b = write_frames(tmp_path / "b.trr", range(6, 10), near_wrap(base))
-        assert MD.Universe(TPR, a).trajectory[5].data["step"] < 0
-        assert MD.Universe(TPR, b).trajectory[0].data["step"] < 0
-        traj = MDATrajectory([a, b], TPR, temperature=300.0)
-        assert traj.frames == 10
-        for k, frame in enumerate(traj.iter_frames()):
+        assert traj.frames == 11
+        expected = list(range(0, 5)) + list(range(4, 10))
+        for frame, k in zip(traj.iter_frames(), expected, strict=True):
             np.testing.assert_array_equal(frame.forces, universe.trajectory[k].forces)
 
     def test_cut_short_final_frame_is_dropped_with_a_warning(self, tmp_path, universe):
@@ -339,15 +222,6 @@ class TestValidation:
         with pytest.raises(ValueError, match=r"prod\.trr, frame 3: OSError"):
             list(traj.iter_frames())
 
-    @pytest.mark.filterwarnings("ignore:Could not find netCDF4")
-    def test_trr_and_netcdf_are_joined_by_time(self, tmp_path, universe):
-        a = write_frames(tmp_path / "a.trr", range(0, 5))
-        b = write_frames(tmp_path / "b.ncdf", range(4, 10), forces=True)
-        traj = MDATrajectory([a, b], TPR, temperature=300.0)
-        assert traj.frames == 10
-        for k, frame in enumerate(traj.iter_frames()):
-            np.testing.assert_allclose(frame.forces, universe.trajectory[k].forces, rtol=1e-5)
-
     def test_readers_must_match_the_files(self, tmp_path, monkeypatch):
         from revelsMD.trajectories import mda
         a = write_frames(tmp_path / "a.trr", range(0, 5))
@@ -356,33 +230,11 @@ class TestValidation:
         with pytest.raises(RuntimeError, match="MDAnalysis opened 1 readers for 2 files"):
             MDATrajectory([a, b], TPR, temperature=300.0)
 
-    def test_joined_trajectory_is_rewound(self, tmp_path):
-        a = write_frames(tmp_path / "a.trr", range(0, 8))
-        b = write_frames(tmp_path / "b.trr", range(4, 10))
-        traj = MDATrajectory([a, b], TPR, temperature=300.0)
-        assert traj.mdanalysis_universe.trajectory.frame == 0
-
-    def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
-        a = write_frames(tmp_path / "a.trr", range(0, 8))
-        b = write_frames(tmp_path / "b.trr", range(3, 6))
-        with pytest.warns(UserWarning, match=r"b\.trr replaces the frames of .*a\.trr from step 1500 on; 2 of those frames, between steps 3000 and 3500, are not in the joined trajectory"):
-            traj = MDATrajectory([a, b], TPR, temperature=300.0)
-        assert traj.frames == 6
-
-    def test_file_starting_before_the_previous_one_raises(self, tmp_path):
-        a = write_frames(tmp_path / "a.trr", range(3, 6))
-        b = write_frames(tmp_path / "b.trr", range(0, 5))
-        with pytest.raises(ValueError, match=r"b\.trr starts at step 0, at or before the start of .*a\.trr \(step 1500\); steps must continue from file to file, as in a run and its restarts\. Load independent runs as separate trajectories"):
-            MDATrajectory([a, b], TPR, temperature=300.0)
-
     def test_errors_in_a_list_name_the_file_and_its_frame(self, tmp_path):
         def drop_forces(ts):
             if ts.frame == 1:
                 ts.has_forces = False
-        def later_without_forces(ts):
-            drop_forces(ts)
-            shift_time(1e3)(ts)
-        partial = write_variant(tmp_path / "partial.trr", later_without_forces)
+        partial = write_frames(tmp_path / "partial.trr", edit=drop_forces)
         traj = MDATrajectory([TRR, partial], TPR, temperature=300.0)
         with pytest.raises(ValueError, match=r"partial\.trr, frame 1: no forces"):
             traj.get_frame(11)
@@ -396,23 +248,10 @@ class TestValidation:
         def first_without_forces(ts):
             if ts.frame == 0:
                 ts.has_forces = False
-            shift_time(1e3)(ts)
-        partial = write_variant(tmp_path / "partial.trr", first_without_forces)
+        partial = write_frames(tmp_path / "partial.trr", edit=first_without_forces)
         traj = MDATrajectory([TRR, partial], TPR, temperature=300.0)
         with pytest.raises(ValueError, match=r"partial\.trr, frame 0: no forces"):
             traj.get_frame(10)
-
-    def test_get_frame_needs_an_integer(self, traj):
-        with pytest.raises(TypeError):
-            traj.get_frame(1.0)
-
-    def test_same_file_twice_raises(self):
-        with pytest.raises(ValueError, match="is given twice"):
-            MDATrajectory([TRR, TRR], TPR, temperature=300.0)
-
-    def test_unordered_files_raise(self):
-        with pytest.raises(TypeError, match="not set"):
-            MDATrajectory({TRR}, TPR, temperature=300.0)
 
     # Whatever MDAnalysis raises for a file it cannot parse becomes a
     # RuntimeError naming the file. StopIteration in particular must not
@@ -487,34 +326,9 @@ class TestValidation:
         with pytest.raises(FileNotFoundError, match="missing.trr"):
             MDATrajectory([TRR, str(tmp_path / "missing.trr")], TPR, temperature=300.0)
 
-    def test_files_mdanalysis_cannot_parse(self, tmp_path):
-        dump = tmp_path / "small.lammpsdump"
-        dump.write_bytes(LAMMPS_DUMP.read_bytes())
-        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*prod\.tpr with .*small\.lammpsdump: ValueError: .*same number of atoms"):
-            MDATrajectory(str(dump), TPR, temperature=300.0)
-
     def test_unknown_atom_name_raises(self, traj):
         with pytest.raises(ValueError, match="no atoms named 'Na'"):
             traj.get_indices("Na")
-
-
-class TestOrderKeys:
-    """order_keys chooses steps or times for the files of a trajectory."""
-
-    def test_files_without_steps_or_times_cannot_be_joined(self):
-        from revelsMD.trajectories._mda_steps import FrameKeys, order_keys
-        keys = [FrameKeys(None, None, 3), FrameKeys(None, np.array([0.0, 1.0]), 2)]
-        with pytest.raises(ValueError, match="a.nc: the file records neither steps nor times"):
-            order_keys(keys, ["a.nc", "b.nc"])
-        unit, arrays = order_keys(keys[:1], ["a.nc"])
-        assert unit == "time" and arrays[0].tolist() == [0, 1, 2]
-
-    def test_mixed_formats_order_by_time(self):
-        from revelsMD.trajectories._mda_steps import FrameKeys, order_keys
-        keys = [FrameKeys(np.array([0, 500]), np.array([0.0, 0.5]), 2),
-                FrameKeys(None, np.array([1.0, 1.5]), 2)]
-        unit, arrays = order_keys(keys, ["a.trr", "b.ncdf"])
-        assert unit == "time" and arrays[0].tolist() == [0.0, 0.5]
 
 
 class TestUnits:
@@ -548,13 +362,13 @@ class TestUnits:
         assert "LammpsTrajectory" not in str(e.value)
 
     def test_h5md_with_units_is_read(self, tmp_path, universe):
-        path = write_variant(tmp_path / "water.h5md")
+        path = write_frames(tmp_path / "water.h5md")
         traj = MDATrajectory(path, TPR, temperature=300.0)
         frame = traj.get_frame(2)
         np.testing.assert_allclose(frame.forces, universe.trajectory[2].forces, rtol=1e-6)
 
     def test_h5md_without_a_force_unit_is_rejected(self, tmp_path):
-        path = write_variant(tmp_path / "unitless.h5md")
+        path = write_frames(tmp_path / "unitless.h5md")
         with h5py.File(path, "r+") as f:
             del f["particles/trajectory/force/value"].attrs["unit"]
         # MDAnalysis refuses to convert units it cannot read.
@@ -567,8 +381,8 @@ class TestUnits:
             _check_reader(reader)
 
     def test_every_file_of_a_list_is_checked(self, tmp_path):
-        good = write_variant(tmp_path / "good.h5md", n_frames=4)
-        bad = write_variant(tmp_path / "bad.h5md", n_frames=4)
+        good = write_frames(tmp_path / "good.h5md", range(4))
+        bad = write_frames(tmp_path / "bad.h5md", range(4))
         with h5py.File(bad, "r+") as f:
             group = f["particles/trajectory/force"]
             steps = group["step"][()]
@@ -578,7 +392,7 @@ class TestUnits:
             MDATrajectory([good, bad], TPR, temperature=300.0)
 
     def test_h5md_without_force_steps_cannot_be_checked(self, tmp_path):
-        path = write_variant(tmp_path / "nosteps.h5md")
+        path = write_frames(tmp_path / "nosteps.h5md")
         with h5py.File(path, "r+") as f:
             del f["particles/trajectory/force/step"]
         with pytest.raises(RuntimeError, match="nosteps.h5md: cannot check"):
@@ -607,7 +421,7 @@ class TestUnits:
             _check_reader(reader)
 
     def test_h5md_steps_stored_as_a_group_cannot_be_checked(self, tmp_path):
-        path = write_variant(tmp_path / "groupsteps.h5md")
+        path = write_frames(tmp_path / "groupsteps.h5md")
         with h5py.File(path, "r+") as f:
             group = f["particles/trajectory/force"]
             del group["step"]
@@ -617,14 +431,14 @@ class TestUnits:
 
     def test_h5md_step_check_fails_closed(self, tmp_path):
         from revelsMD.trajectories.mda import _check_reader
-        reader = MD.Universe(TPR, write_variant(tmp_path / "water.h5md")).trajectory
+        reader = MD.Universe(TPR, write_frames(tmp_path / "water.h5md")).trajectory
         _check_reader(reader)
         del reader._particle_group
         with pytest.raises(RuntimeError, match="cannot check that this H5MD file"):
             _check_reader(reader)
 
     def test_h5md_with_forces_at_other_steps_is_rejected(self, tmp_path):
-        path = write_variant(tmp_path / "steps.h5md", n_frames=4)
+        path = write_frames(tmp_path / "steps.h5md", range(4))
         with h5py.File(path, "r+") as f:
             # The writer links one step dataset into every group.
             group = f["particles/trajectory/force"]

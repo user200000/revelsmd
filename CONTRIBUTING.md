@@ -56,7 +56,7 @@ from typing import Iterator
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory, DataUnavailableError, as_paths, check_finite
+from ._base import Trajectory, DataUnavailableError, as_paths
 
 
 class MyTrajectory(Trajectory):
@@ -89,8 +89,10 @@ def get_indices(self, atype: str) -> np.ndarray:
 def _get_frame(self, index: int) -> Frame:
     positions = ...  # shape (n_atoms, 3)
     forces = ...     # shape (n_atoms, 3)
-    check_finite(positions, forces, f"{self.path}, frame {index}")
     return Frame(positions=positions, forces=forces)
+
+def _where(self, index: int) -> str:
+    return f"{self.path}, frame {index}"
 ```
 
 **`_iter_frames_impl(start, stop, stride)`** — yield frames over a normalised slice. This is called by the public `iter_frames()` method after bounds normalisation; `start`, `stop`, and `stride` are guaranteed to be non-negative integers:
@@ -103,7 +105,7 @@ def _iter_frames_impl(
         yield self._get_frame(i)
 ```
 
-`_get_frame` and `_iter_frames_impl` should return `Frame` instances imported from `revelsMD.frame_sources`, and raise `ValueError` naming the file and frame for a frame with NaN or infinite values (`check_finite` in `revelsMD.trajectories._base`) or with a cell other than the first frame's (`check_fixed_cell`). In `__init__`, validate the cell with `self._validate_cell_matrix(cell, where)`, naming the file, and issue warnings with `warn_user`, which attributes them to the user's code. A backend that reads several files should accept them through `as_paths`, which rejects unordered collections and repeated files.
+`_get_frame` and `_iter_frames_impl` should return `Frame` instances imported from `revelsMD.frame_sources`, and raise `ValueError` naming the file and frame for a frame with a cell other than the first frame's (`check_fixed_cell` in `revelsMD.trajectories._base`). The base class checks every frame for NaN and infinite values, naming it with `_where(index)`; override `_where` to name the file. In `__init__`, validate the cell with `self._validate_cell_matrix(cell, where)`, naming the file, and issue warnings with `warn_user`, which attributes them to the user's code (`warn_cut_short` for a final frame a killed job left incomplete). A backend that reads several files should accept them through `as_paths`, and open MDAnalysis files with `open_universe`.
 
 A backend whose frames are byte ranges of files can extend `IndexedFileTrajectory` instead, as the LAMMPS and VASP backends do. Its `__init__` sets `self._frames` to a `FileFrames.join(...)` table and `self.frames = len(self._frames)`, and it implements `_where(index)` (the file and frame, for messages) and `_read_arrays(f, index)` (positions and forces from the open file). `_read_arrays` raises `ValueError` without the file or frame, which the base class adds; other exceptions pass through unchanged. The base class provides `_get_frame`, `_iter_frames_impl`, that error wrapping and the finite check; it does not check the cell.
 

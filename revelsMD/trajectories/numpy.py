@@ -10,7 +10,7 @@ from typing import Iterator
 import numpy as np
 
 from revelsMD.frame_sources import Frame
-from ._base import Trajectory, DataUnavailableError, check_finite
+from ._base import Trajectory, DataUnavailableError
 
 
 class NumpyTrajectory(Trajectory):
@@ -103,9 +103,7 @@ class NumpyTrajectory(Trajectory):
         super().__init__(units=units, temperature=temperature)
 
         if has_cell:
-            cell_matrix = np.array(cell_matrix, dtype=np.float64, copy=True)
-            self._validate_cell_matrix(cell_matrix)
-            self.cell_matrix = cell_matrix
+            self.cell_matrix = np.array(cell_matrix, dtype=np.float64, copy=True)
         else:
             if not all(v is not None for v in box_args):
                 raise ValueError(
@@ -115,7 +113,7 @@ class NumpyTrajectory(Trajectory):
             if box_x <= 0 or box_y <= 0 or box_z <= 0:
                 raise ValueError("Box dimensions must all be positive values.")
             self.cell_matrix = self._cell_matrix_from_dimensions(box_x, box_y, box_z)
-            self._validate_cell_matrix(self.cell_matrix)
+        self._validate_cell_matrix(self.cell_matrix)
 
         self.positions = positions
         self.forces = forces
@@ -214,7 +212,4 @@ class NumpyTrajectory(Trajectory):
             yield self._get_frame(i)
 
     def _get_frame(self, index: int) -> Frame:
-        """Return frame ``index``, raising ValueError if it has NaN or infinite values."""
-        positions, forces = self.positions[index], self.forces[index]
-        check_finite(positions, forces, f"frame {index}")
-        return Frame(positions, forces)
+        return Frame(self.positions[index], self.forces[index])

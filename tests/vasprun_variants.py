@@ -1,5 +1,6 @@
 """Variants of tests/data/example_3_vasp/vasprun.xml made by byte edits."""
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from lxml import etree
@@ -70,3 +71,25 @@ def truncated(path: Path) -> str:
     last = text.rfind(OPEN)
     cut = text.find(b"</structure>", last) + len(b"</structure>") + 20
     return write(path, text[:cut])
+
+
+def _floats(elements):
+    """Rows of numbers from <v> elements, converted with float()."""
+    return np.array([[float(x) for x in v.text.split()] for v in elements])
+
+
+def independent_frames(path=SOURCE):
+    """Positions (fractional @ basis) and forces of each ionic step, read with ElementTree.
+
+    This parser shares no code with the loader, so the loader is compared
+    with an independent reading of the file.
+    """
+    frames = []
+    for calculation in ET.parse(path).getroot().findall("calculation"):
+        structure = calculation.find("structure")
+        basis = _floats(structure.find("crystal").findall("varray[@name='basis']/v"))
+        fractional = _floats(structure.findall("varray[@name='positions']/v"))
+        forces = _floats(calculation.findall("varray[@name='forces']/v"))
+        frames.append((fractional @ basis, forces))
+    return frames
+

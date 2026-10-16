@@ -210,11 +210,6 @@ class TestIndexDump:
         assert index.timesteps.tolist() == [0, 100]
         assert index.partial is None
 
-    @pytest.mark.parametrize("style", ["lj", "real", "metal", "si", "cgs", "electron", "micro", "nano"])
-    def test_every_unit_style_is_accepted(self, tmp_path, style):
-        path = write(tmp_path / "a.dump", f"ITEM: UNITS\n{style}\n", frame(0))
-        assert index_dump(path).timesteps.tolist() == [0]
-
     def test_blank_lines_within_the_preamble_are_accepted(self, tmp_path):
         path = write(tmp_path / "a.dump", "ITEM: UNITS\n\nlj\n\nITEM: TIME\n0\n\n", frame(0))
         assert index_dump(path).timesteps.tolist() == [0]
@@ -226,25 +221,15 @@ class TestIndexDump:
         assert index.partial == PartialFrame(path, None)
 
     def test_units_are_recorded(self, tmp_path):
-        path = write(tmp_path / "a.dump", "ITEM: UNITS\nmetal\n", frame(0), "ITEM: UNITS\nmetal\n", frame(100))
-        assert index_dump(path).units == "metal"
-        assert index_dump(write(tmp_path / "b.dump", frame(0))).units is None
-
-    def test_units_changing_within_a_file_raise(self, tmp_path):
-        path = write(tmp_path / "a.dump", "ITEM: UNITS\nmetal\n", frame(0), "ITEM: UNITS\nreal\n", frame(100))
-        with pytest.raises(ValueError, match="timestep 0: ITEM: UNITS changes from metal to real"):
-            index_dump(path)
+        path = write(tmp_path / "a.dump", "ITEM: UNITS\nmetal\n", frame(0), "ITEM: UNITS\nelectron\n", frame(100))
+        assert index_dump(path).units == ("metal", "electron")
+        assert index_dump(write(tmp_path / "b.dump", frame(0))).units == ()
 
     @pytest.mark.parametrize("extra", ["hello\n", "\0" * 50])
     def test_text_after_the_rows_names_its_byte(self, tmp_path, extra):
         path = write(tmp_path / "a.dump", frame(0), extra)
         offset = len(frame(0))
         with pytest.raises(ValueError, match=fr"timestep 0: the atom rows do not match the header's 6 atoms; unexpected text at byte {offset}: b'"):
-            index_dump(path)
-
-    def test_excerpts_are_at_most_40_bytes(self, tmp_path):
-        path = write(tmp_path / "a.dump", "x" * 100 + "\n", frame(0))
-        with pytest.raises(ValueError, match=r"at byte 0: b'x{40}'$"):
             index_dump(path)
 
     def test_one_atom_frame_of_blank_rows_is_incomplete(self, tmp_path):
@@ -259,22 +244,22 @@ class TestIndexDump:
         with pytest.raises(ValueError, match="timestep 100 is incomplete but is not the last"):
             index_dump(path)
 
-    @pytest.mark.parametrize("text, message", [
-        ("hello world\n" + frame(0), "unexpected text before the first frame at byte 0: b'hello world"),
-        ("ITEM: UNITS\nlj\nhello\n" + frame(0), "unexpected text before the first frame at byte 15: b'hello"),
-        ("ITEM: TIME\n" + frame(0), "unexpected text before the first frame"),
-        ("ITEM: TIME\nlj\n" + frame(0), "unexpected text before the first frame"),
-        ("ITEM: UNITS\n0.5\n" + frame(0), "unexpected text before the first frame"),
-        (frame(0) + "ITEM: TIME\n0.5\n" + "\0" * 64 + frame(100),
-         fr"timestep 0: unexpected text after the atom rows at byte {len(frame(0)) + 15}: b'\\x00{'(\\\\x00){39}'}'"),
-        ("ITEM: UNITS\nlj\nITEM: BONDS\n" + frame(0), "unexpected text before the first frame"),
-        (frame(0) + "ITEM: BONDS\n1 2 3\n" + frame(100), "timestep 0: unexpected text after the atom rows"),
-        (frame(0) + "ITEM: TIME\n" + frame(100), "timestep 0: unexpected text after the atom rows"),
-        (frame(0) + "ITEM: BONDS\n1 2 3\n", "timestep 0: unexpected text after the atom rows"),
+    @pytest.mark.parametrize("text, timesteps", [
+        ("hello world\n" + frame(0), [0]),
+        ("ITEM: UNITS\nlj\nITEM: BONDS\n" + frame(0), [0]),
+        (frame(0) + "ITEM: BONDS\n1 2 3\n" + frame(100), [0, 100]),
+        (frame(0) + "ITEM: TIME\n" + frame(100), [0, 100]),
     ])
-    def test_unknown_text_around_frames_raises(self, tmp_path, text, message):
-        with pytest.raises(ValueError, match=r"a\.dump" + ".*" + message):
-            index_dump(write(tmp_path / "a.dump", text))
+    def test_text_between_frames_is_skipped(self, tmp_path, text, timesteps):
+        index = index_dump(write(tmp_path / "a.dump", text))
+        assert index.timesteps.tolist() == timesteps
+        assert index.partial is None
+
+    def test_text_after_the_last_frame_is_a_cut_frame(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0) + "ITEM: BONDS\n1 2 3\n")
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.partial == PartialFrame(path, None)
 
     def test_value_cut_at_the_end_is_a_cut_header(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0), "ITEM: TIME\n0.")
@@ -403,6 +388,7 @@ class TestIndexDump:
         "ITEM: TIME\n0.5\nITEM: TIM", "ITEM: UNITS\nlj\nITEM: TIME\n0.5\n",
         "ITEM: UNITS\r\nlj\r\n", "ITEM: UNITS\nlj\n ITEM: TI", "ITEM: TIME\n0.5",
         "ITEM: UNITS\nelec", "ITEM: TIME\n1.5e", "ITEM: UNITS\nlj\nITEM: U",
+        "ITEM: NUMBER OF ATOMS\n6\n",
     ])
     def test_file_cut_before_its_first_frame_has_only_a_partial_frame(self, tmp_path, text):
         path = write(tmp_path / "a.dump", text)
@@ -411,15 +397,7 @@ class TestIndexDump:
         assert index.timesteps.tolist() == []
         assert index.partial == PartialFrame(path, None)
 
-    @pytest.mark.parametrize("text", [
-        "hello\n", "ITEM: UNITS\nlj\ngarbage\n", "ITEM: NUMBER OF ATOMS\n6\n",
-        "ITEM: UNITS\nlj\n" * 400,  # a valid start, but too long to be one
-        "ITEM: UNITS\nlj\nhello",  # a cut line that starts no header item
-        "ITEM: UNITS\n<html><body>404\n",  # not a unit style
-        "ITEM: TIME\nabc\n",  # not a time
-        "ITEM: UNITS\nhtml\n",  # not a unit style
-        "ITEM: UNITS\nelectrons\n",  # not a unit style, though one starts it
-    ])
+    @pytest.mark.parametrize("text", ["hello\n", "0 1 2\n3 4 5\n"])
     def test_non_dump_file_raises(self, tmp_path, text):
         with pytest.raises(ValueError, match="not a LAMMPS dump"):
             index_dump(write(tmp_path / "other.txt", text))
@@ -474,9 +452,8 @@ class TestCombineFrames:
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
 
     def test_overlap_is_replaced_by_the_later_file(self, tmp_path):
-        with pytest.warns(UserWarning, match=r"run1\.dump replaces the frames of .*run0\.dump from timestep 100 on; the frame at timestep 200 is not in the joined trajectory"):
-            paths, frames = _combined(
-                tmp_path, [frame(0), frame(100), frame(200)], [frame(100, 50.0), frame(300, 52.0)]
+        paths, frames = _combined(
+            tmp_path, [frame(0), frame(100), frame(200)], [frame(100, 50.0), frame(300, 52.0)]
             )
         assert frames == [
             (paths[0], 0), (paths[1], 100), (paths[1], 300)]
@@ -503,10 +480,9 @@ class TestCombineFrames:
             _, frames = _combined(tmp_path, [frame(0), frame(100), cut])
         assert [t for _, t in frames] == [0, 100]
 
-    def test_partial_final_frame_replaced_by_the_next_file_is_silent(self, tmp_path):
+    def test_partial_final_frame_replaced_by_the_next_file_still_warns(self, tmp_path):
         cut = frame(200)[:-30]
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
+        with pytest.warns(UserWarning, match=r"run0\.dump: dropping the incomplete final frame \(timestep 200\)"):
             paths, frames = _combined(tmp_path, [frame(0), frame(100), cut], [frame(200), frame(300)])
         assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
@@ -518,12 +494,11 @@ class TestCombineFrames:
         assert [t for _, t in frames] == [0, 100, 300]
 
     def test_middle_file_truncated_by_the_next_restart(self, tmp_path):
-        with pytest.warns(UserWarning, match=r"run2\.dump replaces the frames of .*run1\.dump from timestep 300 on; the frame at timestep 400 is not in the joined trajectory"):
-            paths, frames = _combined(
-                tmp_path,
-                [frame(0), frame(100), frame(200), frame(300)],
-                [frame(200, 20.0), frame(300, 30.0), frame(400, 40.0)],
-                [frame(300, 33.0), frame(500, 55.0)],
+        paths, frames = _combined(
+            tmp_path,
+            [frame(0), frame(100), frame(200), frame(300)],
+            [frame(200, 20.0), frame(300, 30.0), frame(400, 40.0)],
+            [frame(300, 33.0), frame(500, 55.0)],
             )
         assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 300), (paths[2], 500)]
@@ -534,9 +509,8 @@ class TestCombineFrames:
             paths, frames = _combined(tmp_path, [frame(0), frame(100)], [cut], [frame(300), frame(400)])
         assert frames == [(paths[0], 0), (paths[0], 100), (paths[2], 300), (paths[2], 400)]
 
-    def test_cut_header_replaced_by_a_restart_is_silent(self, tmp_path):
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
+    def test_cut_header_replaced_by_a_restart_still_warns(self, tmp_path):
+        with pytest.warns(UserWarning, match=r"run0\.dump: dropping the incomplete final frame;"):
             paths, frames = _combined(
                 tmp_path, [frame(0), frame(100), "ITEM: TIM"], [frame(100, 1.0), frame(200)])
         assert frames == [(paths[0], 0), (paths[1], 100), (paths[1], 200)]
@@ -550,7 +524,7 @@ class TestCombineFrames:
     def test_joined_arrays_are_read_only(self, tmp_path):
         paths = [write(tmp_path / "a.dump", frame(0)), write(tmp_path / "b.dump", frame(100))]
         table = combine_frames([index_dump(p) for p in paths])
-        for values in (table.file, table.timesteps, table.starts, table.ends):
+        for values in (table.first, table.timesteps, table.starts, table.ends):
             with pytest.raises(ValueError, match="read-only"):
                 values[0] = 1
 
@@ -568,15 +542,13 @@ class TestCombineFrames:
             _combined(tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(50), frame(400)])
 
     def test_three_files_with_a_restart_into_the_second(self, tmp_path):
-        with pytest.warns(UserWarning, match=r"run2\.dump replaces the frames of .*run1\.dump from timestep 250 on; the frame at timestep 300 is not in the joined trajectory"):
-            paths, frames = _combined(
-                tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(250), frame(400)])
+        paths, frames = _combined(
+            tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(250), frame(400)])
         assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 250), (paths[2], 400)]
 
-    def test_cut_header_in_a_middle_file_replaced_by_a_restart_is_silent(self, tmp_path):
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
+    def test_cut_header_in_a_middle_file_replaced_by_a_restart_still_warns(self, tmp_path):
+        with pytest.warns(UserWarning, match=r"run1\.dump: dropping the incomplete final frame;"):
             paths, frames = _combined(
                 tmp_path, [frame(0), frame(100)], [frame(200), frame(300), "ITEM: TIM"],
                 [frame(300, 1.0), frame(400)])
@@ -587,50 +559,15 @@ class TestCombineFrames:
             paths, frames = _combined(tmp_path, [frame(0), frame(100)], [""])
         assert frames == [(paths[0], 0), (paths[0], 100)]
 
-    def test_restart_ending_before_the_frames_it_replaces_warns(self, tmp_path):
-        with pytest.warns(UserWarning, match=(
-                r"run1\.dump replaces the frames of .*run0\.dump from timestep 200 on; "
-                r"the frame at timestep 400 is not in the joined trajectory and dropped")):
-            paths, frames = _combined(
-                tmp_path, [frame(0), frame(100), frame(200), frame(300), frame(400)],
-                [frame(200), frame(300)])
-        assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
-
-    @staticmethod
-    def _dropped_warnings(record):
-        return [str(w.message) for w in record if "not in the joined trajectory" in str(w.message)]
-
-    def test_replaced_frames_in_a_gap_between_later_files_warn(self, tmp_path):
-        # A restart killed early, then one from after the replaced frames.
-        with warnings.catch_warnings(record=True) as record:
-            warnings.simplefilter("always")
-            _combined(tmp_path, [frame(t) for t in range(0, 1001, 100)],
-                      [frame(t) for t in range(500, 701, 100)], [frame(t) for t in range(900, 2001, 100)])
-        assert self._dropped_warnings(record) == [
-            f"{tmp_path / 'run1.dump'} replaces the frames of {tmp_path / 'run0.dump'} from "
-            "timestep 500 on; the frame at timestep 800 is not in the joined trajectory and dropped"]
-
-    def test_restart_that_dumps_less_often_warns(self, tmp_path):
-        # Every replaced frame whose timestep is not in the joined trajectory
-        # is reported, including those between a coarser restart's frames.
-        with warnings.catch_warnings(record=True) as record:
-            warnings.simplefilter("always")
-            _combined(tmp_path, [frame(t) for t in range(0, 1001, 50)],
-                      [frame(t) for t in range(400, 1201, 200)])
-        assert self._dropped_warnings(record) == [
-            f"{tmp_path / 'run1.dump'} replaces the frames of {tmp_path / 'run0.dump'} from "
-            "timestep 400 on; 9 of those frames, between timesteps 450 and 950, are not in the "
-            "joined trajectory and dropped"]
-
-    def test_replaced_frames_a_later_restart_has_are_silent(self, tmp_path):
-        # run1 is a restart killed early, and run2 restarts from it and runs on.
+    def test_replaced_frames_are_dropped_silently(self, tmp_path):
+        # A restart that ends before the frames it replaces, and one that
+        # dumps less often: the earlier file's frames from the restart on go.
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             paths, frames = _combined(
-                tmp_path, [frame(t) for t in range(0, 1001, 100)],
-                [frame(500), frame(600), frame(700)], [frame(t) for t in range(600, 1101, 100)])
-        assert frames == [(paths[0], t) for t in range(0, 401, 100)] + [(paths[1], 500)] + [
-            (paths[2], t) for t in range(600, 1101, 100)]
+                tmp_path, [frame(t) for t in range(0, 401, 50)], [frame(200), frame(300)])
+        assert frames == [(paths[0], t) for t in range(0, 151, 50)] + [
+            (paths[1], 200), (paths[1], 300)]
 
     def test_restart_reaching_the_end_of_the_frames_it_replaces_is_silent(self, tmp_path):
         with warnings.catch_warnings():
@@ -664,68 +601,17 @@ class TestCombineFrames:
     def test_random_joins_match_a_plain_list_join(self, tmp_path):
         # A plain join of (path, timestep) lists: each file replaces every
         # earlier frame from its first timestep on, and may not start at or
-        # before the first timestep of the file before it. Also returns, for
-        # each file that replaces frames, (file, replaced file, its first
-        # timestep, replaced timesteps).
+        # before the first timestep of the file before it.
         def plain_join(files):
-            joined, previous, replacements = [], None, []
+            joined, previous = [], None
             for path, timesteps, _ in files:
                 if not timesteps:
                     continue
-                if previous is not None and timesteps[0] <= previous[1][0]:
-                    return None, []
-                replaced = [t for p, t in joined if t >= timesteps[0]]
-                if replaced:
-                    replacements.append((path, previous[0], timesteps[0], replaced))
+                if previous is not None and timesteps[0] <= previous[0]:
+                    return None
                 joined = [(p, t) for p, t in joined if t < timesteps[0]] + [(path, t) for t in timesteps]
-                previous = (path, timesteps)
-            return joined, replacements
-
-        def predicted_warnings(joined, replacements):
-            # Every replaced frame whose timestep is not in the output is reported.
-            output = {t for _, t in joined}
-            predicted = []
-            for path, replaced_path, start, replaced in replacements:
-                lost = [t for t in replaced if t not in output]
-                if lost:
-                    predicted.append((path, replaced_path, start, len(lost), lost[0], lost[-1]))
-            return predicted
-
-        def reported_warnings(messages):
-            pattern = re.compile(
-                r"(\S+) replaces the frames of (\S+) from timestep (\d+) on; (?:the frame at "
-                r"timestep (\d+) is|(\d+) of those frames, between timesteps (\d+) and (\d+), are)")
-            reported = []
-            for message in messages:
-                a, b, start, single, count, first, last = pattern.match(message).groups()
-                if single is not None:
-                    reported.append((a, b, int(start), 1, int(single), int(single)))
-                else:
-                    reported.append((a, b, int(start), int(count), int(first), int(last)))
-            return reported
-
-        # Incomplete final frames dropped, as (path, timestep or None): each
-        # is dropped with a warning unless the next file with frames starts
-        # at or before its timestep (or, if its timestep was not written, at
-        # or before the last frame joined so far).
-        def predicted_drops(files):
-            joined, pending, drops = [], None, []
-            for path, timesteps, partial in files:
-                if timesteps:
-                    first = timesteps[0]
-                    if pending is not None:
-                        cut = pending[1] if pending[1] is not None else (joined[-1] if joined else None)
-                        if cut is None or first > cut:
-                            drops.append(pending)
-                    pending = None
-                    joined = [t for t in joined if t < first] + timesteps
-                if partial is not None:
-                    if pending is not None:
-                        drops.append(pending)
-                    pending = (path, partial[0])
-            if pending is not None:
-                drops.append(pending)
-            return drops
+                previous = timesteps
+            return joined
 
         def reported_drops(messages):
             pattern = re.compile(r"(\S+): dropping the incomplete final frame(?: \(timestep (\d+)\))?;")
@@ -758,7 +644,7 @@ class TestCombineFrames:
                 else:
                     files.append((path, timesteps, None))
                     tails.append("")
-            expected, replacements = plain_join(files)
+            expected = plain_join(files)
             # Sometimes give one frame after a file's first a different box:
             # an error if and only if that frame is kept.
             changed = None
@@ -787,10 +673,11 @@ class TestCombineFrames:
                     continue
                 _, got = _combined(directory, *texts)
             assert got == expected
+            # Every incomplete final frame is dropped with a warning, and
+            # nothing else warns.
             messages = [str(w.message) for w in record]
-            assert reported_warnings(self._dropped_warnings(record)) == predicted_warnings(
-                expected, replacements)
-            assert reported_drops(messages) == predicted_drops(files)
+            dropped = [(path, partial[0]) for path, _, partial in files if partial is not None]
+            assert reported_drops(messages) == dropped and len(messages) == len(dropped)
             steps = [t for _, t in got]
             assert steps == sorted(set(steps))
             last_with_frames = [(path, ts) for path, ts, _ in files if ts][-1]

@@ -11,8 +11,6 @@ TEST_DATA_DIR = Path(__file__).parents[1] / "data"
 EXAMPLE1 = TEST_DATA_DIR / "example_1_LJ"
 
 
-
-
 @pytest.fixture(scope="module")
 def oracle_frames():
     return parse_dump(EXAMPLE1 / "dump.nh.lammps")

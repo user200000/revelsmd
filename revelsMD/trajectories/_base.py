@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, BinaryIO, Iterator, Literal, Self
 
+import MDAnalysis as MD  # type: ignore[import-untyped]
 import numpy as np
 import scipy.constants as constants
 
@@ -98,109 +99,12 @@ def warn_user(message: str) -> None:
     warnings.warn(message, UserWarning, skip_file_prefixes=(_PACKAGE_DIR,))
 
 
-@dataclass(frozen=True, eq=False)
-class DroppedFrames:
-    """Frames of ``replaced`` that ``replacing`` replaces but the joined trajectory lacks.
-
-    ``start`` is the first key of ``replacing``; ``lost`` holds the keys of
-    the replaced frames whose keys no kept frame has.
-    """
-
-    replacing: str
-    replaced: str
-    start: int | float
-    lost: np.ndarray
-
-
-@dataclass(frozen=True, eq=False)
-class JoinedFiles:
-    """How many frames of each file a restart join keeps, and the frames it drops."""
-
-    kept: list[int]
-    dropped: list[DroppedFrames]
-    unit: str
-
-    def warn(self) -> None:
-        """Warn about each file's dropped frames, naming the first and last."""
-        suffix = " ps" if self.unit == "time" else ""
-        for d in self.dropped:
-            first, last = _number(d.lost[0]), _number(d.lost[-1])
-            lost = (
-                f"the frame at {self.unit} {first}{suffix} is" if len(d.lost) == 1
-                else f"{len(d.lost)} of those frames, between {self.unit}s {first}{suffix} "
-                f"and {last}{suffix}, are"
-            )
-            warn_user(
-                f"{d.replacing} replaces the frames of {d.replaced} from "
-                f"{_value(self.unit, d.start)} on; {lost} not in the joined trajectory "
-                "and dropped"
-            )
-
-
-def join_restarts(keys: list[np.ndarray], paths: list[str], unit: str) -> JoinedFiles:
-    """Join the frames of a run and its restart files by their keys.
-
-    ``keys[k]`` orders the frames of file ``paths[k]``: timesteps or steps
-    (integers), or times. Each file's frames replace every frame of the
-    files before it from its own first key on, as when a run restarts from
-    a restart file. Every replaced frame whose key no kept frame has is
-    reported in ``dropped``. Each array must be non-empty.
-
-    Raises
-    ------
-    ValueError
-        If keys do not strictly increase within a file, or if a file starts
-        at or before the first key of the file before it.
-    """
-    for array, path in zip(keys, paths):
-        bad = np.flatnonzero(np.diff(array) <= 0)
-        if bad.size:
-            i = int(bad[0]) + 1
-            message = (
-                f"{path}, frame {i}: {unit}s do not increase within the file "
-                f"({_value(unit, array[i - 1])} at frame {i - 1}, "
-                f"{_value(unit, array[i])} at frame {i})"
-            )
-            if unit == "time" and array[i] == array[i - 1]:
-                message += (
-                    "; times are stored in single precision, so late in a long run "
-                    "neighbouring frames can share a time"
-                )
-            raise ValueError(message)
-    kept = [len(array) for array in keys]
-    replaced: list[tuple[int, np.ndarray]] = []
-    for k in range(1, len(keys)):
-        first, previous_first = keys[k][0], keys[k - 1][0]
-        if first <= previous_first:
-            raise ValueError(
-                f"{paths[k]} starts at {_value(unit, first)}, at or before the start of "
-                f"{paths[k - 1]} ({_value(unit, previous_first)}); {unit}s must continue "
-                "from file to file, as in a run and its restarts. Load independent runs "
-                "as separate trajectories"
-            )
-        # Every earlier file's frames precede the previous file's first key,
-        # which precedes ``first``, so only the previous file loses frames.
-        n = int(np.searchsorted(keys[k - 1][:kept[k - 1]], first))
-        if n < kept[k - 1]:
-            replaced.append((k, keys[k - 1][n:kept[k - 1]]))
-        kept[k - 1] = n
-    output = np.concatenate([array[:n] for array, n in zip(keys, kept)])
-    dropped = []
-    for k, frames in replaced:
-        lost = frames[~np.isin(frames, output)]
-        if lost.size:
-            dropped.append(DroppedFrames(paths[k], paths[k - 1], _number(keys[k][0]), lost))
-    return JoinedFiles(kept, dropped, unit)
-
-
-def _number(value) -> int | float:
-    return int(value) if isinstance(value, (int, np.integer)) else float(value)
-
-
-def _value(unit: str, value) -> str:
-    """A key for messages, such as "step 500" or "time 1.5 ps"."""
-    number = _number(value)
-    return f"{unit} {number} ps" if unit == "time" else f"{unit} {number}"
+def warn_cut_short(path: str, what: str) -> None:
+    """Warn that the incomplete final ``what`` of ``path``, as a killed job leaves, is dropped."""
+    warn_user(
+        f"{path}: dropping the incomplete final {what}; the file appears to have "
+        "been cut short"
+    )
 
 
 def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> None:
@@ -249,47 +153,22 @@ def check_finite(positions: np.ndarray, forces: np.ndarray, where: str) -> None:
 
 
 TrajectoryPath = str | bytes | os.PathLike[str] | os.PathLike[bytes]
-TrajectoryFiles = TrajectoryPath | Sequence[TrajectoryPath] | np.ndarray
+TrajectoryFiles = TrajectoryPath | Iterable[TrajectoryPath]
 
 
 def as_paths(files: TrajectoryFiles) -> list[str]:
-    """Return a list of path strings from one path, a sequence of paths or
-    a one-dimensional array of paths. Paths may be str, bytes or path
-    objects.
+    """Return a list of path strings from one path or several, in the order given.
 
     Raises
     ------
-    TypeError
-        If ``files`` is neither a path, a sequence nor a one-dimensional
-        array (a set, for example, has no order).
     ValueError
-        If no paths are given, or if the same file is given twice.
+        If no paths are given.
     """
     if isinstance(files, (str, bytes, os.PathLike)):
         return [os.fsdecode(files)]
-    items = files.tolist() if isinstance(files, np.ndarray) and files.ndim == 1 else files
-    if not isinstance(items, Sequence) or isinstance(items, (bytearray, memoryview)):
-        raise TypeError(
-            "trajectory files must be a path or a sequence of paths in run "
-            f"order, not {type(items).__name__}"
-        )
-    paths = [os.fsdecode(path) for path in items]
+    paths = [os.fsdecode(path) for path in files]
     if not paths:
         raise ValueError("At least one trajectory file is required.")
-    seen: dict[object, str] = {}
-    for path in paths:
-        try:
-            stat = os.stat(path)
-        except OSError:
-            continue  # the loader reports the file it cannot open
-        # Without inode numbers, fall back to the resolved path.
-        key: object = (
-            (stat.st_dev, stat.st_ino) if stat.st_ino
-            else os.path.normcase(os.path.realpath(path))
-        )
-        if key in seen:
-            raise ValueError(f"{path}: the same file as {seen[key]} is given twice")
-        seen[key] = path
     return paths
 
 
@@ -350,7 +229,7 @@ _NOT_PARSE_ERRORS = (
 
 
 class reading_with_mdanalysis:
-    """Context manager: raise RuntimeError naming ``files`` if MDAnalysis cannot parse them.
+    """Context manager: raise ``error`` naming ``files`` if MDAnalysis cannot read them.
 
     MDAnalysis raises many exception types for a file it can open but not
     parse (ValueError, KeyError, OSError, EOFError, StopIteration and
@@ -359,8 +238,9 @@ class reading_with_mdanalysis:
     context manager, which would let StopIteration escape unchanged.
     """
 
-    def __init__(self, files: str) -> None:
+    def __init__(self, files: str, error: type[Exception] = RuntimeError) -> None:
         self.files = files
+        self.error = error
 
     def __enter__(self) -> None:
         return None
@@ -368,17 +248,38 @@ class reading_with_mdanalysis:
     def __exit__(self, exc_type, exc, traceback) -> Literal[False]:
         if exc is None or not isinstance(exc, Exception) or isinstance(exc, _NOT_PARSE_ERRORS):
             return False
-        raise RuntimeError(
+        raise self.error(
             f"MDAnalysis cannot read {self.files}: {type(exc).__name__}: {exc}"
         ) from exc
 
 
-def open_check(path: str) -> None:
-    """Raise the operating system's error if ``path`` cannot be opened for reading.
+def open_universe(topology, trajectories: Sequence[str] = (), **options):
+    """Open an MDAnalysis Universe, naming any file that cannot be read.
 
-    FileNotFoundError, PermissionError and IsADirectoryError name the file.
+    Topology and trajectory paths are opened first, so a file that cannot
+    be opened raises the operating system's error (FileNotFoundError,
+    PermissionError, IsADirectoryError) naming it; a topology that is not a
+    path, such as an MDAnalysis stream, is passed on as it is. If MDAnalysis
+    cannot read the files, RuntimeError names them and the exception it
+    raised; with several trajectory files, each is opened alone to find the
+    one it cannot read.
     """
-    open(path, "rb").close()
+    paths = list(trajectories)
+    for path in ([topology] if isinstance(topology, str) else []) + paths:
+        open(path, "rb").close()
+    files = f"{topology} with {', '.join(paths)}" if paths else str(topology)
+    arguments = [topology] + ([paths[0] if len(paths) == 1 else paths] if paths else [])
+    try:
+        with reading_with_mdanalysis(files):
+            return MD.Universe(*arguments, **options)
+    except RuntimeError as joined:
+        for path in paths if len(paths) > 1 else []:
+            try:
+                with reading_with_mdanalysis(f"{topology} with {path}"):
+                    MD.Universe(topology, path, **options)
+            except RuntimeError as alone:
+                raise alone from joined.__cause__
+        raise
 
 
 class DataUnavailableError(Exception):
@@ -628,7 +529,17 @@ class Trajectory(ABC):
             each of shape (n_atoms, 3).
         """
         start, stop, stride = self._normalize_bounds(start, stop, stride)
-        return self._iter_frames_impl(start, stop, stride)
+        return self._checked(range(start, stop, stride), self._iter_frames_impl(start, stop, stride))
+
+    def _checked(self, indices: Iterable[int], frames: Iterator[Frame]) -> Iterator[Frame]:
+        """Yield each frame after checking its values are finite."""
+        for index, frame in zip(indices, frames):
+            check_finite(frame.positions, frame.forces, self._where(index))
+            yield frame
+
+    def _where(self, index: int) -> str:
+        """Name frame ``index`` for error messages; backends add the file."""
+        return f"frame {index}"
 
     @abstractmethod
     def _iter_frames_impl(
@@ -666,12 +577,16 @@ class Trajectory(ABC):
         IndexError
             If ``index`` is out of range.
         ValueError
-            If the frame cannot be read or fails the backend's checks.
+            If the frame cannot be read, fails the backend's checks, or has
+            NaN or infinite positions or forces.
         """
         index = operator.index(index)
         if not -self.frames <= index < self.frames:
             raise IndexError(f"frame {index} is out of range for {self.frames} frames")
-        return self._get_frame(index % self.frames)
+        index %= self.frames
+        frame = self._get_frame(index)
+        check_finite(frame.positions, frame.forces, self._where(index))
+        return frame
 
     @abstractmethod
     def _get_frame(self, index: int) -> Frame:
@@ -683,13 +598,13 @@ class Trajectory(ABC):
 class FileFrames:
     """Where each frame of a trajectory joined from several files is stored.
 
-    Frame ``i`` is bytes ``[starts[i], ends[i])`` of ``paths[file[i]]``.
-    ``file`` does not decrease. Tables made by :meth:`join` have read-only
-    arrays.
+    The frames of ``paths[k]`` are frames ``first[k]`` to ``first[k + 1] - 1``;
+    frame ``i`` is bytes ``[starts[i], ends[i])`` of its file. Tables made
+    by :meth:`join` have read-only arrays.
     """
 
     paths: list[str]
-    file: np.ndarray
+    first: np.ndarray
     starts: np.ndarray
     ends: np.ndarray
 
@@ -707,9 +622,7 @@ class FileFrames:
         are made read-only in place, so pass arrays the table can own.
         """
         arrays = {
-            "file": np.repeat(
-                np.arange(len(paths), dtype=np.int32), [len(s) for s in starts]
-            ),
+            "first": np.concatenate([[0], np.cumsum([len(s) for s in starts])]).astype(np.int64),
             "starts": np.concatenate(starts),
             "ends": np.concatenate(ends),
         }
@@ -719,11 +632,16 @@ class FileFrames:
         return cls(paths=paths, **arrays, **fields)
 
     def __len__(self) -> int:
-        return len(self.file)
+        return int(self.first[-1])
+
+    def locate(self, i: int) -> tuple[int, int]:
+        """The file of frame ``i`` and the frame's position in it."""
+        k = int(np.searchsorted(self.first, i, side="right")) - 1
+        return k, i - int(self.first[k])
 
     def path(self, i: int) -> str:
         """The path of frame ``i``."""
-        return self.paths[self.file[i]]
+        return self.paths[self.locate(i)[0]]
 
 
 class IndexedFileTrajectory(Trajectory):
@@ -731,8 +649,7 @@ class IndexedFileTrajectory(Trajectory):
 
     Subclasses set ``_frames`` and implement ``_where`` and ``_read_arrays``.
     Frames are read with one file open at a time; a reader's ValueError is
-    raised again naming the file and frame, and frames with NaN or infinite
-    values are rejected.
+    raised again naming the file and frame.
     """
 
     _frames: FileFrames
@@ -744,16 +661,17 @@ class IndexedFileTrajectory(Trajectory):
 
     @abstractmethod
     def _read_arrays(self, f: BinaryIO, index: int) -> tuple[np.ndarray, np.ndarray]:
-        """Read the positions and forces of frame ``index`` from its open file."""
+        """Read the positions and forces of frame ``index`` from its open file.
+
+        Raise ValueError without the file or frame, which are added.
+        """
         ...
 
     def _read(self, f: BinaryIO, index: int) -> Frame:
-        where = self._where(index)
         try:
             positions, forces = self._read_arrays(f, index)
         except ValueError as e:
-            raise ValueError(f"{where}: {e}") from e
-        check_finite(positions, forces, where)
+            raise ValueError(f"{self._where(index)}: {e}") from e
         return Frame(positions, forces)
 
     def _iter_frames_impl(self, start: int, stop: int, stride: int) -> Iterator[Frame]:

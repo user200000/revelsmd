@@ -135,8 +135,7 @@ class TestMultipleFiles:
     def test_overlap_takes_the_later_file(self, tmp_path):
         a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0), frame(200, 2.0))
         b = write(tmp_path / "b.dump", frame(100, 50.0), frame(300, 52.0))
-        with pytest.warns(UserWarning, match=r"the frame at timestep 200 is not in the joined trajectory"):
-            traj = load([a, b])
+        traj = load([a, b])
         assert traj.frames == 3
         got = list(traj.iter_frames())
         for g, shift in zip(got, (0.0, 50.0, 52.0)):

@@ -7,18 +7,13 @@ import pytest
 
 from file_limits import open_descriptors, open_file_limit
 from traced_memory import bytes_per_extra_item
-from vasprun_variants import SOURCE, join, split, truncated, with_basis, without_forces, write
+from vasprun_variants import (
+    SOURCE, independent_frames as reference_frames, join, split, truncated, with_basis,
+    without_forces, write,
+)
 from revelsMD.trajectories import DataUnavailableError, VaspTrajectory
 from revelsMD.trajectories._base import compute_beta
-from revelsMD.trajectories.vasp import index_vasprun, read_vasp_frame
-
-
-def reference_frames(path=SOURCE):
-    """Frames read directly with the index reader, for comparison."""
-    index = index_vasprun(str(path))
-    with open(path, "rb") as f:
-        return [read_vasp_frame(f, start, end, len(index.atom_names))
-                for start, end in zip(index.starts, index.ends)]
+from revelsMD.trajectories.vasp import index_vasprun
 
 
 @pytest.fixture(scope="module")
@@ -178,14 +173,6 @@ class TestFiles:
         second = text[text.find(b"?>") + 2:]
         with pytest.raises(ValueError, match="a second <atominfo>"):
             VaspTrajectory(write(tmp_path / "cat.xml", text + second), temperature=600.0)
-
-    def test_same_file_twice_raises(self):
-        with pytest.raises(ValueError, match="is given twice"):
-            VaspTrajectory([str(SOURCE), str(SOURCE)], temperature=600.0)
-
-    def test_unordered_files_raise(self, tmp_path):
-        with pytest.raises(TypeError, match="not set"):
-            VaspTrajectory(set(self._split(tmp_path)), temperature=600.0)
 
     def test_files_with_different_atoms_raise(self, tmp_path):
         text = SOURCE.read_bytes()
