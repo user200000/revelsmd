@@ -1,12 +1,15 @@
 """Tests for revelsMD.density package and its module structure."""
 
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from revelsMD.density import DensityGrid, Selection
 from revelsMD.frame_sources import Frame
+
+DATA = Path(__file__).parent / "data"
 
 
 # ---------------------------------------------------------------------------
@@ -2590,3 +2593,41 @@ class TestHybridDensity:
 
         with pytest.raises(RuntimeError, match="No density data available"):
             gs.rho_hybrid(0.01)
+
+
+class TestFailedAccumulate:
+    """A frame that cannot be read leaves the frames before it in the grid."""
+
+    @pytest.mark.parametrize("options, kept", [
+        ({}, 2),
+        ({"compute_lambda": True, "block_size": 2}, 2),  # block [2, 3] fails
+        ({"compute_lambda": True, "block_size": 3}, 0),  # block [0, 1, 2] fails
+    ])
+    def test_accumulating_continues_after_a_bad_file(self, tmp_path, options, kept):
+        from lammps_dumps import frame, rows, write
+        from revelsMD.trajectories import LammpsTrajectory
+
+        def load(name, *frames):
+            path = write(tmp_path / name, *frames)
+            return LammpsTrajectory(path, str(DATA / "lammps_small" / "data.small.data"),
+                                    temperature=1.0, units="lj")
+
+        broken = [r.replace(" 200 ", " nan ") for r in rows(200)]
+        bad = load("bad.dump", frame(0), frame(100, 1.0), frame(200, atom_rows=broken), frame(300))
+        good = load("good.dump", frame(0, 2.0), frame(100, 3.0))
+
+        grid = DensityGrid(good, "number", nbins=4)
+        with pytest.raises(ValueError, match="NaN"):
+            grid.accumulate(bad, "1", **options)
+        grid.accumulate(good, "1", **options)
+
+        reference = DensityGrid(good, "number", nbins=4)
+        if kept:
+            reference.accumulate(bad, "1", stop=kept, **options)
+        reference.accumulate(good, "1", **options)
+        assert grid.frames_processed == reference.frames_processed == kept + 2
+        assert grid.count == reference.count
+        np.testing.assert_array_equal(grid.counter, reference.counter)
+        np.testing.assert_array_equal(grid.force_x, reference.force_x)
+        if options:
+            assert grid._welford.count == reference._welford.count

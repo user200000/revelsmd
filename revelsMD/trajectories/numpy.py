@@ -5,7 +5,7 @@ This module provides the NumpyTrajectory class for trajectories stored
 directly as NumPy arrays in memory.
 """
 
-from typing import Iterator
+from collections.abc import Generator
 
 import numpy as np
 
@@ -206,7 +206,7 @@ class NumpyTrajectory(Trajectory):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[Frame]:
+    ) -> Generator[Frame, None, None]:
         """Iterate over in-memory position/force arrays."""
         for i in range(start, stop, stride):
             yield self._get_frame(i)

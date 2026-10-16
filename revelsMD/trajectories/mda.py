@@ -7,7 +7,7 @@ via MDAnalysis.
 
 import os
 import struct
-from typing import Iterator
+from collections.abc import Generator
 
 from MDAnalysis.coordinates.H5MD import H5MDReader  # type: ignore[import-untyped]
 from MDAnalysis.coordinates.LAMMPS import DumpReader  # type: ignore[import-untyped]
@@ -20,7 +20,7 @@ import numpy as np
 from revelsMD.frame_sources import Frame
 from ._base import (
     TrajectoryFiles, TrajectoryPath, Trajectory, as_paths, check_fixed_cell, open_universe,
-    reading_with_mdanalysis, topology_values, warn_cut_short,
+    locate, reading_with_mdanalysis, topology_values, warn_cut_short,
 )
 
 
@@ -232,19 +232,14 @@ class MDATrajectory(Trajectory):
         """
         return topology_values(self.mdanalysis_universe.select_atoms(f'name {atype}'), "masses")
 
-    def _locate(self, index: int) -> tuple[int, int]:
-        """The file of frame ``index`` and the frame's position in it."""
-        k = int(np.searchsorted(self._first, index, side="right")) - 1
-        return k, index - int(self._first[k])
-
     def _where(self, index: int) -> str:
-        k, local = self._locate(index)
+        k, local = locate(self._first, index)
         return f"{self._paths[k]}, frame {local}"
 
     def _get_frame(self, index: int) -> Frame:
         """Read frame ``index`` with MDAnalysis and check it."""
         where = self._where(index)
-        k, local = self._locate(index)
+        k, local = locate(self._first, index)
         with reading_with_mdanalysis(where, ValueError):
             ts = self.mdanalysis_universe.trajectory[int(self._mdanalysis_first[k]) + local]
         if not ts.has_positions:
@@ -261,7 +256,7 @@ class MDATrajectory(Trajectory):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[Frame]:
+    ) -> Generator[Frame, None, None]:
         """Read the selected frames in order."""
         for index in range(start, stop, stride):
             yield self._get_frame(index)

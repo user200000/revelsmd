@@ -328,6 +328,21 @@ class TestRDFAccumulatePeriod:
         assert rdf._frame_count == 2
 
 
+class TestRDFFrameBounds:
+
+    @pytest.mark.parametrize("start, stop", [(3, None), (-4, None), (0, 4), (0, -4), (2, 1)])
+    def test_frames_outside_the_trajectory_or_none_raise(self, water_trajectory, start, stop):
+        from revelsMD.rdf import RDF
+        with pytest.raises(ValueError):
+            RDF(water_trajectory, 'O', 'H').accumulate(water_trajectory, start=start, stop=stop)
+
+    def test_negative_bounds_count_from_the_end(self, water_trajectory):
+        from revelsMD.rdf import RDF
+        rdf = RDF(water_trajectory, 'O', 'H')
+        rdf.accumulate(water_trajectory, start=-3, stop=-1)
+        assert rdf._frame_count == 2
+
+
 class TestRDFCountAccumulation:
     """Test histogram-based g(r) accumulation."""
 

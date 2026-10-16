@@ -1,5 +1,9 @@
 """Tests for frame source functions."""
 
+import gc
+import itertools
+import weakref
+
 import numpy as np
 import pytest
 
@@ -115,8 +119,37 @@ class TestContiguousBlocks:
         blocks = contiguous_blocks(iter(_make_frames(6)), block_size=3)
         first = next(blocks)
         next(first)
-        with pytest.raises(RuntimeError, match="not read to its end"):
+        with pytest.raises(RuntimeError, match="before the previous block was read to its end"):
             next(blocks)
+
+    def test_consumers_that_stop_at_the_block_size_do_not_raise(self):
+        blocks = contiguous_blocks(iter(_make_frames(7)), block_size=3)
+        assert [[int(f.positions[0, 0]) for f in itertools.islice(block, 3)]
+                for block in blocks] == [[0, 1, 2], [3, 4, 5], [6]]
+        blocks = contiguous_blocks(iter(_make_frames(6)), block_size=3)
+        assert [[int(f.positions[0, 0]) for _, f in zip(range(3), block)]
+                for block in blocks] == [[0, 1, 2], [3, 4, 5]]
+
+    def test_a_full_block_does_not_read_the_next_frame(self):
+        pulled = []
+
+        def stream():
+            for frame in _make_frames(6):
+                pulled.append(int(frame.positions[0, 0]))
+                yield frame
+
+        block = next(contiguous_blocks(stream(), block_size=3))
+        list(itertools.islice(block, 3))
+        assert pulled == [0, 1, 2]
+
+    def test_a_read_frame_is_not_kept(self):
+        class Item:
+            pass
+
+        block = next(contiguous_blocks((Item() for _ in range(2)), block_size=2))
+        first = weakref.ref(next(block))
+        gc.collect()
+        assert first() is None
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +173,34 @@ class TestInterleavedBlocks:
         monkeypatch.setattr(NumpyTrajectory, "get_frame", lambda self, i: pytest.fail("get_frame used"))
         blocks = _frame_ids(interleaved_blocks(traj, range(1, 10), sections=4))
         assert blocks == [[1, 5, 9], [2, 6], [3, 7], [4, 8]]
+
+    @pytest.mark.parametrize("indices, expected", [
+        (range(-6, 0), [[4, 6, 8], [5, 7, 9]]),  # negative indices count from the end
+        (range(9, -1, -1), [[9, 7, 5, 3, 1], [8, 6, 4, 2, 0]]),  # descending
+    ])
+    def test_sections_outside_the_iter_frames_path_read_every_frame(self, indices, expected):
+        from revelsMD.trajectories import NumpyTrajectory
+        positions = np.arange(10, dtype=float)[:, None, None] * np.ones((10, 2, 3))
+        traj = NumpyTrajectory(positions, np.ones((10, 2, 3)), 20, 20, 20, ["A", "B"],
+                               temperature=300.0)
+        assert _frame_ids(interleaved_blocks(traj, indices, sections=2)) == expected
+
+    def test_a_section_past_the_last_frame_raises(self):
+        from revelsMD.trajectories import NumpyTrajectory
+        traj = NumpyTrajectory(np.zeros((10, 2, 3)), np.ones((10, 2, 3)), 20, 20, 20, ["A", "B"],
+                               temperature=300.0)
+        with pytest.raises(IndexError):
+            _frame_ids(interleaved_blocks(traj, range(5, 12), sections=2))
+
+    def test_closing_the_blocks_closes_a_part_read_section(self):
+        from revelsMD.trajectories import NumpyTrajectory
+        traj = NumpyTrajectory(np.zeros((10, 2, 3)), np.ones((10, 2, 3)), 20, 20, 20, ["A", "B"],
+                               temperature=300.0)
+        blocks = interleaved_blocks(traj, range(10), sections=2)
+        section = next(blocks)
+        next(section)
+        blocks.close()
+        assert section.gi_frame is None
 
     def test_three_sections(self):
         traj = _FakeTrajectory(9)

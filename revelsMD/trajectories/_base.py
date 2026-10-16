@@ -5,13 +5,15 @@ This module defines the abstract base class and common exceptions used by
 all trajectory backends.
 """
 
+import contextlib
 import operator
 import os
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Generator, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, BinaryIO, Iterator, Literal, Self
+from types import TracebackType
+from typing import Any, BinaryIO, Literal, Self
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
 from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
@@ -65,7 +67,7 @@ def read_frames_one_file_at_a_time(
     indices: Iterable[int],
     path_of: Callable[[int], str],
     read: Callable[[BinaryIO, int], Frame],
-) -> Iterator[Frame]:
+) -> Generator[Frame, None, None]:
     """Yield ``read(handle, i)`` for each index, keeping at most one file open.
 
     Consecutive indices in the same file share one open handle; the file is
@@ -173,6 +175,34 @@ def as_paths(files: TrajectoryFiles) -> list[str]:
     return paths
 
 
+def frame_range(n_frames: int, start: int, stop: int | None, period: int) -> range:
+    """Return the frames that ``start``, ``stop`` and ``period`` select.
+
+    Negative indices count from the end, as for ``iter_frames``. Unlike
+    :func:`normalize_bounds`, which clamps, this raises for an index
+    outside the trajectory or an empty selection, which are almost
+    certainly mistakes.
+
+    Raises
+    ------
+    ValueError
+        If ``start`` or ``stop`` lies outside ``[-n_frames, n_frames]``, if
+        ``period`` is less than 1, or if no frames are selected.
+    """
+    for name, index in (("start", start), ("stop", stop)):
+        if index is not None and not -n_frames <= index <= n_frames:
+            raise ValueError(
+                f"{name}={index} is outside the trajectory's {n_frames} frames"
+            )
+    frames = range(*normalize_bounds(n_frames, start, stop, period))
+    if len(frames) == 0:
+        raise ValueError(
+            f"No frames selected: start={start}, stop={stop}, "
+            f"period={period} yields an empty range."
+        )
+    return frames
+
+
 # Boltzmann constants in different unit systems
 _BOLTZMANN_CONSTANTS: dict[str, float] = {
     'lj': 1.0,
@@ -246,7 +276,12 @@ class reading_with_mdanalysis:
     def __enter__(self) -> None:
         return None
 
-    def __exit__(self, exc_type, exc, traceback) -> Literal[False]:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> Literal[False]:
         if exc is None or not isinstance(exc, Exception) or isinstance(exc, _NOT_PARSE_ERRORS):
             return False
         raise self.error(
@@ -254,7 +289,7 @@ class reading_with_mdanalysis:
         ) from exc
 
 
-def open_universe(topology, trajectories: Sequence[str] = (), **options):
+def open_universe(topology: Any, trajectories: Sequence[str] = (), **options: Any) -> MD.Universe:
     """Open an MDAnalysis Universe, naming any file that cannot be read.
 
     Topology and trajectory paths are opened first, so a file that cannot
@@ -273,13 +308,13 @@ def open_universe(topology, trajectories: Sequence[str] = (), **options):
     try:
         with reading_with_mdanalysis(files):
             return MD.Universe(*arguments, **options)
-    except RuntimeError as joined:
+    except RuntimeError:
         for path in paths if len(paths) > 1 else []:
             try:
                 with reading_with_mdanalysis(f"{topology} with {path}"):
                     MD.Universe(topology, path, **options)
             except RuntimeError as alone:
-                raise alone from joined.__cause__
+                raise alone
         raise
 
 
@@ -521,7 +556,7 @@ class Trajectory(ABC):
         start: int = 0,
         stop: int | None = None,
         stride: int = 1
-    ) -> Iterator[Frame]:
+    ) -> Generator[Frame, None, None]:
         """
         Iterate over trajectory frames, yielding Frame instances.
 
@@ -544,11 +579,18 @@ class Trajectory(ABC):
         start, stop, stride = self._normalize_bounds(start, stop, stride)
         return self._checked(range(start, stop, stride), self._iter_frames_impl(start, stop, stride))
 
-    def _checked(self, indices: Iterable[int], frames: Iterator[Frame]) -> Iterator[Frame]:
-        """Yield each frame after checking its values are finite."""
-        for index, frame in zip(indices, frames):
-            check_finite(frame.positions, frame.forces, self._where(index))
-            yield frame
+    def _checked(
+        self, indices: Iterable[int], frames: Generator[Frame, None, None]
+    ) -> Generator[Frame, None, None]:
+        """Yield each frame after checking its values are finite.
+
+        ``frames`` is closed when this generator ends, raises or is closed,
+        so a backend's open file is not held by a suspended reader.
+        """
+        with contextlib.closing(frames):
+            for index, frame in zip(indices, frames, strict=True):
+                check_finite(frame.positions, frame.forces, self._where(index))
+                yield frame
 
     def _where(self, index: int) -> str:
         """Name frame ``index`` for error messages; backends add the file."""
@@ -560,7 +602,7 @@ class Trajectory(ABC):
         start: int,
         stop: int,
         stride: int
-    ) -> Iterator[Frame]:
+    ) -> Generator[Frame, None, None]:
         """
         Internal implementation of frame iteration.
 
@@ -607,6 +649,15 @@ class Trajectory(ABC):
         ...
 
 
+def locate(first: np.ndarray, i: int) -> tuple[int, int]:
+    """The file of frame ``i`` and the frame's position in it.
+
+    The frames of file ``k`` are frames ``first[k]`` to ``first[k + 1] - 1``.
+    """
+    k = int(np.searchsorted(first, i, side="right")) - 1
+    return k, i - int(first[k])
+
+
 @dataclass(frozen=True, eq=False)
 class FileFrames:
     """Where each frame of a trajectory joined from several files is stored.
@@ -649,8 +700,7 @@ class FileFrames:
 
     def locate(self, i: int) -> tuple[int, int]:
         """The file of frame ``i`` and the frame's position in it."""
-        k = int(np.searchsorted(self.first, i, side="right")) - 1
-        return k, i - int(self.first[k])
+        return locate(self.first, i)
 
     def path(self, i: int) -> str:
         """The path of frame ``i``."""
@@ -687,7 +737,7 @@ class IndexedFileTrajectory(Trajectory):
             raise ValueError(f"{self._where(index)}: {e}") from e
         return Frame(positions, forces)
 
-    def _iter_frames_impl(self, start: int, stop: int, stride: int) -> Iterator[Frame]:
+    def _iter_frames_impl(self, start: int, stop: int, stride: int) -> Generator[Frame, None, None]:
         """Read the indexed frames in order, with one file open at a time."""
         return read_frames_one_file_at_a_time(
             range(start, stop, stride), self._frames.path, self._read

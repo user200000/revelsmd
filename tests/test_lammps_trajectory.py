@@ -9,6 +9,8 @@ import pytest
 from file_limits import open_descriptors, open_file_limit
 from lammps_dumps import IDS_SORTED, atom_type, forces, frame, positions, rows, write
 from traced_memory import bytes_per_extra_item
+from revelsMD.density import DensityGrid
+from revelsMD.rdf import RDF
 from revelsMD.trajectories import DataUnavailableError, LammpsTrajectory
 from revelsMD.trajectories._base import compute_beta
 
@@ -223,6 +225,30 @@ class TestOpenFiles:
             got = list(traj.iter_frames())
         assert len(got) == n_files
         np.testing.assert_array_equal(got[-1].positions, positions(float((n_files - 1) % 7)))
+
+
+    @pytest.mark.parametrize("consumer", [
+        "iter_frames", "grid", "contiguous blocks", "interleaved blocks", "rdf",
+    ])
+    def test_no_file_is_left_open_after_a_bad_frame(self, tmp_path, consumer):
+        run = {
+            "iter_frames": lambda traj: list(traj.iter_frames()),
+            "grid": lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(traj, "1"),
+            "contiguous blocks": lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
+                traj, "1", compute_lambda=True, block_size=2),
+            "interleaved blocks": lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
+                traj, "1", compute_lambda=True, blocking="interleaved", sections=2),
+            "rdf": lambda traj: RDF(traj, "1", "2").accumulate(traj),
+        }[consumer]
+        broken = [r.replace(" 100 ", " nan ") for r in rows(100)]
+        good = load(write(tmp_path / "good.dump", frame(0), frame(100), frame(200)))
+        bad = load(write(tmp_path / "bad.dump", frame(0), frame(100, atom_rows=broken), frame(200)))
+        run(good)  # anything opened once per process, such as by tqdm, is opened now
+        before = open_descriptors()
+        # The exception is kept, as a notebook or debugger keeps it, while files are counted.
+        with pytest.raises(ValueError, match="NaN") as kept:
+            run(bad)
+        assert kept.value is not None and open_descriptors() == before
 
 
 class TestIndexMemory:

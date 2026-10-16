@@ -10,7 +10,7 @@ from revelsMD.trajectories import (
     VaspTrajectory,
     DataUnavailableError,
 )
-from revelsMD.trajectories._base import Trajectory, compute_beta, normalize_bounds
+from revelsMD.trajectories._base import Trajectory, compute_beta, frame_range, normalize_bounds
 
 
 # -----------------------------------------------------------------------------
@@ -876,3 +876,22 @@ class TestReadFramesOneFileAtATime:
         assert next(frames) == 0
         frames.close()
         assert handles[0].closed
+
+
+class TestFrameRange:
+
+    @pytest.mark.parametrize("start, stop, period, expected", [
+        (0, None, 1, range(5)),
+        (-2, None, 1, range(3, 5)),
+        (1, -1, 2, range(1, 4, 2)),
+        (-5, 5, 1, range(5)),
+    ])
+    def test_selected_frames(self, start, stop, period, expected):
+        assert frame_range(5, start, stop, period) == expected
+
+    @pytest.mark.parametrize("start, stop, period", [
+        (5, None, 1), (6, None, 1), (-6, None, 1), (0, 6, 1), (0, -6, 1), (3, 2, 1), (0, None, 0),
+    ])
+    def test_outside_the_trajectory_or_empty_raises(self, start, stop, period):
+        with pytest.raises(ValueError):
+            frame_range(5, start, stop, period)
