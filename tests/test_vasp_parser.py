@@ -38,7 +38,7 @@ class TestIndexVasprun:
     def test_truncated_file_keeps_complete_steps(self, tmp_path):
         index = index_vasprun(truncated(tmp_path / "vasprun.xml"))
         assert len(index.starts) == len(index.ends) == 9
-        assert index.cut == 9
+        assert index.cut == "calculation 9 has no closing tag"
 
     def test_missing_forces_raises(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
@@ -102,15 +102,15 @@ class TestIndexVasprun:
         with pytest.raises(ValueError, match="no atom list in <atominfo>"):
             index_vasprun(write(tmp_path / "vasprun.xml", text))
 
-    @pytest.mark.parametrize("keep", [
-        lambda head, first: b"",  # empty
-        lambda head, first: head[:-50],  # cut before its first step
-        lambda head, first: head + first[:-200],  # cut during its first step
+    @pytest.mark.parametrize("keep, reason", [
+        (lambda head, first: b"", "the file is empty"),
+        (lambda head, first: head[:-50], "no <calculation> element"),  # cut before its first step
+        (lambda head, first: head + first[:-200], "calculation 0 has no closing tag"),
     ])
-    def test_file_without_a_complete_step_has_none(self, tmp_path, keep):
+    def test_file_without_a_complete_step_has_none(self, tmp_path, keep, reason):
         head, calculations, _ = split(SOURCE.read_bytes())
         index = index_vasprun(write(tmp_path / "vasprun.xml", keep(head, calculations[0])))
-        assert len(index.starts) == 0 and index.cut == 0
+        assert len(index.starts) == 0 and index.cut == reason
 
     @pytest.mark.parametrize("edit, missing", [
         (without_forces, "no forces"),

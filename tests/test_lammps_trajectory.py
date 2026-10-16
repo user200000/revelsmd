@@ -464,8 +464,10 @@ class TestTopology:
         given = LammpsTrajectory(six_frames, str(path), temperature=1.0, units="lj",
                                  masses={"1": 12.0, 2: 1.0}, charges={1: -0.5})
         np.testing.assert_array_equal(given.get_masses("1"), [12.0] * 3)
-        np.testing.assert_array_equal(given.get_masses("2"), [1.0] * 3)
-        np.testing.assert_array_equal(given.get_charges("1"), [-0.5] * 3)
+        np.testing.assert_array_equal(given.get_masses(2), [1.0] * 3)  # types as numbers too
+        np.testing.assert_array_equal(given.get_charges(1), [-0.5] * 3)
+        with pytest.raises(DataUnavailableError, match="give them for 2 with charges="):
+            given.get_charges("2")
 
     def test_given_masses_win_over_the_data_file(self, six_frames):
         traj = LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj", masses={"1": 5.0})

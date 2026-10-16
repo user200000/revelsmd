@@ -1,6 +1,7 @@
 """Base class, shared helpers and exceptions for the trajectory backends."""
 
 import contextlib
+import numbers
 import operator
 import os
 import warnings
@@ -78,11 +79,12 @@ def warn_user(message: str) -> None:
     warnings.warn(message, UserWarning, skip_file_prefixes=(_PACKAGE_DIR,))
 
 
-def warn_cut_short(path: str, what: str) -> None:
-    """Warn that the incomplete final ``what`` of ``path``, as a killed job leaves, is dropped."""
+def warn_cut_short(path: str, what: str, reason: str | None = None) -> None:
+    """Warn that the final ``what`` of ``path``, which cannot be read, is dropped."""
+    because = "" if reason is None else f" ({reason})"
     warn_user(
         f"{path}: dropping the incomplete final {what}; the file appears to have "
-        "been cut short"
+        f"been cut short{because}"
     )
 
 
@@ -237,37 +239,57 @@ def given_values(
     """Return the user's per-label charges or masses keyed by label string.
 
     ``labels()`` is called only if values are given. Raises ValueError if a
-    given label is not one of the atoms'.
+    value is not a finite number (or, for masses, is negative), or a label
+    is not one of the atoms'.
     """
-    values = {str(label): float(value) for label, value in (given or {}).items()}
+    values: dict[str, float] = {}
+    for label, value in (given or {}).items():
+        if (isinstance(value, bool) or not isinstance(value, numbers.Real)
+                or not np.isfinite(value) or (name == "masses" and value < 0)):
+            raise ValueError(
+                f"{name}= gives {label!r} the value {value!r}; values must be finite "
+                f"numbers{', not negative' if name == 'masses' else ''}"
+            )
+        values[str(label)] = float(value)
     unknown = sorted(set(values) - set(labels())) if values else []
     if unknown:
         raise ValueError(f"{name}= names {what} that no atom has: {', '.join(unknown)}")
     return values
 
 
-def topology_values(
-    atoms: Any,
+def atom_values(
+    labels: Iterable[Any],
     name: Literal["charges", "masses"],
-    label: str,
     given: Mapping[str, float],
-    topology: str,
+    recorded: Callable[[], Any],
+    source: str,
 ) -> np.ndarray:
-    """Return the ``charges`` or ``masses`` of MDAnalysis ``atoms``, labelled ``label``.
+    """Return the charges or masses of atoms with ``labels`` (names, types or species).
 
-    A value in ``given`` wins; otherwise those the topology records.
-    Raises DataUnavailableError if neither gives them.
+    Each atom takes the value given for its label, else the one ``recorded()``
+    returns for it (called only if needed; None if nothing is recorded).
+    Raises DataUnavailableError naming the labels with neither.
     """
-    if label in given:
-        return np.full(len(atoms), given[label])
-    try:
-        return np.array(getattr(atoms, name))
-    except NoDataError:
+    labels = np.array([str(label) for label in labels])
+    is_given = np.isin(labels, list(given))
+    values = np.zeros(len(labels)) if is_given.all() else recorded()
+    if values is None:
+        missing = ", ".join(sorted(set(labels[~is_given])))
         raise DataUnavailableError(
-            f"{topology}: the topology records no {name}, and RevelsMD does not "
-            f"guess them; give them with {name}={{'{label}': ...}}, or use a "
-            f"topology that records them"
-        ) from None
+            f"{source} records no {name}, and RevelsMD does not guess them; give "
+            f"them for {missing} with {name}="
+        )
+    values = np.array(values, dtype=float)
+    values[is_given] = [given[label] for label in labels[is_given]]
+    return values
+
+
+def topology_values(atoms: Any, name: Literal["charges", "masses"]) -> np.ndarray | None:
+    """The charges or masses an MDAnalysis topology records for ``atoms``, or None."""
+    try:
+        return getattr(atoms, name)
+    except NoDataError:
+        return None
 
 
 class Trajectory(ABC):

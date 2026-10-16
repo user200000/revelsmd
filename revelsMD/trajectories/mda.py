@@ -14,7 +14,7 @@ import numpy as np
 from revelsMD.frame_sources import Frame
 from ._base import (
     TrajectoryFiles, TrajectoryPath, Trajectory, as_paths, check_fixed_cell, open_universe,
-    NOT_PARSE_ERRORS, given_values, locate, reading_with_mdanalysis, topology_values,
+    NOT_PARSE_ERRORS, atom_values, given_values, locate, reading_with_mdanalysis, topology_values,
     warn_cut_short,
 )
 
@@ -42,7 +42,8 @@ class MDATrajectory(Trajectory):
     Raises
     ------
     ValueError
-        If no file is given, the format records no length or force units,
+        If no file is given, a given mass or charge is not a finite number
+        or names no atom, the format records no length or force units,
         an H5MD file saves positions and forces at different steps, or the
         first frame has no box, positions or forces, or an invalid cell.
     RuntimeError
@@ -115,7 +116,7 @@ class MDATrajectory(Trajectory):
                 "sampling needs forces in every frame"
             )
         complete = []
-        for reader, path in zip(readers, paths):
+        for reader, path in zip(readers, paths, strict=True):
             _check_reader(reader)
             n = len(reader)
             if n and not _readable(reader, n - 1):
@@ -170,7 +171,8 @@ class MDATrajectory(Trajectory):
             If neither ``charges`` nor the topology gives them.
         """
         atoms = self.mdanalysis_universe.select_atoms(f'name {atype}')
-        return topology_values(atoms, "charges", atype, self._charges, self._topology)
+        return atom_values(atoms.names, "charges", self._charges,
+                           lambda: topology_values(atoms, "charges"), f"{self._topology}: the topology")
 
     def get_masses(self, atype: str) -> np.ndarray:
         """Return the masses of the atoms with a given name.
@@ -186,7 +188,8 @@ class MDATrajectory(Trajectory):
             If neither ``masses`` nor the topology gives them.
         """
         atoms = self.mdanalysis_universe.select_atoms(f'name {atype}')
-        return topology_values(atoms, "masses", atype, self._masses, self._topology)
+        return atom_values(atoms.names, "masses", self._masses,
+                           lambda: topology_values(atoms, "masses"), f"{self._topology}: the topology")
 
     def _where(self, index: int) -> str:
         k, local = locate(self._first, index)

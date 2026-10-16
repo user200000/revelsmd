@@ -15,7 +15,7 @@ from revelsMD.cell import fractional_to_cartesian
 from ._base import (
     TrajectoryFiles, TrajectoryPath,
     FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
-    given_values, open_universe, topology_values, warn_cut_short,
+    atom_values, given_values, open_universe, topology_values, warn_cut_short,
 )
 
 
@@ -233,7 +233,9 @@ def index_dump(path: str) -> DumpIndex:
                     where = f"{frame.reason} at byte {frame.position}"
                     if _readable_frame_follows(m, path, frame.position, first):
                         raise ValueError(
-                            f"{path}: {where}, but readable frames follow it; the file is damaged"
+                            f"{path}: {where}, but readable frames follow it; the file is "
+                            "damaged, or was appended to after a job was killed "
+                            "(dump_modify append yes), in which case split it at the restart"
                         )
                     partial = PartialFrame(path, frame.timestep, where)
                     break
@@ -431,7 +433,7 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
     for index in indices:
         if index.partial is not None:
             at = "" if index.partial.timestep is None else f" (timestep {index.partial.timestep})"
-            warn_cut_short(index.partial.path, f"frame{at}")
+            warn_cut_short(index.partial.path, f"frame{at}", index.partial.reason)
     kept = [len(index.timesteps) for index in files]
     for k in range(1, len(files)):
         first, previous = int(files[k].timesteps[0]), files[k - 1]
@@ -587,7 +589,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
     ValueError
         If a dump is damaged or lacks required columns, the box is not
         fixed and fully periodic, an atom count differs from the topology's,
-        ``ITEM: UNITS`` does not match ``units``, the atom style is unknown,
+        ``ITEM: UNITS`` does not match ``units``, a given mass or charge is
+        not a finite number or names no atom's type, the atom style is unknown,
         the files are not in run order, or there are no complete frames.
     RuntimeError
         If MDAnalysis cannot read the topology, or its atom ids repeat.
@@ -700,7 +703,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
             If neither ``charges`` nor the data file gives them.
         """
         atoms = self.mdanalysis_universe.select_atoms(f'type {atype}')
-        return topology_values(atoms, "charges", atype, self._charges, self._topology)
+        return atom_values(atoms.types, "charges", self._charges,
+                           lambda: topology_values(atoms, "charges"), f"{self._topology}: the topology")
 
     def get_masses(self, atype: str) -> np.ndarray:
         """Return the masses of the atoms of a LAMMPS type.
@@ -716,7 +720,8 @@ class LammpsTrajectory(IndexedFileTrajectory):
             If neither ``masses`` nor the data file gives them.
         """
         atoms = self.mdanalysis_universe.select_atoms(f'type {atype}')
-        return topology_values(atoms, "masses", atype, self._masses, self._topology)
+        return atom_values(atoms.types, "masses", self._masses,
+                           lambda: topology_values(atoms, "masses"), f"{self._topology}: the topology")
 
     def _where(self, index: int) -> str:
         """Name the file, the frame's position in it, and its timestep."""

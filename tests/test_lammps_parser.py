@@ -196,6 +196,21 @@ class TestIndexDump:
         path = write(tmp_path / "a.dump", frame(0), damage, frame(200))
         with pytest.raises(ValueError, match=r"a\.dump: .* at byte \d+, but readable frames follow it; the file is damaged"):
             index_dump(path)
+        # Further on, past other unreadable frames, a readable frame still counts.
+        path = write(tmp_path / "b.dump", frame(0), damage, frame(100)[:-30], damage, frame(300), frame(400)[:-30])
+        with pytest.raises(ValueError, match="but readable frames follow it"):
+            index_dump(path)
+
+    def test_appending_after_a_killed_job_says_to_split_the_file(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100)[:-30], frame(100), frame(200))
+        with pytest.raises(ValueError, match="appended to after a job was killed .* split it at the restart"):
+            index_dump(path)
+
+    def test_drop_warning_names_the_reason(self, tmp_path):
+        # A data file picked up by a glob of dumps.
+        data = write(tmp_path / "data.dump", Path(SMALL_DATA).read_text())
+        with pytest.warns(UserWarning, match=r"data\.dump: dropping .*\(unexpected text b'LAMMPS data file"):
+            combine_frames([index_dump(write(tmp_path / "a.dump", frame(0))), index_dump(data)])
 
     @pytest.mark.parametrize("damage", DAMAGE.values(), ids=DAMAGE.keys())
     def test_unreadable_last_frame_ends_the_file(self, tmp_path, damage):

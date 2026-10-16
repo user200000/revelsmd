@@ -2657,6 +2657,20 @@ class TestFailedAccumulate:
                 np.testing.assert_array_equal(getattr(grid._welford, name), value, err_msg=name)
 
 
+class TestLambdaStatisticsReset:
+
+    def test_no_lambda_after_a_failed_first_block_discards_the_empty_statistics(self, tmp_path):
+        from lammps_dumps import frame, load, rows, write
+        bad = load(write(tmp_path / "bad.dump", frame(0, atom_rows=rows(0, fy="nan")), frame(100)))
+        grid = DensityGrid(bad, "number", nbins=4)
+        with pytest.raises(ValueError, match="NaN"):
+            grid.accumulate(bad, "1", compute_lambda=True, block_size=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # there are no statistics to discard
+            grid.accumulate(bad, "1", start=1)
+        assert grid._welford is None
+
+
 class TestFrameBounds:
 
     @pytest.fixture

@@ -16,7 +16,8 @@ writing or a run is still going. Frames are read in order, and a frame that
 cannot be read is dropped with a warning if no readable frame follows it.
 If one does, the file is damaged, and an error is raised. A file with no
 readable frame is dropped with a warning in the same way; if no file has
-one, an error is raised.
+one, an error is raised. This holds for every frame of LAMMPS dumps and
+every ionic step of `vasprun.xml` files; for MDAnalysis formats, see below.
 
 Every quantity RevelsMD computes is an equilibrium average, so frames need
 not come from one continuous run or be in time order. Several files are read
@@ -153,6 +154,14 @@ than joining them with `cat`.
 A `vasprun.xml` from a run that was killed before it finished is read up to its
 last complete ionic step, as described above.
 
+`vasprun.xml` records neither charges nor masses. Give them by element with the
+`masses` and `charges` arguments when a density needs them:
+
+```python
+traj = VaspTrajectory('vasprun.xml', temperature=600.0,
+                      masses={'O': 15.999, 'H': 1.008})
+```
+
 The lattice must be the same in every ionic step; a run whose lattice changes
 raises an error.
 
@@ -195,10 +204,14 @@ print(traj.cell_matrix)
 Pass a list of files to read their frames, concatenated in the order given.
 Frames that several files contain are read from each, so join restart files
 written with `gmx mdrun -noappend`, which repeat a frame at each restart,
-with `gmx trjcat` first. A file that ends partway through a frame is read as
-described above, but MDAnalysis must be able to open it: it cannot open a
-TRR file whose second frame is cut short, so keep the complete frames with
-`gmx trjconv -e`.
+with `gmx trjcat` first; joining TRR files with `cat` after a killed run
+gives wrong frames.
+
+MDAnalysis decides which frames a file holds, and RevelsMD checks only the
+last of them: if MDAnalysis cannot read it, as when a job was killed while
+writing, it is dropped with a warning. MDAnalysis cannot open a NetCDF or
+H5MD file cut short, or a TRR file whose first or second frame is cut short;
+keep the complete frames of such a TRR file with `gmx trjconv -e`.
 
 Charges and masses are those the topology records, never guessed from atom
 names: a `.tpr`, `.psf` or AMBER `prmtop` records both, and a `.gro` or `.pdb`

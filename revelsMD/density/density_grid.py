@@ -475,13 +475,14 @@ class DensityGrid:
         # Invalidate any previous derived state — accumulator data is changing,
         # so cached results would be stale.
         self._invalidate_derived_state()
-        if not compute_lambda and self._welford is not None and self._welford.has_data:
-            warnings.warn(
-                "Calling accumulate() with compute_lambda=False discards existing "
-                "lambda statistics. Use compute_lambda=True to preserve them.",
-                UserWarning,
-                stacklevel=2,
-            )
+        if not compute_lambda and self._welford is not None:
+            if self._welford.has_data:
+                warnings.warn(
+                    "Calling accumulate() with compute_lambda=False discards existing "
+                    "lambda statistics. Use compute_lambda=True to preserve them.",
+                    UserWarning,
+                    stacklevel=2,
+                )
             self._welford = None
 
         if not compute_lambda:

@@ -53,10 +53,20 @@ class TestReading:
             np.testing.assert_array_equal(traj.get_indices(symbol), np.flatnonzero(names == symbol))
 
     def test_charges_and_masses_are_unavailable(self, traj):
-        with pytest.raises(DataUnavailableError, match="Charge data not available"):
+        with pytest.raises(DataUnavailableError, match=r"vasprun\.xml records no charges.*for F with charges="):
             traj.get_charges("F")
-        with pytest.raises(DataUnavailableError, match="Mass data not available"):
+        with pytest.raises(DataUnavailableError, match=r"vasprun\.xml records no masses.*for F with masses="):
             traj.get_masses("F")
+
+    def test_charges_and_masses_given_by_element(self, traj):
+        given = VaspTrajectory(str(SOURCE), temperature=600.0, masses={"F": 18.998}, charges={"F": -1})
+        n = len(traj.get_indices("F"))
+        np.testing.assert_array_equal(given.get_masses("F"), [18.998] * n)
+        np.testing.assert_array_equal(given.get_charges("F"), [-1.0] * n)
+        with pytest.raises(DataUnavailableError, match="for Ba with masses="):
+            given.get_masses("Ba")
+        with pytest.raises(ValueError, match="masses= names species that no atom has: O"):
+            VaspTrajectory(str(SOURCE), temperature=600.0, masses={"O": 16.0})
 
     def test_temperature_and_beta(self):
         traj = VaspTrajectory(str(SOURCE), temperature=500.0)
@@ -196,7 +206,7 @@ class TestFiles:
             with pytest.raises(ValueError, match=r"no complete ionic steps in .*1\.xml"):
                 VaspTrajectory(killed, temperature=600.0)
         # Before its restart, it is dropped with a warning.
-        with pytest.warns(UserWarning, match=r"1\.xml: dropping the incomplete final ionic step \(calculation 0\)"):
+        with pytest.warns(UserWarning, match=r"1\.xml: dropping the incomplete final ionic step; .*\(calculation 0 has no closing tag\)"):
             traj = VaspTrajectory([killed, str(SOURCE)], temperature=600.0)
         assert traj.frames == len(reference_frames())
 

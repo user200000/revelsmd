@@ -42,8 +42,8 @@ grid.accumulate(
 Centre-of-mass deposition requires masses, which are never guessed. They come
 from a topology that records them (a GROMACS `.tpr`, or a LAMMPS data file with
 a `Masses` section), or from the `masses` argument of `MDATrajectory` (by atom
-name) and `LammpsTrajectory` (by atom type), or the `mass_list` argument of
-`NumpyTrajectory`:
+name), `LammpsTrajectory` (by atom type) and `VaspTrajectory` (by element), or
+the `mass_list` argument of `NumpyTrajectory`:
 
 ```python
 traj = MDATrajectory('prod.trr', 'conf.gro', temperature=300.0,

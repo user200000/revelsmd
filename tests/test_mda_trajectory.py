@@ -94,13 +94,28 @@ class TestReading:
         for name, mass in given.items():
             np.testing.assert_array_equal(traj.get_masses(name), np.full(len(traj.get_indices(name)), mass))
         np.testing.assert_array_equal(traj.get_charges("Ow"), np.full(len(traj.get_indices("Ow")), -0.8476))
-        with pytest.raises(DataUnavailableError, match=r"give them with charges=\{'Hw1': \.\.\.\}"):
+        with pytest.raises(DataUnavailableError, match="give them for Hw1 with charges="):
             traj.get_charges("Hw1")
+        # Selections of several names take each atom's own value.
+        np.testing.assert_array_equal(traj.get_masses("Hw*"), np.full(len(traj.get_indices("Hw*")), 1.008))
+        with pytest.raises(DataUnavailableError, match="give them for Hw1, Hw2 with charges="):
+            traj.get_charges("Ow Hw1 Hw2")
 
     def test_given_masses_win_over_the_topology(self, universe):
-        traj = MDATrajectory(TRR, TPR, temperature=300.0, masses={"Ow": 16.5})
+        traj = MDATrajectory(TRR, TPR, temperature=300.0, masses={"Ow": 16.5}, charges={"Hw1": 0.0})
         assert set(traj.get_masses("Ow")) == {16.5}
         np.testing.assert_array_equal(traj.get_masses("Hw1"), universe.select_atoms("name Hw1").masses)
+        # Atom by atom, in a selection of several names.
+        selection = universe.select_atoms("name Ow Hw1")
+        expected = np.where(selection.names == "Ow", 16.5, selection.masses)
+        np.testing.assert_array_equal(traj.get_masses("Ow Hw1"), expected)
+        hw = universe.select_atoms("name Hw*")
+        np.testing.assert_array_equal(traj.get_charges("Hw*"), np.where(hw.names == "Hw1", 0.0, hw.charges))
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), -1.0, True, "16.0", None])
+    def test_given_masses_must_be_finite_numbers(self, value):
+        with pytest.raises(ValueError, match=r"masses= gives 'Ow' the value .*; values must be finite numbers, not negative"):
+            MDATrajectory(TRR, TPR, temperature=300.0, masses={"Ow": value})
 
     @pytest.mark.parametrize("argument", ["masses", "charges"])
     def test_given_values_for_names_no_atom_has_raise(self, argument):

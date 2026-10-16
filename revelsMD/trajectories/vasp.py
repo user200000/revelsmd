@@ -4,7 +4,8 @@ import array
 import mmap
 import os
 from dataclasses import dataclass
-from typing import BinaryIO
+from collections.abc import Mapping
+from typing import BinaryIO, Literal
 
 import numpy as np
 from lxml import etree  # type: ignore[import-untyped]
@@ -12,7 +13,8 @@ from lxml import etree  # type: ignore[import-untyped]
 from revelsMD.cell import fractional_to_cartesian
 from ._base import (
     TrajectoryFiles,
-    FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell, warn_cut_short,
+    FileFrames, IndexedFileTrajectory, as_paths, atom_values, check_fixed_cell,
+    given_values, warn_cut_short,
 )
 
 
@@ -47,20 +49,20 @@ class VasprunIndex:
     lattice: np.ndarray
     starts: np.ndarray
     ends: np.ndarray
-    cut: int | None = None
+    cut: str | None = None
 
     @classmethod
-    def without_steps(cls, path: str) -> "VasprunIndex":
-        """The index of a file cut short before its first step was complete."""
+    def without_steps(cls, path: str, reason: str) -> "VasprunIndex":
+        """The index of a file with no complete step, and why."""
         empty = np.empty(0, dtype=np.int64)
-        return cls(path, [], b"", np.empty((0, 0)), empty, empty, cut=0)
+        return cls(path, [], b"", np.empty((0, 0)), empty, empty, cut=reason)
 
 
 def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> VasprunIndex:
     """Index the ionic steps of one vasprun.xml without parsing them.
 
-    An unclosed final ``<calculation>`` is recorded as ``cut``, as is step 0
-    of a file with no ``<calculation>``. Atoms and every step's lattice are
+    An unclosed final ``<calculation>`` is recorded in ``cut``, as is a file
+    with no complete step. Atoms and every step's lattice are
     compared with ``reference`` (the first file with a step) if given, else
     with the file's first step. Raises ValueError if the atom list is
     missing, a calculation other than the last is unclosed or incomplete,
@@ -68,10 +70,10 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
     """
     with open(path, "rb") as f:
         if os.fstat(f.fileno()).st_size == 0:
-            return VasprunIndex.without_steps(path)
+            return VasprunIndex.without_steps(path, "the file is empty")
         with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
             if m.find(_CALCULATION_OPEN) == -1:
-                return VasprunIndex.without_steps(path)
+                return VasprunIndex.without_steps(path, "no <calculation> element")
             atom_names = _read_atom_names(m, path)
             if reference is not None and atom_names != reference.atom_names:
                 raise ValueError(f"{path}: the atoms differ from those in {reference.path}")
@@ -86,7 +88,7 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
                 close = m.find(_CALCULATION_CLOSE, start)
                 following = m.find(_CALCULATION_OPEN, start + len(_CALCULATION_OPEN))
                 if close == -1 and following == -1:
-                    cut = k
+                    cut = f"calculation {k} has no closing tag"
                     break
                 if close == -1 or -1 < following < close:
                     raise ValueError(
@@ -106,7 +108,7 @@ def index_vasprun(path: str, reference: "VasprunIndex | None" = None) -> Vasprun
                 ends.append(end)
                 start = following
     if not starts:
-        return VasprunIndex.without_steps(path)
+        return VasprunIndex.without_steps(path, cut or "no complete ionic step")
     return VasprunIndex(
         path, atom_names, first_basis, first_lattice,
         np.array(starts, dtype=np.int64), np.array(ends, dtype=np.int64), cut,
@@ -232,12 +234,16 @@ class VaspTrajectory(IndexedFileTrajectory):
         ``vasprun.xml`` file(s).
     temperature : float
         Temperature in Kelvin.
+    masses, charges : mapping, optional
+        Masses or charges by element (e.g. ``{'O': 15.999}``). vasprun.xml
+        gives neither, so densities that need them need these.
 
     Raises
     ------
     ValueError
         If a file is malformed or lacks an ionic step's structure or
-        forces, the files list different atoms, the lattice changes or is
+        forces, a given mass or charge is not a finite number or names no
+        atom's element, the files list different atoms, the lattice changes or is
         invalid, or no file has a complete ionic step.
 
     Notes
@@ -251,6 +257,8 @@ class VaspTrajectory(IndexedFileTrajectory):
         trajectory_file: TrajectoryFiles,
         *,
         temperature: float,
+        masses: Mapping[str, float] | None = None,
+        charges: Mapping[str, float] | None = None,
     ):
         super().__init__(units='metal', temperature=temperature)
 
@@ -267,14 +275,18 @@ class VaspTrajectory(IndexedFileTrajectory):
             if first is None and len(indices[-1].starts):
                 first = indices[-1]
         if first is None:
-            raise ValueError(
-                "no complete ionic steps in " + ", ".join(paths)
-                + " (a run killed during its first step leaves none)"
-            )
+            raise ValueError("no complete ionic steps in " + "; ".join(
+                f"{index.path} ({index.cut})" for index in indices
+            ))
         for index in indices:
             if index.cut is not None:
-                warn_cut_short(index.path, f"ionic step (calculation {index.cut})")
+                warn_cut_short(index.path, "ionic step", index.cut)
         self._atom_names = first.atom_names
+
+        def species() -> list[str]:
+            return self._atom_names
+        self._masses = given_values(masses, species, "masses", "species")
+        self._charges = given_values(charges, species, "charges", "species")
 
         # Every ionic step of every file is kept, so a frame's position in
         # its file is its calculation number.
@@ -311,9 +323,31 @@ class VaspTrajectory(IndexedFileTrajectory):
             raise ValueError(f"no atoms of species '{atype}'; the species are {species}")
         return indices
 
-    # get_charges and get_masses are inherited from Trajectory and raise
-    # DataUnavailableError: charges are not in vasprun.xml, and masses
-    # (in <atominfo>) are not read.
+    def get_charges(self, atype: str) -> np.ndarray:
+        """Return the charges given with ``charges`` for the atoms of an element.
+
+        Raises
+        ------
+        DataUnavailableError
+            If no charge was given for the element.
+        """
+        return self._given(atype, "charges", self._charges)
+
+    def get_masses(self, atype: str) -> np.ndarray:
+        """Return the masses given with ``masses`` for the atoms of an element.
+
+        Raises
+        ------
+        DataUnavailableError
+            If no mass was given for the element.
+        """
+        return self._given(atype, "masses", self._masses)
+
+    def _given(
+        self, atype: str, name: Literal["charges", "masses"], given: Mapping[str, float]
+    ) -> np.ndarray:
+        labels = np.asarray(self._atom_names)[self.get_indices(atype)]
+        return atom_values(labels, name, given, lambda: None, f"{self._frames.paths[0]}: vasprun.xml")
 
     def _where(self, index: int) -> str:
         """Name the file and calculation of frame ``index``."""
