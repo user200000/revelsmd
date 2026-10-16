@@ -186,6 +186,21 @@ class TestValidation:
         assert traj.frames == 13
         np.testing.assert_array_equal(traj.get_frame(3).forces, universe.trajectory[0].forces)
 
+    def test_errors_in_a_list_name_the_file_and_its_frame(self, tmp_path):
+        def drop_forces(ts):
+            if ts.frame == 1:
+                ts.has_forces = False
+        partial = write_variant(tmp_path / "partial.trr", drop_forces)
+        traj = MDATrajectory([TRR, partial], TPR, temperature=300.0)
+        with pytest.raises(ValueError, match=r"partial\.trr, frame 1: no forces"):
+            traj.get_frame(11)
+        with pytest.raises(ValueError, match=r"partial\.trr, frame 1: no forces"):
+            list(traj.iter_frames(start=10))
+
+    def test_get_frame_needs_an_integer(self, traj):
+        with pytest.raises(TypeError):
+            traj.get_frame(1.0)
+
     def test_same_file_twice_raises(self):
         with pytest.raises(ValueError, match="is given twice"):
             MDATrajectory([TRR, TRR], TPR, temperature=300.0)

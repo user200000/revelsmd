@@ -115,6 +115,7 @@ class NumpyTrajectory(Trajectory):
             if box_x <= 0 or box_y <= 0 or box_z <= 0:
                 raise ValueError("Box dimensions must all be positive values.")
             self.cell_matrix = self._cell_matrix_from_dimensions(box_x, box_y, box_z)
+            self._validate_cell_matrix(self.cell_matrix)
 
         self.positions = positions
         self.forces = forces
@@ -210,27 +211,10 @@ class NumpyTrajectory(Trajectory):
     ) -> Iterator[Frame]:
         """Iterate over in-memory position/force arrays."""
         for i in range(start, stop, stride):
-            yield self.get_frame(i)
+            yield self._get_frame(i)
 
-    def get_frame(self, index: int) -> Frame:
-        """Return positions and forces for a specific frame by index.
-
-        Parameters
-        ----------
-        index : int
-            Frame index to retrieve.
-
-        Returns
-        -------
-        Frame
-            A dataclass with ``positions`` and ``forces`` arrays,
-            each of shape ``(n_atoms, 3)``.
-
-        Raises
-        ------
-        ValueError
-            If the frame's positions or forces contain NaN or infinity.
-        """
+    def _get_frame(self, index: int) -> Frame:
+        """Return frame ``index``, raising ValueError if it has NaN or infinite values."""
         positions, forces = self.positions[index], self.forces[index]
         check_finite(positions, forces, f"frame {index}")
         return Frame(positions, forces)

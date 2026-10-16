@@ -84,8 +84,7 @@ class MDATrajectory(Trajectory):
     ):
         if not topology_file:
             raise ValueError("A topology file is required for MDAnalysis trajectories.")
-        if not isinstance(trajectory_file, (str, os.PathLike)):
-            trajectory_file = as_paths(trajectory_file)
+        paths = as_paths(trajectory_file)
 
         super().__init__(units='mda', temperature=temperature)
 
@@ -93,38 +92,41 @@ class MDATrajectory(Trajectory):
         self.topology_file = topology_file
 
         try:
-            mdanalysis_universe = MD.Universe(topology_file, trajectory_file)
+            mdanalysis_universe = MD.Universe(
+                topology_file, paths[0] if len(paths) == 1 else paths
+            )
         except Exception as e:
             raise RuntimeError(f"Failed to load MDAnalysis Universe: {e}") from e
 
         self.mdanalysis_universe = mdanalysis_universe
-        self.frames = len(mdanalysis_universe.trajectory)
+        trajectory = mdanalysis_universe.trajectory
+        self.frames = len(trajectory)
+        readers = getattr(trajectory, "readers", [trajectory])
+        # Frame i is frame i - _first_frames[k] of paths[k].
+        self._paths = paths
+        self._first_frames = np.cumsum([0] + [len(r) for r in readers[:-1]])
 
         dims = mdanalysis_universe.dimensions
         if dims is None:
             raise ValueError(
-                f"{trajectory_file}: the trajectory has no simulation box; "
+                f"{paths[0]}: the trajectory has no simulation box; "
                 "a periodic box is required"
             )
-        if not mdanalysis_universe.trajectory.ts.has_positions:
+        if not trajectory.ts.has_positions:
             raise ValueError(
-                f"{trajectory_file}: the trajectory has no positions; "
+                f"{paths[0]}: the trajectory has no positions; "
                 "positions are needed in every frame"
             )
-        if not mdanalysis_universe.trajectory.ts.has_forces:
+        if not trajectory.ts.has_forces:
             raise ValueError(
-                f"{trajectory_file}: the trajectory has no forces; force "
+                f"{paths[0]}: the trajectory has no forces; force "
                 "sampling needs forces in every frame"
             )
-        trajectory = mdanalysis_universe.trajectory
-        for reader in getattr(trajectory, "readers", [trajectory]):
+        for reader in readers:
             _check_reader(reader)
         self._dimensions = np.array(dims, dtype=np.float64)
         self.cell_matrix = np.array(triclinic_vectors(dims), dtype=np.float64)
-        try:
-            self._validate_cell_matrix(self.cell_matrix)
-        except ValueError as e:
-            raise ValueError(f"{trajectory_file}: {e}") from e
+        self._validate_cell_matrix(self.cell_matrix, paths[0])
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
@@ -185,9 +187,14 @@ class MDATrajectory(Trajectory):
         """
         return np.array(self.mdanalysis_universe.select_atoms(f'name {atype}').masses)
 
+    def _where(self, frame: int) -> str:
+        """The file and the frame within it of trajectory frame ``frame``."""
+        k = int(np.searchsorted(self._first_frames, frame, side="right")) - 1
+        return f"{self._paths[k]}, frame {frame - int(self._first_frames[k])}"
+
     def _frame(self, ts) -> Frame:
         """Check one MDAnalysis timestep and return it as a Frame."""
-        where = f"{self.trajectory_file}, frame {ts.frame}"
+        where = self._where(ts.frame)
         if not ts.has_positions:
             raise ValueError(f"{where}: no positions")
         if not ts.has_forces:
@@ -208,20 +215,7 @@ class MDATrajectory(Trajectory):
         for ts in self.mdanalysis_universe.trajectory[start:stop:stride]:
             yield self._frame(ts)
 
-    def get_frame(self, index: int) -> Frame:
-        """Return positions and forces for a specific frame by index.
-
-        Parameters
-        ----------
-        index : int
-            Frame index to retrieve.
-
-        Returns
-        -------
-        Frame
-            A dataclass with ``positions`` and ``forces`` arrays,
-            each of shape ``(n_atoms, 3)``.
-        """
+    def _get_frame(self, index: int) -> Frame:
         return self._frame(self.mdanalysis_universe.trajectory[index])
 
 

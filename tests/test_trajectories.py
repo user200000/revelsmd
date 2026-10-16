@@ -50,6 +50,21 @@ def test_numpy_state_species_not_found():
         state.get_indices("C")
 
 
+@pytest.mark.parametrize("bad", [np.nan, np.inf])
+def test_numpy_state_non_finite_box_raises(bad):
+    with pytest.raises(ValueError, match="must all be finite"):
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), 10, bad, 10, ["O", "H"],
+                        temperature=300.0)
+
+
+def test_numpy_state_get_frame_needs_an_integer():
+    state = NumpyTrajectory(np.zeros((3, 2, 3)), np.ones((3, 2, 3)), 10, 10, 10, ["O", "H"],
+                            temperature=300.0)
+    with pytest.raises(TypeError):
+        state.get_frame(1.0)
+    np.testing.assert_array_equal(state.get_frame(np.int64(-1)).forces, np.ones((2, 3)))
+
+
 def test_numpy_state_non_finite_frame_raises_when_read():
     positions = np.zeros((3, 2, 3))
     forces = np.ones((3, 2, 3))
@@ -102,63 +117,6 @@ def test_concrete_classes_are_subclasses():
     assert issubclass(NumpyTrajectory, Trajectory)
     assert issubclass(LammpsTrajectory, Trajectory)
     assert issubclass(VaspTrajectory, Trajectory)
-
-
-# -----------------------------------------------------------------------------
-# Trajectory ABC - Shared validation helpers
-# -----------------------------------------------------------------------------
-class TestValidateOrthorhombic:
-    """Tests for _validate_orthorhombic shared helper."""
-
-    def test_valid_orthorhombic_angles(self):
-        """Should not raise for 90 degree angles."""
-        # No exception expected
-        Trajectory._validate_orthorhombic([90.0, 90.0, 90.0])
-
-    def test_valid_orthorhombic_angles_within_tolerance(self):
-        """Should accept angles within tolerance of 90 degrees."""
-        Trajectory._validate_orthorhombic([90.0001, 89.9999, 90.0])
-
-    def test_invalid_non_orthorhombic_angles(self):
-        """Should raise ValueError for non-orthorhombic angles."""
-        with pytest.raises(ValueError, match="orthorhombic"):
-            Trajectory._validate_orthorhombic([90.0, 95.0, 90.0])
-
-    def test_invalid_triclinic_angles(self):
-        """Should raise ValueError for triclinic cell angles."""
-        with pytest.raises(ValueError, match="orthorhombic"):
-            Trajectory._validate_orthorhombic([80.0, 85.0, 70.0])
-
-
-class TestValidateBoxDimensions:
-    """Tests for _validate_box_dimensions shared helper."""
-
-    def test_valid_positive_dimensions(self):
-        """Should return dimensions for valid positive values."""
-        lx, ly, lz = Trajectory._validate_box_dimensions(10.0, 20.0, 30.0)
-        assert lx == 10.0
-        assert ly == 20.0
-        assert lz == 30.0
-
-    def test_invalid_zero_dimension(self):
-        """Should raise ValueError if any dimension is zero."""
-        with pytest.raises(ValueError, match="positive"):
-            Trajectory._validate_box_dimensions(10.0, 0.0, 30.0)
-
-    def test_invalid_negative_dimension(self):
-        """Should raise ValueError if any dimension is negative."""
-        with pytest.raises(ValueError, match="positive"):
-            Trajectory._validate_box_dimensions(10.0, -5.0, 30.0)
-
-    def test_invalid_non_finite_dimension(self):
-        """Should raise ValueError if any dimension is non-finite."""
-        with pytest.raises(ValueError, match="finite"):
-            Trajectory._validate_box_dimensions(10.0, np.inf, 30.0)
-
-    def test_invalid_nan_dimension(self):
-        """Should raise ValueError if any dimension is NaN."""
-        with pytest.raises(ValueError, match="finite"):
-            Trajectory._validate_box_dimensions(np.nan, 20.0, 30.0)
 
 
 # -----------------------------------------------------------------------------
@@ -485,6 +443,13 @@ class TestComputeBeta:
 # -----------------------------------------------------------------------------
 # Cell matrix validation
 # -----------------------------------------------------------------------------
+class TestValidateCellMatrixContext:
+
+    def test_where_prefixes_the_message(self):
+        with pytest.raises(ValueError, match="^a.dump, frame 0: Cell matrix must have positive volume"):
+            Trajectory._validate_cell_matrix(np.zeros((3, 3)), "a.dump, frame 0")
+
+
 class TestValidateCellMatrix:
     """Tests for Trajectory._validate_cell_matrix."""
 

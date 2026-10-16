@@ -7,21 +7,19 @@ and the helpers that index and read the dump format.
 
 import array
 import mmap
-import operator
 import os
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import BinaryIO, Iterator
+from typing import BinaryIO
 
 import MDAnalysis as MD  # type: ignore[import-untyped]
 from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
 import numpy as np
 
-from revelsMD.frame_sources import Frame
+from revelsMD.cell import fractional_to_cartesian
 from ._base import (
-    Trajectory, DataUnavailableError, as_paths, check_finite, check_fixed_cell,
-    read_frames_one_file_at_a_time,
+    DataUnavailableError, FileFrames, IndexedFileTrajectory, as_paths, check_fixed_cell,
+    warn_user,
 )
 
 
@@ -158,7 +156,6 @@ def resolve_columns(columns: tuple[str, ...], path: str) -> ColumnLayout:
 
 
 _TIMESTEP = b"ITEM: TIMESTEP"
-_WHITESPACE = (b"\n", b"\r", b" ", b"\t")
 
 
 @dataclass(frozen=True, eq=False)
@@ -209,12 +206,17 @@ class DumpIndex:
 
 @dataclass(frozen=True)
 class _ScannedFrame:
-    """One complete frame, as found by the scan of its file."""
+    """One complete frame, as found by the scan of its file.
+
+    ``header_lines`` are the stripped header lines from ``ITEM: NUMBER OF
+    ATOMS`` to ``ITEM: ATOMS``.
+    """
 
     timestep: int
     data_start: int
     data_end: int
     header: DumpHeader
+    header_lines: list[str]
 
 
 def index_dump(path: str) -> DumpIndex:
@@ -265,13 +267,14 @@ def index_dump(path: str) -> DumpIndex:
             timesteps = np.empty(n, dtype=np.int64)
             starts = np.empty(n, dtype=np.int64)
             ends = np.empty(n, dtype=np.int64)
-            count = 0
-            header: DumpHeader | None = None
+            first: _ScannedFrame | None = None
             mismatch: HeaderMismatch | None = None
             partial: PartialFrame | None = None
+            # Only the last frame may be incomplete, so complete frame k is
+            # the file's k-th.
             for k in range(n):
                 end = frame_starts[k + 1] if k + 1 < n else limit
-                entry = _index_frame(m, path, frame_starts[k], end)
+                entry = _index_frame(m, path, frame_starts[k], end, first)
                 if isinstance(entry, PartialFrame):
                     if k < n - 1:
                         raise ValueError(
@@ -280,25 +283,26 @@ def index_dump(path: str) -> DumpIndex:
                         )
                     partial = entry
                     continue
-                if header is None:
-                    header = entry.header
+                if first is None:
+                    first = entry
                 else:
                     if mismatch is None:
-                        difference = _header_difference(entry, header, path)
+                        difference = _header_difference(entry, first.header, path)
                         if difference is not None:
-                            mismatch = HeaderMismatch(count, difference)
-                    previous = int(timesteps[count - 1])
+                            mismatch = HeaderMismatch(k, difference)
+                    previous = int(timesteps[k - 1])
                     if entry.timestep <= previous:
                         raise ValueError(
                             f"{path}: timesteps do not increase "
                             f"({previous} is followed by {entry.timestep})"
                         )
-                timesteps[count] = entry.timestep
-                starts[count] = entry.data_start
-                ends[count] = entry.data_end
-                count += 1
+                timesteps[k] = entry.timestep
+                starts[k] = entry.data_start
+                ends[k] = entry.data_end
+            count = n - (partial is not None)
             if partial is None and dropped_header:
                 partial = PartialFrame(path, None)
+    header = first.header if first is not None else None
     return DumpIndex(
         path, header, timesteps[:count], starts[:count], ends[:count], partial, mismatch
     )
@@ -311,6 +315,8 @@ def _is_cut_first_header(head: bytes) -> bool:
 
 def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> str | None:
     """How a frame's header differs from the file's first frame's, or None."""
+    if entry.header is first:
+        return None
     where = f"{path}, timestep {entry.timestep}"
     if entry.header.columns != first.columns:
         return f"{where}: the dump columns change within the file"
@@ -326,8 +332,14 @@ def _header_difference(entry: _ScannedFrame, first: DumpHeader, path: str) -> st
     return None
 
 
-def _index_frame(m: mmap.mmap, path: str, start: int, end: int) -> "_ScannedFrame | PartialFrame":
-    """Index one frame occupying bytes [start, end) of a mapped dump file."""
+def _index_frame(
+    m: mmap.mmap, path: str, start: int, end: int, first: _ScannedFrame | None
+) -> "_ScannedFrame | PartialFrame":
+    """Index one frame occupying bytes [start, end) of a mapped dump file.
+
+    A frame whose header lines are those of the file's first complete
+    frame, ``first``, shares its header rather than parsing a new one.
+    """
     lines: list[str] = []
     position = start
     while len(lines) < 9:
@@ -346,24 +358,29 @@ def _index_frame(m: mmap.mmap, path: str, start: int, end: int) -> "_ScannedFram
         or not lines[8].startswith("ITEM: ATOMS")
     ):
         raise ValueError(f"{path}: unexpected frame header at byte {start}: {lines}")
+    header_lines = lines[2:9]
     try:
         timestep, n_atoms = int(lines[1]), int(lines[3])
     except ValueError as e:
         raise ValueError(f"{path}: malformed frame header at byte {start}: {e}") from e
     if not 0 <= timestep < 2**63:
         raise ValueError(f"{path}: timestep {timestep} is out of range")
-    try:
-        cell, origin, box = parse_box(lines[4], lines[5:8])
-    except ValueError as e:
-        raise ValueError(f"{path}, timestep {timestep}: {e}") from e
+    if first is not None and header_lines == first.header_lines:
+        header = first.header
+    else:
+        try:
+            cell, origin, box = parse_box(lines[4], lines[5:8])
+        except ValueError as e:
+            raise ValueError(f"{path}, timestep {timestep}: {e}") from e
+        header = DumpHeader(n_atoms, tuple(lines[8].split()[2:]), cell, origin, box)
     next_item = m.find(b"ITEM:", position, end)
     rows_end = end if next_item == -1 else next_item
-    # Blank lines after the atom rows are ignored.
-    content_end = rows_end
-    while content_end > position and m[content_end - 1:content_end] in _WHITESPACE:
-        content_end -= 1
-    terminated = m.find(b"\n", content_end, rows_end) != -1
-    n_rows = m[position:content_end].count(b"\n") + (1 if content_end > position else 0)
+    # Blank lines after the atom rows are ignored; a last row without a
+    # newline may be cut short, so it is not complete.
+    rows = m[position:rows_end]
+    content = rows.rstrip(b" \t\r\n")
+    terminated = b"\n" in rows[len(content):]
+    n_rows = content.count(b"\n") + bool(content)
     complete_rows = n_rows if terminated or n_rows == 0 else n_rows - 1
     if complete_rows < n_atoms:
         return PartialFrame(path, timestep)
@@ -372,8 +389,7 @@ def _index_frame(m: mmap.mmap, path: str, start: int, end: int) -> "_ScannedFram
             f"{path}, timestep {timestep}: the atom rows do not match the "
             f"header's {n_atoms} atoms"
         )
-    header = DumpHeader(n_atoms, tuple(lines[8].split()[2:]), cell, origin, box)
-    return _ScannedFrame(timestep, position, rows_end, header)
+    return _ScannedFrame(timestep, position, rows_end, header, header_lines)
 
 
 def _header_timestep(lines: list[str]) -> int | None:
@@ -385,29 +401,16 @@ def _header_timestep(lines: list[str]) -> int | None:
 
 
 @dataclass(frozen=True, eq=False)
-class FrameTable:
+class FrameTable(FileFrames):
     """The frames of a trajectory joined from one or more dump files.
 
-    Frame ``i`` comes from file ``file[i]``, which is ``paths[file[i]]``
-    with header ``headers[file[i]]``. It has timestep ``timesteps[i]`` and
-    its atom rows occupy bytes ``[starts[i], ends[i])`` of that file. Only
-    files that contribute frames are listed. ``file`` does not decrease and
-    ``timesteps`` strictly increases. The arrays are read-only.
+    Frame ``i`` is stored as :class:`FileFrames` describes, has timestep
+    ``timesteps[i]`` (strictly increasing) and the header
+    ``headers[file[i]]``. Only files that contribute frames are listed.
     """
 
-    paths: list[str]
     headers: list[DumpHeader]
-    file: np.ndarray
     timesteps: np.ndarray
-    starts: np.ndarray
-    ends: np.ndarray
-
-    def __len__(self) -> int:
-        return len(self.timesteps)
-
-    def path(self, i: int) -> str:
-        """The path of frame ``i``; negative indices count from the end."""
-        return self.paths[self.file[i]]
 
 
 def combine_frames(indices: list[DumpIndex]) -> FrameTable:
@@ -430,6 +433,7 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         no complete frames.
     """
     files: list[DumpIndex] = []
+    headers: list[DumpHeader] = []
     kept: list[int] = []
     pending: PartialFrame | None = None
     for index in indices:
@@ -452,17 +456,18 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
             if files:
                 previous = files[-1]
                 n_kept = int(np.searchsorted(previous.timesteps[:kept[-1]], first))
-                replaced_to = int(previous.timesteps[kept[-1] - 1])
                 end = int(index.timesteps[-1])
-                if n_kept < kept[-1] and replaced_to > end:
-                    _warn(
+                assert last is not None
+                if n_kept < kept[-1] and last > end:
+                    warn_user(
                         f"{index.path} replaces the frames of {previous.path} from "
                         f"timestep {first} on, but ends at timestep {end}; the "
-                        f"frames of {previous.path} up to timestep {replaced_to} "
+                        f"frames of {previous.path} up to timestep {last} "
                         "after that are dropped"
                     )
                 kept[-1] = n_kept
             files.append(index)
+            headers.append(index.header)
             kept.append(len(index.timesteps))
         if index.partial is not None:
             if pending is not None:
@@ -474,27 +479,18 @@ def combine_frames(indices: list[DumpIndex]) -> FrameTable:
         raise ValueError(
             "no complete frames in " + ", ".join(index.path for index in indices)
         )
-    reference = files[0].header
-    assert reference is not None
-    for index, n_kept in zip(files, kept):
-        assert index.header is not None
+    for index, header, n_kept in zip(files, headers, kept):
         check_fixed_cell(
-            index.header.box, reference.box, f"{index.path}, timestep {int(index.timesteps[0])}"
+            header.box, headers[0].box, f"{index.path}, timestep {int(index.timesteps[0])}"
         )
         if index.mismatch is not None and index.mismatch.frame < n_kept:
             raise ValueError(index.mismatch.message)
-    arrays = (
-        np.repeat(np.arange(len(files), dtype=np.int32), kept),
-        np.concatenate([index.timesteps[:k] for index, k in zip(files, kept)]),
-        np.concatenate([index.starts[:k] for index, k in zip(files, kept)]),
-        np.concatenate([index.ends[:k] for index, k in zip(files, kept)]),
-    )
-    for values in arrays:
-        values.flags.writeable = False
-    return FrameTable(
+    return FrameTable.join(
         [index.path for index in files],
-        [index.header for index in files if index.header is not None],
-        *arrays,
+        [index.starts[:k] for index, k in zip(files, kept)],
+        [index.ends[:k] for index, k in zip(files, kept)],
+        headers=headers,
+        timesteps=np.concatenate([index.timesteps[:k] for index, k in zip(files, kept)]),
     )
 
 
@@ -510,19 +506,10 @@ def _superseded(partial: PartialFrame, last: int | None, first: int) -> bool:
 
 def _warn_dropped(partial: PartialFrame) -> None:
     at = "" if partial.timestep is None else f" (timestep {partial.timestep})"
-    _warn(
+    warn_user(
         f"{partial.path}: dropping the incomplete final frame{at}; "
-        "the file appears to have been cut short",
-        depth=1,
+        "the file appears to have been cut short"
     )
-
-
-def _warn(message: str, depth: int = 0) -> None:
-    """Warn from combine_frames, attributing the warning to LammpsTrajectory's caller.
-
-    ``depth`` is the number of helper calls between combine_frames and here.
-    """
-    warnings.warn(message, UserWarning, stacklevel=4 + depth)
 
 
 def resolve_atom_style(atom_style: str | None, topology_file: str) -> str:
@@ -642,7 +629,7 @@ def read_dump_frame(
     positions = table[:, list(layout.coordinate_columns)].astype(np.float64)
     forces = table[:, list(layout.force_columns)].astype(np.float64)
     if layout.scaled:
-        positions = header.origin + positions @ header.cell
+        positions = header.origin + fractional_to_cartesian(positions, header.cell)
     return positions, forces
 
 
@@ -650,7 +637,7 @@ def read_dump_frame(
 # LAMMPS Trajectory Class
 # -----------------------------------------------------------------------------
 
-class LammpsTrajectory(Trajectory):
+class LammpsTrajectory(IndexedFileTrajectory):
     """
     Represents a molecular dynamics trajectory obtained from LAMMPS output.
 
@@ -665,10 +652,9 @@ class LammpsTrajectory(Trajectory):
     timestep on, with a warning if the replaced frames run past the file's
     last timestep. An incomplete final frame, as left by a job killed while
     writing, is dropped with a warning unless the next file's frames replace
-    it, and so is an empty file. Frames
-    that a later file replaces are not checked, so a run whose box or atom
-    count went wrong after the restart point can be joined with its
-    restart.
+    it, and so is an empty file. Frames that a later file replaces are not
+    checked, so a run whose box or atom count went wrong after the restart
+    point can be joined with its restart.
 
     Parameters
     ----------
@@ -774,11 +760,11 @@ class LammpsTrajectory(Trajectory):
             resolve_columns(header.columns, path)
             for path, header in zip(table.paths, table.headers)
         ]
-        self._table = table
+        self._frames: FrameTable = table
 
         self.frames = len(table)
         self.cell_matrix = table.headers[0].cell.copy()
-        self._validate_cell_matrix(self.cell_matrix)
+        self._validate_cell_matrix(self.cell_matrix, self._where(0))
 
     def get_indices(self, atype: str) -> np.ndarray:
         """Return positional indices of the atoms of a given LAMMPS type.
@@ -852,49 +838,14 @@ class LammpsTrajectory(Trajectory):
         except NoDataError:
             raise DataUnavailableError("Mass data not available for this LAMMPS trajectory.")
 
-    def _read(self, f: BinaryIO, index: int) -> Frame:
-        """Read frame ``index`` from its open dump file."""
-        table = self._table
+    def _where(self, index: int) -> str:
+        table = self._frames
+        return f"{table.path(index)}, frame {index} (timestep {int(table.timesteps[index])})"
+
+    def _read_arrays(self, f: BinaryIO, index: int) -> tuple[np.ndarray, np.ndarray]:
+        table = self._frames
         k = table.file[index]
-        where = f"{table.path(index)}, frame {index} (timestep {int(table.timesteps[index])})"
-        try:
-            positions, forces = read_dump_frame(
-                f, int(table.starts[index]), int(table.ends[index]),
-                table.headers[k], self._layouts[k], self._topology_ids, self._topology_types,
-            )
-        except ValueError as e:
-            raise ValueError(f"{where}: {e}") from e
-        check_finite(positions, forces, where)
-        return Frame(positions, forces)
-
-    def _iter_frames_impl(
-        self,
-        start: int,
-        stop: int,
-        stride: int
-    ) -> Iterator[Frame]:
-        """Read the indexed frames in order, with one dump file open at a time."""
-        return read_frames_one_file_at_a_time(
-            range(start, stop, stride), self._table.path, self._read
+        return read_dump_frame(
+            f, int(table.starts[index]), int(table.ends[index]),
+            table.headers[k], self._layouts[k], self._topology_ids, self._topology_types,
         )
-
-    def get_frame(self, index: int) -> Frame:
-        """Return positions and forces for a specific frame by index.
-
-        The frame is read from disk by seeking to it; nothing else is read
-        or kept in memory.
-
-        Parameters
-        ----------
-        index : int
-            Frame index to retrieve. Negative indices count from the end.
-
-        Returns
-        -------
-        Frame
-            A dataclass with ``positions`` and ``forces`` arrays,
-            each of shape ``(n_atoms, 3)``.
-        """
-        index = operator.index(index)
-        with open(self._table.path(index), "rb") as f:
-            return self._read(f, index)

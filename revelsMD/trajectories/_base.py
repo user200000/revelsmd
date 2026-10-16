@@ -5,10 +5,13 @@ This module defines the abstract base class and common exceptions used by
 all trajectory backends.
 """
 
+import operator
 import os
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Sequence
-from typing import BinaryIO, Iterator
+from dataclasses import dataclass
+from typing import Any, BinaryIO, Iterator
 
 import numpy as np
 import scipy.constants as constants
@@ -72,16 +75,24 @@ def read_frames_one_file_at_a_time(
     try:
         for index in indices:
             path = path_of(index)
-            if handle is None or path != current:
+            if path != current:
                 if handle is not None:
                     handle.close()
-                    handle = None
                 handle = open(path, "rb")
                 current = path
+            assert handle is not None
             yield read(handle, index)
     finally:
         if handle is not None:
             handle.close()
+
+
+_PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + os.sep
+
+
+def warn_user(message: str) -> None:
+    """Issue a UserWarning attributed to the first caller outside RevelsMD."""
+    warnings.warn(message, UserWarning, skip_file_prefixes=(_PACKAGE_DIR,))
 
 
 def check_fixed_cell(cell: np.ndarray, reference: np.ndarray, where: str) -> None:
@@ -332,30 +343,7 @@ class Trajectory(ABC):
         return normalize_bounds(self.frames, start, stop, stride)
 
     @staticmethod
-    def _validate_orthorhombic(angles: list[float], atol: float = 1e-3) -> None:
-        """
-        Validate that cell angles are orthorhombic (all 90 degrees).
-
-        Parameters
-        ----------
-        angles : list of float
-            The three cell angles [alpha, beta, gamma] in degrees.
-        atol : float, optional
-            Absolute tolerance for comparison to 90 degrees (default: 1e-3).
-
-        Raises
-        ------
-        ValueError
-            If any angle is not within tolerance of 90 degrees.
-        """
-        if not np.allclose(angles, 90.0, atol=atol):
-            raise ValueError(
-                "Only orthorhombic or cubic cells are supported. "
-                f"Got angles: {angles}"
-            )
-
-    @staticmethod
-    def _validate_cell_matrix(cell_matrix: np.ndarray) -> None:
+    def _validate_cell_matrix(cell_matrix: np.ndarray, where: str | None = None) -> None:
         """
         Validate that a cell matrix is well-formed.
 
@@ -363,6 +351,8 @@ class Trajectory(ABC):
         ----------
         cell_matrix : np.ndarray
             Expected shape (3, 3), all elements finite, positive volume.
+        where : str, optional
+            File and frame the cell comes from, prefixed to the error message.
 
         Raises
         ------
@@ -370,46 +360,20 @@ class Trajectory(ABC):
             If the cell matrix has wrong shape, non-finite elements, or
             zero/negative volume.
         """
+        prefix = f"{where}: " if where is not None else ""
         if cell_matrix.shape != (3, 3):
             raise ValueError(
-                f"Cell matrix must have shape (3, 3). Got shape: {cell_matrix.shape}"
+                f"{prefix}Cell matrix must have shape (3, 3). Got shape: {cell_matrix.shape}"
             )
         if not np.all(np.isfinite(cell_matrix)):
             raise ValueError(
-                f"Cell matrix elements must all be finite. Got:\n{cell_matrix}"
+                f"{prefix}Cell matrix elements must all be finite. Got:\n{cell_matrix}"
             )
         volume = abs(np.linalg.det(cell_matrix))
         if volume < 1e-12:
             raise ValueError(
-                f"Cell matrix must have positive volume. Got volume: {volume}"
+                f"{prefix}Cell matrix must have positive volume. Got volume: {volume}"
             )
-
-    @staticmethod
-    def _validate_box_dimensions(lx: float, ly: float, lz: float) -> tuple[float, float, float]:
-        """
-        Validate that box dimensions are positive and finite.
-
-        Parameters
-        ----------
-        lx, ly, lz : float
-            Box dimensions in each Cartesian direction.
-
-        Returns
-        -------
-        tuple of (float, float, float)
-            The validated box dimensions.
-
-        Raises
-        ------
-        ValueError
-            If any dimension is not positive or not finite.
-        """
-        dims = [lx, ly, lz]
-        if not all(np.isfinite(dims)):
-            raise ValueError(f"Box dimensions must be finite. Got: ({lx}, {ly}, {lz})")
-        if not all(d > 0 for d in dims):
-            raise ValueError(f"Box dimensions must be positive. Got: ({lx}, {ly}, {lz})")
-        return lx, ly, lz
 
     @abstractmethod
     def get_indices(self, atype: str) -> np.ndarray:
@@ -516,7 +480,6 @@ class Trajectory(ABC):
         """
         ...
 
-    @abstractmethod
     def get_frame(self, index: int) -> Frame:
         """
         Return positions and forces for a specific frame by index.
@@ -524,12 +487,110 @@ class Trajectory(ABC):
         Parameters
         ----------
         index : int
-            Frame index to retrieve.
+            Frame index to retrieve. Negative indices count from the end.
 
         Returns
         -------
         Frame
             A dataclass with ``positions`` and ``forces`` arrays,
             each of shape (n_atoms, 3).
+
+        Raises
+        ------
+        TypeError
+            If ``index`` is not an integer.
         """
+        return self._get_frame(operator.index(index))
+
+    @abstractmethod
+    def _get_frame(self, index: int) -> Frame:
+        """Return frame ``index``, an int that may be negative."""
         ...
+
+
+@dataclass(frozen=True, eq=False)
+class FileFrames:
+    """Where each frame of a trajectory joined from several files is stored.
+
+    Frame ``i`` is bytes ``[starts[i], ends[i])`` of ``paths[file[i]]``.
+    ``file`` does not decrease. The arrays are read-only.
+    """
+
+    paths: list[str]
+    file: np.ndarray
+    starts: np.ndarray
+    ends: np.ndarray
+
+    @classmethod
+    def join(
+        cls,
+        paths: list[str],
+        starts: list[np.ndarray],
+        ends: list[np.ndarray],
+        **fields: Any,
+    ) -> Any:
+        """Join per-file byte ranges, in file order, into one table.
+
+        ``fields`` are passed on to a subclass's constructor; array fields
+        are made read-only too.
+        """
+        arrays = {
+            "file": np.repeat(
+                np.arange(len(paths), dtype=np.int32), [len(s) for s in starts]
+            ),
+            "starts": np.concatenate(starts),
+            "ends": np.concatenate(ends),
+        }
+        for values in (*arrays.values(), *fields.values()):
+            if isinstance(values, np.ndarray):
+                values.flags.writeable = False
+        return cls(paths=paths, **arrays, **fields)
+
+    def __len__(self) -> int:
+        return len(self.file)
+
+    def path(self, i: int) -> str:
+        """The path of frame ``i``; negative indices count from the end."""
+        return self.paths[self.file[i]]
+
+
+class IndexedFileTrajectory(Trajectory):
+    """A trajectory whose frames are read from indexed byte ranges of files.
+
+    Subclasses set ``_frames`` and implement ``_where`` and ``_read_arrays``.
+    Frames are read with one file open at a time; a reader's ValueError is
+    raised again naming the file and frame, and frames with NaN or infinite
+    values are rejected.
+    """
+
+    _frames: FileFrames
+
+    @abstractmethod
+    def _where(self, index: int) -> str:
+        """The file and frame ``index``, for error messages."""
+        ...
+
+    @abstractmethod
+    def _read_arrays(self, f: BinaryIO, index: int) -> tuple[np.ndarray, np.ndarray]:
+        """Read the positions and forces of frame ``index`` from its open file."""
+        ...
+
+    def _read(self, f: BinaryIO, index: int) -> Frame:
+        where = self._where(index)
+        try:
+            positions, forces = self._read_arrays(f, index)
+        except ValueError as e:
+            raise ValueError(f"{where}: {e}") from e
+        check_finite(positions, forces, where)
+        return Frame(positions, forces)
+
+    def _iter_frames_impl(self, start: int, stop: int, stride: int) -> Iterator[Frame]:
+        """Read the indexed frames in order, with one file open at a time."""
+        return read_frames_one_file_at_a_time(
+            range(start, stop, stride), self._frames.path, self._read
+        )
+
+    def _get_frame(self, index: int) -> Frame:
+        """Read one frame by seeking to it; nothing else is read or kept."""
+        with open(self._frames.path(index), "rb") as f:
+            return self._read(f, index)

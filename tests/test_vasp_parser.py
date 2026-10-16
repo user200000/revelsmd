@@ -147,6 +147,14 @@ class TestIndexVasprun:
         with pytest.raises(ValueError, match="calculation 3: malformed lattice basis"):
             index_vasprun(path)
 
+    def test_malformed_basis_in_every_step_names_the_first(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations = [with_basis(c, lambda b: b).replace(b"18.351083", b"*********", 1)
+                        for c in calculations]
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 0: malformed lattice basis"):
+            index_vasprun(path)
+
     def test_concatenated_files_raise(self, tmp_path):
         text = SOURCE.read_bytes()
         with pytest.raises(ValueError, match="a second <\\?xml at byte .*more than one vasprun.xml"):
