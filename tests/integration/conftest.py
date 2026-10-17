@@ -63,7 +63,7 @@ def example1_trajectory():
         str(data_file),
         temperature=1.35,  # LJ reduced temperature from simulation
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
     )
 
 
@@ -80,7 +80,7 @@ def example1_shuffled_trajectory():
         str(data_file),
         temperature=1.35,
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
     )
 
 
@@ -104,7 +104,7 @@ def example2_trajectory():
         str(data_file),
         temperature=1.35,  # LJ reduced temperature from simulation
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
     )
 
 
@@ -299,19 +299,11 @@ def lammps_to_numpy(lammps_ts, start=0, stop=None, stride=1):
     universe = lammps_ts.mdanalysis_universe
 
     if stop is None or stop == -1:
-        stop = len(universe.trajectory)
+        stop = lammps_ts.frames
 
-    frames_to_load = range(start, stop, stride)
-    n_frames = len(frames_to_load)
-    n_atoms = len(universe.atoms)
-
-    positions = np.zeros((n_frames, n_atoms, 3))
-    forces = np.zeros((n_frames, n_atoms, 3))
-
-    for i, frame_idx in enumerate(frames_to_load):
-        universe.trajectory[frame_idx]
-        positions[i] = universe.atoms.positions
-        forces[i] = universe.atoms.forces
+    frames = list(lammps_ts.iter_frames(start=start, stop=stop, stride=stride))
+    positions = np.array([frame.positions for frame in frames])
+    forces = np.array([frame.forces for frame in frames])
 
     # Build species list from atom types
     species = [str(atom.type) for atom in universe.atoms]

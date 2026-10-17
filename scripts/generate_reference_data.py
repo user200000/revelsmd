@@ -116,7 +116,7 @@ def generate_lammps_references():
         str(dump_file),
         str(data_file),
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
         temperature=1.35,
     )
 
@@ -248,7 +248,7 @@ def generate_lammps_example2_references():
         str(dump_file),
         str(data_file),
         units='lj',
-        atom_style="id resid type q x y z ix iy iz",
+        atom_style="id resid type charge x y z ix iy iz",
         temperature=1.35,
     )
 

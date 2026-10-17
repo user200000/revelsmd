@@ -14,7 +14,7 @@ traj = LammpsTrajectory(
     'tests/data/example_1_LJ/data.fin.nh.data',
     temperature=1.35,
     units='lj',
-    atom_style="id resid type q x y z ix iy iz",
+    atom_style="id resid type charge x y z ix iy iz",
 )
 ```
 

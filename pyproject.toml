@@ -38,7 +38,7 @@ Repository = "https://github.com/user200000/revelsmd"
 
 [project.optional-dependencies]
 docs = ["sphinx", "sphinx-rtd-theme", "myst-parser"]
-test = ["pytest", "pytest-cov", "pytest-mock", "mypy", "types-tqdm", "scipy-stubs", "pymatgen"]
+test = ["pytest", "pytest-cov", "pytest-mock", "mypy", "types-tqdm", "scipy-stubs", "pymatgen", "ase"]
 vasp = ["pymatgen"]
 
 [tool.pytest.ini_options]
@@ -54,6 +54,7 @@ markers = [
 ]
 filterwarnings = [
     "ignore:Reader has no dt information:UserWarning:MDAnalysis.*:",
+    "ignore:Setting the shape on a NumPy array:DeprecationWarning:ase.*:",
 ]
 
 [tool.coverage.run]
