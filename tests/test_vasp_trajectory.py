@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from file_limits import open_descriptors, open_file_limit
+from traced_memory import bytes_per_extra_item
 from vasprun_variants import SOURCE, join, split, truncated, with_basis, without_forces, write
 from revelsMD.trajectories import DataUnavailableError, VaspTrajectory
 from revelsMD.trajectories._base import compute_beta
@@ -16,7 +17,8 @@ def reference_frames(path=SOURCE):
     """Frames read directly with the index reader, for comparison."""
     index = index_vasprun(str(path))
     with open(path, "rb") as f:
-        return [read_vasp_frame(f, frame, len(index.atom_names)) for frame in index.frames]
+        return [read_vasp_frame(f, start, end, len(index.atom_names))
+                for start, end in zip(index.starts, index.ends)]
 
 
 @pytest.fixture(scope="module")
@@ -125,6 +127,14 @@ class TestFiles:
         with pytest.raises(ValueError, match=r"2\.xml, calculation 0: the cell differs"):
             VaspTrajectory([first, second], temperature=600.0)
 
+    def test_lattice_changing_only_in_a_later_files_first_step_names_that_step(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        changed = [with_basis(calculations[5], lambda b: b * 1.01)] + calculations[6:]
+        first = write(tmp_path / "1.xml", join(head, calculations[:5], tail))
+        second = write(tmp_path / "2.xml", join(head, changed, tail))
+        with pytest.raises(ValueError, match=r"2\.xml, calculation 0: the cell differs"):
+            VaspTrajectory([first, second], temperature=600.0)
+
     def test_triclinic_cell(self, tmp_path):
         shear = np.array([[1.0, 0, 0], [0.3, 1.0, 0], [0.1, 0.2, 1.0]])
         head, calculations, tail = split(SOURCE.read_bytes())
@@ -149,3 +159,25 @@ class TestOpenFiles:
         for frame, (positions, forces) in zip(got, reference_frames(), strict=True):
             np.testing.assert_array_equal(frame.positions, positions)
             np.testing.assert_array_equal(frame.forces, forces)
+
+
+def skeleton_step(calculation):
+    """A calculation cut down to its lattice and an empty forces array.
+
+    It is enough to index, though not to read.
+    """
+    start = calculation.find(b"<structure>")
+    end = calculation.find(b"</crystal>", start) + len(b"</crystal>")
+    return (b"<calculation>\n" + calculation[start:end] + b"\n</structure>\n"
+            b'<varray name="forces" ></varray>\n</calculation>')
+
+
+class TestIndexMemory:
+
+    def test_index_memory_per_step_is_small(self, tmp_path):
+        n = 2000
+        head, calculations, tail = split(SOURCE.read_bytes())
+        step = skeleton_step(calculations[0])
+        paths = {m: write(tmp_path / f"{m}.xml", join(head, [step] * m, tail)) for m in (n, 2 * n)}
+        per_step = bytes_per_extra_item(lambda m: VaspTrajectory(paths[m], temperature=600.0), n)
+        assert per_step < 40, f"the index keeps {per_step:.0f} bytes per ionic step"

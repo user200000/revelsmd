@@ -5,6 +5,7 @@ This module provides the VaspTrajectory class for reading VASP vasprun.xml files
 and the helpers that index and read them.
 """
 
+import array
 import mmap
 import os
 import warnings
@@ -57,45 +58,55 @@ _BASIS = b'<varray name="basis"'
 _VARRAY_CLOSE = b"</varray>"
 
 
-@dataclass(frozen=True)
-class VaspFrame:
-    """Where one ionic step lies in its vasprun.xml."""
-
-    path: str
-    calculation: int
-    start: int
-    end: int
-    basis: bytes
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class VasprunIndex:
-    """The atoms and the complete ionic steps of one vasprun.xml."""
+    """The atoms and the complete ionic steps of one vasprun.xml.
+
+    Ionic step ``k`` is the file's ``k``-th ``<calculation>`` element, which
+    occupies bytes ``[starts[k], ends[k])``. ``basis`` is the first step's
+    ``<varray name="basis">`` element; every step has the same lattice.
+    """
 
     path: str
     atom_names: list[str]
-    frames: list[VaspFrame]
+    basis: bytes
+    starts: np.ndarray
+    ends: np.ndarray
 
 
-def index_vasprun(path: str) -> VasprunIndex:
+def index_vasprun(path: str, reference_basis: bytes | None = None) -> VasprunIndex:
     """Index the ionic steps of one vasprun.xml without parsing them.
 
     A final ``<calculation>`` with no closing tag, as left by a run killed
     while writing, is dropped with a warning.
 
+    Parameters
+    ----------
+    path : str
+        The vasprun.xml file.
+    reference_basis : bytes, optional
+        The basis element of the trajectory's first ionic step, when this
+        file is not the first. Every step's lattice is compared with it, so
+        the first step that differs is named. By default steps are compared
+        with the file's first step.
+
     Raises
     ------
     ValueError
         If the file has no ``<atominfo>`` or no complete ionic step, if a
-        calculation other than the last is not closed, or if a calculation
-        lacks a structure, a lattice basis or forces.
+        calculation other than the last is not closed, if a calculation
+        lacks a structure, a lattice basis or forces, or if the lattice
+        changes between steps or differs from ``reference_basis``.
     """
     with open(path, "rb") as f:
         if os.fstat(f.fileno()).st_size == 0:
             raise ValueError(f"{path}: the file is empty")
         with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
             atom_names = _read_atom_names(m, path)
-            frames: list[VaspFrame] = []
+            starts = array.array("q")
+            ends = array.array("q")
+            first_basis = b""
+            reference = reference_basis
             start = m.find(_CALCULATION_OPEN)
             while start != -1:
                 close = m.find(_CALCULATION_CLOSE, start)
@@ -104,26 +115,40 @@ def index_vasprun(path: str) -> VasprunIndex:
                     if following == -1:
                         warnings.warn(
                             f"{path}: dropping the incomplete final ionic step "
-                            f"(calculation {len(frames)}); the file appears to have "
-                            f"been cut short, so its {len(frames)} complete steps are used",
+                            f"(calculation {len(starts)}); the file appears to have "
+                            f"been cut short, so its {len(starts)} complete steps are used",
                             UserWarning,
                             stacklevel=2,
                         )
                         break
                     raise ValueError(
-                        f"{path}, calculation {len(frames)}: no closing "
+                        f"{path}, calculation {len(starts)}: no closing "
                         "</calculation> before the next ionic step"
                     )
                 end = close + len(_CALCULATION_CLOSE)
-                frames.append(_index_calculation(m, path, len(frames), start, end))
+                k = len(starts)
+                basis = _calculation_basis(m, path, k, start, end)
+                if not starts:
+                    first_basis = basis
+                if reference is None:
+                    reference = basis
+                if basis != reference:
+                    check_fixed_cell(
+                        parse_basis(basis), parse_basis(reference), f"{path}, calculation {k}"
+                    )
+                starts.append(start)
+                ends.append(end)
                 start = following
-    if not frames:
+    if not starts:
         raise ValueError(f"{path}: no complete ionic steps")
-    return VasprunIndex(path, atom_names, frames)
+    return VasprunIndex(
+        path, atom_names, first_basis,
+        np.array(starts, dtype=np.int64), np.array(ends, dtype=np.int64),
+    )
 
 
-def _index_calculation(m: mmap.mmap, path: str, k: int, start: int, end: int) -> VaspFrame:
-    """Check one calculation's contents and record where it lies."""
+def _calculation_basis(m: mmap.mmap, path: str, k: int, start: int, end: int) -> bytes:
+    """Check one calculation's contents and return its lattice basis element."""
     structure = m.find(_STRUCTURE, start, end)
     missing = []
     if structure == -1:
@@ -139,7 +164,7 @@ def _index_calculation(m: mmap.mmap, path: str, k: int, start: int, end: int) ->
     basis_end = m.find(_VARRAY_CLOSE, basis_start, end) if basis_start != -1 else -1
     if basis_end == -1:
         raise ValueError(f"{path}, calculation {k}: the structure has no lattice basis")
-    return VaspFrame(path, k, start, end, bytes(m[basis_start:basis_end + len(_VARRAY_CLOSE)]))
+    return bytes(m[basis_start:basis_end + len(_VARRAY_CLOSE)])
 
 
 def _read_atom_names(m: mmap.mmap, path: str) -> list[str]:
@@ -162,8 +187,8 @@ def parse_basis(element: bytes) -> np.ndarray:
     return np.array(parse_varray(etree.fromstring(element)), dtype=np.float64)
 
 
-def read_vasp_frame(f: BinaryIO, frame: VaspFrame, n_atoms: int) -> tuple[np.ndarray, np.ndarray]:
-    """Read the Cartesian positions and the forces of one indexed ionic step.
+def read_vasp_frame(f: BinaryIO, start: int, end: int, n_atoms: int) -> tuple[np.ndarray, np.ndarray]:
+    """Read the Cartesian positions and the forces of the ionic step in bytes [start, end).
 
     Raises
     ------
@@ -171,8 +196,8 @@ def read_vasp_frame(f: BinaryIO, frame: VaspFrame, n_atoms: int) -> tuple[np.nda
         If the step's basis, positions or forces are missing or do not have
         one row per atom.
     """
-    f.seek(frame.start)
-    calculation = etree.fromstring(f.read(frame.end - frame.start))
+    f.seek(start)
+    calculation = etree.fromstring(f.read(end - start))
     basis = calculation.find("structure/crystal/varray[@name='basis']")
     fractional = calculation.find("structure/varray[@name='positions']")
     forces = calculation.find("varray[@name='forces']")
@@ -248,25 +273,28 @@ class VaspTrajectory(Trajectory):
         if not paths:
             raise ValueError("At least one vasprun.xml file is required.")
 
-        indices = [index_vasprun(path) for path in paths]
-        self._atom_names = indices[0].atom_names
-        for index in indices[1:]:
-            if index.atom_names != self._atom_names:
-                raise ValueError(
-                    f"{index.path}: the atoms differ from those in {indices[0].path}"
-                )
-        self._index = [frame for index in indices for frame in index.frames]
+        # Later files are checked against the first file's lattice, so a
+        # lattice error names the first ionic step that differs.
+        first = index_vasprun(paths[0])
+        indices = [first]
+        for path in paths[1:]:
+            index = index_vasprun(path, first.basis)
+            if index.atom_names != first.atom_names:
+                raise ValueError(f"{index.path}: the atoms differ from those in {first.path}")
+            indices.append(index)
+        self._atom_names = first.atom_names
 
-        first = self._index[0]
         self.cell_matrix = parse_basis(first.basis)
         self._validate_cell_matrix(self.cell_matrix)
-        for frame in self._index[1:]:
-            if frame.basis != first.basis:
-                check_fixed_cell(
-                    parse_basis(frame.basis), self.cell_matrix,
-                    f"{frame.path}, calculation {frame.calculation}",
-                )
-        self.frames = len(self._index)
+
+        # Frame i is ionic step _calculation[i] of file _paths[_file[i]].
+        counts = [len(index.starts) for index in indices]
+        self._paths = [index.path for index in indices]
+        self._file = np.repeat(np.arange(len(indices), dtype=np.int32), counts)
+        self._calculation = np.concatenate([np.arange(n, dtype=np.int32) for n in counts])
+        self._starts = np.concatenate([index.starts for index in indices])
+        self._ends = np.concatenate([index.ends for index in indices])
+        self.frames = len(self._starts)
 
     def get_indices(self, atype: str) -> np.ndarray:
         """
@@ -287,13 +315,20 @@ class VaspTrajectory(Trajectory):
     # get_charges and get_masses are inherited from Trajectory
     # and raise DataUnavailableError since VASP doesn't provide this data
 
+    def _path(self, index: int) -> str:
+        """The path of frame ``index``; negative indices count from the end."""
+        return self._paths[self._file[index]]
+
     def _read(self, f: BinaryIO, index: int) -> Frame:
         """Read frame ``index`` from its open vasprun.xml."""
-        frame = self._index[index]
         try:
-            positions, forces = read_vasp_frame(f, frame, len(self._atom_names))
+            positions, forces = read_vasp_frame(
+                f, int(self._starts[index]), int(self._ends[index]), len(self._atom_names)
+            )
         except (ValueError, etree.XMLSyntaxError) as e:
-            raise ValueError(f"{frame.path}, calculation {frame.calculation}: {e}") from e
+            raise ValueError(
+                f"{self._path(index)}, calculation {int(self._calculation[index])}: {e}"
+            ) from e
         return Frame(positions, forces)
 
     def _iter_frames_impl(
@@ -304,7 +339,7 @@ class VaspTrajectory(Trajectory):
     ) -> Iterator[Frame]:
         """Read the indexed ionic steps in order, with one file open at a time."""
         return read_frames_one_file_at_a_time(
-            range(start, stop, stride), lambda i: self._index[i].path, self._read
+            range(start, stop, stride), self._path, self._read
         )
 
     def get_frame(self, index: int) -> Frame:
@@ -324,5 +359,5 @@ class VaspTrajectory(Trajectory):
             A dataclass with ``positions`` and ``forces`` arrays,
             each of shape ``(n_atoms, 3)``.
         """
-        with open(self._index[index].path, "rb") as f:
+        with open(self._path(index), "rb") as f:
             return self._read(f, index)
