@@ -1,5 +1,6 @@
 """LammpsTrajectory on small dump files written for each case."""
 
+import itertools
 import shutil
 from pathlib import Path
 
@@ -7,20 +8,28 @@ import numpy as np
 import pytest
 
 from file_limits import open_descriptors, open_file_limit
-from lammps_dumps import IDS_SORTED, forces, frame, positions, rows, write
+from lammps_dumps import (
+    IDS_SORTED, SMALL_DATA as DATA, atom_type, forces, frame, load, positions, rows, write,
+)
 from traced_memory import bytes_per_extra_item
-from revelsMD.trajectories import LammpsTrajectory
+from revelsMD.density import DensityGrid, Selection
+from revelsMD.rdf import RDF
+from revelsMD.trajectories import DataUnavailableError, LammpsTrajectory
 from revelsMD.trajectories._base import compute_beta
 
-SMALL = Path(__file__).parent / "data" / "lammps_small"
-DATA = str(SMALL / "data.small.data")
 
 
-def load(dumps, **kwargs):
-    kwargs.setdefault("atom_style", "id type x y z")
-    kwargs.setdefault("temperature", 1.0)
-    kwargs.setdefault("units", "lj")
-    return LammpsTrajectory(dumps, DATA, **kwargs)
+# Every way frames are read for analysis.
+ANALYSES = [
+    lambda traj: list(traj.iter_frames()),
+    lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(traj, "1"),
+    lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
+        traj, "1", compute_lambda=True, block_size=2),
+    lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
+        traj, "1", compute_lambda=True, blocking="interleaved", sections=2),
+    lambda traj: RDF(traj, "1", "2").accumulate(traj),
+]
+ANALYSIS_NAMES = ["iter_frames", "grid", "contiguous blocks", "interleaved blocks", "rdf"]
 
 
 @pytest.fixture
@@ -72,10 +81,67 @@ class TestReading:
         traj = LammpsTrajectory((a, b), Path(DATA), temperature=1.0, units="lj")
         assert traj.frames == 2
 
-    def test_unreadable_topology(self, six_frames, tmp_path):
-        with pytest.raises(RuntimeError, match="Failed to load LAMMPS topology"):
+    def test_get_frame_names_negative_frames_by_position(self, tmp_path):
+        bad_ids = [r.replace("40 2", "41 2", 1) for r in rows(200)]
+        a = write(tmp_path / "a.dump", frame(0), frame(100), frame(200, atom_rows=bad_ids))
+        with pytest.raises(ValueError, match=r"a\.dump, frame 2 \(timestep 200\)"):
+            load(a).get_frame(-1)
+        with pytest.raises(IndexError, match="frame -4 is out of range for 3 frames"):
+            load(a).get_frame(-4)
+
+    def test_get_frame_needs_an_integer(self, six_frames):
+        traj = load(six_frames)
+        with pytest.raises(TypeError):
+            traj.get_frame(2.0)
+        np.testing.assert_array_equal(traj.get_frame(np.int64(2)).positions, positions(2.0))
+
+    def test_unknown_type_raises(self, six_frames):
+        with pytest.raises(ValueError, match="no atoms of type '3'"):
+            load(six_frames).get_indices("3")
+
+    @pytest.mark.parametrize("atom_style", ["id type x y z", None])
+    def test_missing_topology(self, six_frames, tmp_path, atom_style):
+        with pytest.raises(FileNotFoundError, match="missing.data"):
             LammpsTrajectory(six_frames, str(tmp_path / "missing.data"),
-                             temperature=1.0, units="lj", atom_style="id type x y z")
+                             temperature=1.0, units="lj", atom_style=atom_style)
+
+    def test_repeated_topology_ids_raise(self, six_frames, tmp_path):
+        repeated = tmp_path / "repeated.data"
+        repeated.write_text(Path(DATA).read_text().replace("\n21 1 21.0", "\n20 1 21.0"))
+        with pytest.raises(RuntimeError, match=r"repeated\.data: atom ids repeat"):
+            LammpsTrajectory(six_frames, str(repeated), temperature=1.0, units="lj")
+
+    def test_binary_topology_without_a_style_raises(self, six_frames, tmp_path):
+        binary = tmp_path / "binary.data"
+        binary.write_bytes(b"title\n\xff\xfe\x00\x01 atoms\n")
+        with pytest.raises(ValueError, match=r"binary\.data: no 'Atoms # <style>' comment"):
+            LammpsTrajectory(six_frames, str(binary), temperature=1.0, units="lj")
+
+    def test_dump_units_must_match(self, tmp_path):
+        a = write(tmp_path / "a.dump", "ITEM: UNITS\nmetal\n", frame(0))
+        with pytest.raises(ValueError, match=r"a\.dump: the dump was written with ITEM: UNITS metal, but units='lj'; pass units='metal'"):
+            load(a)
+        assert load(a, units="metal").units == "metal"
+        assert load(a, units="Metal").frames == 1
+        # Every frame's style is checked, not only the first.
+        b = write(tmp_path / "b.dump", "ITEM: UNITS\nmetal\n", frame(0), "ITEM: UNITS\nreal\n", frame(100))
+        with pytest.raises(ValueError, match=r"b\.dump: the dump was written with ITEM: UNITS real"):
+            load(b, units="metal")
+
+    def test_non_ascii_atom_style_names_the_file(self, six_frames, tmp_path):
+        data = tmp_path / "odd.data"
+        data.write_bytes(Path(DATA).read_bytes().replace(b"Atoms # atomic", "Atoms # \u00e5tomic".encode()))
+        with pytest.raises(ValueError, match=r"odd\.data: atom style '\\xc3\\xa5tomic' has no known column layout"):
+            LammpsTrajectory(six_frames, str(data), temperature=1.0, units="lj")
+
+    def test_bytes_topology(self, six_frames):
+        assert LammpsTrajectory(six_frames, DATA.encode(), temperature=1.0, units="lj").frames == 6
+
+    def test_unparseable_topology(self, six_frames, tmp_path):
+        broken = tmp_path / "broken.data"
+        broken.write_text("title\n\n6 atoms\n\nAtoms # atomic\n\n1 x\n")
+        with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*broken\.data: "):
+            LammpsTrajectory(six_frames, str(broken), temperature=1.0, units="lj")
 
 
 class TestMultipleFiles:
@@ -119,6 +185,46 @@ class TestMultipleFiles:
         with pytest.warns(UserWarning, match="incomplete final frame"):
             assert load(a).frames == 1
 
+    def test_warnings_are_attributed_to_the_caller(self, tmp_path):
+        # One file with a cut final frame, then a restart ending before the frames it replaces.
+        a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0), frame(200), frame(300)[:-25])
+        b = write(tmp_path / "b.dump", frame(100), frame(150))
+        for files in (a, [a, b]):
+            with pytest.warns(UserWarning) as record:
+                LammpsTrajectory(files, DATA, temperature=1.0, units="lj", atom_style="atomic")
+            assert [w.filename for w in record] == [__file__] * len(record)
+
+    def test_file_with_only_a_partial_frame_first(self, tmp_path):
+        a = write(tmp_path / "a.dump", frame(0)[:-25])
+        b = write(tmp_path / "b.dump", frame(100, 1.0), frame(200, 2.0))
+        with pytest.warns(UserWarning, match=r"a\.dump: dropping the incomplete final frame \(timestep 0\)"):
+            traj = load([a, b])
+        assert traj.frames == 2
+        np.testing.assert_array_equal(traj.get_frame(0).positions, positions(1.0))
+
+    def test_empty_file_from_a_job_that_wrote_nothing(self, tmp_path):
+        a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0))
+        b = write(tmp_path / "b.dump", "")
+        with pytest.warns(UserWarning, match=r"b\.dump: dropping the incomplete final frame"):
+            assert load([a, b]).frames == 2
+
+    def test_files_with_different_column_orders(self, tmp_path):
+        reordered = [" ".join(r.split()[:2] + r.split()[5:] + r.split()[2:5]) for r in rows(200)]
+        a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0))
+        b = write(tmp_path / "b.dump", frame(200, columns="id type fx fy fz x y z", atom_rows=reordered))
+        traj = load([a, b])
+        for got in (traj.get_frame(2), list(traj.iter_frames())[2]):
+            np.testing.assert_array_equal(got.positions, positions())
+            np.testing.assert_array_equal(got.forces, forces(200))
+
+    def test_restart_replacing_frames_after_an_atom_was_lost(self, tmp_path):
+        lost = frame(300, atom_rows=rows(300)[:5], n_atoms=5)
+        a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0), frame(200, 2.0), lost)
+        b = write(tmp_path / "b.dump", frame(200, 20.0), frame(300, 30.0))
+        traj = load([a, b])
+        assert traj.frames == 4
+        np.testing.assert_array_equal(traj.get_frame(3).positions, positions(30.0))
+
 
 class TestOpenFiles:
 
@@ -131,6 +237,40 @@ class TestOpenFiles:
             got = list(traj.iter_frames())
         assert len(got) == n_files
         np.testing.assert_array_equal(got[-1].positions, positions(float((n_files - 1) % 7)))
+
+
+    @pytest.mark.parametrize("run", ANALYSES, ids=ANALYSIS_NAMES)
+    def test_no_file_is_left_open_after_a_bad_frame(self, tmp_path, run):
+        good = load(write(tmp_path / "good.dump", frame(0), frame(100), frame(200)))
+        bad = load(write(tmp_path / "bad.dump", frame(0), frame(100, atom_rows=rows(100, fy="nan")), frame(200)))
+        run(good)  # anything opened once per process, such as by tqdm, is opened now
+        self.check_files_closed(run, bad, "NaN")
+
+    # The analysis itself fails at its second frame, outside the reader.
+    @pytest.mark.parametrize("run", ANALYSES[1:], ids=ANALYSIS_NAMES[1:])
+    def test_no_file_is_left_open_after_the_analysis_fails(self, tmp_path, monkeypatch, run):
+        traj = load(write(tmp_path / "a.dump", frame(0), frame(100), frame(200)))
+        run(traj)  # anything opened once per process, such as by tqdm, is opened now
+        calls = itertools.count()
+
+        def failing(method):
+            def wrapper(*args, **kwargs):
+                if next(calls) == 1:
+                    raise ValueError("the analysis failed")
+                return method(*args, **kwargs)
+            return wrapper
+
+        monkeypatch.setattr(Selection, "extract", failing(Selection.extract))
+        monkeypatch.setattr(RDF, "deposit", failing(RDF.deposit))
+        self.check_files_closed(run, traj, "the analysis failed")
+
+    @staticmethod
+    def check_files_closed(run, traj, error):
+        before = open_descriptors()
+        # The exception is kept, as a notebook or debugger keeps it, while files are counted.
+        with pytest.raises(ValueError, match=error) as kept:
+            run(traj)
+        assert kept.value is not None and open_descriptors() == before
 
 
 class TestIndexMemory:
@@ -176,10 +316,52 @@ class TestValidation:
         with pytest.raises(ValueError, match="lack fx fy fz"):
             load(a)
 
+    def test_zero_volume_box_raises_naming_the_file(self, tmp_path):
+        z = write(tmp_path / "z.dump", frame(0, bounds="0.0 10.0\n0.0 10.0\n5.0 5.0\n"))
+        with pytest.raises(ValueError, match=r"z\.dump, frame 0 \(timestep 0\): Cell matrix must have positive volume"):
+            load(z)
+
     def test_atom_count_must_match_the_topology(self, tmp_path):
         a = write(tmp_path / "a.dump", frame(0, atom_rows=rows(0)[:5], n_atoms=5))
         with pytest.raises(ValueError, match="5 atoms, but the topology has 6"):
             load(a)
+
+    def test_atom_count_of_a_later_file_must_match_the_topology(self, tmp_path):
+        a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0))
+        b = write(tmp_path / "b.dump", *(frame(t, atom_rows=rows(t)[:5], n_atoms=5) for t in (200, 300)))
+        with pytest.raises(ValueError, match=r"b\.dump, timestep 200: 5 atoms, but the topology has 6"):
+            load([a, b])
+
+    def test_first_frame_with_the_wrong_atom_count_is_named(self, tmp_path):
+        a = write(tmp_path / "a.dump", frame(0, atom_rows=rows(0)[:5], n_atoms=5), frame(100), frame(200))
+        with pytest.raises(ValueError, match=r"a\.dump, timestep 0: 5 atoms, but the topology has 6"):
+            load(a)
+
+    def test_read_errors_name_the_file_and_frame(self, tmp_path):
+        bad_ids = [r.replace("40 2", "41 2", 1) for r in rows(300)]
+        a = write(tmp_path / "a.dump", frame(0), frame(100, 1.0))
+        b = write(tmp_path / "b.dump", frame(200, 2.0), frame(300, atom_rows=bad_ids))
+        traj = load([a, b])
+        with pytest.raises(ValueError, match=r"b\.dump, frame 1 \(timestep 300\): frame atom ids do not match"):
+            traj.get_frame(3)
+        with pytest.raises(ValueError, match=r"b\.dump, frame 1 \(timestep 300\)"):
+            list(traj.iter_frames())
+
+    def test_data_file_with_other_types_raises_when_read(self, six_frames, tmp_path):
+        swapped = Path(DATA).read_text().replace("12 1 12.0", "12 2 12.0").replace("40 2 40.0", "40 1 40.0")
+        data = tmp_path / "swapped.data"
+        data.write_text(swapped)
+        traj = LammpsTrajectory(six_frames, str(data), temperature=1.0, units="lj")
+        with pytest.raises(ValueError, match=r"six\.dump, frame 0 \(timestep 0\): .*atom id 12 has type 1 in the dump and 2"):
+            traj.get_frame(0)
+
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+    def test_non_finite_values_raise_when_read(self, tmp_path, value):
+        broken = rows(100, fy=value)
+        a = write(tmp_path / "a.dump", frame(0), frame(100, atom_rows=broken))
+        traj = load(a)
+        with pytest.raises(ValueError, match=r"a\.dump, frame 1 \(timestep 100\): the forces contain NaN"):
+            traj.get_frame(1)
 
 
 class TestCoordinateColumns:
@@ -261,6 +443,41 @@ class TestTopology:
                 np.testing.assert_array_equal(
                     traj.get_charges(atype), np.array(expected, dtype=np.float32))
 
+    def test_charges_of_an_atomic_style_data_file_are_unavailable(self, six_frames):
+        traj = LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj")
+        with pytest.raises(DataUnavailableError, match="records no charges"):
+            traj.get_charges("1")
+
+    def test_masses_of_a_data_file_without_a_masses_section_are_unavailable(self, six_frames, tmp_path):
+        text = Path(DATA).read_text()
+        head, masses, rest = text.partition("Masses\n\n1 1.0\n2 2.0\n\n")
+        assert masses
+        path = tmp_path / "no_masses.data"
+        path.write_text(head + rest)
+        traj = LammpsTrajectory(six_frames, str(path), temperature=1.0, units="lj")
+        np.testing.assert_array_equal(traj.get_indices("1"), [0, 2, 4])
+        with pytest.raises(DataUnavailableError, match=r"no_masses\.data: the topology records no masses"):
+            traj.get_masses("1")
+        np.testing.assert_array_equal(
+            LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj").get_masses("1"), [1.0] * 3)
+        # Masses given by type, as strings or numbers, fill the gap.
+        given = LammpsTrajectory(six_frames, str(path), temperature=1.0, units="lj",
+                                 masses={"1": 12.0, 2: 1.0}, charges={1: -0.5})
+        np.testing.assert_array_equal(given.get_masses("1"), [12.0] * 3)
+        np.testing.assert_array_equal(given.get_masses(2), [1.0] * 3)  # types as numbers too
+        np.testing.assert_array_equal(given.get_charges(1), [-0.5] * 3)
+        with pytest.raises(DataUnavailableError, match="give them for 2 with charges="):
+            given.get_charges("2")
+
+    def test_given_masses_win_over_the_data_file(self, six_frames):
+        traj = LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj", masses={"1": 5.0})
+        np.testing.assert_array_equal(traj.get_masses("1"), [5.0] * 3)
+        np.testing.assert_array_equal(traj.get_masses("2"), [2.0] * 3)
+
+    def test_given_masses_for_types_no_atom_has_raise(self, six_frames):
+        with pytest.raises(ValueError, match="masses= names atom types that no atom has: 3"):
+            LammpsTrajectory(six_frames, DATA, temperature=1.0, units="lj", masses={3: 1.0})
+
     def test_full_style_data_file(self):
         lj = Path(__file__).parent / "data" / "example_1_LJ"
         inferred = LammpsTrajectory(str(lj / "dump.nh.lammps"), str(lj / "data.fin.nh.data"),
@@ -274,7 +491,7 @@ class TestTopology:
             inferred.mdanalysis_universe.atoms.ids, explicit.mdanalysis_universe.atoms.ids)
 
 
-TRICLINIC = str(SMALL / "dump_triclinic.lammps")
+TRICLINIC = str(Path(DATA).parent / "dump_triclinic.lammps")
 TRICLINIC_CELL = np.array([[10.0, 0.0, 0.0], [2.0, 10.0, 0.0], [1.0, -1.5, 10.0]])
 
 
@@ -300,15 +517,23 @@ class TestTriclinic:
         np.testing.assert_allclose(
             load(TRICLINIC).cell_matrix, triclinic_vectors(universe.dimensions), atol=1e-5)
 
-    def test_scaled_coordinates_in_a_triclinic_box(self, tmp_path):
-        text = Path(TRICLINIC).read_text().splitlines(keepends=True)
-        out = []
-        for line in text:
-            fields = line.split()
-            if len(fields) == 8 and not line.startswith("ITEM"):
-                s = np.array(fields[2:5], dtype=float) @ np.linalg.inv(TRICLINIC_CELL)
-                line = " ".join(fields[:2] + [repr(float(v)) for v in s] + fields[5:]) + "\n"
-            out.append(line.replace("ITEM: ATOMS id type x y z", "ITEM: ATOMS id type xs ys zs"))
-        scaled = write(tmp_path / "tri_scaled.dump", "".join(out))
-        for got, expected in zip(load(scaled).iter_frames(), load(TRICLINIC).iter_frames(), strict=True):
-            np.testing.assert_allclose(got.positions, expected.positions, rtol=1e-12, atol=1e-12)
+    def test_positions_match_ase(self):
+        from ase.io import read
+        for k, got in enumerate(load(TRICLINIC).iter_frames()):
+            atoms = read(TRICLINIC, format="lammps-dump-text", index=k)
+            np.testing.assert_array_equal(got.positions, atoms.positions)
+
+    def test_scaled_positions_with_a_box_origin_match_ase(self, tmp_path):
+        from ase.io import read
+        # Bounds for the triclinic cell with origin (5, -3, 2).
+        bounds = "5.0 18.0 2.0\n-4.5 7.0 1.0\n2.0 12.0 -1.5\n"
+        rng = np.random.default_rng(3)
+        atom_rows = [f"{i} {atom_type(i)} " + " ".join(repr(float(v)) for v in rng.uniform(-0.2, 1.2, 3))
+                     + " 0 0 0" for i in (20, 3, 40, 12, 21, 7)]
+        path = write(tmp_path / "scaled.dump", frame(
+            0, box_item="xy xz yz pp pp pp", bounds=bounds,
+            columns="id type xs ys zs fx fy fz", atom_rows=atom_rows))
+        atoms = read(path, format="lammps-dump-text", index=0)
+        # ASE returns scaled positions relative to the box origin.
+        expected = atoms.positions + atoms.get_celldisp().ravel()
+        np.testing.assert_allclose(load(path).get_frame(0).positions, expected, rtol=0, atol=1e-13)

@@ -57,7 +57,7 @@ defines:
 - `get_indices(atype)` — atom indices for a named species (abstract)
 - `get_charges(atype)`, `get_masses(atype)` — raise `DataUnavailableError` by default; subclasses override as needed
 - `iter_frames(start, stop, stride)` — sequential frame iteration, yields `Frame` instances
-- `get_frame(index)` — random access by index (abstract)
+- `get_frame(index)` — random access by index; it checks the index and calls `_get_frame()`, which subclasses implement
 
 The base class normalises start/stop/stride (negative indices, `None` stop) before
 delegating to `_iter_frames_impl()`, which subclasses implement with non-negative

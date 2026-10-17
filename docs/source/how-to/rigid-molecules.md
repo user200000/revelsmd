@@ -39,12 +39,21 @@ grid.accumulate(
 )
 ```
 
-Centre-of-mass deposition requires mass data. `MDATrajectory` provides this
-automatically; for `NumpyTrajectory`, pass `mass_list`.
+Centre-of-mass deposition requires masses, which are never guessed. They come
+from a topology that records them (a GROMACS `.tpr`, or a LAMMPS data file with
+a `Masses` section), or from the `masses` argument of `MDATrajectory` (by atom
+name), `LammpsTrajectory` (by atom type) and `VaspTrajectory` (by element), or
+the `mass_list` argument of `NumpyTrajectory`:
+
+```python
+traj = MDATrajectory('prod.trr', 'conf.gro', temperature=300.0,
+                     masses={'Ow': 15.999, 'Hw1': 1.008, 'Hw2': 1.008})
+```
 
 ## Charge density
 
-Pass `density_type='charge'`. Charge data must be available on the trajectory.
+Pass `density_type='charge'`. Charges come from the topology or, in the same
+way as masses, from the `charges` argument.
 
 ```python
 grid = DensityGrid(traj, density_type='charge', nbins=50)
@@ -84,8 +93,12 @@ Requires both charge and mass data on the trajectory.
 : All atom names must select the same number of atoms.
 
 `DataUnavailableError` for masses
-: Use a backend that carries mass data (e.g. `MDATrajectory`), or switch to
+: Give them with `masses=`, use a topology that records them, or switch to
   `centre_location=<int>` to deposit at a named atom site instead.
+
+`ValueError` about masses and the centre of mass
+: Atom masses must be finite and not negative, and each molecule's total mass
+  positive.
 
 `ValueError: polarisation requires rigid`
 : Set `rigid=True` and supply more than one atom name.

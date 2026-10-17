@@ -11,9 +11,9 @@ block is an iterator of Frame instances.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Iterator, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
@@ -72,8 +72,19 @@ class Frame:
                 f"forces has {self.forces.shape[0]}"
             )
 
-#: An iterator of blocks, where each block is an iterator of frames.
-BlockSource = Iterator[Iterator[Frame]]
+class Block(Protocol):
+    """An iterator of frames that its reader closes when done with it."""
+
+    def __iter__(self) -> Iterator[Frame]: ...
+
+    def __next__(self) -> Frame: ...
+
+    def close(self) -> None: ...
+
+
+#: A generator of blocks. Whatever reads a block closes it, which releases
+#: any file the block holds open.
+BlockSource = Generator[Block, None, None]
 
 
 def contiguous_blocks(
@@ -84,7 +95,11 @@ def contiguous_blocks(
 
     Each block contains up to ``block_size`` frames drawn from the
     underlying iterator. The final block may contain fewer frames if the
-    stream is not evenly divisible.
+    stream is not evenly divisible. Frames are read as each block is
+    iterated, so only one is held at a time. All blocks read the same
+    stream, so read each block to its end before requesting the next; the
+    blocks cannot be collected first, as ``list(contiguous_blocks(...))``
+    would.
 
     Parameters
     ----------
@@ -97,15 +112,53 @@ def contiguous_blocks(
     ------
     iterator of Frame
         One block of frames.
+
+    Raises
+    ------
+    RuntimeError
+        If a block is requested before the previous block was read to its end.
     """
     if block_size < 1:
         raise ValueError("block_size must be >= 1")
 
     it = iter(frame_iterator)
-    # Materialise each batch so that unconsumed inner iterators
-    # cannot silently lose frames from the shared stream.
-    while batch := list(itertools.islice(it, block_size)):
-        yield iter(batch)
+    for first in it:
+        block = _Block(first, it, block_size)
+        del first  # the block holds the first frame only until it is read
+        yield block
+        if not block.read_to_end():
+            raise RuntimeError(
+                "a block of frames was requested before the previous block was "
+                "read to its end"
+            )
+
+
+class _Block:
+    """Up to ``size`` frames of a shared stream, starting with ``first``."""
+
+    def __init__(self, first: Frame, stream: Iterator[Frame], size: int) -> None:
+        self._first: Frame | None = first
+        self._rest = itertools.islice(stream, size - 1)
+
+    def __iter__(self) -> "_Block":
+        return self
+
+    def __next__(self) -> Frame:
+        if self._first is not None:
+            frame, self._first = self._first, None
+            return frame
+        return next(self._rest)
+
+    def close(self) -> None:
+        """Nothing to release: the stream belongs to the caller of contiguous_blocks."""
+
+    def read_to_end(self) -> bool:
+        """Whether every frame of the block has been read.
+
+        If a frame is left, this reads it from the stream; the caller then
+        raises, so the frame is not needed.
+        """
+        return self._first is None and next(self._rest, None) is None
 
 
 def interleaved_blocks(
@@ -116,12 +169,14 @@ def interleaved_blocks(
     """Yield blocks of frames using an interleaved index pattern.
 
     Section *k* receives frames at indices ``frame_indices[k::sections]``.
-    This requires random access via ``trajectory.get_frame()``.
+    A section that is a range of valid indices is read with
+    ``trajectory.iter_frames()``, which keeps each file open while it reads
+    the file's frames; other sections are read with ``trajectory.get_frame()``.
 
     Parameters
     ----------
     trajectory : Trajectory
-        Trajectory object with a ``get_frame(index)`` method.
+        The trajectory to read.
     frame_indices : range or sequence of int
         Frame indices to distribute across sections (supports slicing).
     sections : int
@@ -131,25 +186,33 @@ def interleaved_blocks(
     ------
     iterator of Frame
         One block of frames. Each block is an independent generator;
-        blocks do not share iteration state.
+        blocks do not share iteration state. A part-read block holds its
+        file open until it is closed.
 
     Raises
     ------
     ValueError
-        If the trajectory does not support random frame access.
+        If ``sections`` is less than 1.
     """
+    # Imported here: the trajectories package imports this module.
+    from revelsMD.trajectories._base import Trajectory
+
     if sections < 1:
         raise ValueError("sections must be >= 1")
-
-    if not callable(getattr(trajectory, "get_frame", None)):
-        raise ValueError(
-            "Interleaved blocking requires a trajectory that supports "
-            "random frame access (get_frame). Use blocking='contiguous' "
-            "for sequential-only backends."
-        )
 
     for k in range(sections):
         section_indices = frame_indices[k::sections]
         if len(section_indices) == 0:
             continue  # defensive: callers should not request sections > frames
-        yield (trajectory.get_frame(i) for i in section_indices)
+        if (
+            isinstance(trajectory, Trajectory)
+            and isinstance(section_indices, range)
+            and section_indices.step > 0
+            and 0 <= section_indices[0]
+            and section_indices[-1] < trajectory.frames
+        ):
+            yield trajectory.iter_frames(
+                section_indices[0], section_indices[-1] + 1, section_indices.step
+            )
+        else:
+            yield (trajectory.get_frame(i) for i in section_indices)

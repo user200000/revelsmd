@@ -38,7 +38,7 @@ Repository = "https://github.com/user200000/revelsmd"
 
 [project.optional-dependencies]
 docs = ["sphinx", "sphinx-rtd-theme", "myst-parser"]
-test = ["pytest", "pytest-cov", "pytest-mock", "mypy", "types-tqdm", "scipy-stubs", "ase"]
+test = ["pytest", "pytest-cov", "pytest-mock", "mypy", "types-tqdm", "scipy-stubs", "ase", "h5py; python_version < '3.15'"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,10 +1,9 @@
 """Unit tests for the vasprun.xml index and frame reader."""
 
-import xml.etree.ElementTree as ET
+import io
 
 import numpy as np
 import pytest
-from lxml import etree
 
 from vasprun_variants import (
     SOURCE,
@@ -16,16 +15,11 @@ from vasprun_variants import (
     without_forces,
     without_structure,
     write,
+    independent_frames as _independent_frames,
 )
-from revelsMD.trajectories.vasp import index_vasprun, parse_basis, parse_varray, read_vasp_frame
+from revelsMD.trajectories.vasp import index_vasprun, parse_basis, read_vasp_frame
 
 SHEAR = np.array([[1.0, 0, 0], [0.3, 1.0, 0], [0.1, 0.2, 1.0]])
-
-
-def test_parse_varray_types():
-    assert np.allclose(parse_varray(etree.fromstring("<varray><v>1.0 2.0 3.0</v></varray>")), [[1, 2, 3]])
-    assert parse_varray(etree.fromstring('<varray type="int"><v>1 2 3</v></varray>')) == [[1, 2, 3]]
-    assert parse_varray(etree.fromstring('<varray type="logical"><v>T F T</v></varray>')) == [[True, False, True]]
 
 
 class TestIndexVasprun:
@@ -41,11 +35,10 @@ class TestIndexVasprun:
         assert sorted(set(index.atom_names)) == ["Ba", "F", "Sn"]
         np.testing.assert_allclose(parse_basis(index.basis), np.eye(3) * 18.351083)
 
-    def test_truncated_file_keeps_complete_steps_with_a_warning(self, tmp_path):
-        path = truncated(tmp_path / "vasprun.xml")
-        with pytest.warns(UserWarning, match="incomplete final ionic step.*9 complete steps"):
-            index = index_vasprun(path)
+    def test_truncated_file_keeps_complete_steps(self, tmp_path):
+        index = index_vasprun(truncated(tmp_path / "vasprun.xml"))
         assert len(index.starts) == len(index.ends) == 9
+        assert index.cut == "calculation 9 has no closing tag"
 
     def test_missing_forces_raises(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
@@ -77,7 +70,7 @@ class TestIndexVasprun:
 
     def test_first_step_is_checked_against_a_reference_basis(self, tmp_path):
         head, calculations, tail = split(SOURCE.read_bytes())
-        reference = index_vasprun(str(SOURCE)).basis
+        reference = index_vasprun(str(SOURCE))
         changed = [with_basis(calculations[0], lambda b: b * 1.01)] + calculations[1:]
         path = write(tmp_path / "vasprun.xml", join(head, changed, tail))
         with pytest.raises(ValueError, match=r"vasprun\.xml, calculation 0: the cell differs from the first frame's"):
@@ -103,22 +96,68 @@ class TestIndexVasprun:
         with pytest.raises(ValueError, match="no <atominfo>"):
             index_vasprun(write(tmp_path / "vasprun.xml", text))
 
+    def test_no_atom_list_raises(self, tmp_path):
+        text = SOURCE.read_bytes().replace(b'<array name="atoms" >', b'<array name="atomz" >', 1)
+        assert text != SOURCE.read_bytes()
+        with pytest.raises(ValueError, match="no atom list in <atominfo>"):
+            index_vasprun(write(tmp_path / "vasprun.xml", text))
 
-def _floats(elements):
-    """Rows of numbers from <v> elements, converted with float()."""
-    return np.array([[float(x) for x in v.text.split()] for v in elements])
+    @pytest.mark.parametrize("keep, reason", [
+        (lambda head, first: b"", "the file is empty"),
+        (lambda head, first: head[:-50], "no <calculation> element"),  # cut before its first step
+        (lambda head, first: head + first[:-200], "calculation 0 has no closing tag"),
+    ])
+    def test_file_without_a_complete_step_has_none(self, tmp_path, keep, reason):
+        head, calculations, _ = split(SOURCE.read_bytes())
+        index = index_vasprun(write(tmp_path / "vasprun.xml", keep(head, calculations[0])))
+        assert len(index.starts) == 0 and index.cut == reason
+
+    @pytest.mark.parametrize("edit, missing", [
+        (without_forces, "no forces"),
+        (without_structure, "no structure"),
+        (without_basis, "the structure has no lattice basis"),
+    ])
+    def test_last_step_missing_data_raises(self, tmp_path, edit, missing):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[-1] = edit(calculations[-1])
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match=f"calculation 9: {missing}"):
+            index_vasprun(path)
+
+    def test_missing_positions_raises(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[2] = calculations[2].replace(b'<varray name="positions"', b'<varray name="positionz"', 1)
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 2: the structure has no positions"):
+            index_vasprun(path)
+
+    def test_malformed_basis_names_the_calculation(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations[3] = with_basis(calculations[3], lambda b: b).replace(b"18.351083", b"*********", 1)
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 3: malformed lattice basis"):
+            index_vasprun(path)
+
+    def test_malformed_basis_in_every_step_names_the_first(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        calculations = [with_basis(c, lambda b: b).replace(b"18.351083", b"*********", 1)
+                        for c in calculations]
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        with pytest.raises(ValueError, match="calculation 0: malformed lattice basis"):
+            index_vasprun(path)
+
+    def test_atoms_are_compared_before_the_lattice(self, tmp_path):
+        head, calculations, tail = split(SOURCE.read_bytes())
+        atominfo = head.find(b"<atominfo>")
+        head = head[:atominfo] + head[atominfo:].replace(b"<c>Ba</c>", b"<c>Sr</c>", 1)
+        scaled = [with_basis(c, lambda b: b * 1.01) for c in calculations]
+        path = write(tmp_path / "other.xml", join(head, scaled, tail))
+        with pytest.raises(ValueError, match="other.xml: the atoms differ from those in"):
+            index_vasprun(path, index_vasprun(str(SOURCE)))
 
 
-def _independent_frames(path):
-    """Positions (fractional @ basis) and forces of each ionic step, read with ElementTree."""
-    frames = []
-    for calculation in ET.parse(path).getroot().findall("calculation"):
-        structure = calculation.find("structure")
-        basis = _floats(structure.find("crystal").findall("varray[@name='basis']/v"))
-        fractional = _floats(structure.findall("varray[@name='positions']/v"))
-        forces = _floats(calculation.findall("varray[@name='forces']/v"))
-        frames.append((fractional @ basis, forces))
-    return frames
+def index_cell(index):
+    return parse_basis(index.basis)
 
 
 @pytest.fixture(params=["committed", "sheared"])
@@ -142,6 +181,52 @@ class TestReadVaspFrame:
                 positions, forces = read_vasp_frame(f, start, end, 324)
                 np.testing.assert_array_equal(positions, expected_positions)
                 np.testing.assert_array_equal(forces, expected_forces)
+
+    def test_one_atom_in_a_sheared_cell(self):
+        # Fractional (0.5, 0.25, 0.5) in the lattice a = (2, 0, 0),
+        # b = (1, 3, 0), c = (0.5, 0.5, 4) is 0.5 a + 0.25 b + 0.5 c.
+        calculation = b"""<calculation>
+ <structure>
+  <crystal>
+   <varray name="basis" >
+    <v>       2.0       0.0       0.0 </v>
+    <v>       1.0       3.0       0.0 </v>
+    <v>       0.5       0.5       4.0 </v>
+   </varray>
+  </crystal>
+  <varray name="positions" >
+   <v>       0.5      0.25       0.5 </v>
+  </varray>
+ </structure>
+ <varray name="forces" >
+  <v>       0.1      -0.2       0.3 </v>
+ </varray>
+</calculation>"""
+        positions, forces = read_vasp_frame(io.BytesIO(calculation), 0, len(calculation), 1)
+        np.testing.assert_array_equal(positions, [[1.5, 1.0, 2.0]])
+        np.testing.assert_array_equal(forces, [[0.1, -0.2, 0.3]])
+
+    def test_structure_with_attributes_is_not_read(self, tmp_path):
+        # Only the attribute-free <structure> is the ionic step's; another
+        # placed before it must not be used.
+        head, calculations, tail = split(SOURCE.read_bytes())
+        _, original_forces = _independent_frames(str(SOURCE))[0]
+        structure = calculations[0][calculations[0].find(b"<structure>"):
+                                    calculations[0].find(b"</structure>") + len(b"</structure>")]
+        extra = with_basis(structure, lambda b: b * 1.1).replace(b"<structure>", b'<structure name="extra">', 1)
+        calculations[0] = calculations[0].replace(b"<structure>", extra + b"\n<structure>", 1)
+        path = write(tmp_path / "vasprun.xml", join(head, calculations, tail))
+        index = index_vasprun(path)
+        expected_positions, _ = _independent_frames(str(SOURCE))[0]
+        with open(path, "rb") as f:
+            positions, forces = read_vasp_frame(f, index.starts[0], index.ends[0], 324, index_cell(index))
+        np.testing.assert_array_equal(positions, expected_positions)
+        np.testing.assert_array_equal(forces, original_forces)
+
+    def test_lattice_differing_from_the_cell_raises(self):
+        index = index_vasprun(str(SOURCE))
+        with open(SOURCE, "rb") as f, pytest.raises(ValueError, match="the lattice of the step's own <structure> differs"):
+            read_vasp_frame(f, index.starts[0], index.ends[0], 324, index_cell(index) * 1.1)
 
     def test_wrong_atom_count_raises(self):
         index = index_vasprun(str(SOURCE))

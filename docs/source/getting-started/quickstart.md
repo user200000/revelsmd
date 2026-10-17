@@ -123,7 +123,7 @@ from revelsMD.trajectories import VaspTrajectory
 ts = VaspTrajectory("vasprun.xml", temperature=600.0)
 ```
 
-**MDAnalysis** (GROMACS, AMBER, NAMD, and any other format supported by MDAnalysis)
+**MDAnalysis** (GROMACS `.trr` and `.tng`, AMBER NetCDF, H5MD with units; TNG needs `pytng` and H5MD `h5py`)
 
 ```python
 from revelsMD.trajectories import MDATrajectory

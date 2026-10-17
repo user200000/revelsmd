@@ -13,6 +13,7 @@
 ```{eval-rst}
 .. autoclass:: revelsMD.trajectories.LammpsTrajectory
    :members:
+   :inherited-members:
    :show-inheritance:
 ```
 
@@ -21,6 +22,7 @@
 ```{eval-rst}
 .. autoclass:: revelsMD.trajectories.MDATrajectory
    :members:
+   :inherited-members:
    :show-inheritance:
 ```
 
@@ -29,6 +31,7 @@
 ```{eval-rst}
 .. autoclass:: revelsMD.trajectories.NumpyTrajectory
    :members:
+   :inherited-members:
    :show-inheritance:
 ```
 
@@ -37,6 +40,7 @@
 ```{eval-rst}
 .. autoclass:: revelsMD.trajectories.VaspTrajectory
    :members:
+   :inherited-members:
    :show-inheritance:
 ```
 

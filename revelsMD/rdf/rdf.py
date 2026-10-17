@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 import numpy as np
 from tqdm import tqdm
 
@@ -9,6 +11,7 @@ from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.frame_sources import Frame
 from revelsMD.rdf.rdf_helpers import get_backend_functions
 from revelsMD.statistics import compute_lambda_weights
+from revelsMD.trajectories._base import frame_range
 
 
 class RDF:
@@ -246,28 +249,20 @@ class RDF:
         Raises
         ------
         ValueError
-            If start or stop exceeds the number of frames, or the selected
+            If start or stop lies outside the trajectory, or the selected
             range is empty. Negative values count from the end of the
             trajectory.
+
+        Notes
+        -----
+        If a frame cannot be read, the frames deposited before it are kept.
         """
-        # Validate frame bounds
-        if start > trajectory.frames:
-            raise ValueError("First frame index exceeds frames in trajectory.")
-        if stop is not None and stop > trajectory.frames:
-            raise ValueError("Final frame index exceeds frames in trajectory.")
-
-        # Calculate frame range for progress bar
-        effective_stop = trajectory.frames if stop is None else (
-            trajectory.frames + stop if stop < 0 else stop
-        )
-        norm_start = start % trajectory.frames if start >= 0 else max(0, trajectory.frames + start)
-        to_run = range(int(norm_start), int(effective_stop), period)
-        if len(to_run) == 0:
-            raise ValueError("Final frame occurs before first frame in trajectory.")
-
-        # Process frames using deposit
-        for frame in tqdm(trajectory.iter_frames(start, stop, period), total=len(to_run)):
-            self.deposit(frame)
+        to_run = frame_range(trajectory.frames, start, stop, period)
+        with contextlib.closing(
+            trajectory.iter_frames(to_run.start, to_run.stop, to_run.step)
+        ) as frames:
+            for frame in tqdm(frames, total=len(to_run)):
+                self.deposit(frame)
 
     def _single_frame(
         self, frame: Frame

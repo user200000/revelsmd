@@ -9,6 +9,7 @@ from revelsMD.density import DensityGrid, Selection
 from revelsMD.frame_sources import Frame
 
 
+
 # ---------------------------------------------------------------------------
 # DensityGrid Initialisation
 # ---------------------------------------------------------------------------
@@ -428,7 +429,6 @@ def test_selection_single_species_with_charges(ts):
 def test_selection_single_species_with_polarisation(ts):
     ss = Selection(ts, "H", centre_location=True, density_type='polarisation')
     assert np.all(ss.charges == 0.1)
-    assert np.all(ss.masses == 1.0)
 
 
 def test_selection_rigid_molecule(ts):
@@ -1149,34 +1149,6 @@ class TestBlockingParameter:
         )
         assert gs._welford is None
 
-    def test_interleaved_raises_without_get_frame(self, multi_frame_trajectory):
-        """Interleaved blocking raises if trajectory lacks get_frame()."""
-
-        class SequentialOnly:
-            """Wraps trajectory but without get_frame."""
-            def __init__(self, traj):
-                self.box_x = traj.box_x
-                self.box_y = traj.box_y
-                self.box_z = traj.box_z
-                self.cell_matrix = traj.cell_matrix
-                self.units = traj.units
-                self.temperature = traj.temperature
-                self.beta = traj.beta
-                self.frames = traj.frames
-                self.get_indices = traj.get_indices
-                self.get_charges = traj.get_charges
-                self.get_masses = traj.get_masses
-                self.iter_frames = traj.iter_frames
-
-        seq_traj = SequentialOnly(multi_frame_trajectory)
-
-        gs = DensityGrid(seq_traj, "number", nbins=4)
-        with pytest.raises(ValueError, match="random frame access"):
-            gs.accumulate(
-                seq_traj, atom_names="H",
-                compute_lambda=True, sections=2, blocking="interleaved",
-            )
-
     def test_remainder_block_included_with_lower_weight(self, multi_frame_trajectory):
         """Remainder block contributes to Welford with proportional weight."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
@@ -1586,6 +1558,35 @@ class TestSelectionValidation:
         )
 
         mock_validate.assert_called_once_with('NUMBER')
+
+    @pytest.mark.parametrize("second_water", [
+        [0.0, 0.0, 0.0],  # no mass, as a topology with zero masses gives
+        [3.0, -1.0, 0.0],  # a negative mass puts the centre outside the molecule
+        [16.0, np.nan, 1.0],
+    ])
+    def test_molecule_masses_must_define_a_centre(self, trajectory, mocker, second_water):
+        masses = {name: np.array([m0, m, m0]) for name, m0, m in
+                  zip(['O', 'H1', 'H2'], [16.0, 1.0, 1.0], second_water)}
+        mocker.patch.object(trajectory, 'get_masses', side_effect=masses.__getitem__)
+        with pytest.raises(ValueError, match="centre of mass to be defined"):
+            Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
+        Selection(trajectory, ['O', 'H1', 'H2'], centre_location=0, rigid=True)
+
+    def test_one_species_needs_no_masses(self, trajectory, mocker):
+        mocker.patch.object(trajectory, 'get_masses', side_effect=AssertionError("masses read"))
+        Selection(trajectory, 'O', centre_location=True, rigid=True)
+        Selection(trajectory, ['O'], centre_location=True, rigid=True)
+
+    def test_centre_of_mass_with_a_massless_site(self, trajectory, mocker):
+        # A TIP4P-style massless site does not move the centre of mass.
+        masses = {'O': np.full(3, 16.0), 'H1': np.full(3, 1.0), 'H2': np.zeros(3)}
+        mocker.patch.object(trajectory, 'get_masses', side_effect=masses.__getitem__)
+        selection = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True)
+        positions = np.zeros((9, 3))
+        positions[[1, 4, 7], 0] = 1.7  # H1 along x
+        positions[[2, 5, 8], 1] = 5.0  # the massless site along y
+        np.testing.assert_allclose(selection.get_positions(positions),
+                                   np.tile([1.7 / 17.0, 0.0, 0.0], (3, 1)))
 
 
 class TestSelectionGetForces:
@@ -2618,3 +2619,72 @@ class TestHybridDensity:
 
         with pytest.raises(RuntimeError, match="No density data available"):
             gs.rho_hybrid(0.01)
+
+
+class TestFailedAccumulate:
+    """A frame that cannot be read leaves the frames before it in the grid."""
+
+    @pytest.mark.parametrize("options, bad_frame, kept", [
+        ({}, 2, 2),
+        ({"compute_lambda": True, "block_size": 2}, 2, 2),  # block [2, 3] fails at its first frame
+        ({"compute_lambda": True, "block_size": 3}, 2, 0),  # block [0, 1, 2] fails
+        ({"compute_lambda": True, "block_size": 3}, 3, 3),  # the remainder block [3] fails
+        ({"compute_lambda": True, "blocking": "interleaved", "sections": 2}, 2, 0),  # [0, 2] fails
+    ])
+    def test_accumulating_continues_after_a_bad_file(self, tmp_path, options, bad_frame, kept):
+        from lammps_dumps import frame, load, rows, write
+
+        frames = [frame(100 * k, float(k)) for k in range(4)]
+        frames[bad_frame] = frame(100 * bad_frame, atom_rows=rows(100 * bad_frame, fy="nan"))
+        bad = load(write(tmp_path / "bad.dump", *frames))
+        good = load(write(tmp_path / "good.dump", frame(0, 2.0), frame(100, 3.0)))
+
+        grid = DensityGrid(good, "number", nbins=4)
+        with pytest.raises(ValueError, match="NaN"):
+            grid.accumulate(bad, "1", **options)
+        grid.accumulate(good, "1", **options)
+
+        reference = DensityGrid(good, "number", nbins=4)
+        if kept:
+            reference.accumulate(bad, "1", stop=kept, **options)
+        reference.accumulate(good, "1", **options)
+        assert grid.frames_processed == reference.frames_processed == kept + 2
+        assert grid.count == reference.count
+        np.testing.assert_array_equal(grid.counter, reference.counter)
+        np.testing.assert_array_equal(grid.force_x, reference.force_x)
+        if options:
+            for name, value in vars(reference._welford).items():
+                np.testing.assert_array_equal(getattr(grid._welford, name), value, err_msg=name)
+
+
+class TestLambdaStatisticsReset:
+
+    def test_no_lambda_after_a_failed_first_block_discards_the_empty_statistics(self, tmp_path):
+        from lammps_dumps import frame, load, rows, write
+        bad = load(write(tmp_path / "bad.dump", frame(0, atom_rows=rows(0, fy="nan")), frame(100)))
+        grid = DensityGrid(bad, "number", nbins=4)
+        with pytest.raises(ValueError, match="NaN"):
+            grid.accumulate(bad, "1", compute_lambda=True, block_size=1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # there are no statistics to discard
+            grid.accumulate(bad, "1", start=1)
+        assert grid._welford is None
+
+
+class TestFrameBounds:
+
+    @pytest.fixture
+    def trajectory(self):
+        from revelsMD.trajectories import NumpyTrajectory
+        return NumpyTrajectory(np.zeros((5, 2, 3)), np.ones((5, 2, 3)), 10, 10, 10, ["A", "B"],
+                               temperature=300.0)
+
+    @pytest.mark.parametrize("start, stop", [(5, None), (-6, None), (0, 6), (0, -6), (3, 2)])
+    def test_frames_outside_the_trajectory_or_none_raise(self, trajectory, start, stop):
+        with pytest.raises(ValueError):
+            DensityGrid(trajectory, "number", nbins=4).accumulate(trajectory, "A", start=start, stop=stop)
+
+    def test_negative_bounds_count_from_the_end(self, trajectory):
+        grid = DensityGrid(trajectory, "number", nbins=4)
+        grid.accumulate(trajectory, "A", start=-3, stop=-1)
+        assert grid.frames_processed == 2

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import cached_property
+
 import numpy as np
 
 from revelsMD.cell import apply_minimum_image
@@ -71,7 +73,8 @@ class Selection:
         self._cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
         self._cell_inverse = np.linalg.inv(self._cell_matrix)
 
-        # Determine what data we need
+        # Determine what data we need. Masses locate the centres of mass of
+        # molecules of several species; one species has no use for them.
         needs_charges = density_type in ('charge', 'polarisation')
         needs_masses = density_type == 'polarisation' or (rigid and centre_location is True)
 
@@ -97,6 +100,8 @@ class Selection:
                         f"When 'rigid=True', all atom selections must have the same number of indices, "
                         f"but got lengths {lengths} for atoms {atom_names}."
                     )
+                if needs_masses:
+                    self._molecule_masses  # checked now rather than at the first frame
             if isinstance(centre_location, bool) or isinstance(centre_location, int):
                 if isinstance(centre_location, int) and centre_location >= len(atom_names):
                     raise ValueError("centre_location index exceeds number of provided atom names.")
@@ -111,9 +116,6 @@ class Selection:
 
             if needs_charges:
                 self.charges = trajectory.get_charges(atom_names)
-
-            if needs_masses:
-                self.masses = trajectory.get_masses(atom_names)
 
     def get_positions(self, positions: np.ndarray) -> np.ndarray | list[np.ndarray]:
         """
@@ -159,7 +161,6 @@ class Selection:
             Center-of-mass positions for M molecules.
         """
         ref_positions = positions[self.indices[0]]
-        mass_tot = self.masses[0].copy()
         mass_cumulant = ref_positions * self.masses[0][:, np.newaxis]
 
         for species_idx in range(1, len(self.indices)):
@@ -171,10 +172,25 @@ class Selection:
             mic_diff = apply_minimum_image(diff, self._cell_matrix, self._cell_inverse)
             species_positions_unwrapped = ref_positions - mic_diff
 
-            mass_tot = mass_tot + species_mass
             mass_cumulant = mass_cumulant + species_positions_unwrapped * species_mass[:, np.newaxis]
 
-        return mass_cumulant / mass_tot[:, np.newaxis]
+        return mass_cumulant / self._molecule_masses[:, np.newaxis]
+
+    @cached_property
+    def _molecule_masses(self) -> np.ndarray:
+        """The total mass of each molecule.
+
+        Every atom's mass must be finite and not negative, and every
+        molecule's total positive, for the centre of mass to lie within it.
+        """
+        masses = np.asarray(self.masses, dtype=float)
+        totals = masses.sum(axis=0)
+        if not (np.all(np.isfinite(masses)) and np.all(masses >= 0) and np.all(totals > 0)):
+            raise ValueError(
+                "Atom masses must be finite and not negative, and each molecule's "
+                "total mass positive, for its centre of mass to be defined."
+            )
+        return totals
 
     def get_forces(self, forces: np.ndarray) -> np.ndarray | list[np.ndarray]:
         """

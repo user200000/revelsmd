@@ -8,6 +8,24 @@ so analysis code is format-independent.
 
 Trajectories must have a fixed, fully periodic cell; variable-cell (NPT)
 trajectories are not supported. Forces are required in every frame.
+Reading a frame whose positions or forces contain NaN or infinity raises
+an error.
+
+A file may end partway through a frame, as when a job is killed while
+writing or a run is still going. Frames are read in order, and a frame that
+cannot be read is dropped with a warning if no readable frame follows it.
+If one does, the file is damaged, and an error is raised. A file with no
+readable frame is dropped with a warning in the same way; if no file has
+one, an error is raised. This holds for every frame of LAMMPS dumps and
+every ionic step of `vasprun.xml` files; for MDAnalysis formats, see below.
+
+Every quantity RevelsMD computes is an equilibrium average, so frames need
+not come from one continuous run or be in time order. Several files are read
+in the order given. Each format section says how its files are joined:
+LAMMPS dumps from a run and its restarts have their overlap removed, and
+MDAnalysis and VASP files are concatenated as they are. To pool independent
+runs of LAMMPS, load each as its own trajectory and accumulate them into the
+same grid or RDF.
 
 ## LAMMPS
 
@@ -22,8 +40,15 @@ dump 1 all custom 100 trajectory.dump id type x y z fx fy fz
 Positions may be written as `x y z`, unwrapped `xu yu zu`, or scaled
 `xs ys zs` or `xsu ysu zsu`. Orthogonal and triclinic boxes are supported (not
 the general triclinic `abc origin` format). All three boundaries must be
-periodic (`pp pp pp`), and the box must be the same in every frame: a dump
-whose box changes raises an error.
+periodic (`pp pp pp`), and the box must be the same in every kept frame: a
+dump whose box changes raises an error. If the dump has a `type` column, each
+atom's type must match the data file: reading a frame raises an error if
+any atom's type differs, so runs that change types (`fix atom/swap`,
+`set type`) cannot be read.
+
+Positions are returned as written. MDAnalysis's own dump reader shifts
+them so the box starts at the origin, so the two can differ by the box
+origin (`xlo ylo zlo`).
 
 ```python
 from revelsMD.trajectories import LammpsTrajectory
@@ -45,7 +70,13 @@ The column layout of the data file's `Atoms` section is read from the
 `Atoms # <style>` comment that `write_data` writes. The styles `atomic`,
 `charge`, `full`, `molecular`, `bond` and `angle` are recognised. For any
 other style, pass the layout as a column string; for a data file without the
-comment, pass a column string or one of the style names above:
+comment, pass a column string or one of the style names above. MDAnalysis
+ignores column names it does not know; charges are read only from a column
+named `charge` (not `q`). Masses are read from the data file's `Masses`
+section. Neither is guessed: give missing ones by atom type with the `masses`
+and `charges` arguments, which also replace the data file's values for the
+types they name. Without either, `get_charges` and `get_masses` raise an
+error, and so do densities that need them.
 
 ```python
 traj = LammpsTrajectory(
@@ -68,14 +99,20 @@ traj = LammpsTrajectory(
 )
 ```
 
-List the files in run order. Where a file starts at or before the last
-timestep already read, as after a restart from a restart file, the earlier
-frames from that timestep on are replaced by the later file's. A file that
-starts at or before the first timestep of the file before it raises an error,
-since that would discard the whole earlier file. An incomplete final frame, as
-left by a job killed while writing, is dropped with a warning (silently if the
-next file's frames replace it); an incomplete frame anywhere else raises an
-error.
+List the files in run order. Each file's frames replace the earlier files'
+frames from its own first timestep on, as after a restart from a restart
+file, so frames written twice are counted once. Replaced frames are not
+compared with their file's first frame, so a run whose box or atom count went
+wrong after the restart point joins with its restart. A file that starts at
+or before the first timestep of the file before it raises an error, since
+that would discard the whole earlier file.
+
+Timesteps must increase within a file, so a file written with
+`dump_modify append yes` across a restart must be split at the restart. The
+`ITEM: UNITS` and `ITEM: TIME` lines that `dump_modify units yes` and
+`time yes` write are read with the frame they precede. A dump whose
+`ITEM: UNITS` names a unit style other than `units` raises an error, so pass
+the style the run used.
 
 Atoms are identified by LAMMPS type number, as a string:
 
@@ -100,8 +137,8 @@ print(traj.frames)
 print(traj.cell_matrix)
 ```
 
-The default unit system is `'metal'` (eV). Concatenate multiple `vasprun.xml` files
-from sequential restarts by passing them in order:
+The unit system is always `'metal'` (eV). Join `vasprun.xml` files from
+sequential restarts by passing them in order:
 
 ```python
 traj = VaspTrajectory(
@@ -110,8 +147,20 @@ traj = VaspTrajectory(
 )
 ```
 
+`vasprun.xml` records no timesteps, so the order of the files, and repeated or
+missing steps between them, cannot be checked. Pass each file separately rather
+than joining them with `cat`.
+
 A `vasprun.xml` from a run that was killed before it finished is read up to its
-last complete ionic step, with a warning.
+last complete ionic step, as described above.
+
+`vasprun.xml` records neither charges nor masses. Give them by element with the
+`masses` and `charges` arguments when a density needs them:
+
+```python
+traj = VaspTrajectory('vasprun.xml', temperature=600.0,
+                      masses={'O': 15.999, 'H': 1.008})
+```
 
 The lattice must be the same in every ionic step; a run whose lattice changes
 raises an error.
@@ -124,13 +173,20 @@ indices = traj.get_indices('F')
 
 ## MDAnalysis
 
-`MDATrajectory` reads any format MDAnalysis can read that stores forces, such
-as GROMACS `.trr` files. Every saved frame must have both positions and
-forces, so a `.trr` must be written with positions and forces at the same
-steps, for example `nstfout` equal to `nstxout`. Formats without forces, such
-as `.xtc` and `.dcd`, cannot be used. Every frame must also have the same box
-as the first frame; reading a frame that does not meet these requirements
-raises an error.
+`MDATrajectory` reads trajectories through MDAnalysis and converts positions
+and forces to Angstrom and kJ/(mol Angstrom). The format must record its
+length and force units: GROMACS `.trr` and `.tng`, AMBER NetCDF, and H5MD
+files with units are accepted. Other formats raise an error, including LAMMPS
+dumps, which `LammpsTrajectory` reads, and formats without forces such as
+`.xtc` and `.dcd`. Reading TNG files needs the `pytng` package and H5MD files
+the `h5py` package, which are not installed with RevelsMD.
+
+Every frame in the file must hold both positions and forces. For a `.trr`,
+set `nstfout` equal to `nstxout`, and `nstvout` to 0 or a multiple of
+`nstxout` (GROMACS writes a velocity-only frame otherwise). An H5MD file must
+save positions and forces at the same steps. Every frame must also have the
+same box as the first frame; reading a frame that does not meet these
+requirements raises an error.
 
 ```python
 from revelsMD.trajectories import MDATrajectory
@@ -145,7 +201,30 @@ print(traj.frames)
 print(traj.cell_matrix)
 ```
 
-The default unit system is `'mda'` (kJ/mol). Atoms are selected by name from the
+Pass a list of files to read their frames, concatenated in the order given.
+Frames that several files contain are read from each, so join restart files
+written with `gmx mdrun -noappend`, which repeat a frame at each restart,
+with `gmx trjcat` first; joining TRR files with `cat` after a killed run
+gives wrong frames.
+
+MDAnalysis decides which frames a file holds, and RevelsMD checks only the
+last of them: if MDAnalysis cannot read it, as when a job was killed while
+writing, it is dropped with a warning. MDAnalysis cannot open a NetCDF or
+H5MD file cut short, or a TRR file whose first or second frame is cut short;
+keep the complete frames of such a TRR file with `gmx trjconv -e`.
+
+Charges and masses are those the topology records, never guessed from atom
+names: a `.tpr`, `.psf` or AMBER `prmtop` records both, and a `.gro` or `.pdb`
+neither. Give missing ones by atom name with the `masses` and `charges`
+arguments, which also replace the topology's values for the names they list:
+
+```python
+traj = MDATrajectory('prod.trr', 'conf.gro', temperature=300.0,
+                     masses={'Ow': 15.999, 'Hw1': 1.008, 'Hw2': 1.008},
+                     charges={'Ow': -0.8476, 'Hw1': 0.4238, 'Hw2': 0.4238})
+```
+
+The unit system is always `'mda'` (kJ/mol). Atoms are selected by name from the
 topology:
 
 ```python
@@ -271,9 +350,8 @@ The unit system controls how `beta` is computed from temperature.
 | `'mda'` | kJ/mol | GROMACS, MDAnalysis |
 | `'lj'` | epsilon (reduced) | Lennard-Jones simulations |
 
-Each backend sets a sensible default: `LammpsTrajectory` defaults to `'real'`,
-`VaspTrajectory` to `'metal'`, and `MDATrajectory` to `'mda'`. Override with `units`
-when needed.
+`LammpsTrajectory` and `NumpyTrajectory` take `units` (default `'real'`).
+`VaspTrajectory` always uses `'metal'` and `MDATrajectory` always uses `'mda'`.
 
 ## Species conventions
 

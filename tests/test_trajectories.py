@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 import scipy.constants as constants
 from abc import ABC
-from unittest.mock import patch
 
 from revelsMD.trajectories import (
     MDATrajectory,
@@ -11,18 +10,12 @@ from revelsMD.trajectories import (
     VaspTrajectory,
     DataUnavailableError,
 )
-from revelsMD.trajectories._base import Trajectory, compute_beta, normalize_bounds
+from revelsMD.trajectories._base import Trajectory, compute_beta, frame_range, normalize_bounds
 
 
 # -----------------------------------------------------------------------------
 # MDATrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("fail"))
-def test_mda_raises_on_universe_failure(mock_universe):
-    with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
-        MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
-
-
 def test_mda_raises_no_topology():
     with pytest.raises(ValueError, match="topology file is required"):
         MDATrajectory("traj.xtc", "", temperature=300.0)
@@ -48,6 +41,76 @@ def test_numpy_state_species_not_found():
     state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
     with pytest.raises(ValueError, match="Species 'C' not found"):
         state.get_indices("C")
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf])
+def test_numpy_state_non_finite_box_raises(bad):
+    with pytest.raises(ValueError, match="must all be finite"):
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), 10, bad, 10, ["O", "H"],
+                        temperature=300.0)
+
+
+@pytest.mark.parametrize("box", [(-1, 10, 10), (10, -1, 10), (10, 10, -1)])
+def test_numpy_state_negative_box_raises(box):
+    with pytest.raises(ValueError, match="positive"):
+        NumpyTrajectory(np.zeros((1, 2, 3)), np.ones((1, 2, 3)), *box, ["O", "H"], temperature=300.0)
+
+
+def test_numpy_state_get_frame_out_of_range_raises():
+    state = NumpyTrajectory(np.zeros((3, 2, 3)), np.ones((3, 2, 3)), 10, 10, 10, ["O", "H"],
+                            temperature=300.0)
+    for index in (3, -4):
+        with pytest.raises(IndexError, match=f"frame {index} is out of range for 3 frames"):
+            state.get_frame(index)
+
+
+def test_warnings_point_at_the_caller_with_a_relative_import_path(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+    repo = Path(__file__).resolve().parent.parent
+    work = tmp_path / "notebooks"
+    work.mkdir()
+    from lammps_dumps import frame
+    (work / "a.dump").write_text("ITEM: TIMESTEP\n")
+    (work / "b.dump").write_text(frame(0))
+    script = work / "run.py"
+    script.write_text(
+        "import sys, warnings\n"
+        f"sys.path.insert(0, {str(Path('..') / Path(__import__('os').path.relpath(repo, tmp_path)))!r})\n"
+        "from revelsMD.trajectories.lammps import combine_frames, index_dump\n"
+        "with warnings.catch_warnings(record=True) as record:\n"
+        "    warnings.simplefilter('always')\n"
+        "    combine_frames([index_dump('a.dump'), index_dump('b.dump')])\n"
+        "import revelsMD\n"
+        "print(revelsMD.__file__)\n"
+        "print(record[0].filename)\n"
+    )
+    out = subprocess.run([sys.executable, "run.py"], cwd=work, capture_output=True, text=True,
+                         check=True).stdout.splitlines()
+    assert ".." in out[0]
+    assert out[1].endswith("run.py")
+
+
+def test_numpy_state_get_frame_needs_an_integer():
+    state = NumpyTrajectory(np.zeros((3, 2, 3)), np.ones((3, 2, 3)), 10, 10, 10, ["O", "H"],
+                            temperature=300.0)
+    with pytest.raises(TypeError):
+        state.get_frame(1.0)
+    np.testing.assert_array_equal(state.get_frame(np.int64(-1)).forces, np.ones((2, 3)))
+
+
+def test_numpy_state_non_finite_frame_raises_when_read():
+    positions = np.zeros((3, 2, 3))
+    forces = np.ones((3, 2, 3))
+    forces[1, 0, 2] = np.inf
+    state = NumpyTrajectory(positions, forces, 10, 10, 10, ["O", "H"], temperature=300.0)
+    frames = state.iter_frames()
+    next(frames)
+    with pytest.raises(ValueError, match="frame 1: the forces contain NaN or infinite"):
+        next(frames)
+    with pytest.raises(ValueError, match="frame 1: the forces contain NaN or infinite"):
+        state.get_frame(-2)
 
 
 def test_numpy_state_invalid_shapes_and_box():
@@ -89,63 +152,6 @@ def test_concrete_classes_are_subclasses():
     assert issubclass(NumpyTrajectory, Trajectory)
     assert issubclass(LammpsTrajectory, Trajectory)
     assert issubclass(VaspTrajectory, Trajectory)
-
-
-# -----------------------------------------------------------------------------
-# Trajectory ABC - Shared validation helpers
-# -----------------------------------------------------------------------------
-class TestValidateOrthorhombic:
-    """Tests for _validate_orthorhombic shared helper."""
-
-    def test_valid_orthorhombic_angles(self):
-        """Should not raise for 90 degree angles."""
-        # No exception expected
-        Trajectory._validate_orthorhombic([90.0, 90.0, 90.0])
-
-    def test_valid_orthorhombic_angles_within_tolerance(self):
-        """Should accept angles within tolerance of 90 degrees."""
-        Trajectory._validate_orthorhombic([90.0001, 89.9999, 90.0])
-
-    def test_invalid_non_orthorhombic_angles(self):
-        """Should raise ValueError for non-orthorhombic angles."""
-        with pytest.raises(ValueError, match="orthorhombic"):
-            Trajectory._validate_orthorhombic([90.0, 95.0, 90.0])
-
-    def test_invalid_triclinic_angles(self):
-        """Should raise ValueError for triclinic cell angles."""
-        with pytest.raises(ValueError, match="orthorhombic"):
-            Trajectory._validate_orthorhombic([80.0, 85.0, 70.0])
-
-
-class TestValidateBoxDimensions:
-    """Tests for _validate_box_dimensions shared helper."""
-
-    def test_valid_positive_dimensions(self):
-        """Should return dimensions for valid positive values."""
-        lx, ly, lz = Trajectory._validate_box_dimensions(10.0, 20.0, 30.0)
-        assert lx == 10.0
-        assert ly == 20.0
-        assert lz == 30.0
-
-    def test_invalid_zero_dimension(self):
-        """Should raise ValueError if any dimension is zero."""
-        with pytest.raises(ValueError, match="positive"):
-            Trajectory._validate_box_dimensions(10.0, 0.0, 30.0)
-
-    def test_invalid_negative_dimension(self):
-        """Should raise ValueError if any dimension is negative."""
-        with pytest.raises(ValueError, match="positive"):
-            Trajectory._validate_box_dimensions(10.0, -5.0, 30.0)
-
-    def test_invalid_non_finite_dimension(self):
-        """Should raise ValueError if any dimension is non-finite."""
-        with pytest.raises(ValueError, match="finite"):
-            Trajectory._validate_box_dimensions(10.0, np.inf, 30.0)
-
-    def test_invalid_nan_dimension(self):
-        """Should raise ValueError if any dimension is NaN."""
-        with pytest.raises(ValueError, match="finite"):
-            Trajectory._validate_box_dimensions(np.nan, 20.0, 30.0)
 
 
 # -----------------------------------------------------------------------------
@@ -472,6 +478,13 @@ class TestComputeBeta:
 # -----------------------------------------------------------------------------
 # Cell matrix validation
 # -----------------------------------------------------------------------------
+class TestValidateCellMatrixContext:
+
+    def test_where_prefixes_the_message(self):
+        with pytest.raises(ValueError, match="^a.dump, frame 0: Cell matrix must have positive volume"):
+            Trajectory._validate_cell_matrix(np.zeros((3, 3)), "a.dump, frame 0")
+
+
 class TestValidateCellMatrix:
     """Tests for Trajectory._validate_cell_matrix."""
 
@@ -730,7 +743,7 @@ class TestCheckFixedCell:
 
 
 class TestAsPaths:
-    """as_paths normalises file arguments to a list of strings."""
+    """as_paths normalises file arguments to a list of strings, in the order given."""
 
     def test_single_string(self):
         from revelsMD.trajectories._base import as_paths
@@ -743,3 +756,148 @@ class TestAsPaths:
     def test_sequence_of_mixed(self, tmp_path):
         from revelsMD.trajectories._base import as_paths
         assert as_paths(("a.dump", tmp_path / "b.dump")) == ["a.dump", str(tmp_path / "b.dump")]
+
+    def test_bytes_paths(self):
+        from revelsMD.trajectories._base import as_paths
+        assert as_paths(b"a.dump") == ["a.dump"]
+        assert as_paths([b"a.dump", "b.dump"]) == ["a.dump", "b.dump"]
+
+    def test_array_of_paths(self, tmp_path):
+        from revelsMD.trajectories._base import as_paths
+        assert as_paths(np.array(["a.dump", "b.dump"])) == ["a.dump", "b.dump"]
+
+    def test_empty_sequence_is_rejected(self):
+        from revelsMD.trajectories._base import as_paths
+        with pytest.raises(ValueError, match="At least one trajectory file"):
+            as_paths([])
+
+class TestReadingWithMDAnalysis:
+    """Errors raised while MDAnalysis parses files become RuntimeError naming them."""
+
+    @pytest.mark.parametrize("error", [StopIteration(), EOFError(), OSError("XDR"), KeyError("x")])
+    def test_parse_errors_are_relabelled(self, error):
+        from revelsMD.trajectories._base import reading_with_mdanalysis
+        with pytest.raises(RuntimeError, match=f"MDAnalysis cannot read a.trr: {type(error).__name__}"):
+            with reading_with_mdanalysis("a.trr"):
+                raise error
+
+    @pytest.mark.parametrize("error", [
+        FileNotFoundError(), PermissionError(), IsADirectoryError(), NotADirectoryError(), ImportError(),
+        MemoryError(), RecursionError(), UserWarning("w"), KeyboardInterrupt(),
+    ])
+    def test_other_errors_pass_through(self, error):
+        from revelsMD.trajectories._base import reading_with_mdanalysis
+        with pytest.raises(type(error)):
+            with reading_with_mdanalysis("a.trr"):
+                raise error
+
+
+class TestCheckFinite:
+    """check_finite rejects NaN and infinity in either array, naming the frame."""
+
+    @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+    def test_non_finite_values_raise(self, bad):
+        from revelsMD.trajectories._base import check_finite
+        good = np.zeros((2, 3))
+        broken = good.copy()
+        broken[1, 2] = bad
+        check_finite(good, good, "f, frame 0")
+        with pytest.raises(ValueError, match="f, frame 3: the positions contain NaN or infinite"):
+            check_finite(broken, good, "f, frame 3")
+        with pytest.raises(ValueError, match="f, frame 3: the forces contain NaN or infinite"):
+            check_finite(good, broken, "f, frame 3")
+
+    def test_frame_found_by_a_strided_read_is_named_by_its_index(self):
+        forces = np.ones((10, 2, 3))
+        forces[5, 0, 0] = np.nan
+        traj = NumpyTrajectory(np.zeros((10, 2, 3)), forces, 10, 10, 10, ["O", "H"], temperature=300.0)
+        with pytest.raises(ValueError, match=r"^frame 5: the forces"):
+            list(traj.iter_frames(start=1, stride=2))
+
+
+class TestReadFramesOneFileAtATime:
+    """The shared reader closes each file when it moves on and when it stops."""
+
+    def _files(self, tmp_path):
+        paths = []
+        for name in ("a", "b"):
+            path = tmp_path / name
+            path.write_bytes(name.encode())
+            paths.append(str(path))
+        return paths
+
+    def test_files_are_closed_on_switch_and_at_the_end(self, tmp_path):
+        from revelsMD.trajectories._base import read_frames_one_file_at_a_time
+        paths = self._files(tmp_path)
+        handles = []
+
+        def read(handle, index):
+            handles.append(handle)
+            assert all(h.closed for h in handles if h is not handle)
+            return handle.read(1)
+
+        frames = read_frames_one_file_at_a_time([0, 1], lambda i: paths[i], read)
+        assert list(frames) == [b"a", b"b"]
+        assert len(handles) == 2 and all(h.closed for h in handles)
+
+    def test_each_file_is_opened_once_per_run_of_frames(self, tmp_path, monkeypatch):
+        import builtins
+        from revelsMD.trajectories import _base
+        paths = self._files(tmp_path)
+        opened = []
+
+        def counting_open(path, mode):
+            opened.append(path)
+            return builtins.open(path, mode)
+
+        monkeypatch.setattr(_base, "open", counting_open, raising=False)
+        frames = _base.read_frames_one_file_at_a_time(
+            [0, 0, 1, 1], lambda i: paths[i], lambda handle, index: index)
+        assert list(frames) == [0, 0, 1, 1]
+        assert opened == paths
+
+    def test_file_is_closed_when_reading_raises(self, tmp_path):
+        from revelsMD.trajectories._base import read_frames_one_file_at_a_time
+        paths = self._files(tmp_path)
+        handles = []
+
+        def read(handle, index):
+            handles.append(handle)
+            raise ValueError("bad frame")
+
+        with pytest.raises(ValueError, match="bad frame"):
+            list(read_frames_one_file_at_a_time([0], lambda i: paths[i], read))
+        assert handles[0].closed
+
+    def test_file_is_closed_when_iteration_is_abandoned(self, tmp_path):
+        from revelsMD.trajectories._base import read_frames_one_file_at_a_time
+        paths = self._files(tmp_path)
+        handles = []
+
+        def read(handle, index):
+            handles.append(handle)
+            return index
+
+        frames = read_frames_one_file_at_a_time([0, 0], lambda i: paths[i], read)
+        assert next(frames) == 0
+        frames.close()
+        assert handles[0].closed
+
+
+class TestFrameRange:
+
+    @pytest.mark.parametrize("start, stop, period, expected", [
+        (0, None, 1, range(5)),
+        (-2, None, 1, range(3, 5)),
+        (1, -1, 2, range(1, 4, 2)),
+        (-5, 5, 1, range(5)),
+    ])
+    def test_selected_frames(self, start, stop, period, expected):
+        assert frame_range(5, start, stop, period) == expected
+
+    @pytest.mark.parametrize("start, stop, period", [
+        (5, None, 1), (6, None, 1), (-6, None, 1), (0, 6, 1), (0, -6, 1), (3, 2, 1), (0, None, 0),
+    ])
+    def test_outside_the_trajectory_or_empty_raises(self, start, stop, period):
+        with pytest.raises(ValueError):
+            frame_range(5, start, stop, period)

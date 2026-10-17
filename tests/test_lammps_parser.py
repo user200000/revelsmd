@@ -1,5 +1,8 @@
 """Unit tests for the LAMMPS dump helpers."""
 
+import collections
+import random
+import re
 import warnings
 from pathlib import Path
 
@@ -8,6 +11,7 @@ import pytest
 
 from lammps_dumps import (
     IDS_SORTED,
+    SMALL_DATA,
     forces as expected_forces,
     frame,
     positions as expected_positions,
@@ -16,6 +20,7 @@ from lammps_dumps import (
 )
 from revelsMD.trajectories.lammps import (
     ColumnLayout,
+    HeaderMismatch,
     PartialFrame,
     combine_frames,
     index_dump,
@@ -27,7 +32,6 @@ from revelsMD.trajectories.lammps import (
 
 TRICLINIC = "ITEM: BOX BOUNDS xy xz yz pp pp pp"
 DATA_DIR = Path(__file__).parent / "data"
-SMALL_DATA = str(DATA_DIR / "lammps_small" / "data.small.data")
 LJ_DATA = str(DATA_DIR / "example_1_LJ" / "data.fin.nh.data")
 
 
@@ -88,6 +92,11 @@ class TestParseBox:
         with pytest.raises(ValueError, match="not supported"):
             parse_box("ITEM: BOX BOUNDS abc origin pp pp pp", ["10 0 0 0"] * 3)
 
+    @pytest.mark.parametrize("bad", ["nan", "inf"])
+    def test_non_finite_bounds_are_rejected(self, bad):
+        with pytest.raises(ValueError, match="box bounds must be finite"):
+            parse_box("ITEM: BOX BOUNDS pp pp pp", ["0.0 10.0", f"0.0 {bad}", "0.0 10.0"])
+
     def test_wrong_number_of_bound_values_is_rejected(self):
         with pytest.raises(ValueError, match="box bounds"):
             parse_box(TRICLINIC, ["0 10", "0 10", "0 10"])
@@ -98,7 +107,7 @@ class TestResolveColumns:
     def test_plain_coordinates_are_preferred(self):
         columns = ("id", "type", "x", "y", "z", "xu", "yu", "zu", "fx", "fy", "fz")
         assert resolve_columns(columns, "a.dump") == ColumnLayout(
-            11, 0, (2, 3, 4), (8, 9, 10), False
+            11, 0, (2, 3, 4), (8, 9, 10), False, 1
         )
 
     def test_unwrapped(self):
@@ -151,6 +160,7 @@ class TestIndexDump:
         path = write(tmp_path / "a.dump", text[: len(text) - 30])
         index = index_dump(path)
         assert index.timesteps.tolist() == [0]
+        assert len(index.starts) == len(index.ends) == 1
         assert index.partial == PartialFrame(path, 100)
 
     def test_header_cut_before_the_timestep_value(self, tmp_path):
@@ -164,16 +174,62 @@ class TestIndexDump:
         assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, 100)
 
-    def test_incomplete_frame_before_the_end_raises(self, tmp_path):
-        short = frame(100, atom_rows=rows(100)[:4])
-        path = write(tmp_path / "a.dump", frame(0), short, frame(200))
-        with pytest.raises(ValueError, match="timestep 100 is incomplete but is not the last"):
+    # The ways a frame can fail to read: cut short, or damaged as a crash can
+    # leave it. Each stands in place of a frame.
+    DAMAGE = {
+        "rows cut short": frame(100, atom_rows=rows(100)[:4]),
+        "blank rows": frame(100, atom_rows=["", ""], n_atoms=1),
+        "no rows": frame(100, atom_rows=[]),
+        "stray row": "1 2 3 4 5 6 7 8\n",
+        "damaged timestep line": frame(100).replace("ITEM: TIMESTEP", "ITEM: TIMESTEQ"),
+        "header overwritten with NUL": "\0" * 20 + frame(100)[frame(100).index("ITEM: BOX"):],
+        "whole header overwritten": "\0" * 20 + frame(100)[frame(100).index("20 2"):],
+        "unknown item": "ITEM: BONDS\n1 2 3\n",
+        "item without a value": "ITEM: TIME\n",
+        "malformed atom count": frame(100).replace("\n6\n", "\nsix\n"),
+        "timestep out of range": frame(100).replace("\n100\n", f"\n{2**63}\n", 1),
+        "non-ASCII header": frame(100).replace("NUMBER OF ATOMS", "NUMBER OF \u00c5TOMS"),
+    }
+
+    @pytest.mark.parametrize("damage", DAMAGE.values(), ids=DAMAGE.keys())
+    def test_unreadable_frame_followed_by_a_readable_one_raises(self, tmp_path, damage):
+        path = write(tmp_path / "a.dump", frame(0), damage, frame(200))
+        with pytest.raises(ValueError, match=r"a\.dump: .* at byte \d+, but readable frames follow it; the file is damaged"):
+            index_dump(path)
+        # Further on, past other unreadable frames, a readable frame still counts.
+        path = write(tmp_path / "b.dump", frame(0), damage, frame(100)[:-30], damage, frame(300), frame(400)[:-30])
+        with pytest.raises(ValueError, match="but readable frames follow it"):
             index_dump(path)
 
-    def test_more_rows_than_the_header_states_raises(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(0, n_atoms=5))
-        with pytest.raises(ValueError, match="timestep 0: the atom rows do not match"):
+    def test_appending_after_a_killed_job_says_to_split_the_file(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100)[:-30], frame(100), frame(200))
+        with pytest.raises(ValueError, match="appended to after a job was killed .* split it at the restart"):
             index_dump(path)
+
+    def test_drop_warning_names_the_reason(self, tmp_path):
+        # A data file picked up by a glob of dumps.
+        data = write(tmp_path / "data.dump", Path(SMALL_DATA).read_text())
+        with pytest.warns(UserWarning, match=r"data\.dump: dropping .*\(unexpected text b'LAMMPS data file"):
+            combine_frames([index_dump(write(tmp_path / "a.dump", frame(0))), index_dump(data)])
+
+    @pytest.mark.parametrize("damage", DAMAGE.values(), ids=DAMAGE.keys())
+    def test_unreadable_last_frame_ends_the_file(self, tmp_path, damage):
+        path = write(tmp_path / "a.dump", frame(0), damage)
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.partial is not None and index.partial.path == path
+
+    @pytest.mark.parametrize("text, reason", [
+        ("hello\n", "unexpected text b'hello' at byte 0"),
+        ("0 1 2\n3 4 5\n", "unexpected text b'0 1 2' at byte 0"),
+        ("x" * 50 + "\n", f"unexpected text {repr(b'x' * 40)} at byte 0"),  # 40 bytes shown
+        ("ITEM: NUMBER OF ATOMS\n6\n", "unexpected text b'ITEM: NUMBER OF ATOMS' at byte 0"),
+    ])
+    def test_file_with_no_readable_frame_raises_naming_why(self, tmp_path, text, reason):
+        index = index_dump(write(tmp_path / "other.txt", text))
+        assert index.timesteps.tolist() == [] and index.partial.reason == reason
+        with pytest.raises(ValueError, match=re.escape(f"other.txt ({reason})")):
+            combine_frames([index])
 
     def test_time_and_units_items_are_skipped(self, tmp_path):
         # dump_modify units yes / time yes write these before ITEM: TIMESTEP.
@@ -185,10 +241,61 @@ class TestIndexDump:
         )
         index = index_dump(path)
         assert index.timesteps.tolist() == [0, 100]
-        assert index.partial is None
+        # The final ITEM: TIME begins a frame that was never written.
+        assert index.partial == PartialFrame(path, None)
         assert index.ends[0] <= index.starts[1]
         assert read_block(path, index, 0) == "".join(r + "\n" for r in rows(0))
         assert read_block(path, index, 1) == "".join(r + "\n" for r in rows(100, 1.0))
+
+    def test_complete_dump_with_time_and_units_has_no_partial_frame(self, tmp_path):
+        path = write(
+            tmp_path / "a.dump",
+            "ITEM: UNITS\nlj\nITEM: TIME\n0\n", frame(0),
+            "ITEM: TIME\n0.5\n", frame(100, 1.0),
+        )
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0, 100]
+        assert index.partial is None
+
+    def test_blank_lines_within_the_preamble_are_accepted(self, tmp_path):
+        path = write(tmp_path / "a.dump", "ITEM: UNITS\n\nlj\n\nITEM: TIME\n0\n\n", frame(0))
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.units == ("lj",)
+
+    def test_unit_style_cut_short_after_the_last_frame_is_a_cut_header(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100), "ITEM: UNITS\nre")
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0, 100]
+        assert index.units == ()
+        assert index.partial == PartialFrame(path, None)
+
+    def test_unit_style_lines_with_spaces_and_carriage_returns(self, tmp_path):
+        path = write(tmp_path / "a.dump", "ITEM: UNITS \r\nmetal\r\n", frame(0))
+        assert index_dump(path).units == ("metal",)
+
+    def test_cut_preamble_after_the_last_frame_is_a_cut_header(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), "ITEM: UNITS\nlj\nITEM: U")
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.partial == PartialFrame(path, None)
+
+    def test_units_are_recorded(self, tmp_path):
+        path = write(tmp_path / "a.dump", "ITEM: UNITS\nmetal\n", frame(0), "ITEM: UNITS\nelectron\n", frame(100))
+        assert index_dump(path).units == ("metal", "electron")
+        assert index_dump(write(tmp_path / "b.dump", frame(0))).units == ()
+
+    def test_items_after_the_last_frame_are_a_cut_frame(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0) + "ITEM: TIME\n1.0\n")
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.partial == PartialFrame(path, None)
+
+    def test_value_cut_at_the_end_is_a_cut_header(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), "ITEM: TIME\n0.")
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0]
+        assert index.partial == PartialFrame(path, None)
 
     @pytest.mark.parametrize("tail", [
         "I", "IT", "ITE", "ITEM", "ITEM:", "ITEM: ", "ITEM: TI", "ITEM: TIMESTE",
@@ -209,51 +316,117 @@ class TestIndexDump:
         assert index.timesteps.tolist() == [0]
         assert index.partial == PartialFrame(path, 100)
 
-    def test_other_unterminated_tail_raises(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(0) + "garbage")
-        with pytest.raises(ValueError, match="the atom rows do not match"):
-            index_dump(path)
-
     def test_timesteps_must_increase(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(100), frame(100, 1.0))
         with pytest.raises(ValueError, match="timesteps do not increase"):
             index_dump(path)
 
-    def test_columns_must_not_change_within_a_file(self, tmp_path):
+    def test_timesteps_must_increase_from_frame_to_frame(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(200), frame(100))
+        with pytest.raises(ValueError, match=r"timesteps do not increase \(200 is followed by 100\)"):
+            index_dump(path)
+
+    def test_columns_changing_within_a_file_are_recorded(self, tmp_path):
         reordered = frame(
             100, columns="type id x y z fx fy fz",
             atom_rows=[" ".join([r.split()[1], r.split()[0]] + r.split()[2:]) for r in rows(100)],
         )
-        path = write(tmp_path / "a.dump", frame(0), reordered)
-        with pytest.raises(ValueError, match="columns change"):
+        path = write(tmp_path / "a.dump", frame(0), reordered, frame(200))
+        assert index_dump(path).mismatch == HeaderMismatch(
+            1, f"{path}, timestep 100: the dump columns change within the file")
+
+    def test_box_changing_within_a_file_is_recorded(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100),
+                     frame(200, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"), frame(300))
+        index = index_dump(path)
+        assert index.timesteps.tolist() == [0, 100, 200, 300]
+        assert index.mismatch.frame == 2
+        assert index.mismatch.message.startswith(
+            f"{path}, timestep 200: the cell differs from the first frame's")
+
+    @pytest.mark.parametrize("bounds", [
+        "0.0 10.5\n0.0 10.0\n0.0 10.0\n",
+        "0.0 10.0\n0.0 10.5\n0.0 10.0\n",
+        "0.0 10.0\n0.0 10.0\n0.0 10.5\n",
+        "-0.5 10.0\n0.0 10.0\n0.0 10.0\n",
+    ])
+    def test_any_bound_changing_within_a_file_is_recorded(self, tmp_path, bounds):
+        path = write(tmp_path / "a.dump", frame(0), frame(100), frame(200, bounds=bounds))
+        assert index_dump(path).mismatch.frame == 2
+
+    def test_boundary_flags_changing_within_a_file_raise(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100, box_item="pp pp ff"))
+        with pytest.raises(ValueError, match=r"a\.dump, timestep 100: box boundaries must be periodic"):
             index_dump(path)
 
-    def test_box_must_not_change_within_a_file(self, tmp_path):
-        path = write(tmp_path / "a.dump", frame(0), frame(100, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"))
-        with pytest.raises(ValueError, match=r"a\.dump, timestep 100: the cell differs from the first frame's"):
-            index_dump(path)
+    def test_tilt_change_with_the_same_bounds_is_recorded(self, tmp_path):
+        # Tilts (xy, xz) = (2, -1) and (-1, 2) give the same bounding box.
+        first = frame(0, box_item="xy xz yz pp pp pp", bounds="-1.0 12.0 2.0\n0.0 10.5 -1.0\n0.0 10.0 0.0\n")
+        second = frame(100, box_item="xy xz yz pp pp pp", bounds="-1.0 12.0 -1.0\n0.0 10.5 2.0\n0.0 10.0 0.0\n")
+        path = write(tmp_path / "a.dump", first, second)
+        index = index_dump(path)
+        assert index.mismatch.frame == 1
+        assert "timestep 100: the cell differs" in index.mismatch.message
 
-    def test_first_frame_is_checked_against_a_reference_box(self, tmp_path):
-        path = write(tmp_path / "b.dump", frame(200, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"), frame(300))
-        reference = index_dump(write(tmp_path / "a.dump", frame(0))).header.box
-        with pytest.raises(ValueError, match=r"b\.dump, timestep 200: the cell differs from the first frame's"):
-            index_dump(path, reference)
-
-    def test_atom_count_must_not_change_within_a_file(self, tmp_path):
+    def test_atom_count_changing_within_a_file_is_recorded(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0), frame(100, atom_rows=rows(100)[:5], n_atoms=5))
-        with pytest.raises(ValueError, match=r"a\.dump, timestep 100: 5 atoms, but the file's first frame has 6"):
-            index_dump(path)
+        assert index_dump(path).mismatch == HeaderMismatch(
+            1, f"{path}, timestep 100: 5 atoms, but the file's first frame has 6")
+
+    def test_only_the_first_difference_is_recorded(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0), frame(100, atom_rows=rows(100)[:5], n_atoms=5),
+                     frame(200, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n"))
+        assert index_dump(path).mismatch.frame == 1
+
+    def test_crlf_line_endings_read_as_lf(self, tmp_path):
+        text = frame(0) + frame(100, 1.0)
+        lf = write(tmp_path / "lf.dump", text)
+        crlf = tmp_path / "crlf.dump"
+        crlf.write_bytes(text.replace("\n", "\r\n").encode())
+        assert index_dump(str(crlf)).timesteps.tolist() == [0, 100]
+        for k in (0, 1):
+            for got, expected in zip(_read(str(crlf), k), _read(lf, k)):
+                np.testing.assert_array_equal(got, expected)
+
+    def test_blank_lines_after_the_atom_rows_are_ignored(self, tmp_path):
+        lf = write(tmp_path / "lf.dump", frame(0), frame(100, 1.0))
+        blank = write(tmp_path / "blank.dump", frame(0), "\n  \n", frame(100, 1.0), "\n\n")
+        index = index_dump(blank)
+        assert index.timesteps.tolist() == [0, 100]
+        assert index.partial is None
+        for k in (0, 1):
+            for got, expected in zip(_read(blank, k), _read(lf, k)):
+                np.testing.assert_array_equal(got, expected)
 
     def test_box_errors_name_the_file_and_timestep(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0, box_item="ff pp pp"))
         with pytest.raises(ValueError, match="a.dump, timestep 0: box boundaries must be periodic"):
             index_dump(path)
 
-    def test_empty_and_non_dump_files_raise(self, tmp_path):
-        with pytest.raises(ValueError, match="empty"):
-            index_dump(write(tmp_path / "empty.dump", ""))
-        with pytest.raises(ValueError, match="not a LAMMPS dump"):
-            index_dump(write(tmp_path / "other.txt", "hello\n"))
+    @pytest.mark.parametrize("text", [
+        "", "I", "ITEM: TI", "ITEM: TIMES", "ITEM: UNITS\nlj\n", "ITEM: UNITS\nl",
+        "ITEM: TIME\n0.5\nITEM: TIM", "ITEM: UNITS\nlj\nITEM: TIME\n0.5\n",
+        "ITEM: UNITS\r\nlj\r\n", "ITEM: UNITS\nlj\n ITEM: TI", "ITEM: TIME\n0.5",
+        "ITEM: UNITS\nelec", "ITEM: TIME\n1.5e", "ITEM: UNITS\nlj\nITEM: U",
+    ])
+    def test_file_cut_before_its_first_frame_has_only_a_partial_frame(self, tmp_path, text):
+        path = write(tmp_path / "a.dump", text)
+        index = index_dump(path)
+        assert index.header is None
+        assert index.timesteps.tolist() == []
+        assert index.partial == PartialFrame(path, None)
+
+    def test_crlf_with_blank_lines_after_the_rows(self, tmp_path):
+        lf = write(tmp_path / "lf.dump", frame(0), frame(100, 1.0))
+        text = frame(0) + "\n \n" + frame(100, 1.0) + "\n"
+        crlf = tmp_path / "crlf.dump"
+        crlf.write_bytes(text.replace("\n", "\r\n").encode())
+        index = index_dump(str(crlf))
+        assert index.timesteps.tolist() == [0, 100]
+        assert index.partial is None
+        for k in (0, 1):
+            for got, expected in zip(_read(str(crlf), k), _read(lf, k)):
+                np.testing.assert_array_equal(got, expected)
 
 
 def _combined(tmp_path, *files):
@@ -284,7 +457,7 @@ class TestCombineFrames:
     def test_overlap_is_replaced_by_the_later_file(self, tmp_path):
         paths, frames = _combined(
             tmp_path, [frame(0), frame(100), frame(200)], [frame(100, 50.0), frame(300, 52.0)]
-        )
+            )
         assert frames == [
             (paths[0], 0), (paths[1], 100), (paths[1], 300)]
 
@@ -294,7 +467,10 @@ class TestCombineFrames:
             (paths[0], 0), (paths[1], 100), (paths[1], 200)]
 
     def test_restart_before_the_previous_file_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="starts at timestep 0, at or before the start of"):
+        with pytest.raises(ValueError, match=(
+                "starts at timestep 0, at or before the start of .*timesteps must continue from "
+                "file to file, as in a run and its restarts. Load independent runs as separate "
+                "trajectories")):
             _combined(tmp_path, [frame(100), frame(200)], [frame(0), frame(100)])
 
     def test_restart_at_the_previous_file_start_raises(self, tmp_path):
@@ -307,10 +483,9 @@ class TestCombineFrames:
             _, frames = _combined(tmp_path, [frame(0), frame(100), cut])
         assert [t for _, t in frames] == [0, 100]
 
-    def test_partial_final_frame_replaced_by_the_next_file_is_silent(self, tmp_path):
+    def test_partial_final_frame_replaced_by_the_next_file_still_warns(self, tmp_path):
         cut = frame(200)[:-30]
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
+        with pytest.warns(UserWarning, match=r"run0\.dump: dropping the incomplete final frame \(timestep 200\)"):
             paths, frames = _combined(tmp_path, [frame(0), frame(100), cut], [frame(200), frame(300)])
         assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
@@ -327,7 +502,7 @@ class TestCombineFrames:
             [frame(0), frame(100), frame(200), frame(300)],
             [frame(200, 20.0), frame(300, 30.0), frame(400, 40.0)],
             [frame(300, 33.0), frame(500, 55.0)],
-        )
+            )
         assert frames == [
             (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 300), (paths[2], 500)]
 
@@ -337,9 +512,8 @@ class TestCombineFrames:
             paths, frames = _combined(tmp_path, [frame(0), frame(100)], [cut], [frame(300), frame(400)])
         assert frames == [(paths[0], 0), (paths[0], 100), (paths[2], 300), (paths[2], 400)]
 
-    def test_cut_header_replaced_by_a_restart_is_silent(self, tmp_path):
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
+    def test_cut_header_replaced_by_a_restart_still_warns(self, tmp_path):
+        with pytest.warns(UserWarning, match=r"run0\.dump: dropping the incomplete final frame;"):
             paths, frames = _combined(
                 tmp_path, [frame(0), frame(100), "ITEM: TIM"], [frame(100, 1.0), frame(200)])
         assert frames == [(paths[0], 0), (paths[1], 100), (paths[1], 200)]
@@ -350,11 +524,177 @@ class TestCombineFrames:
                 tmp_path, [frame(0), frame(100), "ITEM: TIM"], [frame(200), frame(300)])
         assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300)]
 
-    def test_no_complete_frames_raises(self, tmp_path):
-        with pytest.warns(UserWarning):
+    def test_joined_arrays_are_read_only(self, tmp_path):
+        paths = [write(tmp_path / "a.dump", frame(0)), write(tmp_path / "b.dump", frame(100))]
+        table = combine_frames([index_dump(p) for p in paths])
+        for values in (table.first, table.timesteps, table.starts, table.ends):
+            with pytest.raises(ValueError, match="read-only"):
+                values[0] = 1
+
+    def test_no_complete_frames_raises_without_warning_first(self, tmp_path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             with pytest.raises(ValueError, match="no complete frames"):
                 _combined(tmp_path, [frame(0)[:-30]])
 
+    def test_restart_into_an_earlier_file_of_three_raises(self, tmp_path):
+        # run2 starts after run0 but at or before run1's start, which would
+        # discard the whole of run1.
+        with pytest.raises(ValueError, match=r"run2\.dump starts at timestep 150, at or before the start of .*run1\.dump"):
+            _combined(tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(150), frame(400)])
+        with pytest.raises(ValueError, match=r"run2\.dump starts at timestep 50"):
+            _combined(tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(50), frame(400)])
+
+    def test_three_files_with_a_restart_into_the_second(self, tmp_path):
+        paths, frames = _combined(
+            tmp_path, [frame(0), frame(100)], [frame(200), frame(300)], [frame(250), frame(400)])
+        assert frames == [
+            (paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 250), (paths[2], 400)]
+
+    def test_cut_header_in_a_middle_file_replaced_by_a_restart_still_warns(self, tmp_path):
+        with pytest.warns(UserWarning, match=r"run1\.dump: dropping the incomplete final frame;"):
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100)], [frame(200), frame(300), "ITEM: TIM"],
+                [frame(300, 1.0), frame(400)])
+        assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[2], 300), (paths[2], 400)]
+
+    def test_empty_last_file_warns(self, tmp_path):
+        with pytest.warns(UserWarning, match=r"run1\.dump: dropping the incomplete final frame"):
+            paths, frames = _combined(tmp_path, [frame(0), frame(100)], [""])
+        assert frames == [(paths[0], 0), (paths[0], 100)]
+
+    def test_replaced_frames_are_dropped_silently(self, tmp_path):
+        # A restart that ends before the frames it replaces, and one that
+        # dumps less often: the earlier file's frames from the restart on go.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            paths, frames = _combined(
+                tmp_path, [frame(t) for t in range(0, 401, 50)], [frame(200), frame(300)])
+        assert frames == [(paths[0], t) for t in range(0, 151, 50)] + [
+            (paths[1], 200), (paths[1], 300)]
+
+    def test_restart_reaching_the_end_of_the_frames_it_replaces_is_silent(self, tmp_path):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            _, frames = _combined(
+                tmp_path, [frame(0), frame(100), frame(200), frame(300)], [frame(200), frame(300)])
+        assert [t for _, t in frames] == [0, 100, 200, 300]
+
+    def test_header_change_in_frames_a_restart_replaces_is_accepted(self, tmp_path):
+        lost_atom = frame(300, atom_rows=rows(300)[:5], n_atoms=5)
+        grown_box = frame(300, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n")
+        for changed in (lost_atom, grown_box):
+            paths, frames = _combined(
+                tmp_path, [frame(0), frame(100), frame(200), changed], [frame(200), frame(300), frame(400)])
+            assert frames == [(paths[0], 0), (paths[0], 100), (paths[1], 200), (paths[1], 300), (paths[1], 400)]
+
+    def test_header_change_in_kept_frames_raises(self, tmp_path):
+        lost_atom = frame(300, atom_rows=rows(300)[:5], n_atoms=5)
+        with pytest.raises(ValueError, match=r"run0\.dump, timestep 300: 5 atoms, but the file's first frame has 6"):
+            _combined(tmp_path, [frame(0), frame(100), lost_atom], [frame(400)])
+        grown_box = frame(300, bounds="0.0 10.5\n0.0 10.0\n0.0 10.0\n")
+        with pytest.raises(ValueError, match=r"run1\.dump, timestep 300: the cell differs"):
+            _combined(tmp_path, [frame(0)], [frame(200), grown_box])
+
+    def test_box_of_a_later_files_first_frame_is_checked(self, tmp_path):
+        bounds = "0.0 10.5\n0.0 10.0\n0.0 10.0\n"
+        # The rest of run1 matches run0, so the first differing frame is run1's first.
+        with pytest.raises(ValueError, match=r"run1\.dump, timestep 200: the cell differs"):
+            _combined(tmp_path, [frame(0), frame(100)], [frame(200, bounds=bounds), frame(300)])
+
+    def test_random_joins_match_a_plain_list_join(self, tmp_path):
+        # A plain join of (path, timestep) lists: each file replaces every
+        # earlier frame from its first timestep on, and may not start at or
+        # before the first timestep of the file before it.
+        def plain_join(files):
+            joined, previous = [], None
+            for path, timesteps, _ in files:
+                if not timesteps:
+                    continue
+                if previous is not None and timesteps[0] <= previous[0]:
+                    return None
+                joined = [(p, t) for p, t in joined if t < timesteps[0]] + [(path, t) for t in timesteps]
+                previous = timesteps
+            return joined
+
+        def reported_drops(messages):
+            pattern = re.compile(r"(\S+): dropping the incomplete final frame(?: \(timestep (\d+)\))?;")
+            return [(m.group(1), int(m.group(2)) if m.group(2) else None)
+                    for m in map(pattern.match, messages) if m]
+
+        outcomes = collections.Counter()
+        rng = random.Random(20261015)
+        for case in range(150):
+            directory = tmp_path / str(case)
+            directory.mkdir()
+            # Each file: (path, timesteps, partial), where partial is None, or
+            # (timestep or None,) for a final frame cut short.
+            files, tails, start = [], [], 0
+            for k in range(rng.randint(1, 4)):
+                path = str(directory / f"run{k}.dump")
+                if rng.random() < 0.08:  # a job that wrote nothing
+                    files.append((path, [], (None,)))
+                    tails.append("")
+                    continue
+                start = max(0, start + rng.choices([-100, 0, 100, 200, 300, 500], [1, 1, 3, 3, 3, 2])[0])
+                interval = rng.choice([50, 100, 200])
+                timesteps = [start + interval * j for j in range(rng.randint(1, 6))]
+                kind = rng.choices(["none", "frame", "header"], [6, 2, 1])[0]
+                if kind == "frame":  # killed while writing the next frame's rows
+                    files.append((path, timesteps, (timesteps[-1] + interval,)))
+                    tails.append(frame(timesteps[-1] + interval)[:-25])
+                elif kind == "header":  # killed while writing its header
+                    files.append((path, timesteps, (None,)))
+                    tails.append("ITEM: TIM")
+                else:
+                    files.append((path, timesteps, None))
+                    tails.append("")
+            expected = plain_join(files)
+            # Sometimes give one frame after a file's first a different box:
+            # an error if and only if that frame is kept.
+            changed = None
+            candidates = [(path, t) for path, ts, _ in files for t in ts[1:]]
+            replaced = [c for c in candidates if expected is not None and c not in expected]
+            if replaced and rng.random() < 0.5:
+                changed = rng.choice(replaced)
+            elif candidates and rng.random() < 0.4:
+                changed = rng.choice(candidates)
+            grown = "0.0 10.5\n0.0 10.0\n0.0 10.0\n"
+            texts = [[frame(t, bounds=grown) if (path, t) == changed else frame(t) for t in ts] + [tail]
+                     for (path, ts, _), tail in zip(files, tails)]
+            with warnings.catch_warnings(record=True) as record:
+                warnings.simplefilter("always")
+                if expected is None:
+                    outcomes["order"] += 1
+                    with pytest.raises(ValueError, match="at or before the start of"):
+                        _combined(directory, *texts)
+                    continue
+                if not expected:
+                    outcomes["no frames"] += 1
+                    with pytest.raises(ValueError, match="no complete frames"):
+                        _combined(directory, *texts)
+                    continue
+                if changed in expected:
+                    outcomes["box"] += 1
+                    with pytest.raises(ValueError, match=f"timestep {changed[1]}: the cell differs"):
+                        _combined(directory, *texts)
+                    continue
+                outcomes["joined"] += 1
+                outcomes["joined with a replaced box change"] += changed is not None
+                _, got = _combined(directory, *texts)
+            assert got == expected
+            # Every incomplete final frame is dropped with a warning, and
+            # nothing else warns.
+            messages = [str(w.message) for w in record]
+            dropped = [(path, partial[0]) for path, _, partial in files if partial is not None]
+            assert reported_drops(messages) == dropped and len(messages) == len(dropped)
+            steps = [t for _, t in got]
+            assert steps == sorted(set(steps))
+            last_with_frames = [(path, ts) for path, ts, _ in files if ts][-1]
+            assert [t for p, t in got if p == last_with_frames[0]] == last_with_frames[1]
+        # Every outcome occurs, so none of the checks above is vacuous.
+        assert all(outcomes[k] >= 5 for k in (
+            "order", "no frames", "box", "joined", "joined with a replaced box change")), outcomes
 
 class TestResolveAtomStyle:
 
@@ -415,6 +755,7 @@ class TestReadDumpFrame:
         np.testing.assert_array_equal(positions, expected_positions(1.0))
         np.testing.assert_array_equal(forces, expected_forces(100))
         assert positions.dtype == np.float64 and forces.dtype == np.float64
+        assert positions.flags.c_contiguous and forces.flags.c_contiguous
 
     def test_scaled_coordinates_are_converted(self, tmp_path):
         cell = np.array([[10.0, 0, 0], [2.0, 10.0, 0], [1.0, -1.5, 10.0]])
@@ -451,6 +792,36 @@ class TestReadDumpFrame:
         positions, _ = _read(path)
         np.testing.assert_allclose(positions, expected_positions(), rtol=1e-12, atol=1e-12)
 
+    def test_scaled_coordinates_follow_the_lammps_formula(self, tmp_path):
+        # Bounds for the cell a = (10, 0, 0), b = (2, 10, 0), c = (1, -1.5, 10)
+        # with origin (5, -3, 2); position = origin + sa a + sb b + sc c.
+        bounds = "5.0 18.0 2.0\n-4.5 7.0 1.0\n2.0 12.0 -1.5\n"
+        cases = {
+            3: ((0, 0, 0), (5.0, -3.0, 2.0)),
+            7: ((1, 1, 1), (18.0, 5.5, 12.0)),
+            12: ((0.25, 0.5, 0.75), (9.25, 0.875, 9.5)),
+            20: ((0.5, 0, 0), (10.0, -3.0, 2.0)),
+            21: ((0, 0.5, 0), (6.0, 2.0, 2.0)),
+            40: ((0, 0, 0.5), (5.5, -3.75, 7.0)),
+        }
+        atom_rows = [f"{i} 1 {sa} {sb} {sc} 0 0 0" for i, ((sa, sb, sc), _) in cases.items()]
+        path = write(tmp_path / "s.dump", frame(
+            0, box_item="xy xz yz pp pp pp", bounds=bounds,
+            columns="id type xs ys zs fx fy fz", atom_rows=atom_rows,
+        ))
+        positions, _ = _read(path)
+        expected = [cases[i][1] for i in IDS_SORTED]
+        np.testing.assert_allclose(positions, expected, rtol=0, atol=1e-14)
+
+    def test_types_not_matching_the_topology_raise(self, tmp_path):
+        path = write(tmp_path / "a.dump", frame(0))
+        dump = index_dump(path)
+        layout = resolve_columns(dump.header.columns, path)
+        types = np.array([b"1", b"2", b"1", b"2", b"2", b"2"])  # id 21 should be type 1
+        with open(path, "rb") as f, pytest.raises(
+                ValueError, match="atom id 21 has type 1 in the dump and 2 in the topology"):
+            read_dump_frame(f, dump.starts[0], dump.ends[0], dump.header, layout, IDS_SORTED, types)
+
     def test_ids_not_matching_the_topology_raise(self, tmp_path):
         path = write(tmp_path / "a.dump", frame(0))
         dump = index_dump(path)
@@ -458,6 +829,17 @@ class TestReadDumpFrame:
         wrong = np.array([3, 7, 12, 20, 21, 41])
         with open(path, "rb") as f, pytest.raises(ValueError, match="ids do not match the topology"):
             read_dump_frame(f, dump.starts[0], dump.ends[0], dump.header, layout, wrong)
+
+    @pytest.mark.parametrize("column", [0, 2])  # an id, then a coordinate
+    def test_numbers_with_nul_bytes_raise(self, tmp_path, column):
+        # A crash can leave NUL bytes in a file; they are not part of a number.
+        atom_rows = rows(0)
+        fields = atom_rows[1].split()
+        fields[column] += "\0"
+        atom_rows[1] = " ".join(fields)
+        path = write(tmp_path / "a.dump", frame(0, atom_rows=atom_rows))
+        with pytest.raises(ValueError):
+            _read(path)
 
     def test_rows_with_missing_values_raise(self, tmp_path):
         atom_rows = [r.rsplit(" ", 1)[0] if k == 2 else r for k, r in enumerate(rows(0))]
