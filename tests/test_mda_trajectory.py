@@ -4,12 +4,17 @@ import gc
 from pathlib import Path
 
 import MDAnalysis as MD
-import h5py
 import numpy as np
 import pytest
 
 from revelsMD.trajectories import DataUnavailableError, MDATrajectory
 from revelsMD.trajectories._base import compute_beta
+
+try:
+    import h5py
+except ImportError:  # h5py has no wheels for every Python version
+    h5py = None
+needs_h5py = pytest.mark.skipif(h5py is None, reason="H5MD files need h5py")
 
 DATA = Path(__file__).parent / "data"
 
@@ -436,12 +441,14 @@ class TestUnits:
             MDATrajectory(str(history), str(history), temperature=300.0)
         assert "LammpsTrajectory" not in str(e.value)
 
+    @needs_h5py
     def test_h5md_with_units_is_read(self, tmp_path, universe):
         path = write_frames(tmp_path / "water.h5md")
         traj = MDATrajectory(path, TPR, temperature=300.0)
         frame = traj.get_frame(2)
         np.testing.assert_allclose(frame.forces, universe.trajectory[2].forces, rtol=1e-6)
 
+    @needs_h5py
     def test_h5md_without_a_force_unit_is_rejected(self, tmp_path):
         path = write_frames(tmp_path / "unitless.h5md")
         with h5py.File(path, "r+") as f:
@@ -456,6 +463,7 @@ class TestUnits:
             _check_reader(reader)
 
     # MDAnalysis's reader fails while closing the file it could not open.
+    @needs_h5py
     @pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
     def test_h5md_without_h5py_names_the_file(self, tmp_path, monkeypatch):
         from MDAnalysis.coordinates import H5MD
@@ -464,6 +472,7 @@ class TestUnits:
         with pytest.raises(RuntimeError, match=r"MDAnalysis cannot read .*water\.h5md: RuntimeError: .*h5py"):
             MDATrajectory(path, TPR, temperature=300.0)
 
+    @needs_h5py
     def test_every_file_of_a_list_is_checked(self, tmp_path):
         good = write_frames(tmp_path / "good.h5md", range(4))
         bad = write_frames(tmp_path / "bad.h5md", range(4))
@@ -475,6 +484,7 @@ class TestUnits:
         with pytest.raises(ValueError, match="bad.h5md: the forces are saved at different steps"):
             MDATrajectory([good, bad], TPR, temperature=300.0)
 
+    @needs_h5py
     def test_h5md_without_force_steps_cannot_be_checked(self, tmp_path):
         path = write_frames(tmp_path / "nosteps.h5md")
         with h5py.File(path, "r+") as f:
@@ -482,6 +492,7 @@ class TestUnits:
         with pytest.raises(RuntimeError, match="nosteps.h5md: cannot check"):
             MDATrajectory(path, TPR, temperature=300.0)
 
+    @needs_h5py
     def test_h5md_steps_that_cannot_be_read_cannot_be_checked(self):
         from MDAnalysis.coordinates.H5MD import H5MDReader
         from revelsMD.trajectories.mda import _check_reader
@@ -504,6 +515,7 @@ class TestUnits:
         with pytest.raises(RuntimeError, match="broken.h5md: cannot check .*unreadable dataset"):
             _check_reader(reader)
 
+    @needs_h5py
     def test_h5md_steps_stored_as_a_group_cannot_be_checked(self, tmp_path):
         path = write_frames(tmp_path / "groupsteps.h5md")
         with h5py.File(path, "r+") as f:
@@ -513,6 +525,7 @@ class TestUnits:
         with pytest.raises(RuntimeError, match="groupsteps.h5md: cannot check"):
             MDATrajectory(path, TPR, temperature=300.0)
 
+    @needs_h5py
     def test_h5md_step_check_fails_closed(self, tmp_path):
         from revelsMD.trajectories.mda import _check_reader
         reader = MD.Universe(TPR, write_frames(tmp_path / "water.h5md")).trajectory
@@ -521,6 +534,7 @@ class TestUnits:
         with pytest.raises(RuntimeError, match="cannot check that this H5MD file"):
             _check_reader(reader)
 
+    @needs_h5py
     def test_h5md_with_forces_at_other_steps_is_rejected(self, tmp_path):
         path = write_frames(tmp_path / "steps.h5md", range(4))
         with h5py.File(path, "r+") as f:
