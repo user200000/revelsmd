@@ -18,14 +18,6 @@ cd revelsmd
 pip install -e .
 ```
 
-## Optional dependencies
-
-VASP trajectory support requires [pymatgen](https://pymatgen.org/), available as an optional extra:
-
-```bash
-pip install revelsMD[vasp]
-```
-
 ## Dependencies
 
 The following packages are installed automatically:

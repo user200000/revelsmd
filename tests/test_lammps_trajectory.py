@@ -1,30 +1,18 @@
 """LammpsTrajectory on small dump files written for each case."""
 
 import shutil
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from file_limits import open_descriptors, open_file_limit
 from lammps_dumps import IDS_SORTED, forces, frame, positions, rows, write
 from revelsMD.trajectories import LammpsTrajectory
 from revelsMD.trajectories._base import compute_beta
 
 SMALL = Path(__file__).parent / "data" / "lammps_small"
 DATA = str(SMALL / "data.small.data")
-
-
-@contextmanager
-def open_file_limit(limit):
-    """Lower the soft open-file limit for the duration of the block."""
-    resource = pytest.importorskip("resource")
-    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (limit, hard))
-    try:
-        yield
-    finally:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
 
 
 def load(dumps, **kwargs):
@@ -126,7 +114,7 @@ class TestOpenFiles:
         dumps = [write(tmp_path / f"d{k:03d}.dump", frame(100 * k, float(k % 7)))
                  for k in range(n_files)]
         traj = load(dumps)
-        with open_file_limit(64):
+        with open_file_limit(open_descriptors() + 5):
             got = list(traj.iter_frames())
         assert len(got) == n_files
         np.testing.assert_array_equal(got[-1].positions, positions(float((n_files - 1) % 7)))
