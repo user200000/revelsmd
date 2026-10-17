@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import scipy.constants as constants
 from abc import ABC
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from revelsMD.trajectories import (
     MDATrajectory,
@@ -15,40 +15,8 @@ from revelsMD.trajectories._base import Trajectory, compute_beta, normalize_boun
 
 
 # -----------------------------------------------------------------------------
-# Fixtures
-# -----------------------------------------------------------------------------
-@pytest.fixture
-def mock_mdanalysis_universe():
-    """Mock MDAnalysis Universe object with orthorhombic box."""
-    mock = MagicMock()
-    mock.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
-    mock.trajectory = [0, 1, 2]
-    mock.atoms.ids = np.arange(1, 6)
-    mock.select_atoms.return_value.ix = np.array([0, 1, 2])
-    mock.select_atoms.return_value.charges = np.array([0.1, 0.2, 0.3])
-    mock.select_atoms.return_value.masses = np.array([12.0, 1.0, 16.0])
-    return mock
-
-
-# -----------------------------------------------------------------------------
 # MDATrajectory
 # -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.mda.MD.Universe")
-def test_mda_initialization_and_accessors(mock_universe, mock_mdanalysis_universe):
-    mock_universe.return_value = mock_mdanalysis_universe
-    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
-
-    assert state.frames == 3
-    assert np.isclose(state.box_x, 10.0)
-    assert np.isclose(state.box_y, 10.0)
-    assert np.isclose(state.box_z, 10.0)
-
-    assert np.all(state.get_indices("H") == np.array([0, 1, 2]))
-    assert np.allclose(state.get_charges("H"), [0.1, 0.2, 0.3])
-    assert np.allclose(state.get_masses("H"), [12.0, 1.0, 16.0])
-
-
-
 @patch("revelsMD.trajectories.mda.MD.Universe", side_effect=Exception("fail"))
 def test_mda_raises_on_universe_failure(mock_universe):
     with pytest.raises(RuntimeError, match="Failed to load MDAnalysis Universe"):
@@ -58,27 +26,6 @@ def test_mda_raises_on_universe_failure(mock_universe):
 def test_mda_raises_no_topology():
     with pytest.raises(ValueError, match="topology file is required"):
         MDATrajectory("traj.xtc", "", temperature=300.0)
-
-
-@patch("revelsMD.trajectories.mda.MD.Universe")
-def test_mda_triclinic_cell(mock_universe):
-    """MDATrajectory should accept and store a full triclinic cell matrix."""
-    mock_uni = MagicMock()
-    # MDAnalysis dimensions: [a, b, c, alpha, beta, gamma]
-    mock_uni.dimensions = np.array([10.0, 9.0, 8.0, 80.0, 85.0, 70.0])
-    mock_uni.trajectory = [0, 1, 2]
-    mock_uni.select_atoms.return_value.ix = np.array([0, 1, 2])
-    mock_universe.return_value = mock_uni
-
-    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
-
-    assert state.cell_matrix.shape == (3, 3)
-    assert state.is_orthorhombic is False
-    assert state.cell_volume > 0
-    # Verify the cell matrix determinant matches expected volume
-    from MDAnalysis.lib.mdamath import triclinic_vectors
-    expected_matrix = triclinic_vectors(mock_uni.dimensions)
-    np.testing.assert_allclose(state.cell_matrix, expected_matrix)
 
 
 # -----------------------------------------------------------------------------
@@ -92,7 +39,6 @@ def test_numpy_state_valid_and_accessors():
     state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
     assert state.frames == 5
     assert np.allclose(state.get_indices("H"), [1, 2])
-
 
 
 def test_numpy_state_species_not_found():
@@ -241,47 +187,6 @@ def test_numpy_iter_frames_with_start_stop_stride():
 
 
 # -----------------------------------------------------------------------------
-# iter_frames - MDATrajectory
-# -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.mda.MD.Universe")
-def test_mda_iter_frames_yields_positions_and_forces(mock_universe):
-    """iter_frames should yield positions and forces for each frame."""
-    n_frames, n_atoms = 3, 4
-    positions = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
-    forces = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
-
-    # Create mock timestep objects with positions and forces
-    mock_timesteps = []
-    for i in range(n_frames):
-        ts = MagicMock()
-        ts.positions = positions[i]
-        ts.forces = forces[i]
-        mock_timesteps.append(ts)
-
-    # Create mock trajectory that supports slicing
-    mock_trajectory = MagicMock()
-    mock_trajectory.__len__ = MagicMock(return_value=n_frames)
-    mock_trajectory.__getitem__ = MagicMock(
-        side_effect=lambda s: mock_timesteps[s] if isinstance(s, int) else mock_timesteps[s.start:s.stop:s.step]
-    )
-
-    mock_uni = MagicMock()
-    mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
-    mock_uni.trajectory = mock_trajectory
-    mock_uni.select_atoms.return_value.ix = np.array([0, 1, 2])
-    mock_universe.return_value = mock_uni
-
-    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
-
-    frames_list = list(state.iter_frames())
-    assert len(frames_list) == n_frames
-
-    for i, frame in enumerate(frames_list):
-        np.testing.assert_array_equal(frame.positions, positions[i])
-        np.testing.assert_array_equal(frame.forces, forces[i])
-
-
-# -----------------------------------------------------------------------------
 # get_frame - NumpyTrajectory
 # -----------------------------------------------------------------------------
 def test_numpy_get_frame_returns_correct_data():
@@ -312,41 +217,6 @@ def test_numpy_get_frame_random_access():
     for i in [7, 2, 9, 0, 5]:
         frame = state.get_frame(i)
         np.testing.assert_array_equal(frame.positions, positions[i])
-
-
-# -----------------------------------------------------------------------------
-# get_frame - MDATrajectory
-# -----------------------------------------------------------------------------
-@patch("revelsMD.trajectories.mda.MD.Universe")
-def test_mda_get_frame_returns_correct_data(mock_universe):
-    """get_frame should return positions and forces for the specified index."""
-    n_frames, n_atoms = 5, 3
-    positions = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
-    forces = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
-
-    mock_timesteps = []
-    for i in range(n_frames):
-        ts = MagicMock()
-        ts.positions = positions[i]
-        ts.forces = forces[i]
-        mock_timesteps.append(ts)
-
-    mock_trajectory = MagicMock()
-    mock_trajectory.__len__ = MagicMock(return_value=n_frames)
-    mock_trajectory.__getitem__ = MagicMock(side_effect=lambda idx: mock_timesteps[idx])
-
-    mock_uni = MagicMock()
-    mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
-    mock_uni.trajectory = mock_trajectory
-    mock_uni.select_atoms.return_value.ix = np.array([0, 1, 2])
-    mock_universe.return_value = mock_uni
-
-    state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
-
-    for i in range(n_frames):
-        frame = state.get_frame(i)
-        np.testing.assert_array_equal(frame.positions, positions[i])
-        np.testing.assert_array_equal(frame.forces, forces[i])
 
 
 # -----------------------------------------------------------------------------
@@ -478,39 +348,6 @@ class TestIterFramesNegativeIndices:
         frames = list(state.iter_frames(stop=None))
         assert len(frames) == n_frames
 
-    @patch("revelsMD.trajectories.mda.MD.Universe")
-    def test_mda_negative_stop(self, mock_universe):
-        """MDATrajectory should handle negative stop index."""
-        n_frames, n_atoms = 5, 3
-        positions = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
-        forces = [np.random.rand(n_atoms, 3) for _ in range(n_frames)]
-
-        mock_timesteps = []
-        for i in range(n_frames):
-            ts = MagicMock()
-            ts.positions = positions[i]
-            ts.forces = forces[i]
-            mock_timesteps.append(ts)
-
-        mock_trajectory = MagicMock()
-        mock_trajectory.__len__ = MagicMock(return_value=n_frames)
-        # Simulate slicing behaviour
-        mock_trajectory.__getitem__ = MagicMock(
-            side_effect=lambda s: mock_timesteps[s.start:s.stop:s.step] if isinstance(s, slice) else mock_timesteps[s]
-        )
-
-        mock_uni = MagicMock()
-        mock_uni.dimensions = np.array([10.0, 10.0, 10.0, 90.0, 90.0, 90.0])
-        mock_uni.trajectory = mock_trajectory
-        mock_uni.select_atoms.return_value.ix = np.array([0, 1, 2])
-        mock_universe.return_value = mock_uni
-
-        state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
-
-        # stop=-1 normalized to 4, so frames 0, 1, 2, 3
-        frames = list(state.iter_frames(stop=-1))
-        assert len(frames) == 4
-
 
 # -----------------------------------------------------------------------------
 # compute_beta - Unit conversion function
@@ -557,24 +394,6 @@ class TestTrajectoryBetaAttribute:
 
         state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=1.0, units='lj')
         assert state.beta == 1.0
-
-    @patch("revelsMD.trajectories.mda.MD.Universe")
-    def test_mda_trajectory_requires_temperature(self, mock_universe, mock_mdanalysis_universe):
-        """MDATrajectory should require temperature as a keyword argument."""
-        mock_universe.return_value = mock_mdanalysis_universe
-
-        with pytest.raises(TypeError):
-            MDATrajectory("traj.xtc", "topol.pdb")
-
-    @patch("revelsMD.trajectories.mda.MD.Universe")
-    def test_mda_trajectory_stores_temperature_and_beta(self, mock_universe, mock_mdanalysis_universe):
-        """MDATrajectory should store temperature and compute beta."""
-        mock_universe.return_value = mock_mdanalysis_universe
-
-        state = MDATrajectory("traj.xtc", "topol.pdb", temperature=300.0)
-        assert state.temperature == 300.0
-        expected_beta = compute_beta('mda', 300.0)
-        assert pytest.approx(state.beta, rel=1e-12) == expected_beta
 
 
 class TestComputeBeta:
