@@ -156,7 +156,7 @@ blocks using a weighted online algorithm. The caller calls
 `finalise()` returns population variance and covariance arrays. At least two blocks
 are required.
 
-**`compute_lambda_weights(variance, covariance)`** — returns the guarded ratio
+**`compute_lambda_weights(variance, covariance, scale=...)`** — returns the guarded ratio
 `covariance / variance`. `DensityGrid` takes one minus the ratio of
 $\text{Cov}(\delta, \rho_\text{force})$ to $\text{Var}(\delta)$ as the per-voxel
 weight on the force density. Voxels whose variance is negligible for the size

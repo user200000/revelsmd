@@ -105,9 +105,9 @@ blocks have been accumulated.
 `compute_lambda_weights(variance, covariance, scale=...)` returns the ratio
 `covariance / variance`, guarded so that voxels with negligible variance and
 non-finite results receive a fixed replacement value. A variance is negligible
-where the spread of $\delta$ across blocks is below $10^{-10}$ of the
-estimates in that voxel: that is rounding, not sampling, and dividing by it
-would give an arbitrarily large $\lambda$.
+where the standard deviation of $\delta$ across blocks is at most $10^{-10}$
+of `scale`, the largest estimate anywhere in the grid: that is rounding, not
+sampling, and dividing by it would give an arbitrarily large $\lambda$.
 `DensityGrid` passes it $\text{Var}(\delta)$ and
 $\text{Cov}(\delta, \rho_\text{force})$ and takes one minus the ratio as the
 weight on the force density:

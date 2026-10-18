@@ -63,7 +63,7 @@ For 3D density fields, where storing all block densities would be prohibitive, R
 
 ## Edge cases
 
-Where $\operatorname{Var}(\delta)$ is zero — because both estimators agree exactly across every sample — $\lambda$ is undefined. RevelsMD then reports a fixed weight: $\lambda = 0$ for RDFs (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). Non-finite values from numerical issues receive the same fixed weight. These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
+Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample, $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. RevelsMD then reports a fixed weight: $\lambda = 0$ for RDFs (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). Non-finite values from numerical issues receive the same fixed weight. These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
 
 ## When to use lambda estimation
 

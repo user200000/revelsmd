@@ -191,9 +191,11 @@ class DensityGrid:
         rho_force (E_1 in the paper's notation; rho_count is E_0 and
         carries weight 1 - lambda), so
         rho_lambda = (1 - lambda) * rho_count + lambda * rho_force.
-        Degenerate voxels with Var(delta) = 0 report lambda = 1, i.e. the
-        force estimator (a guard for pathological input, not a
-        poorly-sampled-regions policy -- see rho_hybrid for that).
+        Voxels where delta is the same in every block, to within rounding
+        (a standard deviation at most 1e-10 of the largest density in the
+        grid), report lambda = 1, i.e. the force estimator (a guard for
+        degenerate input, not a poorly-sampled-regions policy -- see
+        rho_hybrid for that).
 
         Returns
         -------
@@ -864,9 +866,10 @@ class DensityGrid:
         #   rho_lambda = rho_count * lambda_raw + rho_force * (1 - lambda_raw)
         # i.e. rho_count * (1 - _lambda_weights) + rho_force * _lambda_weights
         # (see Coles et al., J. Chem. Phys. 154, 191101 (2021)).
+        # The FFTs round every voxel at the scale of the whole grid.
         lambda_raw = compute_lambda_weights(
             var_buffer, cov_buffer_force,
-            scale=np.maximum(np.abs(expected_rho_count), np.abs(expected_rho_force)),
+            scale=float(max(np.max(np.abs(expected_rho_count)), np.max(np.abs(expected_rho_force)))),
         )
         self._lambda_weights = 1.0 - lambda_raw
 

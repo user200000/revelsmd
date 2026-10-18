@@ -56,9 +56,9 @@ def test_lambda_reproduces_exact_count_estimator():
     grid.accumulate(trajectory, atom_names='A', compute_lambda=True)
 
     weights = grid.lambda_weights
-    # The degenerate Var(delta) = 0 guard reports weight 1; with random
-    # forces every voxel must have Var(delta) > 0, so no voxel may carry
-    # the guard value.
+    # The guard for a negligible Var(delta) reports weight 1; with random
+    # forces every voxel's Var(delta) is far from negligible, so no voxel
+    # may carry the guard value.
     degenerate = weights == 1.0
     assert not degenerate.any(), (
         "unexpected zero-variance voxels with frame-varying forces"
@@ -94,7 +94,8 @@ def test_lambda_degenerate_blocks_return_force_estimator():
     grid.accumulate(trajectory, atom_names='A', compute_lambda=True)
 
     # Documented degenerate contract (lambda_weights docstring): voxels
-    # with Var(delta) = 0 report lambda = 1, i.e. the force estimator.
+    # whose Var(delta) is negligible report lambda = 1, i.e. the force
+    # estimator.
     np.testing.assert_array_equal(
         grid.lambda_weights, np.ones_like(grid.lambda_weights),
         err_msg="degenerate voxels must report lambda = 1 (force estimator)",
