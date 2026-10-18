@@ -130,13 +130,13 @@ def test_lambda_reproduces_exact_estimator_in_each_region():
 
 
 @pytest.mark.parametrize("size", [1e-7, 1e-6, 0.1])
-def test_delta_constant_to_rounding_takes_the_zero_variance_fallback(size):
+def test_delta_constant_to_rounding_takes_the_negligible_variance_fallback(size):
     """Var(Delta) at rounding level is treated as zero: lambda 0, g_lambda backward.
 
     Delta in every bin is the frame's total minus 1, so frames that move
     weight between bins without changing their total give a Delta that is
     constant to rounding while both estimators vary. Dividing by that
-    variance gave a huge lambda and a garbage or zeroed g_lambda. Bins with
+    variance would give a huge lambda and a garbage or zeroed g_lambda. Bins with
     a small g(r) are the hardest case: Delta's rounding is set by the
     total, of order 1, not by g(r) in the bin.
     """
