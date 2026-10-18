@@ -164,9 +164,9 @@ class RDF:
 
         This is the Eq. 3 weight of Coles et al. (2021) applied to the
         forward estimator g_0 (E_1 in the paper's notation; the backward
-        estimator g_inf is E_0 and carries weight 1 - lambda). Degenerate
-        bins with Var(Delta) = 0 report lambda = 0, i.e. the backward
-        estimator.
+        estimator g_inf is E_0 and carries weight 1 - lambda). Bins where
+        Delta is the same in every frame, to within rounding, report
+        lambda = 0, i.e. the backward estimator.
 
         Returns
         -------
@@ -418,8 +418,9 @@ class RDF:
         term and the covariance, this form cannot be inverted by swapping
         argument order.
 
-        Where Var(Delta) = 0 (degenerate input, e.g. a single frame),
-        lambda = 0 and E_lambda reduces to the backward estimator g_inf.
+        Where Delta is the same in every frame to within rounding
+        (degenerate input, e.g. a single frame), lambda = 0 and E_lambda
+        reduces to the backward estimator g_inf.
         """
         base_array = np.nan_to_num(np.array(self._frame_data))
         base_array *= self._prefactor * self._beta / (4 * np.pi)
@@ -445,9 +446,14 @@ class RDF:
         cov_e0_delta = np.mean(
             (delta - exp_delta) * (g_backward - exp_backward), axis=0
         )
-        # lambda* = -Cov(E_0, Delta) / Var(Delta); the helper guards
-        # Var == 0 by returning 0.
-        lam = compute_lambda_weights(var_delta, -cov_e0_delta)
+        # lambda* = -Cov(E_0, Delta) / Var(Delta); the helper returns 0
+        # where Var(Delta) is negligible. g_backward subtracts cumulative
+        # sums from 1, so the rounding in Delta is set by 1 and the largest
+        # cumulative sum, in every bin.
+        lam = compute_lambda_weights(
+            var_delta, -cov_e0_delta,
+            scale=float(max(1.0, np.max(np.abs(np.cumsum(mean_scaled))))),
+        )
 
         per_frame_combined = g_backward + lam * delta
         g_lambda = np.mean(per_frame_combined, axis=0)

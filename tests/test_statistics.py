@@ -17,7 +17,7 @@ class TestComputeLambdaWeights:
         """Standard case: lambda = cov / var."""
         variance = np.array([1.0, 2.0, 4.0])
         covariance = np.array([0.5, 1.0, 2.0])
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         expected = np.array([0.5, 0.5, 0.5])
         np.testing.assert_allclose(result, expected)
 
@@ -25,7 +25,7 @@ class TestComputeLambdaWeights:
         """Zero variance locations get replacement value."""
         variance = np.array([1.0, 0.0, 2.0])
         covariance = np.array([0.5, 0.5, 1.0])
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         expected = np.array([0.5, 0.0, 0.5])
         np.testing.assert_allclose(result, expected)
 
@@ -34,7 +34,7 @@ class TestComputeLambdaWeights:
         variance = np.array([0.0])
         covariance = np.array([1.0])
         result = compute_lambda_weights(
-            variance, covariance, zero_variance_replacement=0.5
+            variance, covariance, scale=0.0, negligible_variance_replacement=0.5
         )
         assert result[0] == 0.5
 
@@ -42,7 +42,7 @@ class TestComputeLambdaWeights:
         """NaN in covariance produces replacement value."""
         variance = np.array([1.0, 1.0])
         covariance = np.array([0.5, np.nan])
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         assert result[0] == 0.5
         assert result[1] == 0.0
 
@@ -54,21 +54,21 @@ class TestComputeLambdaWeights:
         covariance = np.array([1.0])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
-            result = compute_lambda_weights(variance, covariance)
+            result = compute_lambda_weights(variance, covariance, scale=0.0)
         assert np.isfinite(result[0])
 
     def test_negative_covariance(self):
         """Negative covariance produces negative weights."""
         variance = np.array([1.0])
         covariance = np.array([-0.5])
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         assert result[0] == -0.5
 
     def test_multidimensional_1d_array(self):
         """Works with 1D arrays."""
         variance = np.ones(10)
         covariance = np.full(10, 0.5)
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         assert result.shape == (10,)
         np.testing.assert_allclose(result, 0.5)
 
@@ -76,7 +76,7 @@ class TestComputeLambdaWeights:
         """Works with 3D arrays (typical for density grids)."""
         variance = np.ones((3, 4, 5))
         covariance = np.full((3, 4, 5), 0.5)
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         assert result.shape == (3, 4, 5)
         np.testing.assert_allclose(result, 0.5)
 
@@ -84,7 +84,7 @@ class TestComputeLambdaWeights:
         """Handles arrays with mix of zero and non-zero variance."""
         variance = np.array([0.0, 1.0, 0.0, 2.0, 0.0])
         covariance = np.array([1.0, 1.0, 2.0, 1.0, 3.0])
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         expected = np.array([0.0, 1.0, 0.0, 0.5, 0.0])
         np.testing.assert_allclose(result, expected)
 
@@ -92,14 +92,30 @@ class TestComputeLambdaWeights:
         """All zero variance returns all replacement values."""
         variance = np.zeros(5)
         covariance = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         np.testing.assert_allclose(result, 0.0)
+
+    @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+    def test_variance_too_small_for_the_scale_counts_as_zero(self, scale):
+        # A standard deviation of delta at most 1e-10 of the estimates is
+        # rounding, not sampling: it takes the replacement. The result does
+        # not depend on the units of the estimates.
+        variance = np.array([(1e-11 * scale) ** 2, (1e-9 * scale) ** 2, 0.0])
+        covariance = np.array([1.0, 2.0, 3.0]) * variance + np.array([0.0, 0.0, 1.0])
+        result = compute_lambda_weights(
+            variance, covariance, scale=scale, negligible_variance_replacement=0.5
+        )
+        np.testing.assert_allclose(result, [0.5, 2.0, 0.5])
+
+    def test_scale_is_required(self):
+        with pytest.raises(TypeError, match="scale"):
+            compute_lambda_weights(np.ones(2), np.ones(2))
 
     def test_preserves_dtype_float64(self):
         """Output dtype matches input dtype."""
         variance = np.array([1.0, 2.0], dtype=np.float64)
         covariance = np.array([0.5, 1.0], dtype=np.float64)
-        result = compute_lambda_weights(variance, covariance)
+        result = compute_lambda_weights(variance, covariance, scale=0.0)
         assert result.dtype == np.float64
 
 
@@ -132,39 +148,12 @@ class TestCombineEstimators:
         result = combine_estimators(a, b, weights)
         np.testing.assert_allclose(result, b)
 
-    def test_sanitise_replaces_nan(self):
-        """NaN in input is replaced with 0.0 when sanitise_output=True."""
-        a = np.array([np.nan, 2.0])
-        b = np.array([3.0, 4.0])
-        weights = np.array([0.5, 0.5])
-        result = combine_estimators(a, b, weights, sanitise_output=True)
-        assert np.isfinite(result[0])
-        assert result[0] == 0.0
-
-    def test_sanitise_replaces_inf(self):
-        """Inf in output is replaced with 0.0 when sanitise_output=True."""
-        a = np.array([np.inf, 2.0])
-        b = np.array([3.0, 4.0])
-        weights = np.array([0.5, 0.5])
-        result = combine_estimators(a, b, weights, sanitise_output=True)
-        assert np.isfinite(result[0])
-        assert result[0] == 0.0
-
-    def test_sanitise_disabled_preserves_nan(self):
-        """NaN is preserved when sanitise_output=False."""
-        a = np.array([np.nan])
-        b = np.array([1.0])
-        weights = np.array([0.0])  # Should return a
-        result = combine_estimators(a, b, weights, sanitise_output=False)
-        assert np.isnan(result[0])
-
-    def test_sanitise_disabled_preserves_inf(self):
-        """Inf is preserved when sanitise_output=False."""
-        a = np.array([np.inf])
-        b = np.array([1.0])
-        weights = np.array([0.0])
-        result = combine_estimators(a, b, weights, sanitise_output=False)
-        assert np.isinf(result[0])
+    def test_non_finite_values_are_not_hidden(self):
+        """NaN and infinity pass through rather than becoming plausible zeros."""
+        a = np.array([np.nan, np.inf])
+        b = np.array([1.0, 1.0])
+        result = combine_estimators(a, b, np.array([0.5, 0.0]))
+        assert np.isnan(result[0]) and np.isinf(result[1])
 
     def test_broadcasting_scalar_weight(self):
         """Scalar weight broadcasts to array."""

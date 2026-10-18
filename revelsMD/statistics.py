@@ -155,21 +155,30 @@ class WelfordAccumulator3D:
         self._C_delta_force.fill(0)
 
 
+#: A standard deviation of delta across blocks at most this fraction of the
+#: estimates' size is rounding, not sampling, so the variance counts as zero.
+NEGLIGIBLE_SPREAD = 1e-10
+
+
 def compute_lambda_weights(
     variance: NDArray[np.floating],
     covariance: NDArray[np.floating],
     *,
-    zero_variance_replacement: float = 0.0,
+    scale: float,
+    negligible_variance_replacement: float = 0.0,
 ) -> NDArray[np.floating]:
     """
     Compute combination weights as a guarded covariance / variance ratio.
 
     Calculates lambda = covariance / variance, with handling for edge
-    cases where the variance is zero or results are non-finite. The
-    caller chooses which covariance (and sign) to pass; see
-    RDF._compute_lambda and DensityGrid._finalise_lambda for the two
-    conventions used in this package (both follow Coles et al. (2021),
-    Eqs. 3-4, with different estimator-pair assignments).
+    cases where the variance is negligible or results are non-finite. A
+    variance is negligible where the standard deviation of delta across
+    blocks is at most ``NEGLIGIBLE_SPREAD`` times ``scale``, the size of
+    the estimates: it is then rounding, and dividing by it would give an
+    arbitrarily large lambda. The caller chooses which covariance (and
+    sign) to pass; see RDF._compute_lambda and DensityGrid._finalise_lambda
+    for the two conventions used in this package (both follow Coles et al.
+    (2021), Eqs. 3-4, with different estimator-pair assignments).
 
     Parameters
     ----------
@@ -177,34 +186,39 @@ def compute_lambda_weights(
         Variance of the difference between estimators, Var(delta).
     covariance : ndarray
         Covariance chosen by the caller, e.g. Cov(delta, rho_force).
-    zero_variance_replacement : float, default 0.0
-        Value to use for lambda where variance is zero.
+    scale : float
+        The size of the estimates: the largest absolute mean of either
+        estimator over the whole grid or g(r), whose rounding sets that of
+        delta everywhere.
+    negligible_variance_replacement : float, default 0.0
+        Value to use for lambda where the variance is negligible.
 
     Returns
     -------
     ndarray
         The guarded ratio covariance / variance, same shape as the
         inputs; its meaning as a combination weight depends on the
-        convention the caller chose. Where the variance is zero or the
-        ratio is non-finite, the RAW ratio is replaced with
-        zero_variance_replacement, so the default 0.0 yields an
+        convention the caller chose. Where the variance is negligible or
+        the ratio is non-finite, the RAW ratio is replaced with
+        negligible_variance_replacement, so the default 0.0 yields an
         effective lambda of 1 on the density path (after its
         1 - lambda_raw complement) and 0 on the RDF path.
     """
-    # Avoid division by zero: substitute 1.0 for zero variance
-    variance_safe = np.where(variance == 0, 1.0, variance)
+    negligible = variance <= (NEGLIGIBLE_SPREAD * scale) ** 2
+    # Avoid dividing by a negligible variance: substitute 1.0
+    variance_safe = np.where(negligible, 1.0, variance)
     weights = np.divide(covariance, variance_safe)
 
-    # Replace non-finite results and zero-variance locations
+    # Replace non-finite ratios
     weights = np.nan_to_num(
         weights,
-        nan=zero_variance_replacement,
-        posinf=zero_variance_replacement,
-        neginf=zero_variance_replacement,
+        nan=negligible_variance_replacement,
+        posinf=negligible_variance_replacement,
+        neginf=negligible_variance_replacement,
     )
 
-    # Where variance was zero, use the replacement value
-    weights = np.where(variance == 0, zero_variance_replacement, weights)
+    # Where the variance is negligible, use the replacement value
+    weights = np.where(negligible, negligible_variance_replacement, weights)
 
     return weights
 
@@ -213,8 +227,6 @@ def combine_estimators(
     estimator_a: NDArray[np.floating],
     estimator_b: NDArray[np.floating],
     weights: NDArray[np.floating] | float,
-    *,
-    sanitise_output: bool = True,
 ) -> NDArray[np.floating]:
     """
     Linearly combine two estimators using precomputed weights.
@@ -229,17 +241,10 @@ def combine_estimators(
         Second estimator (receives weight lambda).
     weights : ndarray or float
         Combination weights (same shape as estimators, or broadcastable).
-    sanitise_output : bool, default True
-        If True, replace NaN/Inf in output with 0.0.
 
     Returns
     -------
     ndarray
         Combined estimator, same shape as inputs.
     """
-    result = estimator_a * (1 - weights) + estimator_b * weights
-
-    if sanitise_output:
-        result = np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
-
-    return result
+    return estimator_a * (1 - weights) + estimator_b * weights

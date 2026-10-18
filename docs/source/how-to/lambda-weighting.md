@@ -33,8 +33,9 @@ accumulate across multiple `accumulate()` calls, so you can split a long
 trajectory across several calls. Calling
 `accumulate(..., compute_lambda=False)` clears existing statistics.
 
-Voxels where every block gave identical force and counting densities have
-no variance to weigh and report a weight of 1 (force density). This is a
+Voxels where every block gave the same difference between the force and
+counting densities, to within rounding, have no variance to weigh and report
+a weight of 1 (force density). This is a
 guard for degenerate input, not a treatment for poorly sampled regions; use
 the hybrid estimator below for that.
 

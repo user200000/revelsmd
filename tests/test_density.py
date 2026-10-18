@@ -828,6 +828,23 @@ class TestAccumulateComputeLambda:
         assert gs.lambda_weights is not None
         assert gs.lambda_weights.shape == (4, 4, 4)
 
+    def test_identical_blocks_take_the_force_density(self):
+        # Seven identical frames in blocks of 3, 3 and 1: every block gives
+        # the same delta, but the blocks' densities differ in their last
+        # digits, so Var(delta) is rounding rather than zero. Dividing by it
+        # would give rho_lambda tens of percent off the force density.
+        from revelsMD.trajectories import NumpyTrajectory
+        rng = np.random.default_rng(71)
+        positions = np.repeat(rng.uniform(0, 10, (1, 20, 3)), 7, axis=0)
+        forces = np.repeat(rng.normal(size=(1, 20, 3)), 7, axis=0)
+        trajectory = NumpyTrajectory(
+            positions, forces, 10, 10, 10, ["H"] * 20, temperature=300.0
+        )
+        gs = DensityGrid(trajectory, "number", nbins=8)
+        gs.accumulate(trajectory, atom_names="H", compute_lambda=True, block_size=3)
+        np.testing.assert_array_equal(gs.lambda_weights, 1.0)
+        np.testing.assert_array_equal(gs.rho_lambda, gs.rho_force)
+
     def test_rho_force_still_available(self, multi_frame_trajectory):
         """rho_force is still available after compute_lambda accumulation."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
