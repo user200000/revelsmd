@@ -102,9 +102,12 @@ blocks have been accumulated.
 
 ### Lambda weight computation
 
-`compute_lambda_weights(variance, covariance)` returns the ratio
-`covariance / variance`, guarded so that zero-variance voxels and non-finite
-results receive a fixed replacement value instead of dividing by zero.
+`compute_lambda_weights(variance, covariance, scale=...)` returns the ratio
+`covariance / variance`, guarded so that voxels with negligible variance and
+non-finite results receive a fixed replacement value. A variance is negligible
+where the spread of $\delta$ across blocks is below $10^{-10}$ of the
+estimates in that voxel: that is rounding, not sampling, and dividing by it
+would give an arbitrarily large $\lambda$.
 `DensityGrid` passes it $\text{Var}(\delta)$ and
 $\text{Cov}(\delta, \rho_\text{force})$ and takes one minus the ratio as the
 weight on the force density:
@@ -114,8 +117,9 @@ $$
 = -\frac{\text{Cov}(\rho_\text{count}, \delta)}{\text{Var}(\delta)}
 $$
 
-Zero-variance voxels, where every block gave the same $\delta$, report
-$\lambda = 1$ (force density), as do voxels whose ratio is non-finite.
+Voxels with negligible variance, where every block gave the same $\delta$
+to within rounding, report $\lambda = 1$ (force density), as do voxels whose
+ratio is non-finite.
 
 ### Estimator combination
 

@@ -828,6 +828,22 @@ class TestAccumulateComputeLambda:
         assert gs.lambda_weights is not None
         assert gs.lambda_weights.shape == (4, 4, 4)
 
+    def test_variance_too_small_for_the_densities_takes_the_force_density(
+        self, multi_frame_trajectory, monkeypatch
+    ):
+        # One voxel's Var(delta) at rounding level, with a covariance that
+        # would otherwise give a lambda of order 1e20.
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True)
+        variance, covariance = gs._welford.finalise()
+        voxel = np.unravel_index(np.argmax(np.abs(gs.rho_force)), variance.shape)
+        scale = max(abs(gs.rho_force[voxel]), abs(gs.rho_count[voxel]))
+        variance[voxel] = (1e-12 * scale) ** 2
+        covariance[voxel] = 1e-4 * scale ** 2
+        monkeypatch.setattr(gs._welford, "finalise", lambda: (variance, covariance))
+        assert gs.lambda_weights[voxel] == 1.0
+        assert gs.rho_lambda[voxel] == gs.rho_force[voxel]
+
     def test_rho_force_still_available(self, multi_frame_trajectory):
         """rho_force is still available after compute_lambda accumulation."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)

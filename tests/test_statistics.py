@@ -95,6 +95,35 @@ class TestComputeLambdaWeights:
         result = compute_lambda_weights(variance, covariance)
         np.testing.assert_allclose(result, 0.0)
 
+    @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
+    def test_variance_too_small_for_the_scale_counts_as_zero(self, scale):
+        # A spread of delta below 1e-10 of the estimates is rounding, not
+        # sampling: it takes the zero-variance replacement.
+        variance = np.array([(1e-11 * scale) ** 2, (1e-9 * scale) ** 2, 0.0])
+        covariance = np.array([1.0, 2.0, 3.0]) * variance + np.array([0.0, 0.0, 1.0])
+        result = compute_lambda_weights(
+            variance, covariance, scale=np.full(3, scale), zero_variance_replacement=0.5
+        )
+        np.testing.assert_allclose(result, [0.5, 2.0, 0.5])
+
+    def test_result_does_not_depend_on_units(self):
+        # Rescaling the densities by k scales variance and covariance by k^2.
+        rng = np.random.default_rng(71)
+        variance = rng.uniform(0, 1, 20) ** 4  # includes some tiny variances
+        covariance = rng.normal(size=20) * np.sqrt(variance)
+        scale = rng.uniform(0.5, 2.0, 20) * 1e-4
+        expected = compute_lambda_weights(variance, covariance, scale=scale)
+        for k in (2.0 ** -30, 2.0 ** 30):  # exact in floating point
+            np.testing.assert_array_equal(
+                compute_lambda_weights(variance * k**2, covariance * k**2, scale=scale * k),
+                expected,
+            )
+
+    def test_without_a_scale_only_exact_zero_counts(self):
+        variance = np.array([1e-30, 0.0])
+        covariance = np.array([1e-30, 1.0])
+        np.testing.assert_allclose(compute_lambda_weights(variance, covariance), [1.0, 0.0])
+
     def test_preserves_dtype_float64(self):
         """Output dtype matches input dtype."""
         variance = np.array([1.0, 2.0], dtype=np.float64)

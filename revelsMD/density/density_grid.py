@@ -864,7 +864,10 @@ class DensityGrid:
         #   rho_lambda = rho_count * lambda_raw + rho_force * (1 - lambda_raw)
         # i.e. rho_count * (1 - _lambda_weights) + rho_force * _lambda_weights
         # (see Coles et al., J. Chem. Phys. 154, 191101 (2021)).
-        lambda_raw = compute_lambda_weights(var_buffer, cov_buffer_force)
+        lambda_raw = compute_lambda_weights(
+            var_buffer, cov_buffer_force,
+            scale=np.maximum(np.abs(expected_rho_count), np.abs(expected_rho_force)),
+        )
         self._lambda_weights = 1.0 - lambda_raw
 
         self._rho_lambda = combine_estimators(

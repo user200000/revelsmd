@@ -128,6 +128,34 @@ def test_lambda_reproduces_exact_estimator_in_each_region():
     )
 
 
+def test_delta_constant_to_rounding_takes_the_zero_variance_fallback():
+    """Var(Delta) at rounding level is treated as zero: lambda 0, g_lambda backward.
+
+    Delta in every bin is the frame's total minus 1, so frames that move
+    weight between bins without changing their total give a Delta that is
+    constant to rounding while both estimators vary. Dividing by that
+    variance gave a huge lambda and a garbage or zeroed g_lambda.
+    """
+    rdf = _make_rdf()
+    n_bins = len(rdf._bins)
+    base_profile = np.linspace(0.05, 0.15, n_bins)
+    frames = []
+    for f in range(N_FRAMES):
+        moved = 0.3 * (-1) ** f + 0.01 * f
+        frame = base_profile.copy()
+        frame[2] += moved
+        frame[8] -= moved
+        frames.append(frame)
+    _inject_synthetic_frames(rdf, frames)
+
+    rdf.get_rdf(integration='lambda')
+
+    backward = np.mean([1 - np.cumsum(frame[::-1])[::-1][1:] for frame in frames], axis=0)
+    aligned = slice(0, n_bins - 2)
+    np.testing.assert_array_equal(rdf.lam[1:][aligned], 0.0)
+    np.testing.assert_allclose(rdf.g[1:][aligned], backward[aligned], atol=1e-12)
+
+
 def test_single_frame_degenerate_contract_returns_backward():
     """With one frame Var(Delta) = 0: lambda == 0 and g_lambda equals the backward estimator bit-for-bit."""
     rng = np.random.default_rng(3)

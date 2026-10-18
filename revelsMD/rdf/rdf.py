@@ -445,9 +445,12 @@ class RDF:
         cov_e0_delta = np.mean(
             (delta - exp_delta) * (g_backward - exp_backward), axis=0
         )
-        # lambda* = -Cov(E_0, Delta) / Var(Delta); the helper guards
-        # Var == 0 by returning 0.
-        lam = compute_lambda_weights(var_delta, -cov_e0_delta)
+        # lambda* = -Cov(E_0, Delta) / Var(Delta); the helper returns 0
+        # where Var(Delta) is negligible for the size of the estimates.
+        lam = compute_lambda_weights(
+            var_delta, -cov_e0_delta,
+            scale=np.maximum(np.abs(exp_forward), np.abs(exp_backward)),
+        )
 
         per_frame_combined = g_backward + lam * delta
         g_lambda = np.mean(per_frame_combined, axis=0)

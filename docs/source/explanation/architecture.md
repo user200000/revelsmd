@@ -159,8 +159,9 @@ are required.
 **`compute_lambda_weights(variance, covariance)`** — returns the guarded ratio
 `covariance / variance`. `DensityGrid` takes one minus the ratio of
 $\text{Cov}(\delta, \rho_\text{force})$ to $\text{Var}(\delta)$ as the per-voxel
-weight on the force density. Zero-variance voxels and non-finite values report
-$\lambda = 1$ (pure force density).
+weight on the force density. Voxels whose variance is negligible for the size
+of the estimates, and non-finite values, report $\lambda = 1$ (pure force
+density).
 
 **`combine_estimators(rho_count, rho_force, weights)`** — evaluates the linear
 combination $(1-\lambda)\,\rho_\text{count} + \lambda\,\rho_\text{force}$ and
