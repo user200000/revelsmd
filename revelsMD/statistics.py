@@ -175,10 +175,10 @@ def compute_lambda_weights(
     variance is negligible where the standard deviation of delta across
     blocks is at most ``NEGLIGIBLE_SPREAD`` times ``scale``, the size of
     the estimates: it is then rounding, and dividing by it would give an
-    arbitrarily large lambda. The caller chooses which covariance (and sign) to pass; see
-    RDF._compute_lambda and DensityGrid._finalise_lambda for the two
-    conventions used in this package (both follow Coles et al. (2021),
-    Eqs. 3-4, with different estimator-pair assignments).
+    arbitrarily large lambda. The caller chooses which covariance (and
+    sign) to pass; see RDF._compute_lambda and DensityGrid._finalise_lambda
+    for the two conventions used in this package (both follow Coles et al.
+    (2021), Eqs. 3-4, with different estimator-pair assignments).
 
     Parameters
     ----------
