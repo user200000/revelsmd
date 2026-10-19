@@ -8,7 +8,7 @@ revelsMD/
     backends.py          # backend selection (numba / numpy)
     cell.py              # cell geometry utilities
     frame_sources.py     # Frame dataclass, contiguous_blocks, interleaved_blocks
-    statistics.py        # WelfordAccumulator3D, compute_lambda_weights, combine_estimators
+    statistics.py        # WelfordAccumulator3D, control_variate_combination
     density/
         density_grid.py  # DensityGrid accumulation and FFT conversion
         selection.py     # Selection: atom picking, weight computation
@@ -148,7 +148,7 @@ FFT parallelism is configured separately via `REVELSMD_FFT_WORKERS`.
 
 ## Statistical machinery
 
-`revelsMD/statistics.py` provides three components:
+`revelsMD/statistics.py` provides two components:
 
 **`WelfordAccumulator3D`** — accumulates per-voxel variance and covariance across
 blocks using a weighted online algorithm. The caller calls
@@ -156,19 +156,17 @@ blocks using a weighted online algorithm. The caller calls
 `finalise()` returns population variance and covariance arrays. At least two blocks
 are required.
 
-**`compute_lambda_weights(variance, covariance, scale=...)`** — returns the guarded ratio
-`covariance / variance`. `DensityGrid` takes one minus the ratio of
-$\text{Cov}(\delta, \rho_\text{force})$ to $\text{Var}(\delta)$ as the per-voxel
-weight on the force density. Voxels whose variance is negligible for the size
-of the estimates, and non-finite values, report $\lambda = 1$ (pure force
-density).
+**`control_variate_combination(mean_e0, mean_e1, var_delta, cov_e0_delta, scale=..., fallback=...)`**
+— combines two estimators with the variance-minimising weight
+$\lambda = -\text{Cov}(E_0, \delta)/\text{Var}(\delta)$ (Coles et al. 2021),
+returning $(1-\lambda)\,E_0 + \lambda\,E_1$ and $\lambda$. Where the variance is
+negligible for `scale`, or the ratio is non-finite, $\lambda$ is `fallback`.
 
-**`combine_estimators(rho_count, rho_force, weights)`** — evaluates the linear
-combination $(1-\lambda)\,\rho_\text{count} + \lambda\,\rho_\text{force}$ and
-sanitises non-finite values.
-
-`DensityGrid` uses these when `compute_lambda=True`, exposing the results as
-`grid.lambda_weights` and `grid.rho_lambda`.
+`DensityGrid` uses both when `compute_lambda=True`, with $E_0 = \rho_\text{count}$,
+$E_1 = \rho_\text{force}$ and a fallback of 1 (force density), exposing the results
+as `grid.lambda_weights` and `grid.rho_lambda`. `RDF` uses
+`control_variate_combination` with the backward and forward $g(r)$ and a fallback
+of 0 (backward $g(r)$).
 
 ## Cell geometry
 

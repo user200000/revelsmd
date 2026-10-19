@@ -11,8 +11,9 @@ E_1 = rho_force; the exposed lambda_weights is the Eq. 3 weight on
 rho_force, so rho_lambda = (1 - lambda) * rho_count + lambda * rho_force.
 
 This guard exists because pinned-output tests cannot catch an inverted
-combination: swapping the estimator arguments in _finalise_lambda's
-combine_estimators call leaves every other test passing. Because
+combination: passing the estimators to control_variate_combination in the
+wrong roles, with moments for the other assignment, leaves every other test
+passing. Because
 rho_force comes from a global FFT solve, the RDF invariant test's
 region-wise-exactness trick is unavailable; instead these tests drive
 the two constructions where one estimator is exact everywhere.

@@ -62,16 +62,10 @@
    :show-inheritance:
 ```
 
-### compute\_lambda\_weights
+### control\_variate\_combination
 
 ```{eval-rst}
-.. autofunction:: revelsMD.statistics.compute_lambda_weights
-```
-
-### combine\_estimators
-
-```{eval-rst}
-.. autofunction:: revelsMD.statistics.combine_estimators
+.. autofunction:: revelsMD.statistics.control_variate_combination
 ```
 
 ## Backends

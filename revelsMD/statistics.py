@@ -160,91 +160,54 @@ class WelfordAccumulator3D:
 NEGLIGIBLE_SPREAD = 1e-10
 
 
-def compute_lambda_weights(
-    variance: NDArray[np.floating],
-    covariance: NDArray[np.floating],
+def control_variate_combination(
+    mean_e0: NDArray[np.floating],
+    mean_e1: NDArray[np.floating],
+    var_delta: NDArray[np.floating],
+    cov_e0_delta: NDArray[np.floating],
     *,
     scale: float,
-    negligible_variance_replacement: float = 0.0,
-) -> NDArray[np.floating]:
-    """
-    Compute combination weights as a guarded covariance / variance ratio.
+    fallback: float,
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """Combine two estimators of the same quantity with the variance-minimising weight.
 
-    Calculates lambda = covariance / variance, with handling for edge
-    cases where the variance is negligible or results are non-finite. A
-    variance is negligible where the standard deviation of delta across
-    blocks is at most ``NEGLIGIBLE_SPREAD`` times ``scale``, the size of
-    the estimates: it is then rounding, and dividing by it would give an
-    arbitrarily large lambda. The caller chooses which covariance (and
-    sign) to pass; see RDF._compute_lambda and DensityGrid._finalise_lambda
-    for the two conventions used in this package (both follow Coles et al.
-    (2021), Eqs. 3-4, with different estimator-pair assignments).
+    Implements Coles et al., J. Chem. Phys. 154, 191101 (2021), Eqs. 3-4:
+
+        E_lambda = (1 - lambda) * E_0 + lambda * E_1,
+        lambda   = -Cov(E_0, Delta) / Var(Delta),    Delta = E_1 - E_0,
+
+    which is the in-sample optimum. E_0 sets both the base term and the
+    covariance, so relabelling the estimators (with their moments) gives
+    the same estimate with weight 1 - lambda rather than an inverted one.
+
+    Where Var(Delta) is negligible, lambda is ``fallback``. A variance is
+    negligible where the standard deviation of Delta is at most
+    ``NEGLIGIBLE_SPREAD`` times ``scale``: it is then rounding, and dividing
+    by it would give an arbitrarily large lambda. A non-finite ratio also
+    takes the fallback.
 
     Parameters
     ----------
-    variance : ndarray
-        Variance of the difference between estimators, Var(delta).
-    covariance : ndarray
-        Covariance chosen by the caller, e.g. Cov(delta, rho_force).
+    mean_e0, mean_e1 : ndarray
+        The two estimates, averaged over blocks or frames.
+    var_delta : ndarray
+        Var(Delta) across blocks or frames.
+    cov_e0_delta : ndarray
+        Cov(E_0, Delta) across blocks or frames.
     scale : float
-        The size of the estimates: the largest absolute mean of either
-        estimator over the whole grid or g(r), whose rounding sets that of
-        delta everywhere.
-    negligible_variance_replacement : float, default 0.0
-        Value to use for lambda where the variance is negligible.
+        The size of the numbers whose rounding sets that of Delta, over the
+        whole grid or g(r).
+    fallback : float
+        lambda where Var(Delta) is negligible: 0 gives E_0, 1 gives E_1.
 
     Returns
     -------
-    ndarray
-        The guarded ratio covariance / variance, same shape as the
-        inputs; its meaning as a combination weight depends on the
-        convention the caller chose. Where the variance is negligible or
-        the ratio is non-finite, the RAW ratio is replaced with
-        negligible_variance_replacement, so the default 0.0 yields an
-        effective lambda of 1 on the density path (after its
-        1 - lambda_raw complement) and 0 on the RDF path.
+    combined : ndarray
+        The combined estimate.
+    lam : ndarray
+        lambda, the weight on E_1.
     """
-    negligible = variance <= (NEGLIGIBLE_SPREAD * scale) ** 2
-    # Avoid dividing by a negligible variance: substitute 1.0
-    variance_safe = np.where(negligible, 1.0, variance)
-    weights = np.divide(covariance, variance_safe)
-
-    # Replace non-finite ratios
-    weights = np.nan_to_num(
-        weights,
-        nan=negligible_variance_replacement,
-        posinf=negligible_variance_replacement,
-        neginf=negligible_variance_replacement,
-    )
-
-    # Where the variance is negligible, use the replacement value
-    weights = np.where(negligible, negligible_variance_replacement, weights)
-
-    return weights
-
-
-def combine_estimators(
-    estimator_a: NDArray[np.floating],
-    estimator_b: NDArray[np.floating],
-    weights: NDArray[np.floating] | float,
-) -> NDArray[np.floating]:
-    """
-    Linearly combine two estimators using precomputed weights.
-
-    Computes: result = estimator_a * (1 - weights) + estimator_b * weights
-
-    Parameters
-    ----------
-    estimator_a : ndarray
-        First estimator (receives weight 1 - lambda).
-    estimator_b : ndarray
-        Second estimator (receives weight lambda).
-    weights : ndarray or float
-        Combination weights (same shape as estimators, or broadcastable).
-
-    Returns
-    -------
-    ndarray
-        Combined estimator, same shape as inputs.
-    """
-    return estimator_a * (1 - weights) + estimator_b * weights
+    negligible = var_delta <= (NEGLIGIBLE_SPREAD * scale) ** 2
+    lam = -cov_e0_delta / np.where(negligible, 1.0, var_delta)
+    lam = np.where(negligible | ~np.isfinite(lam), fallback, lam)
+    return (1 - lam) * mean_e0 + lam * mean_e1, lam
