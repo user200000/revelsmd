@@ -140,7 +140,8 @@ def accumulate_binned_contributions(
     distances : np.ndarray, shape (m,)
         Distances determining bin assignment.
     bins : np.ndarray, shape (n_bins,)
-        Bin edges (right edge of each bin).
+        Bin edges: bin j is [bins[j], bins[j+1]), and the last bin is the
+        overflow bin.
 
     Returns
     -------

@@ -227,9 +227,11 @@ class TestForwardAndBackwardOnOneGrid:
         rdf.get_rdf("forward")
         below, above = np.flatnonzero(rdf.r < 2.05)[-1], np.flatnonzero(rdf.r > 2.05)[0]
         assert np.all(rdf.g[:below + 1] == 0.0)
-        assert np.all(rdf.g[above:] == rdf.g[above]) and rdf.g[above] != 0.0
+        step = rdf.g[above]
+        assert np.all(rdf.g[above:] == step) and step != 0.0
         rdf.get_rdf("backward")
         assert np.all(rdf.g[:below + 1] == rdf.g[0]) and np.all(rdf.g[above:] == 1.0)
+        assert rdf.g[0] == pytest.approx(1.0 - step, rel=1e-12)
 
     def test_forward_minus_backward_is_the_same_at_every_r(self):
         # Both integrate the same binned force sums from opposite ends, so on

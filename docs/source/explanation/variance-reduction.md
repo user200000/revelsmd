@@ -32,7 +32,7 @@ For RDFs, $A = g_\text{bwd}$ and $B = g_\text{fwd}$, so $\lambda(r)$ is the weig
 
 $$g_\lambda(r) = (1 - \lambda(r))\, g_\text{bwd}(r) + \lambda(r)\, g_\text{fwd}(r)$$
 
-$\lambda(r)$ approaches 1 at small $r$, where forward integration is accurate, and 0 at large $r$. At $r = 0$ the forward estimator is exactly 0, so $\lambda(0) = 1$ and $g_\lambda(0) = 0$.
+$\lambda(r)$ approaches 1 at small $r$, where forward integration is accurate, and 0 at large $r$. At $r = 0$ the forward estimator is exact ($g(0) = 0$), so $\lambda(0) = 1$ and $g_\lambda(0) = 0$.
 
 For 3D densities, $A = \rho_\text{count}$ and $B = \rho_\text{force}$, so $\lambda(\mathbf{r})$ is the weight on the force estimator:
 
@@ -63,7 +63,7 @@ For 3D density fields, where storing all block densities would be prohibitive, R
 
 ## Edge cases
 
-Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample, $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. RevelsMD then reports a fixed weight: $\lambda = 0$ for RDFs (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
+Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample, $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. RevelsMD then reports a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
 
 ## When to use lambda estimation
 

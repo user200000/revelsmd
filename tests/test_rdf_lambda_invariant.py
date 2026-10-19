@@ -23,9 +23,9 @@ from revelsMD.rdf import RDF
 from revelsMD.trajectories import NumpyTrajectory
 
 # Frame-to-frame noise is added to bins NOISE_LO..NOISE_HI-1 of the raw
-# per-bin sums S. Forward g(r) = cumsum(S) is then exact at aligned bins
-# j < NOISE_LO; backward g(r) = 1 - revcumsum(S) is exact at aligned bins
-# j >= NOISE_HI - 1. The noise alternates sign over an odd number of
+# per-bin sums S. On the reported grid r_k, forward g(r_k) sums the bins
+# j < k, so it is exact for k <= NOISE_LO; backward g(r_k) is 1 minus the
+# sum of the bins j >= k, so it is exact for k >= NOISE_HI. The noise alternates sign over an odd number of
 # frames, so its sample mean is nonzero: the noise alone guarantees an
 # inverted combination is off by at least ~(0.4 + 0.25)/9 ~ 0.07 where
 # the correct one is exact, even if the profile were ever normalised so
@@ -88,24 +88,22 @@ def test_lambda_reproduces_exact_estimator_in_each_region():
     g = rdf.g
     lam = rdf.lam
 
-    # Expected exact curves from the noise-free profile, using the same
-    # alignment as _compute_lambda: forward = cumsum[:-1] (E_1), backward
-    # = 1 - revcumsum[1:] (E_0), both on aligned bins j = 0..n_bins-2.
-    fwd_exact = np.cumsum(base_profile)[:-1]
-    bwd_exact = 1 - np.cumsum(base_profile[::-1])[::-1][1:]
+    # Exact curves from the noise-free profile on the reported grid r_k,
+    # k = 0..n_bins-2: forward (E_1) sums the bins below r_k, backward
+    # (E_0) is 1 minus the sum of the bins from r_k out.
+    grid = range(n_bins - 1)
+    fwd_exact = np.array([base_profile[:k].sum() for k in grid])
+    bwd_exact = np.array([1 - base_profile[k:].sum() for k in grid])
 
-    # Output layout: g[0] = 0 padding; g[1 + j] = g_lambda at aligned bin j
-    # for j = 0..n_bins-3 (the last aligned bin is dropped). Same for lam.
-
-    # Region A (aligned j = 0..NOISE_LO-1): forward exact => lambda = 1
-    # and g_lambda = forward, both exactly in-sample.
-    region_a = slice(0, NOISE_LO)
+    # Region A (k = 0..NOISE_LO): forward exact => lambda = 1 and
+    # g_lambda = forward, both exactly in-sample.
+    region_a = slice(0, NOISE_LO + 1)
     np.testing.assert_allclose(
-        lam[1:][region_a], 1.0, atol=1e-8,
+        lam[region_a], 1.0, atol=1e-8,
         err_msg="lambda should be 1 where the forward estimator is exact",
     )
     np.testing.assert_allclose(
-        g[1:][region_a], fwd_exact[region_a], atol=1e-8,
+        g[region_a], fwd_exact[region_a], atol=1e-8,
         err_msg=(
             "g_lambda should reproduce the exact forward estimator where "
             "it has zero variance; a large deviation means the combination "
@@ -113,15 +111,15 @@ def test_lambda_reproduces_exact_estimator_in_each_region():
         ),
     )
 
-    # Region B (aligned j = NOISE_HI-1..n_bins-3): backward exact =>
-    # lambda = 0 and g_lambda = backward.
-    region_b = slice(NOISE_HI - 1, n_bins - 2)
+    # Region B (k = NOISE_HI..n_bins-2): backward exact => lambda = 0 and
+    # g_lambda = backward.
+    region_b = slice(NOISE_HI, n_bins - 1)
     np.testing.assert_allclose(
-        lam[1:][region_b], 0.0, atol=1e-8,
+        lam[region_b], 0.0, atol=1e-8,
         err_msg="lambda should be 0 where the backward estimator is exact",
     )
     np.testing.assert_allclose(
-        g[1:][region_b], bwd_exact[region_b], atol=1e-8,
+        g[region_b], bwd_exact[region_b], atol=1e-8,
         err_msg=(
             "g_lambda should reproduce the exact backward estimator where "
             "it has zero variance"
@@ -155,9 +153,10 @@ def test_delta_constant_to_rounding_takes_the_negligible_variance_fallback(size)
 
     rdf.get_rdf(integration='lambda')
 
-    backward = np.mean([1 - np.cumsum(frame[::-1])[::-1][1:] for frame in frames], axis=0)
+    backward = np.mean([[1 - frame[k:].sum() for k in range(1, n_bins - 1)] for frame in frames],
+                       axis=0)
     np.testing.assert_array_equal(rdf.lam[1:], 0.0)
-    np.testing.assert_allclose(rdf.g[1:], backward[:-1], rtol=0, atol=1e-12)
+    np.testing.assert_allclose(rdf.g[1:], backward, rtol=0, atol=1e-12)
 
 
 def test_lambda_matches_a_calculation_from_per_frame_estimators():
@@ -191,7 +190,7 @@ def test_lambda_matches_a_calculation_from_per_frame_estimators():
 
 
 def test_single_frame_degenerate_contract_returns_backward():
-    """With one frame Var(Delta) = 0: lambda == 0 for r > 0 and g_lambda equals the backward estimator bit-for-bit."""
+    """With one frame Var(Delta) = 0: for r > 0, lambda == 0 and g_lambda equals the backward estimator bit-for-bit."""
     rng = np.random.default_rng(3)
     positions = np.zeros((1, 2, 3))
     positions[0, 1, 0] = 0.55
