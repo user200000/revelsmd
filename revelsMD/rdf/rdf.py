@@ -20,8 +20,7 @@ class RDF:
 
     Follows the same pattern as DensityGrid:
     - Constructor sets up bins and indices
-    - deposit() adds single-frame contributions (low-level, user-controlled iteration)
-    - accumulate() iterates frames and calls deposit (convenience wrapper)
+    - accumulate() adds the contributions of a trajectory's frames
     - get_rdf() computes final g(r) with chosen integration
 
     Parameters
@@ -201,11 +200,10 @@ class RDF:
         """
         return self._g
 
-    def deposit(self, frame: Frame) -> None:
+    def _deposit(self, frame: Frame) -> None:
         """
         Deposit a single frame's contribution to the RDF accumulator.
 
-        Low-level method for user-controlled iteration. Mirrors DensityGrid.deposit().
         Each call deposits exactly one frame; depositing the same frame
         twice double-counts it.
 
@@ -262,7 +260,7 @@ class RDF:
             trajectory.iter_frames(to_run.start, to_run.stop, to_run.step)
         ) as frames:
             for frame in tqdm(frames, total=len(to_run)):
-                self.deposit(frame)
+                self._deposit(frame)
 
     def _single_frame(
         self, frame: Frame
@@ -303,12 +301,12 @@ class RDF:
         Raises
         ------
         RuntimeError
-            If called before accumulate() or deposit().
+            If called before accumulate().
         ValueError
             If integration is not one of the recognised options.
         """
         if self.progress == 'initialized':
-            raise RuntimeError("Call accumulate() or deposit() before get_rdf().")
+            raise RuntimeError("Call accumulate() before get_rdf().")
 
         if integration not in ('forward', 'backward', 'lambda'):
             raise ValueError(f"integration must be 'forward', 'backward', or 'lambda', got {integration!r}")

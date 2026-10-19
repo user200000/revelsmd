@@ -45,34 +45,25 @@ traj = NumpyTrajectory(
 )
 ```
 
-## Raw deposit()
+## A set of structures
 
-For custom iteration, call `deposit()` directly on a `DensityGrid` or
-`RDF`. Each call deposits one frame. To deposit several species from the
-same frame, pass their position and force arrays as lists in a single
-call; the grid counts frames, not arrays, so splitting one frame across
-several calls would normalise the density as if it were several frames.
+A set of structures with the same atoms and cell, such as snapshots from
+several independent runs, is a trajectory: stack their arrays and wrap them in
+a `NumpyTrajectory`. Their order does not matter, since densities and RDFs are
+equilibrium averages.
 
 ```python
-from revelsMD.frame_sources import Frame
+traj = NumpyTrajectory(
+    np.stack(positions_list),   # (structures, atoms, 3)
+    np.stack(forces_list),      # (structures, atoms, 3)
+    cell_matrix=cell,
+    species_list=species,
+    temperature=300.0,
+)
 
-# DensityGrid.deposit(positions, forces, weights)
-for i in range(len(positions)):
-    pos = positions[i]        # (atoms, 3)
-    frc = forces[i]           # (atoms, 3)
-    idx = species_indices     # precomputed integer indices for the species
-    grid.deposit(pos[idx], frc[idx], weights=1.0)
-
-# RDF.deposit(frame) — takes a Frame dataclass
-from revelsMD.rdf import RDF
-
-rdf = RDF(traj, 'O', 'O')
-for i in range(len(positions)):
-    frame = Frame(positions[i], forces[i])
-    rdf.deposit(frame)
+grid = DensityGrid(traj, density_type='number', nbins=50)
+grid.accumulate(traj, atom_names='O')
 ```
 
-`accumulate()` is preferred because it handles blocking, Welford
-statistics, and frame-range selection automatically. Use `deposit()` only
-when you need control over which frames or pre-processed data to
-accumulate.
+To add more structures later, call `accumulate()` again with another
+trajectory with the same cell.
