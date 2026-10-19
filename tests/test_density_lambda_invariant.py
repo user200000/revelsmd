@@ -16,13 +16,6 @@ a global FFT solve, the RDF invariant test's region-wise-exactness trick is
 unavailable; instead these tests drive the two constructions where one
 estimator is exact everywhere, and compare with lambda and rho_lambda
 computed from scratch from per-frame densities.
-
-These tests check the lambda combination, not the FFT: the per-frame
-densities go through the same FFT solve. The triclinic force density is
-checked by TestTriclinicSingleModeOracle and
-TestCrossRepresentationEquivalence in test_density.py, and by
-test_triclinic_reconstruction_matches_reference in
-test_density_fft_equivalence.py.
 """
 
 import numpy as np
