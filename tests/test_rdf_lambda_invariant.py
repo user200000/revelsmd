@@ -160,8 +160,38 @@ def test_delta_constant_to_rounding_takes_the_negligible_variance_fallback(size)
     np.testing.assert_allclose(rdf.g[1:], backward[:-1], rtol=0, atol=1e-12)
 
 
+def test_lambda_matches_a_calculation_from_per_frame_estimators():
+    """lambda and g_lambda equal Eqs. 3-4 evaluated on per-frame forward and backward g(r).
+
+    On the reported grid r_k = k*delr, forward g(r_k) sums the bins below
+    r_k and backward g(r_k) is 1 minus the sum of the bins from r_k out.
+    At r = 0 the forward estimator is exactly 0, so g = 0 and lambda = 1.
+    """
+    rdf = _make_rdf()
+    n_bins = len(rdf._bins)
+    rng = np.random.default_rng(11)
+    frames = [rng.normal(0.1, 0.05, n_bins) for _ in range(N_FRAMES)]
+    _inject_synthetic_frames(rdf, frames)
+    rdf.get_rdf(integration='lambda')
+
+    s = np.array(frames)
+    k = np.arange(1, n_bins - 1)
+    forward = np.array([[f[:i].sum() for i in k] for f in s])
+    backward = np.array([[1 - f[i:].sum() for i in k] for f in s])
+    delta = forward - backward
+    var = np.mean((delta - delta.mean(axis=0)) ** 2, axis=0)
+    cov = np.mean((backward - backward.mean(axis=0)) * (delta - delta.mean(axis=0)), axis=0)
+    lam = -cov / var
+    g = (1 - lam) * backward.mean(axis=0) + lam * forward.mean(axis=0)
+
+    np.testing.assert_allclose(rdf.r, np.arange(n_bins - 1) * 0.1, atol=1e-12)
+    assert rdf.g[0] == 0.0 and rdf.lam[0] == 1.0
+    np.testing.assert_allclose(rdf.lam[1:], lam, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(rdf.g[1:], g, rtol=1e-9, atol=1e-12)
+
+
 def test_single_frame_degenerate_contract_returns_backward():
-    """With one frame Var(Delta) = 0: lambda == 0 and g_lambda equals the backward estimator bit-for-bit."""
+    """With one frame Var(Delta) = 0: lambda == 0 for r > 0 and g_lambda equals the backward estimator bit-for-bit."""
     rng = np.random.default_rng(3)
     positions = np.zeros((1, 2, 3))
     positions[0, 1, 0] = 0.55
@@ -185,12 +215,13 @@ def test_single_frame_degenerate_contract_returns_backward():
     g_backward = rdf.g
 
     np.testing.assert_array_equal(
-        lam, np.zeros_like(lam),
-        err_msg="degenerate input (single frame) must give lambda = 0 everywhere",
+        lam[1:], np.zeros_like(lam[1:]),
+        err_msg="degenerate input (single frame) must give lambda = 0 for r > 0",
     )
-    # The lambda output pads r = 0 with g = 0; the backward estimator
-    # reports 1 minus the full integral there. All other points must
-    # match the backward estimator exactly (no tolerance).
+    # At r = 0 the forward estimator is exact: g = 0 and lambda = 1, while
+    # the backward estimator reports 1 minus the full integral there. All
+    # other points must match the backward estimator exactly (no tolerance).
+    assert g_lambda[0] == 0.0 and lam[0] == 1.0
     np.testing.assert_array_equal(
         g_lambda[1:], g_backward[1:],
         err_msg=(

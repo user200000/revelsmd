@@ -209,6 +209,42 @@ class TestRDFAccumulateTrajectories:
         assert rdf.g is None and rdf.g_count is None and rdf.lam is None and rdf.r is None
 
 
+class TestForwardAndBackwardOnOneGrid:
+    """g(r) from both estimators is reported at the r it belongs to."""
+
+    def test_a_pair_enters_the_forward_estimator_at_its_distance(self):
+        # One A-B pair at r = 2.05 in every frame, with bins 0.1 wide: forward
+        # g(r) integrates over pairs closer than r, so it is 0 up to r = 2.0
+        # and steps at r = 2.1; backward g(r) integrates over pairs further
+        # than r, so it steps at the same place.
+        from revelsMD.rdf import RDF
+        positions = np.array([[[1.0, 1.0, 1.0], [3.05, 1.0, 1.0]]] * 4)
+        forces = np.array([[[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]] * 4)
+        traj = NumpyTrajectory(positions, forces, 10.0, 10.0, 10.0, ["A", "B"],
+                               temperature=1.0, units="lj")
+        rdf = RDF(traj, "A", "B", delr=0.1)
+        rdf.accumulate(traj)
+        rdf.get_rdf("forward")
+        below, above = np.flatnonzero(rdf.r < 2.05)[-1], np.flatnonzero(rdf.r > 2.05)[0]
+        assert np.all(rdf.g[:below + 1] == 0.0)
+        assert np.all(rdf.g[above:] == rdf.g[above]) and rdf.g[above] != 0.0
+        rdf.get_rdf("backward")
+        assert np.all(rdf.g[:below + 1] == rdf.g[0]) and np.all(rdf.g[above:] == 1.0)
+
+    def test_forward_minus_backward_is_the_same_at_every_r(self):
+        # Both integrate the same binned force sums from opposite ends, so on
+        # one grid they differ by the full integral minus 1 at every r.
+        from revelsMD.rdf import RDF
+        traj = _water()
+        rdf = RDF(traj, "O", "H", delr=0.1)
+        rdf.accumulate(traj)
+        rdf.get_rdf("forward")
+        forward = rdf.g.copy()
+        rdf.get_rdf("backward")
+        difference = forward - rdf.g
+        np.testing.assert_allclose(difference, difference[0], rtol=0, atol=1e-12)
+
+
 class TestComputeRDFConvenience:
     """Test the compute_rdf convenience function."""
 
