@@ -17,7 +17,7 @@ from revelsMD.trajectories._base import check_same_system, frame_range
 def _forward_estimator(scaled: np.ndarray) -> np.ndarray:
     """Forward g(r) at the bin edges r_k, along the last axis.
 
-    ``scaled`` holds the force sum of each bin [r_j, r_j+1), scaled to
+    ``scaled`` holds the force sum of each bin [r_j, r_{j+1}), scaled to
     g(r) units; its last entry is the overflow bin beyond rmax, which the
     accumulators leave at 0. The result has one point fewer than
     ``scaled``: r_k for every bin but the overflow bin. g(r_k) integrates
