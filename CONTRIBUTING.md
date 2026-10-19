@@ -38,10 +38,10 @@ cd docs && make html
 - Tests should be well isolated.
 - Tests should test intended behaviour, not legacy behaviour targeted for removal.
 
-### Error messages
+### Error and warning messages
 
-Exception messages start with a lower-case letter and have no trailing full
-stop, as Python's own do: `"temperature must be positive. Got: -1.0"`.
+Exception and warning messages start with a lower-case letter and have no
+trailing full stop, as Python's own do: `"temperature must be positive. Got: -1.0"`.
 Identifiers keep their case. A message of several sentences puts full stops
 between them, but not after the last.
 

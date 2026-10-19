@@ -473,8 +473,8 @@ class DensityGrid:
         if not compute_lambda and self._welford is not None:
             if self._welford.has_data:
                 warnings.warn(
-                    "Calling accumulate() with compute_lambda=False discards existing "
-                    "lambda statistics. Use compute_lambda=True to preserve them.",
+                    "calling accumulate() with compute_lambda=False discards existing "
+                    "lambda statistics. Use compute_lambda=True to preserve them",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -495,7 +495,7 @@ class DensityGrid:
                 warnings.warn(
                     "sections is ignored with blocking='contiguous'. "
                     "Use block_size to control contiguous block size, or "
-                    "blocking='interleaved' to use sections.",
+                    "blocking='interleaved' to use sections",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -503,7 +503,7 @@ class DensityGrid:
                 warnings.warn(
                     "block_size is ignored with blocking='interleaved'. "
                     "Use sections to control the number of interleaved groups, "
-                    "or blocking='contiguous' to use block_size.",
+                    "or blocking='contiguous' to use block_size",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -825,7 +825,7 @@ class DensityGrid:
         if not self._welford.has_data:
             warnings.warn(
                 "compute_lambda was requested but the Welford accumulator "
-                "has no data — rho_lambda will be None.",
+                "has no data — rho_lambda will be None",
                 RuntimeWarning,
                 stacklevel=2,
             )
