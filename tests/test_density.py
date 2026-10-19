@@ -2163,8 +2163,55 @@ class TestLambdaEdgeCases:
 # DensityGrid.write_to_cube() tests
 # ---------------------------------------------------------------------------
 
+def _integrate_cube(path):
+    """The sum of a cube file's values times its voxel volume, in the file's units."""
+    lines = path.read_text().splitlines()
+    voxel = np.array([[float(x) for x in lines[3 + i].split()[1:4]] for i in range(3)])
+    values = np.array([float(x) for line in lines[6:] for x in line.split()])
+    return values.sum() * abs(np.linalg.det(voxel))
+
+
+def _dipolar_molecules():
+    """Three O-H molecules lying inside a triclinic cell, with charges -1 and +1, over two frames."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+    rng = np.random.default_rng(3)
+    cell = np.array([[10.0, 0.0, 0.0], [2.0, 9.0, 0.0], [1.0, 1.0, 8.0]])
+    oxygens = rng.uniform(0.3, 0.6, (2, 3, 3)) @ cell
+    hydrogens = oxygens + rng.uniform(-1.0, 1.0, (2, 3, 3))
+    positions = np.concatenate([oxygens, hydrogens], axis=1)
+    return NumpyTrajectory(
+        positions, rng.normal(size=positions.shape), cell_matrix=cell,
+        species_list=["O"] * 3 + ["H"] * 3, temperature=300.0, units="real",
+        charge_list=np.array([-1.0] * 3 + [1.0] * 3), mass_list=np.array([16.0] * 3 + [1.0] * 3),
+    )
+
+
 class TestWriteToCube:
     """Tests for DensityGrid.write_to_cube() method."""
+
+    @pytest.mark.parametrize("density_type, atom_names, rigid, density, expected", [
+        # The density integrates to the mean total deposited per frame: the
+        # number of atoms; the charge of the three O atoms (O and H together
+        # are neutral, and a zero total would hide a wrong scale); and the
+        # dipole along x, x_H - x_O per molecule, which changes between
+        # frames. The dipole is in e A, so e Bohr in the file, with the Bohr
+        # radius 0.529177 A.
+        ("number", ["O", "H"], False, "count", lambda t: 6.0),
+        ("number", ["O", "H"], False, "force", lambda t: 6.0),
+        ("charge", "O", False, "count", lambda t: -3.0),
+        ("polarisation", ["O", "H"], True, "count",
+         lambda t: np.mean(np.sum(t.positions[:, 3:, 0] - t.positions[:, :3, 0], axis=1))
+         / 0.529177),
+    ], ids=["number", "number-force", "charge", "polarisation"])
+    def test_cube_integrates_to_the_deposited_total_in_atomic_units(
+        self, tmp_path, density_type, atom_names, rigid, density, expected
+    ):
+        traj = _dipolar_molecules()
+        gs = DensityGrid(traj, density_type, nbins=(4, 5, 6))
+        gs.accumulate(traj, atom_names=atom_names, rigid=rigid)
+        path = tmp_path / "density.cube"
+        gs.write_to_cube(density, path)
+        assert _integrate_cube(path) == pytest.approx(expected(traj), rel=1e-4)
 
     def test_write_to_cube_creates_file(self, tmp_path, ts):
         """write_to_cube creates a cube file."""

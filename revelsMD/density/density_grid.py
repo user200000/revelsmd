@@ -959,7 +959,10 @@ class DensityGrid:
 
         Uses ``self.cell_matrix`` for the cell geometry.  No atomic
         positions are written -- the purpose of this method is density
-        output, not atomic structure.
+        output, not atomic structure.  The file is in atomic units, set
+        by the grid's ``density_type`` whichever density is written: Bohr^-3
+        for ``'number'``, e Bohr^-3 for ``'charge'`` and e Bohr^-2 for
+        ``'polarisation'``.
 
         Parameters
         ----------
@@ -1016,7 +1019,10 @@ class DensityGrid:
 
         from revelsMD.density.writers.cube import write_cube
 
-        write_cube(filename, grid, self.cell_matrix)
+        # Number and charge densities are per volume; a polarisation density
+        # is a dipole (charge times length) per volume.
+        length_exponent = -2 if self.density_type == "polarisation" else -3
+        write_cube(filename, grid, self.cell_matrix, length_exponent=length_exponent)
 
 def compute_density(
     trajectory: Trajectory,
