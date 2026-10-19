@@ -1019,10 +1019,7 @@ class DensityGrid:
 
         from revelsMD.density.writers.cube import write_cube
 
-        # Number and charge densities are per volume; a polarisation density
-        # is a dipole (charge times length) per volume.
-        length_exponent = -2 if self.density_type == "polarisation" else -3
-        write_cube(filename, grid, self.cell_matrix, length_exponent=length_exponent)
+        write_cube(filename, grid, self.cell_matrix, density_type=self.density_type)
 
 def compute_density(
     trajectory: Trajectory,

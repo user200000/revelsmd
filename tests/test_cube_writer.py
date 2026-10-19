@@ -7,6 +7,9 @@ import pytest
 
 from revelsMD.density.writers.cube import ANGSTROM_TO_BOHR, write_cube
 
+# A number density per cubic angstrom, written per cubic Bohr.
+NUMBER = ANGSTROM_TO_BOHR**-3
+
 
 def _parse_cube_header(path):
     """Parse a cube file header, returning (natoms, origin, voxels, data_lines)."""
@@ -50,7 +53,7 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, length_exponent=0)
+        write_cube(path, grid, cell, density_type="number")
 
         assert path.exists()
         assert path.stat().st_size > 0
@@ -60,7 +63,7 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, length_exponent=0)
+        write_cube(path, grid, cell, density_type="number")
         header = _parse_cube_header(path)
 
         assert header["natoms"] == 0
@@ -75,7 +78,7 @@ class TestWriteCube:
         ])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, length_exponent=0)
+        write_cube(path, grid, cell, density_type="number")
         header = _parse_cube_header(path)
 
         for i, (n, vec) in enumerate(header["voxels"]):
@@ -89,7 +92,7 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, length_exponent=0)
+        write_cube(path, grid, cell, density_type="number")
         header = _parse_cube_header(path)
 
         assert len(header["data_values"]) == 3 * 4 * 5
@@ -100,28 +103,35 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, length_exponent=0)
+        write_cube(path, grid, cell, density_type="number")
         header = _parse_cube_header(path)
 
         recovered = np.array(header["data_values"]).reshape(grid.shape)
-        np.testing.assert_allclose(recovered, grid, rtol=1e-5)
+        np.testing.assert_allclose(recovered, grid * NUMBER, rtol=1e-5)
 
-    @pytest.mark.parametrize("length_exponent", [-3, -2])
-    def test_values_are_converted_to_bohr(self, tmp_path, length_exponent):
-        # 1 per A^3 is ANGSTROM_TO_BOHR**-3 per Bohr^3; 1 e A per A^3 is
-        # ANGSTROM_TO_BOHR**-2 e per Bohr^2.
+    @pytest.mark.parametrize("density_type, factor", [
+        # The Bohr radius is 0.529177 A: a density per A^3 is multiplied by
+        # 0.529177^3 to give per Bohr^3, and a polarisation density (e A per
+        # A^3) by 0.529177^2 to give e per Bohr^2.
+        ("number", 0.529177**3),
+        ("charge", 0.529177**3),
+        ("polarisation", 0.529177**2),
+    ])
+    def test_values_are_converted_to_atomic_units(self, tmp_path, density_type, factor):
         grid = np.full((2, 3, 4), 0.25)
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, np.diag([10.0, 10.0, 10.0]), length_exponent=length_exponent)
+        write_cube(path, grid, np.diag([10.0, 10.0, 10.0]), density_type=density_type)
         header = _parse_cube_header(path)
 
-        np.testing.assert_allclose(
-            header["data_values"], 0.25 * ANGSTROM_TO_BOHR**length_exponent, rtol=1e-5
-        )
+        np.testing.assert_allclose(header["data_values"], 0.25 * factor, rtol=1e-5)
 
-    def test_length_exponent_is_required(self, tmp_path):
-        with pytest.raises(TypeError, match="length_exponent"):
+    def test_unknown_density_type_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="density_type must be one of"):
+            write_cube(tmp_path / "test.cube", np.ones((2, 2, 2)), np.eye(3), density_type="mass")
+
+    def test_density_type_is_required(self, tmp_path):
+        with pytest.raises(TypeError, match="density_type"):
             write_cube(tmp_path / "test.cube", np.ones((2, 2, 2)), np.eye(3))
 
     def test_data_ordering_c_contiguous(self, tmp_path):
@@ -133,14 +143,14 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, length_exponent=0)
+        write_cube(path, grid, cell, density_type="number")
         header = _parse_cube_header(path)
         values = header["data_values"]
 
         # C order: [0,0,0]=1st, [0,0,1]=2nd, [1,0,0] at index 3*4=12th
-        assert values[0] == pytest.approx(1.0)
-        assert values[1] == pytest.approx(2.0)
-        assert values[12] == pytest.approx(3.0)
+        assert values[0] == pytest.approx(1.0 * NUMBER, rel=1e-5)
+        assert values[1] == pytest.approx(2.0 * NUMBER, rel=1e-5)
+        assert values[12] == pytest.approx(3.0 * NUMBER, rel=1e-5)
 
     def test_fortran_order_array_written_correctly(self, tmp_path):
         """Fortran-order input produces the same output as C-order."""
@@ -151,8 +161,8 @@ class TestWriteCube:
 
         path_c = tmp_path / "c_order.cube"
         path_f = tmp_path / "f_order.cube"
-        write_cube(path_c, grid_c, cell, length_exponent=0)
-        write_cube(path_f, grid_f, cell, length_exponent=0)
+        write_cube(path_c, grid_c, cell, density_type="number")
+        write_cube(path_f, grid_f, cell, density_type="number")
 
         header_c = _parse_cube_header(path_c)
         header_f = _parse_cube_header(path_f)
@@ -167,7 +177,7 @@ class TestWriteCube:
         ])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, length_exponent=0)
+        write_cube(path, grid, cell, density_type="number")
         header = _parse_cube_header(path)
 
         for i, (n, vec) in enumerate(header["voxels"]):
@@ -179,14 +189,14 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
 
         with pytest.raises(FileNotFoundError):
-            write_cube("/nonexistent/path/test.cube", grid, cell, length_exponent=0)
+            write_cube("/nonexistent/path/test.cube", grid, cell, density_type="number")
 
     def test_custom_comment(self, tmp_path):
         grid = np.ones((2, 2, 2))
         cell = np.diag([5.0, 5.0, 5.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, length_exponent=0, comment="test comment")
+        write_cube(path, grid, cell, density_type="number", comment="test comment")
         header = _parse_cube_header(path)
 
         assert "test comment" in header["comment1"]
@@ -196,11 +206,11 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
 
         with pytest.raises(ValueError, match="3D array"):
-            write_cube(tmp_path / "test.cube", grid, cell, length_exponent=0)
+            write_cube(tmp_path / "test.cube", grid, cell, density_type="number")
 
     def test_wrong_cell_matrix_shape_raises(self, tmp_path):
         grid = np.ones((3, 4, 5))
         cell = np.diag([10.0, 10.0])  # 2x2
 
         with pytest.raises(ValueError, match=r"\(3, 3\)"):
-            write_cube(tmp_path / "test.cube", grid, cell, length_exponent=0)
+            write_cube(tmp_path / "test.cube", grid, cell, density_type="number")

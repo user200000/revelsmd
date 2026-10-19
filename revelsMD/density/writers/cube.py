@@ -7,8 +7,15 @@ from pathlib import Path
 import numpy as np
 from scipy.constants import angstrom, physical_constants
 
+from revelsMD.density.constants import validate_density_type
+
 # 1 Angstrom in Bohr
 ANGSTROM_TO_BOHR = angstrom / physical_constants["Bohr radius"][0]
+
+# The power of length in each density's units: a number or charge density is
+# per volume, and a polarisation density is a dipole (charge times length)
+# per volume.
+_LENGTH_EXPONENT = {"number": -3, "charge": -3, "polarisation": -2}
 
 
 def write_cube(
@@ -16,17 +23,17 @@ def write_cube(
     grid: np.ndarray,
     cell_matrix: np.ndarray,
     *,
-    length_exponent: int,
+    density_type: str,
     comment: str = "",
 ) -> None:
     """Write a 3D grid to a Gaussian ``.cube`` file, in atomic units.
 
     The file is written with zero atoms -- this is intended for density
     or other volumetric data, not atomic structure. Cube readers take the
-    voxel vectors in Bohr, so the length part of the values' units is
-    converted to Bohr too, as ``length_exponent`` sets: a number density
-    in Angstrom^-3 is multiplied by ``ANGSTROM_TO_BOHR**-3`` (0.148) to
-    give Bohr^-3.
+    voxel vectors in Bohr, so the values are converted to atomic units
+    too: Bohr^-3 for a number density, e Bohr^-3 for a charge density and
+    e Bohr^-2 for a polarisation density (a number density in
+    Angstrom^-3 is multiplied by 0.148).
 
     Parameters
     ----------
@@ -37,13 +44,15 @@ def write_cube(
     cell_matrix : numpy.ndarray
         3x3 matrix whose rows are the lattice vectors (a, b, c) in
         Angstroms.
-    length_exponent : int
-        The power of length in the units of ``grid``: -3 for a number or
-        charge density (Angstrom^-3 or e Angstrom^-3), -2 for a polarisation
-        density (e Angstrom per Angstrom^3), 0 for a dimensionless field.
+    density_type : {'number', 'charge', 'polarisation'}
+        What ``grid`` holds: a number density in Angstrom^-3, a charge
+        density in e Angstrom^-3, or a polarisation density in
+        e Angstrom per Angstrom^3.
     comment : str, optional
         Comment for the first line of the cube file.
     """
+    length_exponent = _LENGTH_EXPONENT[validate_density_type(density_type)]
+
     # Ensure C-contiguous layout so tofile writes in the correct order
     # (OUTER LOOP: X, MIDDLE LOOP: Y, INNER LOOP: Z).
     grid = np.ascontiguousarray(grid)
