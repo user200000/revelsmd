@@ -159,7 +159,8 @@ are required.
 — combines two estimators with the variance-minimising weight
 $\lambda = -\text{Cov}(E_0, \delta)/\text{Var}(\delta)$, where $\delta = E_1 - E_0$
 (Coles et al. 2021), returning $(1-\lambda)\,E_0 + \lambda\,E_1$ and $\lambda$. Where the variance is
-negligible for `scale`, or the ratio is non-finite, $\lambda$ is `fallback`.
+negligible for `scale`, $\lambda$ is `fallback`; non-finite moments propagate
+into the result.
 
 `DensityGrid` uses both when `compute_lambda=True`, with $E_0 = \rho_\text{count}$,
 $E_1 = \rho_\text{force}$ and a fallback of 1 (force density), exposing the results
