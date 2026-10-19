@@ -115,8 +115,7 @@ variance is negligible where the standard deviation of $\delta$ across blocks
 is at most $10^{-10}$ of the largest estimate anywhere in the grid: that is
 rounding, not sampling, and dividing by it would give an arbitrarily large
 $\lambda$. Voxels with negligible variance, where every block gave the same
-$\delta$ to within rounding, report $\lambda = 1$ (force density), as do voxels
-whose ratio is non-finite.
+$\delta$ to within rounding, report $\lambda = 1$ (force density).
 
 ## Note on user-facing access
 
