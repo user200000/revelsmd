@@ -23,8 +23,10 @@ def write_cube(
 
     The file is written with zero atoms -- this is intended for density
     or other volumetric data, not atomic structure. Cube readers take the
-    voxel vectors in Bohr, so the values are converted from Angstroms to
-    Bohr too: a number density in A^-3 is written in Bohr^-3.
+    voxel vectors in Bohr, so the length part of the values' units is
+    converted to Bohr too, as ``length_exponent`` sets: a number density
+    in Angstrom^-3 is multiplied by ``ANGSTROM_TO_BOHR**-3`` (0.148) to
+    give Bohr^-3.
 
     Parameters
     ----------
@@ -37,8 +39,8 @@ def write_cube(
         Angstroms.
     length_exponent : int
         The power of length in the units of ``grid``: -3 for a number or
-        charge density (per A^3), -2 for a polarisation density (e A per
-        A^3), 0 for a dimensionless field.
+        charge density (Angstrom^-3 or e Angstrom^-3), -2 for a polarisation
+        density (e Angstrom per Angstrom^3), 0 for a dimensionless field.
     comment : str, optional
         Comment for the first line of the cube file.
     """

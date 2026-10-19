@@ -2189,25 +2189,28 @@ def _dipolar_molecules():
 class TestWriteToCube:
     """Tests for DensityGrid.write_to_cube() method."""
 
-    @pytest.mark.parametrize("density_type, atom_names, rigid, expected", [
-        # The count density integrates to what was deposited each frame: the
-        # number of atoms, the total charge, and the total dipole along x,
-        # x_H - x_O per molecule (in e A, so e Bohr in the file, with the Bohr
-        # radius 0.529177 A).
-        ("number", ["O", "H"], False, lambda t: 6.0),
-        ("charge", "O", False, lambda t: -3.0),
-        ("polarisation", ["O", "H"], True,
+    @pytest.mark.parametrize("density_type, atom_names, rigid, density, expected", [
+        # The density integrates to the mean total deposited per frame: the
+        # number of atoms; the charge of the three O atoms (O and H together
+        # are neutral, and a zero total would hide a wrong scale); and the
+        # dipole along x, x_H - x_O per molecule, which changes between
+        # frames. The dipole is in e A, so e Bohr in the file, with the Bohr
+        # radius 0.529177 A.
+        ("number", ["O", "H"], False, "count", lambda t: 6.0),
+        ("number", ["O", "H"], False, "force", lambda t: 6.0),
+        ("charge", "O", False, "count", lambda t: -3.0),
+        ("polarisation", ["O", "H"], True, "count",
          lambda t: np.mean(np.sum(t.positions[:, 3:, 0] - t.positions[:, :3, 0], axis=1))
          / 0.529177),
-    ], ids=["number", "charge", "polarisation"])
+    ], ids=["number", "number-force", "charge", "polarisation"])
     def test_cube_integrates_to_the_deposited_total_in_atomic_units(
-        self, tmp_path, density_type, atom_names, rigid, expected
+        self, tmp_path, density_type, atom_names, rigid, density, expected
     ):
         traj = _dipolar_molecules()
         gs = DensityGrid(traj, density_type, nbins=(4, 5, 6))
         gs.accumulate(traj, atom_names=atom_names, rigid=rigid)
-        path = tmp_path / "count.cube"
-        gs.write_to_cube("count", path)
+        path = tmp_path / "density.cube"
+        gs.write_to_cube(density, path)
         assert _integrate_cube(path) == pytest.approx(expected(traj), rel=1e-4)
 
     def test_write_to_cube_creates_file(self, tmp_path, ts):

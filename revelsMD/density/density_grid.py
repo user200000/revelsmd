@@ -959,9 +959,10 @@ class DensityGrid:
 
         Uses ``self.cell_matrix`` for the cell geometry.  No atomic
         positions are written -- the purpose of this method is density
-        output, not atomic structure.  The file is in atomic units: a
-        number density is written per Bohr^3, a charge density in
-        e Bohr^-3, and a polarisation density in e Bohr^-2.
+        output, not atomic structure.  The file is in atomic units, set
+        by the grid's ``density_type`` whichever density is written: Bohr^-3
+        for ``'number'``, e Bohr^-3 for ``'charge'`` and e Bohr^-2 for
+        ``'polarisation'``.
 
         Parameters
         ----------

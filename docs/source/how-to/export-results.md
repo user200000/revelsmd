@@ -74,11 +74,12 @@ The first argument selects which density to write: `"force"`, `"count"`,
 `"lambda"`, or `"hybrid"`. `threshold` is required for `"hybrid"` and
 controls the force/count crossover.
 
-Cube files are in atomic units: lengths in Bohr, number densities in Bohr⁻³,
-charge densities in e Bohr⁻³ and polarisation densities in e Bohr⁻². The grid's
-own densities are per Å³, so a value in the file is 0.148 times the value in
-Python (0.280 for a polarisation density); choose isosurface levels from the
-file's values. Lengths are taken to be in Å, so for a trajectory in `'lj'`
+Cube files are in atomic units, set by the grid's `density_type` whichever
+density is written: lengths in Bohr, and values in Bohr⁻³ for `'number'`,
+e Bohr⁻³ for `'charge'` and e Bohr⁻² for `'polarisation'`. The grid's own
+arrays are per Å³, so a value in the file is 0.148 times the corresponding
+value in `rho_count` and the other arrays (0.280 for `'polarisation'`); choose
+isosurface levels from the file's values. Lengths are taken to be in Å, so for a trajectory in `'lj'`
 units the file's units are nominal.
 
 ## Grid metadata
