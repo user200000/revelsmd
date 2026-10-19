@@ -3,7 +3,7 @@ Radial distribution function (RDF) estimators for RevelsMD.
 
 This package provides force-weighted RDF calculations:
 
-- RDF: RDF calculator class (mirrors DensityGrid pattern)
+- RDF: RDF calculator class
 - compute_rdf: Convenience function for one-liner RDF computation
 
 Preferred imports::

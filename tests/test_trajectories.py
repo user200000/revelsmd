@@ -445,6 +445,13 @@ class TestComputeBeta:
         assert compute_beta('Metal', 300.0) == compute_beta('metal', 300.0)
         assert compute_beta('MDA', 300.0) == compute_beta('mda', 300.0)
 
+    @pytest.mark.parametrize("temperature", [300, np.float32(300.0), np.float64(300.0)])
+    def test_compute_beta_is_the_same_for_any_numeric_type(self, temperature):
+        """Equal temperatures give a bit-identical float beta, whatever their type."""
+        beta = compute_beta('real', temperature)
+        assert type(beta) is float
+        assert beta == compute_beta('real', 300.0)
+
     def test_compute_beta_strips_whitespace(self):
         """Unit system should ignore leading/trailing whitespace."""
         assert compute_beta('  lj  ', 1.0) == compute_beta('lj', 1.0)

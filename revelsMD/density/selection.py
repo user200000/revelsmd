@@ -1,4 +1,4 @@
-"""Selection class for atom selection and center choice."""
+"""Selection class for atom selection and centre choice."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from revelsMD.density.constants import validate_density_type
 
 class Selection:
     """
-    Atom selection, charges/masses, and center choice for grid deposition.
+    Atom selection, charges/masses, and centre choice for grid deposition.
 
 
     Parameters
@@ -26,7 +26,7 @@ class Selection:
         For a rigid molecule, provide a list of species names in the rigid group.
     centre_location : bool or int
         If a rigid group is provided: `True` selects COM; `int` selects one species'
-        index within the rigid set as the center.
+        index within the rigid set as the centre.
     rigid : bool
         Whether to treat the selection as a rigid molecule.
     density_type : {'number', 'charge', 'polarisation'}
@@ -131,7 +131,7 @@ class Selection:
         np.ndarray or list of np.ndarray
             - Single species: (M, 3) array of selected atom positions
             - Multi-species, not rigid: list of (M, 3) arrays per species
-            - Rigid, COM: (M, 3) array of center-of-mass positions
+            - Rigid, COM: (M, 3) array of centre-of-mass positions
             - Rigid, specific atom: (M, 3) array of that atom's positions
         """
         if self.single_species:
@@ -146,7 +146,7 @@ class Selection:
 
     def _compute_com(self, positions: np.ndarray) -> np.ndarray:
         """
-        Compute center-of-mass positions for rigid molecules.
+        Compute centre-of-mass positions for rigid molecules.
 
         Uses minimum image convention to handle molecules spanning periodic boundaries.
 
@@ -239,7 +239,9 @@ class Selection:
         Returns
         -------
         tuple of (positions, forces, weights)
-            Ready for passing to DensityGrid._deposit().
+            What DensityGrid deposits for the frame, as get_positions(),
+            get_forces() and get_weights() return them: arrays for one
+            species or rigid molecules, lists of arrays for several species.
         """
         return (
             self.get_positions(frame.positions),
