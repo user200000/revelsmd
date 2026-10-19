@@ -50,7 +50,7 @@ class TestBackendSelection:
         """Invalid backend should raise ValueError."""
         from revelsMD.rdf.rdf_helpers import get_backend_functions
 
-        with pytest.raises(ValueError, match="Unknown RDF backend"):
+        with pytest.raises(ValueError, match="unknown RDF backend"):
             get_backend_functions('invalid_backend')
 
     def test_environment_variable_backend(self):

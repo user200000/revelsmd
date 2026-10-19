@@ -37,7 +37,7 @@ class TestBackendSelection:
     def test_invalid_backend_raises(self):
         """Invalid backend name should raise ValueError."""
         from revelsMD.density.grid_helpers import get_backend_functions
-        with pytest.raises(ValueError, match="Unknown grid backend"):
+        with pytest.raises(ValueError, match="unknown grid backend"):
             get_backend_functions('invalid')
 
 

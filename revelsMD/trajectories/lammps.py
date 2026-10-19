@@ -621,7 +621,7 @@ class LammpsTrajectory(IndexedFileTrajectory):
         self.topology_file = topology_file
 
         if topology_file is None:
-            raise ValueError("A topology file is required for LAMMPS trajectories.")
+            raise ValueError("a topology file is required for LAMMPS trajectories")
         topology = os.fsdecode(topology_file)
         self._topology = topology
         paths = as_paths(trajectory_file)

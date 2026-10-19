@@ -67,7 +67,7 @@ class Frame:
                 )
         if self.positions.shape[0] != self.forces.shape[0]:
             raise ValueError(
-                f"Mismatched atom counts: positions has "
+                f"mismatched atom counts: positions has "
                 f"{self.positions.shape[0]}, "
                 f"forces has {self.forces.shape[0]}"
             )

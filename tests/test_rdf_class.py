@@ -156,7 +156,7 @@ class TestRDFAccumulateTrajectories:
     def test_like_species_counts_differ_raises(self):
         from revelsMD.rdf import RDF
         rdf = RDF(_water(), 'O', 'O', delr=0.1)
-        with pytest.raises(ValueError, match="has 3 'O' atoms, but the RDF was built for 4\\."):
+        with pytest.raises(ValueError, match="has 3 'O' atoms, but the RDF was built for 4$"):
             rdf.accumulate(_water(n_waters=3))
 
     def test_a_rejected_trajectory_keeps_earlier_results(self):
@@ -270,7 +270,7 @@ class TestRDFSpeciesValidation:
             positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
         )
 
-        with pytest.raises(ValueError, match="No atoms found for species 'O'"):
+        with pytest.raises(ValueError, match="no atoms found for species 'O'"):
             RDF(ts, 'O', 'O')
 
     def test_unlike_species_with_empty_first_raises(self):
@@ -285,7 +285,7 @@ class TestRDFSpeciesValidation:
             positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
         )
 
-        with pytest.raises(ValueError, match="No atoms found for species 'O'"):
+        with pytest.raises(ValueError, match="no atoms found for species 'O'"):
             RDF(ts, 'O', 'H')
 
     def test_unlike_species_with_empty_second_raises(self):
@@ -300,7 +300,7 @@ class TestRDFSpeciesValidation:
             positions, forces, 10.0, 10.0, 10.0, species, temperature=300.0, units="real"
         )
 
-        with pytest.raises(ValueError, match="No atoms found for species 'H'"):
+        with pytest.raises(ValueError, match="no atoms found for species 'H'"):
             RDF(ts, 'O', 'H')
 
 

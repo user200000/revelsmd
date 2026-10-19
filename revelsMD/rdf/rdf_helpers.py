@@ -44,7 +44,7 @@ def _get_numba_functions() -> tuple[Callable, Callable, Callable]:
         )
     except ImportError as e:
         raise ImportError(
-            "Numba backend requested but numba is not installed. "
+            "numba backend requested but numba is not installed. "
             "Install with: pip install numba"
         ) from e
 
@@ -78,7 +78,7 @@ def get_backend_functions(
 
     if backend not in AVAILABLE_BACKENDS:
         raise ValueError(
-            f"Unknown RDF backend: {backend!r}. "
+            f"unknown RDF backend: {backend!r}. "
             f"Available backends: {sorted(AVAILABLE_BACKENDS)}"
         )
 

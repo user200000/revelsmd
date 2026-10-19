@@ -39,7 +39,7 @@ def test_numpy_state_species_not_found():
     forces = np.ones((1, 2, 3))
     species = ["O", "H"]
     state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
-    with pytest.raises(ValueError, match="Species 'C' not found"):
+    with pytest.raises(ValueError, match="species 'C' not found"):
         state.get_indices("C")
 
 
@@ -270,7 +270,7 @@ def test_numpy_get_charges_raises_without_charge_data():
 
     state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
-    with pytest.raises(DataUnavailableError, match="Charge data not available"):
+    with pytest.raises(DataUnavailableError, match="charge data not available"):
         state.get_charges("O")
 
 
@@ -282,7 +282,7 @@ def test_numpy_get_masses_raises_without_mass_data():
 
     state = NumpyTrajectory(positions, forces, 10, 10, 10, species, temperature=300.0)
 
-    with pytest.raises(DataUnavailableError, match="Mass data not available"):
+    with pytest.raises(DataUnavailableError, match="mass data not available"):
         state.get_masses("O")
 
 
@@ -458,27 +458,27 @@ class TestComputeBeta:
 
     def test_compute_beta_invalid_unit_raises(self):
         """Unsupported unit system should raise ValueError."""
-        with pytest.raises(ValueError, match="Unsupported unit system"):
+        with pytest.raises(ValueError, match="unsupported unit system"):
             compute_beta('quantum-donut', 300.0)
 
     def test_compute_beta_zero_temperature_raises(self):
         """Zero temperature should raise ValueError."""
-        with pytest.raises(ValueError, match="Temperature must be positive"):
+        with pytest.raises(ValueError, match="temperature must be positive"):
             compute_beta('real', 0.0)
 
     def test_compute_beta_negative_temperature_raises(self):
         """Negative temperature should raise ValueError."""
-        with pytest.raises(ValueError, match="Temperature must be positive"):
+        with pytest.raises(ValueError, match="temperature must be positive"):
             compute_beta('real', -100.0)
 
     def test_compute_beta_infinite_temperature_raises(self):
         """Infinite temperature should raise ValueError."""
-        with pytest.raises(ValueError, match="Temperature must be finite"):
+        with pytest.raises(ValueError, match="temperature must be finite"):
             compute_beta('real', float('inf'))
 
     def test_compute_beta_nan_temperature_raises(self):
         """NaN temperature should raise ValueError."""
-        with pytest.raises(ValueError, match="Temperature must be finite"):
+        with pytest.raises(ValueError, match="temperature must be finite"):
             compute_beta('real', float('nan'))
 
 
@@ -623,7 +623,7 @@ class TestNumpyTrajectoryCellMatrix:
         np.testing.assert_allclose(traj.cell_matrix, np.diag([10.0, 8.0, 6.0]))
 
     def test_both_cell_matrix_and_box_raises(self):
-        with pytest.raises(ValueError, match="Cannot specify both"):
+        with pytest.raises(ValueError, match="cannot specify both"):
             NumpyTrajectory(
                 positions=np.zeros((2, 3, 3)),
                 forces=np.zeros((2, 3, 3)),
@@ -634,7 +634,7 @@ class TestNumpyTrajectoryCellMatrix:
             )
 
     def test_neither_cell_matrix_nor_box_raises(self):
-        with pytest.raises(ValueError, match="Must specify either"):
+        with pytest.raises(ValueError, match="must specify either"):
             NumpyTrajectory(
                 positions=np.zeros((2, 3, 3)),
                 forces=np.zeros((2, 3, 3)),
@@ -654,7 +654,7 @@ class TestNumpyTrajectoryCellMatrix:
 
     def test_partial_box_dimensions_raises(self):
         """Providing only some of box_x/y/z should raise a clear error."""
-        with pytest.raises(ValueError, match="All three"):
+        with pytest.raises(ValueError, match="all three"):
             NumpyTrajectory(
                 positions=np.zeros((2, 3, 3)),
                 forces=np.zeros((2, 3, 3)),
@@ -775,7 +775,7 @@ class TestAsPaths:
 
     def test_empty_sequence_is_rejected(self):
         from revelsMD.trajectories._base import as_paths
-        with pytest.raises(ValueError, match="At least one trajectory file"):
+        with pytest.raises(ValueError, match="at least one trajectory file"):
             as_paths([])
 
 class TestReadingWithMDAnalysis:

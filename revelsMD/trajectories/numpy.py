@@ -56,10 +56,10 @@ class NumpyTrajectory(Trajectory):
         mass_list: np.ndarray | None = None,
     ):
         if positions.shape != forces.shape:
-            raise ValueError("Force and position arrays are incommensurate.")
+            raise ValueError("force and position arrays are incommensurate")
 
         if species_list is not None and positions.shape[1] != len(species_list):
-            raise ValueError("Species list and trajectory arrays are incommensurate.")
+            raise ValueError("species list and trajectory arrays are incommensurate")
 
         # Determine cell geometry from either cell_matrix or box_x/y/z
         box_args = (box_x, box_y, box_z)
@@ -68,11 +68,11 @@ class NumpyTrajectory(Trajectory):
 
         if has_box and has_cell:
             raise ValueError(
-                "Cannot specify both cell_matrix and box_x/box_y/box_z."
+                "cannot specify both cell_matrix and box_x/box_y/box_z"
             )
         if not has_box and not has_cell:
             raise ValueError(
-                "Must specify either cell_matrix or box_x/box_y/box_z."
+                "must specify either cell_matrix or box_x/box_y/box_z"
             )
 
         super().__init__(units=units, temperature=temperature)
@@ -82,11 +82,11 @@ class NumpyTrajectory(Trajectory):
         else:
             if not all(v is not None for v in box_args):
                 raise ValueError(
-                    "All three of box_x, box_y, box_z must be provided together."
+                    "all three of box_x, box_y, box_z must be provided together"
                 )
             assert box_x is not None and box_y is not None and box_z is not None
             if box_x <= 0 or box_y <= 0 or box_z <= 0:
-                raise ValueError("Box dimensions must all be positive values.")
+                raise ValueError("box dimensions must all be positive values")
             self.cell_matrix = self._cell_matrix_from_dimensions(box_x, box_y, box_z)
         self._validate_cell_matrix(self.cell_matrix)
 
@@ -119,10 +119,10 @@ class NumpyTrajectory(Trajectory):
             If there is no ``species_list`` or no atom has that label.
         """
         if self.species_string is None:
-            raise ValueError("Species list was not provided for this trajectory.")
+            raise ValueError("species list was not provided for this trajectory")
         inds = np.where(np.array(self.species_string) == atype)[0]
         if len(inds) == 0:
-            raise ValueError(f"Species '{atype}' not found in species list.")
+            raise ValueError(f"species '{atype}' not found in species list")
         return inds
 
     def get_charges(self, atype: str) -> np.ndarray:
@@ -141,7 +141,7 @@ class NumpyTrajectory(Trajectory):
             If there is no ``species_list`` or no atom has that label.
         """
         if not hasattr(self, 'charge_list'):
-            raise DataUnavailableError("Charge data not available for this trajectory.")
+            raise DataUnavailableError("charge data not available for this trajectory")
         indices = self.get_indices(atype)
         return self.charge_list[indices]
 
@@ -161,7 +161,7 @@ class NumpyTrajectory(Trajectory):
             If there is no ``species_list`` or no atom has that label.
         """
         if not hasattr(self, 'mass_list'):
-            raise DataUnavailableError("Mass data not available for this trajectory.")
+            raise DataUnavailableError("mass data not available for this trajectory")
         indices = self.get_indices(atype)
         return self.mass_list[indices]
 

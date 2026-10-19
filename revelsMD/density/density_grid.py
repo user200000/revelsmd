@@ -74,7 +74,7 @@ class DensityGrid:
         else:
             nbinsx = nbinsy = nbinsz = nbins
         if min(nbinsx, nbinsy, nbinsz) <= 0:
-            raise ValueError("nbins values must be positive integers.")
+            raise ValueError("nbins values must be positive integers")
 
         # Cell geometry
         self.cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
@@ -250,7 +250,7 @@ class DensityGrid:
 
         if rho_c is None or rho_f is None:
             raise RuntimeError(
-                "No density data available. Run accumulate() first."
+                "no density data available. Run accumulate() first"
             )
 
         return np.where(rho_c >= threshold, rho_f, rho_c)
@@ -426,12 +426,12 @@ class DensityGrid:
         if isinstance(atom_names, str):
             atom_list = atom_names.replace(',', ' ').split()
             if len(atom_list) != len(set(atom_list)):
-                raise ValueError(f"Duplicate atom names detected in input string: {atom_names!r}")
+                raise ValueError(f"duplicate atom names detected in input string: {atom_names!r}")
         elif isinstance(atom_names, list):
             if len(atom_names) != len(set(atom_names)):
-                raise ValueError(f"Duplicate atom names detected in list: {atom_names!r}")
+                raise ValueError(f"duplicate atom names detected in list: {atom_names!r}")
         else:
-            raise ValueError("`atom_names` must be a string or list of strings.")
+            raise ValueError("`atom_names` must be a string or list of strings")
 
         # The frames iter_frames(start, stop, period) will yield.
         frame_indices = frame_range(trajectory.frames, start, stop, period)
@@ -442,7 +442,7 @@ class DensityGrid:
 
         # Validate centre_location
         if not isinstance(centre_location, (bool, int)):
-            raise ValueError("centre_location must be True (COM) or int (specific atom index).")
+            raise ValueError("centre_location must be True (COM) or int (specific atom index)")
 
         # Validate blocking parameter
         if blocking not in ("contiguous", "interleaved"):
@@ -453,9 +453,9 @@ class DensityGrid:
         # Validate polarisation constraints
         if self.density_type == "polarisation":
             if isinstance(atom_names, str) and len(atom_names.replace(',', ' ').split()) == 1:
-                raise ValueError("A single atom does not have a polarisation density; specify a rigid molecule.")
+                raise ValueError("a single atom does not have a polarisation density; specify a rigid molecule")
             if not rigid:
-                raise ValueError("Polarisation densities are only implemented for rigid molecules.")
+                raise ValueError("polarisation densities are only implemented for rigid molecules")
 
         # Build selection wrapper with density configuration
         self._selection = Selection(
@@ -473,8 +473,8 @@ class DensityGrid:
         if not compute_lambda and self._welford is not None:
             if self._welford.has_data:
                 warnings.warn(
-                    "Calling accumulate() with compute_lambda=False discards existing "
-                    "lambda statistics. Use compute_lambda=True to preserve them.",
+                    "calling accumulate() with compute_lambda=False discards existing "
+                    "lambda statistics. Use compute_lambda=True to preserve them",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -495,7 +495,7 @@ class DensityGrid:
                 warnings.warn(
                     "sections is ignored with blocking='contiguous'. "
                     "Use block_size to control contiguous block size, or "
-                    "blocking='interleaved' to use sections.",
+                    "blocking='interleaved' to use sections",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -503,7 +503,7 @@ class DensityGrid:
                 warnings.warn(
                     "block_size is ignored with blocking='interleaved'. "
                     "Use sections to control the number of interleaved groups, "
-                    "or blocking='contiguous' to use block_size.",
+                    "or blocking='contiguous' to use block_size",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -707,7 +707,7 @@ class DensityGrid:
                 fox, foy, foz, weight,
             )
         else:
-            raise ValueError(f"Unsupported kernel: {kernel!r}")
+            raise ValueError(f"unsupported kernel: {kernel!r}")
 
     def _fft_force_to_density(
         self,
@@ -825,7 +825,7 @@ class DensityGrid:
         if not self._welford.has_data:
             warnings.warn(
                 "compute_lambda was requested but the Welford accumulator "
-                "has no data — rho_lambda will be None.",
+                "has no data — rho_lambda will be None",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -845,9 +845,9 @@ class DensityGrid:
 
         if self._welford.count < 2:
             raise ValueError(
-                f"Cannot compute lambda with fewer than 2 blocks (have {self._welford.count}). "
+                f"cannot compute lambda with fewer than 2 blocks (have {self._welford.count}). "
                 "Use a smaller block_size (contiguous) or more sections (interleaved), "
-                "or accumulate from additional trajectories."
+                "or accumulate from additional trajectories"
             )
 
         # Finalise Welford statistics
@@ -866,7 +866,7 @@ class DensityGrid:
     def _compute_real_densities(self) -> None:
         """Internal: compute rho_force and rho_count from accumulators via FFT."""
         if self.count == 0:
-            raise RuntimeError("Run accumulate() before computing densities.")
+            raise RuntimeError("run accumulate() before computing densities")
 
         self._rho_force, self._rho_count, self.del_rho_k, self.del_rho_n = (
             self._fft_force_to_density(
@@ -984,24 +984,24 @@ class DensityGrid:
         match density:
             case "force":
                 if threshold is not None:
-                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}")
                 grid = self.rho_force
             case "count":
                 if threshold is not None:
-                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}")
                 grid = self.rho_count
             case "lambda":
                 if threshold is not None:
-                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}.")
+                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}")
                 grid = self.rho_lambda
             case "hybrid":
                 if threshold is None:
-                    raise ValueError("threshold is required when density is 'hybrid'.")
+                    raise ValueError("threshold is required when density is 'hybrid'")
                 grid = self.rho_hybrid(threshold)
             case _:
                 raise ValueError(
-                    f"Unknown density {density!r}. "
-                    f"Expected one of {sorted(['count', 'force', 'hybrid', 'lambda'])}."
+                    f"unknown density {density!r}. "
+                    f"Expected one of {sorted(['count', 'force', 'hybrid', 'lambda'])}"
                 )
 
         if grid is None:

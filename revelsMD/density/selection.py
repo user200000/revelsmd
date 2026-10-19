@@ -97,17 +97,17 @@ class Selection:
                 lengths = [len(idx) for idx in self.indices]
                 if len(set(lengths)) != 1:
                     raise ValueError(
-                        f"When 'rigid=True', all atom selections must have the same number of indices, "
-                        f"but got lengths {lengths} for atoms {atom_names}."
+                        f"when 'rigid=True', all atom selections must have the same number of indices, "
+                        f"but got lengths {lengths} for atoms {atom_names}"
                     )
                 if needs_masses:
                     self._molecule_masses  # checked now rather than at the first frame
             if isinstance(centre_location, bool) or isinstance(centre_location, int):
                 if isinstance(centre_location, int) and centre_location >= len(atom_names):
-                    raise ValueError("centre_location index exceeds number of provided atom names.")
+                    raise ValueError("centre_location index exceeds number of provided atom names")
                 self.centre_location = centre_location
             else:
-                raise ValueError("centre_location must be True (COM) or an integer index.")
+                raise ValueError("centre_location must be True (COM) or an integer index")
         else:
             # Single species
             if isinstance(atom_names, list):
@@ -187,8 +187,8 @@ class Selection:
         totals = masses.sum(axis=0)
         if not (np.all(np.isfinite(masses)) and np.all(masses >= 0) and np.all(totals > 0)):
             raise ValueError(
-                "Atom masses must be finite and not negative, and each molecule's "
-                "total mass positive, for its centre of mass to be defined."
+                "atom masses must be finite and not negative, and each molecule's "
+                "total mass positive, for its centre of mass to be defined"
             )
         return totals
 
@@ -284,7 +284,7 @@ class Selection:
                 return self._compute_dipole_projection(positions)
 
             case _:
-                raise ValueError(f"Unknown density_type: {self.density_type!r}")
+                raise ValueError(f"unknown density_type: {self.density_type!r}")
 
     def _compute_dipole_projection(self, positions: np.ndarray) -> np.ndarray:
         """
