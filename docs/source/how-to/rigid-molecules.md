@@ -86,7 +86,7 @@ Requires both charge and mass data on the trajectory.
 
 ## Troubleshooting
 
-`ValueError: Duplicate atom names detected`
+`ValueError: duplicate atom names detected`
 : Each entry in `atom_names` must be unique.
 
 `ValueError` about selection sizes
@@ -100,5 +100,5 @@ Requires both charge and mass data on the trajectory.
 : Atom masses must be finite and not negative, and each molecule's total mass
   positive.
 
-`ValueError: polarisation requires rigid`
+`ValueError: polarisation densities are only implemented for rigid molecules`
 : Set `rigid=True` and supply more than one atom name.

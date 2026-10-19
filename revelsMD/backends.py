@@ -52,7 +52,7 @@ def _resolve_backend() -> str:
         return DEFAULT_BACKEND
     if value not in AVAILABLE_BACKENDS:
         raise ValueError(
-            f"Invalid REVELSMD_BACKEND '{value}'. "
+            f"invalid REVELSMD_BACKEND '{value}'. "
             f"Must be one of: {', '.join(sorted(AVAILABLE_BACKENDS))}"
         )
     return value
@@ -79,12 +79,12 @@ def _resolve_fft_workers() -> int:
         workers = int(value)
     except ValueError:
         raise ValueError(
-            f"Invalid {FFT_WORKERS_ENV_VAR} '{value}'. Must be an integer."
+            f"invalid {FFT_WORKERS_ENV_VAR} '{value}'. Must be an integer"
         )
     if workers != -1 and workers < 1:
         raise ValueError(
-            f"Invalid {FFT_WORKERS_ENV_VAR} '{value}'. "
-            f"Must be -1 or a positive integer."
+            f"invalid {FFT_WORKERS_ENV_VAR} '{value}'. "
+            f"Must be -1 or a positive integer"
         )
     return workers
 

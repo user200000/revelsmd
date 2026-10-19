@@ -274,7 +274,7 @@ class TestFrame:
         from revelsMD.frame_sources import Frame
         positions = np.array([[1.0, 2.0, 3.0]])
         forces = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
-        with pytest.raises(ValueError, match="Mismatched atom counts"):
+        with pytest.raises(ValueError, match="mismatched atom counts"):
             Frame(positions=positions, forces=forces)
 
     def test_wrong_shape_raises(self):

@@ -38,6 +38,13 @@ cd docs && make html
 - Tests should be well isolated.
 - Tests should test intended behaviour, not legacy behaviour targeted for removal.
 
+### Error messages
+
+Exception messages start with a lower-case letter and have no trailing full
+stop, as Python's own do: `"temperature must be positive. Got: -1.0"`.
+Identifiers keep their case. A message of several sentences puts full stops
+between them, but not after the last.
+
 ### Branch workflow
 
 Always work on a feature branch. Branch from `main` unless there is a specific reason to branch from elsewhere. Open a pull request against `main` when the work is ready for review.

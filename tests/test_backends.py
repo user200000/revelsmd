@@ -106,7 +106,7 @@ class TestGetBackend:
         result = self._run_get_backend('invalid')
         assert result.returncode != 0
         assert 'ValueError' in result.stderr
-        assert 'Invalid REVELSMD_BACKEND' in result.stderr
+        assert 'invalid REVELSMD_BACKEND' in result.stderr
 
     def test_backend_is_cached(self):
         """Backend value is resolved once at import time."""

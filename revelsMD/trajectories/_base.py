@@ -119,7 +119,7 @@ def as_paths(files: TrajectoryFiles) -> list[str]:
         return [os.fsdecode(files)]
     paths = [os.fsdecode(path) for path in files]
     if not paths:
-        raise ValueError("At least one trajectory file is required.")
+        raise ValueError("at least one trajectory file is required")
     return paths
 
 
@@ -158,8 +158,8 @@ def frame_range(n_frames: int, start: int, stop: int | None, period: int) -> ran
     frames = range(*normalize_bounds(n_frames, start, stop, period))
     if len(frames) == 0:
         raise ValueError(
-            f"No frames selected: start={start}, stop={stop}, "
-            f"period={period} yields an empty range."
+            f"no frames selected: start={start}, stop={stop}, "
+            f"period={period} yields an empty range"
         )
     return frames
 
@@ -183,13 +183,13 @@ def compute_beta(units: str, temperature: float) -> float:
     units = units.lower().strip()
     if units not in _BOLTZMANN_CONSTANTS:
         raise ValueError(
-            f"Unsupported unit system: '{units}'. "
-            f"Expected one of {list(_BOLTZMANN_CONSTANTS.keys())}."
+            f"unsupported unit system: '{units}'. "
+            f"Expected one of {list(_BOLTZMANN_CONSTANTS.keys())}"
         )
     if not np.isfinite(temperature):
-        raise ValueError(f"Temperature must be finite. Got: {temperature!r}")
+        raise ValueError(f"temperature must be finite. Got: {temperature!r}")
     if temperature <= 0.0:
-        raise ValueError(f"Temperature must be positive. Got: {temperature!r}")
+        raise ValueError(f"temperature must be positive. Got: {temperature!r}")
     # As a Python float, equal temperatures give the same beta whatever their
     # type: a float32 temperature would otherwise give a float32-rounded beta.
     return 1.0 / (_BOLTZMANN_CONSTANTS[units] * float(temperature))
@@ -360,7 +360,7 @@ class Trajectory(ABC):
         if not self.is_orthorhombic:
             raise AttributeError(
                 "box_x is not defined for non-orthorhombic cells. "
-                "Use cell_matrix instead."
+                "Use cell_matrix instead"
             )
         return float(self.cell_matrix[0, 0])
 
@@ -370,7 +370,7 @@ class Trajectory(ABC):
         if not self.is_orthorhombic:
             raise AttributeError(
                 "box_y is not defined for non-orthorhombic cells. "
-                "Use cell_matrix instead."
+                "Use cell_matrix instead"
             )
         return float(self.cell_matrix[1, 1])
 
@@ -380,7 +380,7 @@ class Trajectory(ABC):
         if not self.is_orthorhombic:
             raise AttributeError(
                 "box_z is not defined for non-orthorhombic cells. "
-                "Use cell_matrix instead."
+                "Use cell_matrix instead"
             )
         return float(self.cell_matrix[2, 2])
 
@@ -451,7 +451,7 @@ class Trajectory(ABC):
         DataUnavailableError
             If the trajectory has no charges.
         """
-        raise DataUnavailableError("Charge data not available for this trajectory type.")
+        raise DataUnavailableError("charge data not available for this trajectory type")
 
     def get_masses(self, atype: str) -> np.ndarray:
         """Return the masses of the atoms of a species or type.
@@ -468,7 +468,7 @@ class Trajectory(ABC):
         DataUnavailableError
             If the trajectory has no masses.
         """
-        raise DataUnavailableError("Mass data not available for this trajectory type.")
+        raise DataUnavailableError("mass data not available for this trajectory type")
 
     def iter_frames(
         self,

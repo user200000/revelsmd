@@ -99,8 +99,8 @@ class RDF:
         if self._like_species:
             if n_a < 2:
                 raise ValueError(
-                    f"Like-species RDF requires at least 2 atoms of species '{species_a}', "
-                    f"but only {n_a} found."
+                    f"like-species RDF requires at least 2 atoms of species '{species_a}', "
+                    f"but only {n_a} found"
                 )
             self._prefactor = self._cell_volume / (float(n_a) * float(n_a - 1))
         else:
@@ -131,7 +131,7 @@ class RDF:
             try:
                 indices.append(trajectory.get_indices(species))
             except ValueError:
-                raise ValueError(f"No atoms found for species '{species}'.")
+                raise ValueError(f"no atoms found for species '{species}'")
         return indices
 
     @property
@@ -273,7 +273,7 @@ class RDF:
                          f"'{self.species_b}' atoms")
                 expected = f"{self._species_counts[0]} and {self._species_counts[1]}"
             raise ValueError(
-                f"The trajectory has {found}, but the RDF was built for {expected}."
+                f"the trajectory has {found}, but the RDF was built for {expected}"
             )
         to_run = frame_range(trajectory.frames, start, stop, period)
         self._indices = indices
@@ -328,7 +328,7 @@ class RDF:
             If integration is not one of the recognised options.
         """
         if self.progress == 'initialized':
-            raise RuntimeError("Call accumulate() before get_rdf().")
+            raise RuntimeError("call accumulate() before get_rdf()")
 
         if integration not in ('forward', 'backward', 'lambda'):
             raise ValueError(f"integration must be 'forward', 'backward', or 'lambda', got {integration!r}")

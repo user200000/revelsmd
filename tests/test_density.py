@@ -295,7 +295,7 @@ def test_fft_force_to_density_odd_nbinsz(ts):
 
 def test_invalid_kernel_raises(ts):
     gs = DensityGrid(ts, "number", nbins=4)
-    with pytest.raises(ValueError, match="Unsupported kernel"):
+    with pytest.raises(ValueError, match="unsupported kernel"):
         gs.accumulate(ts, atom_names="H", kernel="invalid")
 
 
@@ -2189,7 +2189,7 @@ class TestWriteToCube:
         gs = DensityGrid(ts, "number", nbins=4)
         gs.accumulate(ts, atom_names="H", rigid=False)
 
-        with pytest.raises(ValueError, match="Unknown density"):
+        with pytest.raises(ValueError, match="unknown density"):
             gs.write_to_cube("nonsense", "test.cube")
 
     def test_write_to_cube_before_accumulate_raises(self, ts):
@@ -2482,7 +2482,7 @@ class TestHybridDensity:
         """Calling rho_hybrid before accumulate should raise RuntimeError."""
         gs = DensityGrid(ts, "number", nbins=4)
 
-        with pytest.raises(RuntimeError, match="No density data available"):
+        with pytest.raises(RuntimeError, match="no density data available"):
             gs.rho_hybrid(0.01)
 
 

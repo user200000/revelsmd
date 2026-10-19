@@ -33,7 +33,7 @@ def _get_numba_functions() -> tuple[Callable, Callable]:
         return triangular_allocation_numba, box_allocation_numba
     except ImportError as e:
         raise ImportError(
-            "Numba backend requested but numba is not installed. "
+            "numba backend requested but numba is not installed. "
             "Install with: pip install numba"
         ) from e
 
@@ -65,7 +65,7 @@ def get_backend_functions(
 
     if backend not in AVAILABLE_BACKENDS:
         raise ValueError(
-            f"Unknown grid backend: {backend!r}. "
+            f"unknown grid backend: {backend!r}. "
             f"Available backends: {sorted(AVAILABLE_BACKENDS)}"
         )
 

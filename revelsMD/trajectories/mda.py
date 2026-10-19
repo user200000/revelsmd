@@ -71,7 +71,7 @@ class MDATrajectory(Trajectory):
         charges: Mapping[str, float] | None = None,
     ):
         if not topology_file:
-            raise ValueError("A topology file is required for MDAnalysis trajectories.")
+            raise ValueError("a topology file is required for MDAnalysis trajectories")
         paths = as_paths(trajectory_file)
 
         super().__init__(units='mda', temperature=temperature)
