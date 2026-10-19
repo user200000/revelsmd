@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from revelsMD.density import DensityGrid, Selection
-from revelsMD.density.writers.cube import ANGSTROM_TO_BOHR
 from revelsMD.frame_sources import Frame
 
 
@@ -2193,12 +2192,13 @@ class TestWriteToCube:
     @pytest.mark.parametrize("density_type, atom_names, rigid, expected", [
         # The count density integrates to what was deposited each frame: the
         # number of atoms, the total charge, and the total dipole along x,
-        # x_H - x_O per molecule (in e A, so e Bohr in the file).
+        # x_H - x_O per molecule (in e A, so e Bohr in the file, with the Bohr
+        # radius 0.529177 A).
         ("number", ["O", "H"], False, lambda t: 6.0),
         ("charge", "O", False, lambda t: -3.0),
         ("polarisation", ["O", "H"], True,
          lambda t: np.mean(np.sum(t.positions[:, 3:, 0] - t.positions[:, :3, 0], axis=1))
-         * ANGSTROM_TO_BOHR),
+         / 0.529177),
     ], ids=["number", "charge", "polarisation"])
     def test_cube_integrates_to_the_deposited_total_in_atomic_units(
         self, tmp_path, density_type, atom_names, rigid, expected
