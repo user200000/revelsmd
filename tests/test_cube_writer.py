@@ -50,7 +50,7 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell)
+        write_cube(path, grid, cell, length_exponent=0)
 
         assert path.exists()
         assert path.stat().st_size > 0
@@ -60,7 +60,7 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell)
+        write_cube(path, grid, cell, length_exponent=0)
         header = _parse_cube_header(path)
 
         assert header["natoms"] == 0
@@ -75,7 +75,7 @@ class TestWriteCube:
         ])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell)
+        write_cube(path, grid, cell, length_exponent=0)
         header = _parse_cube_header(path)
 
         for i, (n, vec) in enumerate(header["voxels"]):
@@ -89,7 +89,7 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell)
+        write_cube(path, grid, cell, length_exponent=0)
         header = _parse_cube_header(path)
 
         assert len(header["data_values"]) == 3 * 4 * 5
@@ -100,11 +100,29 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell)
+        write_cube(path, grid, cell, length_exponent=0)
         header = _parse_cube_header(path)
 
         recovered = np.array(header["data_values"]).reshape(grid.shape)
         np.testing.assert_allclose(recovered, grid, rtol=1e-5)
+
+    @pytest.mark.parametrize("length_exponent", [-3, -2])
+    def test_values_are_converted_to_bohr(self, tmp_path, length_exponent):
+        # 1 per A^3 is ANGSTROM_TO_BOHR**-3 per Bohr^3; 1 e A per A^3 is
+        # ANGSTROM_TO_BOHR**-2 e per Bohr^2.
+        grid = np.full((2, 3, 4), 0.25)
+        path = tmp_path / "test.cube"
+
+        write_cube(path, grid, np.diag([10.0, 10.0, 10.0]), length_exponent=length_exponent)
+        header = _parse_cube_header(path)
+
+        np.testing.assert_allclose(
+            header["data_values"], 0.25 * ANGSTROM_TO_BOHR**length_exponent, rtol=1e-5
+        )
+
+    def test_length_exponent_is_required(self, tmp_path):
+        with pytest.raises(TypeError, match="length_exponent"):
+            write_cube(tmp_path / "test.cube", np.ones((2, 2, 2)), np.eye(3))
 
     def test_data_ordering_c_contiguous(self, tmp_path):
         """Verify data is written in C (row-major) order by checking specific positions."""
@@ -115,7 +133,7 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell)
+        write_cube(path, grid, cell, length_exponent=0)
         header = _parse_cube_header(path)
         values = header["data_values"]
 
@@ -133,8 +151,8 @@ class TestWriteCube:
 
         path_c = tmp_path / "c_order.cube"
         path_f = tmp_path / "f_order.cube"
-        write_cube(path_c, grid_c, cell)
-        write_cube(path_f, grid_f, cell)
+        write_cube(path_c, grid_c, cell, length_exponent=0)
+        write_cube(path_f, grid_f, cell, length_exponent=0)
 
         header_c = _parse_cube_header(path_c)
         header_f = _parse_cube_header(path_f)
@@ -149,7 +167,7 @@ class TestWriteCube:
         ])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell)
+        write_cube(path, grid, cell, length_exponent=0)
         header = _parse_cube_header(path)
 
         for i, (n, vec) in enumerate(header["voxels"]):
@@ -161,14 +179,14 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
 
         with pytest.raises(FileNotFoundError):
-            write_cube("/nonexistent/path/test.cube", grid, cell)
+            write_cube("/nonexistent/path/test.cube", grid, cell, length_exponent=0)
 
     def test_custom_comment(self, tmp_path):
         grid = np.ones((2, 2, 2))
         cell = np.diag([5.0, 5.0, 5.0])
         path = tmp_path / "test.cube"
 
-        write_cube(path, grid, cell, comment="test comment")
+        write_cube(path, grid, cell, length_exponent=0, comment="test comment")
         header = _parse_cube_header(path)
 
         assert "test comment" in header["comment1"]
@@ -178,11 +196,11 @@ class TestWriteCube:
         cell = np.diag([10.0, 10.0, 10.0])
 
         with pytest.raises(ValueError, match="3D array"):
-            write_cube(tmp_path / "test.cube", grid, cell)
+            write_cube(tmp_path / "test.cube", grid, cell, length_exponent=0)
 
     def test_wrong_cell_matrix_shape_raises(self, tmp_path):
         grid = np.ones((3, 4, 5))
         cell = np.diag([10.0, 10.0])  # 2x2
 
         with pytest.raises(ValueError, match=r"\(3, 3\)"):
-            write_cube(tmp_path / "test.cube", grid, cell)
+            write_cube(tmp_path / "test.cube", grid, cell, length_exponent=0)

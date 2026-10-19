@@ -16,12 +16,15 @@ def write_cube(
     grid: np.ndarray,
     cell_matrix: np.ndarray,
     *,
+    length_exponent: int,
     comment: str = "",
 ) -> None:
-    """Write a 3D grid to a Gaussian ``.cube`` file.
+    """Write a 3D grid to a Gaussian ``.cube`` file, in atomic units.
 
     The file is written with zero atoms -- this is intended for density
-    or other volumetric data, not atomic structure.
+    or other volumetric data, not atomic structure. Cube readers take the
+    voxel vectors in Bohr, so the values are converted from Angstroms to
+    Bohr too: a number density in A^-3 is written in Bohr^-3.
 
     Parameters
     ----------
@@ -32,6 +35,10 @@ def write_cube(
     cell_matrix : numpy.ndarray
         3x3 matrix whose rows are the lattice vectors (a, b, c) in
         Angstroms.
+    length_exponent : int
+        The power of length in the units of ``grid``: -3 for a number or
+        charge density (per A^3), -2 for a polarisation density (e A per
+        A^3), 0 for a dimensionless field.
     comment : str, optional
         Comment for the first line of the cube file.
     """
@@ -66,7 +73,7 @@ def write_cube(
         # Volumetric data in C-order (matches OUTER LOOP: X, MIDDLE
         # LOOP: Y, INNER LOOP: Z).  Standard cube format uses up to
         # 6 values per line.
-        values = grid.ravel()
+        values = grid.ravel() * ANGSTROM_TO_BOHR**length_exponent
         for i in range(0, len(values), 6):
             chunk = values[i : i + 6]
             f.write(" ".join(f"{v:13.5e}" for v in chunk))
