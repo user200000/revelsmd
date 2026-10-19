@@ -486,6 +486,15 @@ class TestVASPRegression:
 # Synthetic Trajectory Regression Tests
 # ---------------------------------------------------------------------------
 
+def _assert_uniform_gas_baseline(ref):
+    """The baseline was generated from the system synthetic_systems builds."""
+    import synthetic_systems as systems
+    assert int(ref['seed']) == systems.UNIFORM_GAS_SEED
+    assert int(ref['n_atoms']) == systems.UNIFORM_GAS_ATOMS
+    assert int(ref['n_frames']) == systems.UNIFORM_GAS_FRAMES
+    assert float(ref['box']) == systems.UNIFORM_GAS_BOX
+
+
 @pytest.mark.integration
 @pytest.mark.regression
 @pytest.mark.analytical
@@ -500,6 +509,7 @@ class TestSyntheticRegression:
     def test_uniform_gas_rdf_regression(self, uniform_gas_trajectory):
         """Uniform gas RDF matches stored reference."""
         ref = load_reference("synthetic", "uniform_gas_rdf.npz")
+        _assert_uniform_gas_baseline(ref)
 
         result = compute_rdf(
             uniform_gas_trajectory, '1', '1',
@@ -522,6 +532,8 @@ class TestSyntheticRegression:
     def test_uniform_gas_density_regression(self, uniform_gas_trajectory):
         """Uniform gas density matches stored reference."""
         ref = load_reference("synthetic", "uniform_gas_density.npz")
+        _assert_uniform_gas_baseline(ref)
+        assert int(ref['nbins']) == 30
 
         gs = DensityGrid(
             uniform_gas_trajectory, 'number', nbins=30
@@ -544,6 +556,8 @@ class TestSyntheticRegression:
         # parameter: assert the baseline was generated with the expected
         # value rather than reading it from the file under test.
         assert int(ref['lambda_block_size']) == 10
+        _assert_uniform_gas_baseline(ref)
+        assert int(ref['nbins']) == 30
 
         gs = DensityGrid(
             uniform_gas_trajectory, 'number', nbins=30
@@ -569,15 +583,18 @@ class TestSyntheticRegression:
         Also a full-pipeline convention guard: pinned from the fixed code,
         so restoring the historical transpose fails this regression.
         """
-        from synthetic_systems import triclinic_trajectory
+        import synthetic_systems as systems
 
         ref = load_reference("synthetic", "triclinic_density.npz")
-        ts = triclinic_trajectory()
-        # The baseline records the system it was generated from.
-        np.testing.assert_array_equal(ts.cell_matrix, ref['cell'])
-        assert ts.positions.shape[:2] == (int(ref['n_frames']), int(ref['n_atoms']))
+        # The baseline was generated from the system synthetic_systems builds.
+        assert int(ref['seed']) == systems.TRICLINIC_SEED
+        np.testing.assert_array_equal(ref['cell'], systems.TRICLINIC_CELL)
+        assert int(ref['n_atoms']) == systems.TRICLINIC_ATOMS
+        assert int(ref['n_frames']) == systems.TRICLINIC_FRAMES
+        assert int(ref['nbins']) == 16
 
-        gs = DensityGrid(ts, 'number', nbins=int(ref['nbins']))
+        ts = systems.triclinic_trajectory()
+        gs = DensityGrid(ts, 'number', nbins=16)
         gs.accumulate(ts, '1', kernel='triangular')
 
         assert_arrays_close(gs.rho_force, ref['rho_force'],

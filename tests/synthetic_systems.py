@@ -5,7 +5,9 @@ scripts/generate_reference_data.py and the regression tests both build their
 inputs here, so the two cannot drift apart. Each system draws from its own
 ``RandomState``, which gives the same numbers as the legacy global
 ``np.random.seed`` stream the baselines were generated with, but is not
-affected by draws elsewhere.
+affected by draws elsewhere. ``RandomState``'s stream is frozen across NumPy
+versions (NEP 19); a ``default_rng`` stream is not, and could change the
+inputs under the stored baselines.
 """
 
 import numpy as np
