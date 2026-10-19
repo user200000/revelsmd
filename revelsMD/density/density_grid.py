@@ -14,10 +14,9 @@ from tqdm import tqdm
 
 from revelsMD.backends import get_fft_workers
 from revelsMD.frame_sources import BlockSource, contiguous_blocks, interleaved_blocks
-from revelsMD.trajectories._base import Trajectory, frame_range
+from revelsMD.trajectories._base import Trajectory, check_same_system, frame_range
 from revelsMD.cell import (
     cartesian_to_fractional,
-    cells_are_compatible,
     wrap_fractional,
 )
 from revelsMD.density.constants import validate_density_type
@@ -278,10 +277,10 @@ class DensityGrid:
         """
         Deposit one frame's selected positions and forces to the grid.
 
-        Each call is one frame: all of a frame's species arrays are passed
-        together, as lists, as Selection.extract returns them. Private, so
-        that a frame cannot be split across calls, which would count each
-        call as a frame and under-normalise the density.
+        Takes what Selection.extract returns for one frame: arrays for one
+        species or rigid molecules, lists of arrays for several species.
+        Each call counts as one frame, so it is private: a frame split across
+        calls would under-normalise the density.
 
         Parameters
         ----------
@@ -401,6 +400,11 @@ class DensityGrid:
         multiple ``accumulate()`` calls, enabling lambda estimation from
         multiple trajectories.
 
+        Each call selects atoms with its own arguments. Use the same
+        selection in every call: accumulating ``'O'`` and then ``'H'`` counts
+        each frame twice and halves the density, where ``['O', 'H']`` in one
+        call gives their total.
+
         If a frame cannot be read, the frames deposited before it are kept,
         so a later ``accumulate()`` on another trajectory adds to them. With
         ``compute_lambda=True``, frames are kept in whole blocks: the block
@@ -413,16 +417,13 @@ class DensityGrid:
         Raises
         ------
         ValueError
-            On invalid frame selection, unsupported density/kernel combinations,
+            If the trajectory's cell, temperature or units differ from the
+            grid's; on invalid frame selection, unsupported density/kernel combinations,
             malformed inputs for rigid/centre options, or if ``rho_lambda`` is
             accessed with fewer than 2 accumulated sections (variance estimation
             requires at least 2 data points).
         """
-        # --- Validate cell compatibility ---
-        if not cells_are_compatible(trajectory.cell_matrix, self.cell_matrix):
-            raise ValueError(
-                "Trajectory cell does not match DensityGrid cell."
-            )
+        check_same_system(trajectory, self.cell_matrix, self.beta, "density grid")
 
         # --- Validate atom_names ---
         if isinstance(atom_names, str):

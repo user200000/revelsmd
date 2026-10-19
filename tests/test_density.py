@@ -290,125 +290,62 @@ def test_fft_force_to_density_odd_nbinsz(ts):
 
 
 # ---------------------------------------------------------------------------
-# DensityGrid._deposit: invalid kernel and triclinic cells
+# Deposition: kernels, triclinic cells, and the per-frame type guards
 # ---------------------------------------------------------------------------
 
-def test_deposit_invalid_kernel(ts):
-    """deposit raises ValueError for unknown kernel."""
+def test_invalid_kernel_raises(ts):
     gs = DensityGrid(ts, "number", nbins=4)
     with pytest.raises(ValueError, match="Unsupported kernel"):
-        gs._deposit(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), weights=1.0, kernel="invalid")
+        gs.accumulate(ts, atom_names="H", kernel="invalid")
+
+
+def _triclinic_trajectory(positions):
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+    cell = np.array([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [0.0, 0.0, 8.0]])
+    positions = np.asarray(positions, dtype=float)
+    forces = np.tile([0.5, 0.1, 0.0], positions.shape[:2] + (1,))
+    return NumpyTrajectory(positions, forces, cell_matrix=cell,
+                           species_list=["A"] * positions.shape[1],
+                           temperature=300.0, units="real")
 
 
 @pytest.mark.parametrize("kernel", ["box", "triangular"])
-def test_deposit_triclinic(kernel):
-    """deposit should deposit to grid for triclinic cells."""
-    from revelsMD.trajectories.numpy import NumpyTrajectory
-
-    cell = np.array([
-        [10.0, 0.0, 0.0],
-        [3.0, 9.0, 0.0],
-        [0.0, 0.0, 8.0],
-    ])
-    traj = NumpyTrajectory(
-        positions=np.zeros((2, 3, 3)),
-        forces=np.zeros((2, 3, 3)),
-        cell_matrix=cell,
-        species_list=["A", "A", "A"],
-        temperature=300.0, units="real",
-    )
+def test_deposit_in_a_triclinic_cell(kernel):
+    # Every atom's weight lands on the grid: one per atom per frame.
+    traj = _triclinic_trajectory([[[5.0, 4.5, 4.0]], [[2.0, 1.0, 7.5]]])
     gs = DensityGrid(traj, density_type="number", nbins=4)
-    pos = np.array([[5.0, 4.5, 4.0]])
-    frc = np.array([[0.5, 0.0, 0.0]])
-    gs._deposit(pos, frc, weights=1.0, kernel=kernel)
-    assert np.any(gs.force_x != 0)
-    assert np.any(gs.counter != 0)
-
-
-def test_deposit_triclinic_boundary_particles():
-    """Particles at fractional coordinate boundaries should not crash."""
-    from revelsMD.trajectories.numpy import NumpyTrajectory
-
-    cell = np.array([
-        [10.0, 0.0, 0.0],
-        [3.0, 9.0, 0.0],
-        [0.0, 0.0, 8.0],
-    ])
-    traj = NumpyTrajectory(
-        positions=np.zeros((2, 3, 3)),
-        forces=np.zeros((2, 3, 3)),
-        cell_matrix=cell,
-        species_list=["A", "A", "A"],
-        temperature=300.0, units="real",
-    )
-    gs = DensityGrid(traj, density_type="number", nbins=4)
-    pos = np.array([[0.0, 0.0, 0.0], [9.99, 8.99, 7.99]])
-    frc = np.array([[0.1, 0.0, 0.0], [0.0, 0.1, 0.0]])
-    gs._deposit(pos, frc, weights=1.0, kernel="triangular")
-    assert np.any(gs.counter != 0)
-
-
-# ---------------------------------------------------------------------------
-# DensityGrid._deposit (basic tests)
-# ---------------------------------------------------------------------------
-
-def test_deposit_single_array(ts):
-    """deposit with single array deposits once."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    pos = np.array([[1.0, 2.0, 3.0]])
-    frc = np.array([[0.5, 0.0, 0.0]])
-    gs._deposit(pos, frc, weights=1.0, kernel="triangular")
-
-    assert gs.count == 1
-    assert np.any(gs.counter != 0)
+    gs.accumulate(traj, atom_names="A", kernel=kernel)
+    assert gs.count == 2
+    assert gs.counter.sum() == pytest.approx(2.0, abs=1e-12)
     assert np.any(gs.force_x != 0)
 
 
-def test_deposit_list_of_arrays(ts):
-    """deposit with list of arrays deposits each array but counts one frame."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
-    frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
-    gs._deposit(pos_list, frc_list, weights=1.0, kernel="box")
-
-    # Sum convention: one frame deposited, both arrays landed on the grid
-    # (box kernel deposits weight 1 per atom, so the counter total is 2).
-    assert gs.count == 1
+def test_deposit_at_the_cell_boundary_in_a_triclinic_cell():
+    traj = _triclinic_trajectory([[[0.0, 0.0, 0.0], [12.99, 8.99, 7.99]]])
+    gs = DensityGrid(traj, density_type="number", nbins=4)
+    gs.accumulate(traj, atom_names="A")
     assert gs.counter.sum() == pytest.approx(2.0, abs=1e-12)
 
 
-def test_deposit_broadcasts_scalar_weight(ts):
-    """deposit broadcasts scalar weight to all position arrays."""
-    gs = DensityGrid(ts, "number", nbins=4)
-    pos_list = [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])]
-    frc_list = [np.array([[0.5, 0.0, 0.0]]), np.array([[0.0, 0.5, 0.0]])]
-    gs._deposit(pos_list, frc_list, weights=0.5, kernel="triangular")
-
-    # The non-unit scalar weight must reach BOTH arrays: two atoms at
-    # weight 0.5 each deposit a counter total of exactly 1.0.
-    assert gs.count == 1
-    assert gs.counter.sum() == pytest.approx(1.0, abs=1e-12)
-
-
 def test_deposit_rejects_list_weights_with_single_positions(ts):
-    """deposit raises TypeError if weights is a list but positions is a single array."""
+    """_deposit raises TypeError if weights is a list but positions is a single array."""
     gs = DensityGrid(ts, "number", nbins=4)
-    pos = np.array([[1.0, 2.0, 3.0]])
-    frc = np.array([[0.5, 0.0, 0.0]])
-    weights_list = [np.array([1.0])]
-
     with pytest.raises(TypeError, match="weights cannot be a list"):
-        gs._deposit(pos, frc, weights=weights_list)
+        gs._deposit(np.array([[1.0, 2.0, 3.0]]), np.array([[0.5, 0.0, 0.0]]), weights=[np.array([1.0])])
 
 
 def test_deposit_rejects_list_forces_with_single_positions(ts):
-    """deposit raises TypeError if forces is a list but positions is a single array."""
+    """_deposit raises TypeError if forces is a list but positions is a single array."""
     gs = DensityGrid(ts, "number", nbins=4)
-    pos = np.array([[1.0, 2.0, 3.0]])
-    frc_list = [np.array([[0.5, 0.0, 0.0]])]
-
     with pytest.raises(TypeError, match="positions and forces must both be lists or both be arrays"):
-        gs._deposit(pos, frc_list, weights=1.0)
+        gs._deposit(np.array([[1.0, 2.0, 3.0]]), [np.array([[0.5, 0.0, 0.0]])], weights=1.0)
+
+
+def test_deposit_rejects_list_positions_with_single_forces(ts):
+    """_deposit raises TypeError if positions is a list but forces is a single array."""
+    gs = DensityGrid(ts, "number", nbins=4)
+    with pytest.raises(TypeError, match="positions and forces must both be lists or both be arrays"):
+        gs._deposit([np.array([[1.0, 2.0, 3.0]])], np.array([[0.5, 0.0, 0.0]]), weights=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -966,9 +903,10 @@ class TestAccumulateComputeLambda:
         )
         assert gs._welford.count == 10  # Combined from both calls
 
-        # Lambda uses combined statistics
-        rho = gs.rho_lambda
-        assert rho is not None
+        # Lambda uses combined statistics: the same as one call over all frames.
+        single = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        single.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True, block_size=1)
+        np.testing.assert_allclose(gs.rho_lambda, single.rho_lambda, rtol=1e-12, atol=1e-14)
 
     def test_frames_processed_accumulates_across_calls(self, multi_frame_trajectory):
         """frames_processed should accumulate total frames across multiple accumulate() calls."""
@@ -1319,105 +1257,16 @@ class IterableMockTrajectory(MockTrajectory):
             yield Frame(self._positions[i], self._forces[i])
 
 
-# ---------------------------------------------------------------------------
-# Selection.get_positions() tests
-# ---------------------------------------------------------------------------
+def test_accumulate_another_temperature_raises():
+    from revelsMD.trajectories.numpy import NumpyTrajectory
 
-class TestDeposit:
-    """Tests for DensityGrid._deposit with Selection."""
+    def water(temperature):
+        return NumpyTrajectory(np.zeros((2, 3, 3)), np.ones((2, 3, 3)), 10.0, 10.0, 10.0,
+                               ["O", "H", "H"], temperature=temperature, units="real")
 
-    @pytest.fixture
-    def trajectory(self):
-        return MockTrajectory()
-
-    @pytest.fixture
-    def positions(self):
-        """9 atoms: 3 water molecules."""
-        return np.array([
-            [1.0, 5.0, 5.0],   # O (index 0)
-            [1.5, 5.0, 5.0],   # H1 (index 1)
-            [0.5, 5.0, 5.0],   # H2 (index 2)
-            [4.0, 5.0, 5.0],   # O (index 3)
-            [4.5, 5.0, 5.0],   # H1 (index 4)
-            [3.5, 5.0, 5.0],   # H2 (index 5)
-            [7.0, 5.0, 5.0],   # O (index 6)
-            [7.5, 5.0, 5.0],   # H1 (index 7)
-            [6.5, 5.0, 5.0],   # H2 (index 8)
-        ], dtype=float)
-
-    @pytest.fixture
-    def forces(self):
-        """Forces for 9 atoms."""
-        return np.array([
-            [1.0, 0.1, 0.0],   # O
-            [0.5, 0.05, 0.0],  # H1
-            [0.5, 0.05, 0.0],  # H2
-            [2.0, 0.2, 0.0],   # O
-            [1.0, 0.1, 0.0],   # H1
-            [1.0, 0.1, 0.0],   # H2
-            [3.0, 0.3, 0.0],   # O
-            [1.5, 0.15, 0.0],  # H1
-            [1.5, 0.15, 0.0],  # H2
-        ], dtype=float)
-
-    def test_deposit_single_species_number_density(self, trajectory, positions, forces):
-        """deposit with single species populates grid."""
-
-        gs = DensityGrid(trajectory, "number", nbins=5)
-        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='number')
-        gs._deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
-
-        assert np.any(gs.force_x != 0)
-        assert np.any(gs.counter != 0)
-        assert gs.count == 1
-
-    def test_deposit_multi_species_non_rigid(self, trajectory, positions, forces):
-        """deposit with multi-species non-rigid deposits each species."""
-
-        gs = DensityGrid(trajectory, "number", nbins=5)
-        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=False, density_type='number')
-        species_positions = ss.get_positions(positions)
-        gs._deposit(species_positions, ss.get_forces(forces), ss.get_weights(), kernel="triangular")
-
-        # One frame deposited, however many species arrays it carried
-        # (sum convention: the density is the total over selected atoms).
-        # Trilinear weights sum to 1 per atom, so the counter total equals
-        # the number of selected atoms exactly.
-        n_selected = sum(len(p) for p in species_positions)
-        assert gs.count == 1
-        assert gs.counter.sum() == pytest.approx(float(n_selected), abs=1e-12)
-
-    def test_deposit_rigid_com_number_density(self, trajectory, positions, forces):
-        """deposit with rigid molecule at COM populates grid."""
-
-        gs = DensityGrid(trajectory, "number", nbins=5)
-        ss = Selection(trajectory, ['O', 'H1', 'H2'], centre_location=True, rigid=True, density_type='number')
-        gs._deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
-
-        # Rigid deposits once per molecule group
-        assert gs.count == 1
-        assert np.any(gs.counter != 0)
-        assert np.any(gs.force_x != 0)
-
-    def test_deposit_charge_density_single_species(self, trajectory, positions, forces):
-        """deposit with charge density uses charge weights."""
-
-        gs = DensityGrid(trajectory, "charge", nbins=5)
-        ss = Selection(trajectory, 'O', centre_location=True, rigid=False, density_type='charge')
-        gs._deposit(ss.get_positions(positions), ss.get_forces(forces), ss.get_weights(), kernel="triangular")
-
-        # O has negative charge, so counter contributions are negative
-        assert np.any(gs.counter != 0)
-        assert gs.count == 1
-
-    def test_deposit_list_positions_array_forces_raises(self, trajectory, positions, forces):
-        """deposit raises TypeError when positions is list but forces is array."""
-        gs = DensityGrid(trajectory, "number", nbins=5)
-
-        # positions as list of arrays, forces as single array
-        positions_list = [positions[:3], positions[3:6], positions[6:]]
-        with pytest.raises(TypeError, match="positions and forces must both be lists or both be arrays"):
-            gs._deposit(positions_list, forces, weights=1.0)
+    gs = DensityGrid(water(300.0), density_type="number", nbins=4)
+    with pytest.raises(ValueError, match="temperature or units"):
+        gs.accumulate(water(600.0), atom_names="O")
 
 
 def test_accumulate_mismatched_cell_raises(ts):
@@ -2118,8 +1967,7 @@ class TestTriclinicFFT:
             temperature=300.0, units="real",
         )
         gs = DensityGrid(traj, density_type="number", nbins=nbins)
-        for i in range(n_frames):
-            gs._deposit(positions[i], forces[i], weights=1.0)
+        gs.accumulate(traj, atom_names="A")
 
         # Force-based density should be flat (all perturbation is zero)
         rho_force, rho_count, _, _ = gs._fft_force_to_density(
@@ -2127,8 +1975,8 @@ class TestTriclinicFFT:
         )
         # rho_force should equal mean(rho_count) everywhere
         np.testing.assert_allclose(
-            rho_force, np.mean(rho_count), rtol=0.3,
-            err_msg="Ideal gas (zero forces) should produce approximately flat density",
+            rho_force, np.mean(rho_count), rtol=1e-12,
+            err_msg="Ideal gas (zero forces) should produce a flat force density",
         )
 
 

@@ -16,6 +16,7 @@ from MDAnalysis.exceptions import NoDataError  # type: ignore[import-untyped]
 import numpy as np
 import scipy.constants as constants
 
+from revelsMD.cell import cells_are_compatible
 from revelsMD.cell import is_orthorhombic as _is_orthorhombic_cell
 from revelsMD.frame_sources import Frame
 
@@ -120,6 +121,22 @@ def as_paths(files: TrajectoryFiles) -> list[str]:
     if not paths:
         raise ValueError("At least one trajectory file is required.")
     return paths
+
+
+def check_same_system(trajectory: Any, cell_matrix: np.ndarray, beta: float, owner: str) -> None:
+    """Raise ValueError unless ``trajectory`` has the given cell and beta.
+
+    Frames from several trajectories can be accumulated into one ``owner``
+    (a density grid or RDF) only if they describe the same system: the same
+    cell, and the same temperature and units, which set beta.
+    """
+    if not cells_are_compatible(trajectory.cell_matrix, cell_matrix):
+        raise ValueError(f"the trajectory's cell differs from the {owner}'s")
+    if trajectory.beta != beta:
+        raise ValueError(
+            f"the trajectory's temperature or units (beta = {trajectory.beta}) differ "
+            f"from the {owner}'s (beta = {beta})"
+        )
 
 
 def frame_range(n_frames: int, start: int, stop: int | None, period: int) -> range:

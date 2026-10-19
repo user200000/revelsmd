@@ -80,41 +80,41 @@ that atom counts match. `frozen=True` prevents mutation after creation.
 
 ## Accumulation
 
-Both `DensityGrid` and `RDF` take frames only through `accumulate()`, which
-iterates a trajectory's frames and passes each to a private per-frame method,
-`_deposit()`. Calling `accumulate()` again adds more frames, from the same or
-another trajectory. A set of structures is a trajectory too: wrap the arrays in
-a `NumpyTrajectory`.
+The constructor of `DensityGrid` or `RDF` takes the system from a trajectory:
+its cell and beta (temperature and units), and for the RDF the number of atoms
+of each species. It keeps those values, not the trajectory. Frames go in only
+through `accumulate()`, which takes a trajectory of that system, raises if its
+cell, temperature or units differ (or, for the RDF, its species counts), and
+iterates its frames. Calling `accumulate()` again adds frames from the same
+trajectory or another of the same system, such as an independent run; see
+{doc}`/how-to/numpy-interface` for a set of structures.
 
-Keeping `_deposit()` private means a frame cannot be split across calls: each
-call counts as one frame, so depositing a frame's species one call at a time
-would under-normalise the density.
+Whole frames are deposited at a time, so a frame cannot be split across calls.
+`DensityGrid` builds its `Selection` from each call's `atom_names`, so a grid
+can still mix selections across calls: accumulating `'O'` and then `'H'` counts
+each frame twice and halves the density, where `['O', 'H']` in one call gives
+the total.
 
-### DensityGrid._deposit takes arrays
+### DensityGrid deposition
 
-`DensityGrid._deposit(positions, forces, weights, kernel)` operates below
-`Selection`, accepting numpy arrays (or lists of arrays for multi-species).
-Each call deposits exactly one frame: for a multi-species selection, every
-array in the lists belongs to that same frame, and `count` advances by one
-per call rather than per array. `accumulate()` builds a `Selection` from
-`atom_names` and calls `Selection.extract(frame)` to produce inputs for each
-`_deposit()` call.
+Without `compute_lambda`, `accumulate()` calls the private
+`DensityGrid._deposit(positions, forces, weights, kernel)` once per frame, with
+what `Selection.extract(frame)` returns: arrays for one species or rigid
+molecules, lists of arrays for several species. `count` advances by one per
+frame, not per array. With `compute_lambda=True`, `_accumulate_blocks` deposits
+each block's frames into block buffers instead, and adds them to the grid once
+the block is complete.
 
-### RDF._deposit takes a Frame
+### RDF deposition
 
-`RDF._deposit(frame)` accepts a `Frame` and performs atom selection internally
-using indices stored at `__init__`. This is appropriate because the RDF always
-computes a pairwise property between two fixed species — there is no equivalent
-of the flexible `Selection` class.
-
-This is a structural difference: `DensityGrid` supports runtime reconfiguration
-(rigid molecules, charge weights, different species), while `RDF` is always a
-two-species pairwise calculation.
+`RDF._deposit(frame)` takes a `Frame` and selects the atoms of the two species
+using the indices found in the trajectory being accumulated. The RDF always
+computes a pairwise property between two species, so it needs no `Selection`.
 
 ## Selection and Selection.extract
 
-`Selection` (`revelsMD/density/selection.py`) bridges `Frame` to
-`DensityGrid._deposit()` inputs. It is constructed once per `accumulate()` call
+`Selection` (`revelsMD/density/selection.py`) turns a `Frame` into the arrays
+`DensityGrid` deposits. It is constructed once per `accumulate()` call
 with the trajectory and `atom_names`, then called per frame via
 `extract(frame)`.
 

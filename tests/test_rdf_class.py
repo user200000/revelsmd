@@ -126,59 +126,70 @@ class TestRDFClassAPI:
         with pytest.raises(RuntimeError):
             rdf.get_rdf()
 
-    def test_rdf_deposit_single_frame(self, water_trajectory):
-        """Test low-level deposit method for user-controlled iteration."""
+
+def _water(box=10.0, temperature=300.0, order=None, seed=0):
+    """A small water-like trajectory; ``order`` permutes its atoms."""
+    rng = np.random.default_rng(seed)
+    species = np.array(["O", "H", "H"] * 4)
+    positions = rng.uniform(0, box, (6, len(species), 3))
+    forces = rng.normal(size=(6, len(species), 3))
+    if order is not None:
+        species, positions, forces = species[order], positions[:, order], forces[:, order]
+    return NumpyTrajectory(positions, forces, box, box, box, list(species),
+                           temperature=temperature, units="real")
+
+
+class TestRDFAccumulateTrajectories:
+    """accumulate() takes frames from any trajectory of the RDF's system."""
+
+    @pytest.mark.parametrize("other, message", [
+        (lambda: _water(box=12.0), "cell differs"),
+        (lambda: _water(temperature=600.0), "temperature or units"),
+        (lambda: NumpyTrajectory(np.zeros((2, 3, 3)), np.ones((2, 3, 3)), 10.0, 10.0, 10.0,
+                                 ["O", "H", "H"], temperature=300.0, units="real"), "built for 4 and 8"),
+    ], ids=["cell", "temperature", "species counts"])
+    def test_another_system_raises(self, other, message):
         from revelsMD.rdf import RDF
-        rdf = RDF(water_trajectory, 'O', 'H')
-        frame = water_trajectory.get_frame(0)
-        rdf._deposit(frame)
-        assert rdf.progress == 'accumulated'
+        rdf = RDF(_water(), 'O', 'H', delr=0.1)
+        with pytest.raises(ValueError, match=message):
+            rdf.accumulate(other())
 
-    def test_rdf_deposit_multiple_frames(self, water_trajectory):
-        """Test deposit can be called multiple times."""
+    def test_atoms_are_found_by_name_in_each_trajectory(self):
+        # The same frames with the atoms listed in another order.
         from revelsMD.rdf import RDF
-        rdf = RDF(water_trajectory, 'O', 'H')
-        for frame in water_trajectory.iter_frames(stop=3):
-            rdf._deposit(frame)
-        rdf.get_rdf(integration='forward')
-        assert rdf.r is not None
-        assert rdf.g is not None
+        order = np.random.default_rng(1).permutation(12)
+        reference = RDF(_water(), 'O', 'H', delr=0.1)
+        reference.accumulate(_water())
+        reordered = RDF(_water(), 'O', 'H', delr=0.1)
+        reordered.accumulate(_water(order=order))
+        for integration in ('forward', 'backward', 'lambda'):
+            reference.get_rdf(integration=integration)
+            reordered.get_rdf(integration=integration)
+            np.testing.assert_allclose(reordered.g, reference.g, rtol=1e-12, atol=1e-14)
 
-
-class TestRDFBasicFunctionality:
-    """Test basic RDF functionality with Frame objects."""
-
-    def test_deposit_accepts_frame(self, water_trajectory):
-        """_deposit() accepts a Frame instance."""
-        from revelsMD.frame_sources import Frame
+    @pytest.mark.parametrize("integration", ['forward', 'backward', 'lambda'])
+    def test_accumulating_in_parts_matches_one_call(self, integration):
         from revelsMD.rdf import RDF
-        rdf = RDF(water_trajectory, 'O', 'H')
-        frame = water_trajectory.get_frame(0)
-        assert isinstance(frame, Frame)
-        rdf._deposit(frame)
-        assert rdf._frame_count == 1
+        traj = _water()
+        whole = RDF(traj, 'O', 'H', delr=0.1)
+        whole.accumulate(traj)
+        parts = RDF(traj, 'O', 'H', delr=0.1)
+        parts.accumulate(traj, stop=2)
+        parts.accumulate(traj, start=2)
+        whole.get_rdf(integration=integration)
+        parts.get_rdf(integration=integration)
+        assert parts._frame_count == whole._frame_count == 6
+        np.testing.assert_allclose(parts.g, whole.g, rtol=1e-12, atol=1e-14)
+        np.testing.assert_allclose(parts.g_count, whole.g_count, rtol=1e-12, atol=1e-14)
 
-
-class TestRDFDepositMatchesAccumulate:
-    """Verify deposit-based iteration matches accumulate convenience method."""
-
-    def test_deposit_matches_accumulate(self, water_trajectory):
-        """Verify deposit-based iteration matches accumulate convenience method."""
+    def test_accumulate_clears_earlier_results(self):
         from revelsMD.rdf import RDF
-
-        # Using accumulate
-        rdf1 = RDF(water_trajectory, 'O', 'H')
-        rdf1.accumulate(water_trajectory)
-        rdf1.get_rdf(integration='forward')
-
-        # Using deposit
-        rdf2 = RDF(water_trajectory, 'O', 'H')
-        for frame in water_trajectory.iter_frames():
-            rdf2._deposit(frame)
-        rdf2.get_rdf(integration='forward')
-
-        np.testing.assert_allclose(rdf1.r, rdf2.r)
-        np.testing.assert_allclose(rdf1.g, rdf2.g)
+        traj = _water()
+        rdf = RDF(traj, 'O', 'H', delr=0.1)
+        rdf.accumulate(traj, stop=3)
+        rdf.get_rdf(integration='lambda')
+        rdf.accumulate(traj, start=3)
+        assert rdf.g is None and rdf.g_count is None and rdf.lam is None and rdf.r is None
 
 
 class TestComputeRDFConvenience:
@@ -356,8 +367,8 @@ class TestRDFCountAccumulation:
         assert rdf._counts.shape == rdf._accumulated.shape
         np.testing.assert_array_equal(rdf._counts, 0)
 
-    def test_counts_accumulated_after_deposit(self):
-        """Counts should be non-zero after depositing frames."""
+    def test_counts_accumulated_after_accumulate(self):
+        """Counts hold one unit of weight per pair within rmax."""
         from revelsMD.rdf import RDF
 
         # Create trajectory with atoms close enough to be within rmax
@@ -375,11 +386,10 @@ class TestRDFCountAccumulation:
         )
 
         rdf = RDF(ts, 'H', 'H')
-        frame = ts.get_frame(0)
-        rdf._deposit(frame)
+        rdf.accumulate(ts)
 
-        # Distance is 2.0, rmax is 5.0, delr is 0.01, so should be in bins
-        assert np.sum(rdf._counts) > 0
+        # One pair at distance 2.0 (within rmax 5.0); triangular weights sum to 1.
+        assert np.sum(rdf._counts) == pytest.approx(1.0, abs=1e-12)
 
     def test_g_count_property_available_after_get_rdf(self, water_trajectory):
         """g_count property available after get_rdf."""

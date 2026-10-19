@@ -49,10 +49,12 @@ traj = NumpyTrajectory(
 
 A set of structures with the same atoms and cell, such as snapshots from
 several independent runs, is a trajectory: stack their arrays and wrap them in
-a `NumpyTrajectory`. Their order does not matter, since densities and RDFs are
-equilibrium averages.
+a `NumpyTrajectory`. Their order does not change `rho_force`, `rho_count` or
+g(r); with `compute_lambda=True`, blocks are formed in that order.
 
 ```python
+# positions_list and forces_list: one (atoms, 3) array per structure;
+# cell: the 3x3 cell matrix, rows as lattice vectors.
 traj = NumpyTrajectory(
     np.stack(positions_list),   # (structures, atoms, 3)
     np.stack(forces_list),      # (structures, atoms, 3)
@@ -66,4 +68,4 @@ grid.accumulate(traj, atom_names='O')
 ```
 
 To add more structures later, call `accumulate()` again with another
-trajectory with the same cell.
+trajectory of the same system: the same cell, temperature and units.

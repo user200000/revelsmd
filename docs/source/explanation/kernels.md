@@ -9,7 +9,8 @@ assigned to one or more voxels. RevelsMD supports two deposition kernels:
 - **Box** — assigns the full contribution to the single voxel containing the
   particle. Faster but more susceptible to discretisation noise.
 
-The kernel is selected via the `kernel` parameter of `DensityGrid.accumulate()`. The RDF accumulator always uses triangular deposition
+The kernel is selected via the `kernel` parameter of `DensityGrid.accumulate()`.
+The RDF accumulator always uses triangular deposition
 for its histogram-based estimate.
 
 ## Triangular (CIC) kernel

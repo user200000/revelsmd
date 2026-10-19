@@ -1,4 +1,4 @@
-"""Stateful RDF class for revelsMD, following the DensityGrid pattern."""
+"""Stateful RDF class for revelsMD."""
 
 from __future__ import annotations
 
@@ -11,23 +11,23 @@ from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.frame_sources import Frame
 from revelsMD.rdf.rdf_helpers import get_backend_functions
 from revelsMD.statistics import control_variate_combination
-from revelsMD.trajectories._base import frame_range
+from revelsMD.trajectories._base import check_same_system, frame_range
 
 
 class RDF:
     """
     Radial distribution function calculator.
 
-    Follows the same pattern as DensityGrid:
-    - Constructor sets up bins and indices
-    - accumulate() adds the contributions of a trajectory's frames
-    - get_rdf() computes final g(r) with chosen integration
+    The constructor takes the system from ``trajectory``: its cell, beta and
+    the number of atoms of each species. accumulate() adds the frames of a
+    trajectory of that system, which may be another trajectory, such as an
+    independent run; get_rdf() computes g(r) with the chosen integration.
 
     Parameters
     ----------
     trajectory : Trajectory
-        Trajectory object providing positions, forces, and box dimensions.
-        Used to set up bins, indices, and prefactor.
+        A trajectory of the system, for its cell, beta and species counts.
+        Its frames are not read; pass it to accumulate() for that.
     species_a : str
         First species name.
     species_b : str
@@ -61,12 +61,12 @@ class RDF:
         delr: float = 0.01,
         rmax: float | None = None,
     ):
-        self._trajectory = trajectory
         self.species_a = species_a
         self.species_b = species_b
         self.delr = delr
 
-        # Store cell geometry for use in deposit
+        # The system: frames from any trajectory with this cell, beta and
+        # species counts can be accumulated.
         self._cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
         self._cell_inverse = np.linalg.inv(self._cell_matrix)
         self._cell_volume = float(abs(np.linalg.det(self._cell_matrix)))
@@ -90,22 +90,20 @@ class RDF:
         n_edges = int(round(self.rmax / delr)) + 2  # +1 fence-post, +1 overflow
         self._bins = np.arange(n_edges) * delr
 
-        # Get indices and compute prefactor
+        # Species counts and prefactor
         self._like_species = (species_a == species_b)
-        indices_a = self._get_species_indices(trajectory, species_a)
+        self._indices = self._species_indices(trajectory)
+        n_a, n_b = (len(indices) for indices in self._indices)
+        self._species_counts = (n_a, n_b)
         if self._like_species:
-            n_a = len(indices_a)
             if n_a < 2:
                 raise ValueError(
                     f"Like-species RDF requires at least 2 atoms of species '{species_a}', "
                     f"but only {n_a} found."
                 )
-            self._indices = [indices_a, indices_a]
             self._prefactor = self._cell_volume / (float(n_a) * float(n_a - 1))
         else:
-            indices_b = self._get_species_indices(trajectory, species_b)
-            self._indices = [indices_a, indices_b]
-            self._prefactor = self._cell_volume / (float(len(indices_b)) * float(len(indices_a))) / 2
+            self._prefactor = self._cell_volume / (float(n_b) * float(n_a)) / 2
 
         # Get backend-selected functions
         (self._compute_pairwise,
@@ -125,13 +123,15 @@ class RDF:
         self._g_count: np.ndarray | None = None
         self._lam: np.ndarray | None = None
 
-    @staticmethod
-    def _get_species_indices(trajectory, species: str) -> np.ndarray:
-        """Get indices for a species, with RDF-specific error message."""
-        try:
-            return trajectory.get_indices(species)
-        except ValueError:
-            raise ValueError(f"No atoms found for species '{species}'.")
+    def _species_indices(self, trajectory) -> list[np.ndarray]:
+        """The indices of species_a and species_b in ``trajectory``."""
+        indices = []
+        for species in (self.species_a, self.species_b):
+            try:
+                indices.append(trajectory.get_indices(species))
+            except ValueError:
+                raise ValueError(f"No atoms found for species '{species}'.")
+        return indices
 
     @property
     def r(self) -> np.ndarray | None:
@@ -231,12 +231,15 @@ class RDF:
         """
         Accumulate RDF contributions from trajectory frames.
 
-        Convenience wrapper that handles frame iteration. Mirrors DensityGrid.accumulate().
+        Calling accumulate() again adds more frames, from the same trajectory
+        or another of the same system. The atoms of each species are found by
+        name in each trajectory, so their order may differ.
 
         Parameters
         ----------
         trajectory : Trajectory
-            Trajectory object to iterate over.
+            Trajectory whose frames to add; its cell, temperature, units and
+            species counts must be those the RDF was built with.
         start : int
             First frame index (default: 0).
         stop : int or None
@@ -247,15 +250,28 @@ class RDF:
         Raises
         ------
         ValueError
-            If start or stop lies outside the trajectory, or the selected
-            range is empty. Negative values count from the end of the
-            trajectory.
+            If the trajectory's cell, temperature, units or species counts
+            differ from the RDF's; if start or stop lies outside the
+            trajectory, or the selected range is empty. Negative values count
+            from the end of the trajectory.
 
         Notes
         -----
         If a frame cannot be read, the frames deposited before it are kept.
+        Results from an earlier get_rdf() are cleared.
         """
+        check_same_system(trajectory, self._cell_matrix, self._beta, "RDF")
+        indices = self._species_indices(trajectory)
+        counts = tuple(len(i) for i in indices)
+        if counts != self._species_counts:
+            raise ValueError(
+                f"the trajectory has {counts[0]} '{self.species_a}' and {counts[1]} "
+                f"'{self.species_b}' atoms, but the RDF was built for "
+                f"{self._species_counts[0]} and {self._species_counts[1]}"
+            )
         to_run = frame_range(trajectory.frames, start, stop, period)
+        self._indices = indices
+        self._r = self._g = self._g_count = self._lam = None
         with contextlib.closing(
             trajectory.iter_frames(to_run.start, to_run.stop, to_run.step)
         ) as frames:
