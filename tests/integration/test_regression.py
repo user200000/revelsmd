@@ -569,24 +569,14 @@ class TestSyntheticRegression:
         Also a full-pipeline convention guard: pinned from the fixed code,
         so restoring the historical transpose fails this regression.
         """
+        from synthetic_systems import triclinic_trajectory
+
         ref = load_reference("synthetic", "triclinic_density.npz")
+        ts = triclinic_trajectory()
+        # The baseline records the system it was generated from.
+        np.testing.assert_array_equal(ts.cell_matrix, ref['cell'])
+        assert ts.positions.shape[:2] == (int(ref['n_frames']), int(ref['n_atoms']))
 
-        np.random.seed(77)
-        tri_cell = np.asarray(ref['cell'])
-        n_atoms = int(ref['n_atoms'])
-        n_frames = int(ref['n_frames'])
-        frac = np.random.rand(n_frames, n_atoms, 3)
-        positions = np.einsum('fai,ij->faj', frac, tri_cell)
-        forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
-
-        from revelsMD.trajectories import NumpyTrajectory
-        from revelsMD.density import DensityGrid
-        ts = NumpyTrajectory(
-            positions, forces,
-            cell_matrix=tri_cell,
-            species_list=['1'] * n_atoms,
-            units='lj', temperature=1.0,
-        )
         gs = DensityGrid(ts, 'number', nbins=int(ref['nbins']))
         gs.accumulate(ts, '1', kernel='triangular')
 

@@ -176,22 +176,11 @@ def uniform_gas_trajectory():
     With random forces, this should produce g(r) ~ 1 for all r (within statistical noise).
 
     Uses 500 atoms and 50 frames for good convergence of histogram g(r) to unity.
+    The same trajectory the synthetic baselines were generated from.
     """
-    from revelsMD.trajectories import NumpyTrajectory
+    from synthetic_systems import uniform_gas_trajectory
 
-    np.random.seed(42)
-    n_atoms = 500
-    n_frames = 50
-    box = 10.0
-
-    positions = np.random.uniform(0, box, (n_frames, n_atoms, 3))
-    # Use random forces - required for force-sampling method to work
-    forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
-    species = ['1'] * n_atoms
-
-    return NumpyTrajectory(
-        positions, forces, box, box, box, species, temperature=1.0, units='lj'
-    )
+    return uniform_gas_trajectory()
 
 
 @pytest.fixture

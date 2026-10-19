@@ -33,9 +33,10 @@ from pathlib import Path
 
 import numpy as np
 
-# Add project root to path
+# Add project root to path, and tests/ for the synthetic systems
 project_root = Path(__file__).parents[1]
 sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "tests"))
 
 from revelsMD import __version__ as revelsmd_version
 from revelsMD.backends import get_backend
@@ -534,25 +535,16 @@ def generate_synthetic_references():
 
     Returns None on success (synthetic data needs no external inputs).
     """
-    from revelsMD.trajectories import NumpyTrajectory
+    import synthetic_systems as systems
 
     output_dir = REFERENCE_DIR / "synthetic"
     ensure_dir(output_dir)
 
-    # Uniform gas trajectory - must match conftest.py fixture parameters!
     print("Generating synthetic trajectory references...")
-    np.random.seed(42)
-    n_atoms = 500
-    n_frames = 50  # Must match uniform_gas_trajectory fixture
-    box = 10.0
-
-    positions = np.random.uniform(0, box, (n_frames, n_atoms, 3))
-    forces = np.random.randn(n_frames, n_atoms, 3) * 0.1
-    species = ['1'] * n_atoms
-
-    ts = NumpyTrajectory(
-        positions, forces, box, box, box, species, units='lj', temperature=1.0
-    )
+    n_atoms = systems.UNIFORM_GAS_ATOMS
+    n_frames = systems.UNIFORM_GAS_FRAMES
+    box = systems.UNIFORM_GAS_BOX
+    ts = systems.uniform_gas_trajectory()
 
     # RDF for uniform gas (use all frames)
     print("  Computing uniform gas RDF...")
@@ -568,7 +560,7 @@ def generate_synthetic_references():
         n_atoms=n_atoms,
         n_frames=n_frames,
         box=box,
-        seed=42
+        seed=systems.UNIFORM_GAS_SEED
     )
 
     # Number density for uniform gas
@@ -597,39 +589,23 @@ def generate_synthetic_references():
         n_atoms=n_atoms,
         n_frames=n_frames,
         box=box,
-        seed=42
+        seed=systems.UNIFORM_GAS_SEED
     )
 
     # Triclinic force density baseline.
     print("  Computing triclinic density...")
-    np.random.seed(77)
-    tri_cell = np.array([
-        [10.0, 0.0, 0.0],
-        [3.0, 9.0, 0.0],
-        [1.0, 2.0, 8.0],
-    ])
-    n_atoms_tri = 300
-    n_frames_tri = 20
-    frac = np.random.rand(n_frames_tri, n_atoms_tri, 3)
-    tri_positions = np.einsum('fai,ij->faj', frac, tri_cell)
-    tri_forces = np.random.randn(n_frames_tri, n_atoms_tri, 3) * 0.1
-    ts_tri = NumpyTrajectory(
-        tri_positions, tri_forces,
-        cell_matrix=tri_cell,
-        species_list=['1'] * n_atoms_tri,
-        units='lj', temperature=1.0,
-    )
+    ts_tri = systems.triclinic_trajectory()
     gs_tri = DensityGrid(ts_tri, 'number', nbins=16)
     gs_tri.accumulate(ts_tri, '1', kernel='triangular')
     save_reference(
         output_dir / "triclinic_density.npz",
         rho_force=gs_tri.rho_force,
         rho_count=gs_tri.rho_count,
-        cell=tri_cell,
-        n_atoms=n_atoms_tri,
-        n_frames=n_frames_tri,
+        cell=systems.TRICLINIC_CELL,
+        n_atoms=systems.TRICLINIC_ATOMS,
+        n_frames=systems.TRICLINIC_FRAMES,
         nbins=16,
-        seed=77,
+        seed=systems.TRICLINIC_SEED,
     )
 
     print(f"  Saved synthetic references to {output_dir}")
