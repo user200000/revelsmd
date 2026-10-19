@@ -19,6 +19,7 @@ computed from scratch from per-frame densities.
 """
 
 import numpy as np
+import pytest
 
 from revelsMD.density.density_grid import DensityGrid
 from revelsMD.trajectories.numpy import NumpyTrajectory
@@ -28,30 +29,43 @@ BOX = 10.0
 N_ATOMS = 4
 N_FRAMES = 6
 
+# Each test runs in a cubic box with cubic bins, and in a triclinic cell with
+# a different number of bins along each axis.
+CELLS = {
+    'cubic': np.diag([BOX, BOX, BOX]),
+    'triclinic': np.array([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [1.0, 2.0, 8.0]]),
+}
+geometries = pytest.mark.parametrize('geometry', ['cubic', 'triclinic'])
 
-def _make_trajectory(positions, forces):
+
+def _nbins(geometry, n):
+    return n if geometry == 'cubic' else (n, n - 1, n + 1)
+
+
+def _make_trajectory(fractional, forces, geometry):
     return NumpyTrajectory(
-        positions, forces,
-        box_x=BOX, box_y=BOX, box_z=BOX,
+        fractional @ CELLS[geometry], forces,
+        cell_matrix=CELLS[geometry],
         species_list=['A'] * N_ATOMS,
         temperature=1.0, units='lj',
     )
 
 
-def test_lambda_reproduces_exact_count_estimator():
+@geometries
+def test_lambda_reproduces_exact_count_estimator(geometry):
     """With identical positions every frame, rho_count is exact: lambda -> 0 and rho_lambda == rho_count."""
     rng = np.random.default_rng(42)
-    base_positions = rng.random((N_ATOMS, 3)) * BOX
-    positions = np.broadcast_to(
-        base_positions, (N_FRAMES, N_ATOMS, 3)
+    base_fractional = rng.random((N_ATOMS, 3))
+    fractional = np.broadcast_to(
+        base_fractional, (N_FRAMES, N_ATOMS, 3)
     ).copy()
     # Frame-to-frame varying forces: rho_count has zero variance across
     # blocks while rho_force (and hence delta) varies, so the in-sample
     # optimal weight on rho_force is exactly zero.
     forces = rng.normal(scale=5.0, size=(N_FRAMES, N_ATOMS, 3))
 
-    trajectory = _make_trajectory(positions, forces)
-    grid = DensityGrid(trajectory, 'number', nbins=8)
+    trajectory = _make_trajectory(fractional, forces, geometry)
+    grid = DensityGrid(trajectory, 'number', nbins=_nbins(geometry, 8))
     # Default block_size=1: each frame is its own block (6 blocks).
     grid.accumulate(trajectory, atom_names='A', compute_lambda=True)
 
@@ -77,20 +91,21 @@ def test_lambda_reproduces_exact_count_estimator():
     )
 
 
-def test_lambda_degenerate_blocks_return_force_estimator():
+@geometries
+def test_lambda_degenerate_blocks_return_force_estimator(geometry):
     """With every frame identical, Var(delta) = 0 everywhere: lambda == 1 and rho_lambda == rho_force."""
     rng = np.random.default_rng(7)
-    base_positions = rng.random((N_ATOMS, 3)) * BOX
+    base_fractional = rng.random((N_ATOMS, 3))
     base_forces = rng.normal(scale=1.0, size=(N_ATOMS, 3))
-    positions = np.broadcast_to(
-        base_positions, (N_FRAMES, N_ATOMS, 3)
+    fractional = np.broadcast_to(
+        base_fractional, (N_FRAMES, N_ATOMS, 3)
     ).copy()
     forces = np.broadcast_to(
         base_forces, (N_FRAMES, N_ATOMS, 3)
     ).copy()
 
-    trajectory = _make_trajectory(positions, forces)
-    grid = DensityGrid(trajectory, 'number', nbins=8)
+    trajectory = _make_trajectory(fractional, forces, geometry)
+    grid = DensityGrid(trajectory, 'number', nbins=_nbins(geometry, 8))
     grid.accumulate(trajectory, atom_names='A', compute_lambda=True)
 
     # Documented degenerate contract (lambda_weights docstring): voxels
@@ -112,18 +127,20 @@ def test_lambda_degenerate_blocks_return_force_estimator():
     assert not np.array_equal(grid.rho_force, grid.rho_count)
 
 
-def test_lambda_matches_a_calculation_from_per_frame_densities():
+@geometries
+def test_lambda_matches_a_calculation_from_per_frame_densities(geometry):
     """lambda and rho_lambda equal Eqs. 3-4 evaluated directly on per-frame densities."""
     rng = np.random.default_rng(67)
-    positions = rng.random((N_FRAMES, N_ATOMS, 3)) * BOX
+    fractional = rng.random((N_FRAMES, N_ATOMS, 3))
     forces = rng.normal(scale=5.0, size=(N_FRAMES, N_ATOMS, 3))
-    trajectory = _make_trajectory(positions, forces)
-    grid = DensityGrid(trajectory, 'number', nbins=4)
+    trajectory = _make_trajectory(fractional, forces, geometry)
+    nbins = _nbins(geometry, 4)
+    grid = DensityGrid(trajectory, 'number', nbins=nbins)
     grid.accumulate(trajectory, atom_names='A', compute_lambda=True)  # one frame per block
 
     count, force = [], []
     for k in range(N_FRAMES):
-        frame = DensityGrid(trajectory, 'number', nbins=4)
+        frame = DensityGrid(trajectory, 'number', nbins=nbins)
         frame.accumulate(trajectory, atom_names='A', start=k, stop=k + 1)
         count.append(frame.rho_count)
         force.append(frame.rho_force)
