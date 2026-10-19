@@ -23,11 +23,7 @@ from revelsMD.cell import (
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
-from revelsMD.statistics import (
-    WelfordAccumulator3D,
-    combine_estimators,
-    compute_lambda_weights,
-)
+from revelsMD.statistics import WelfordAccumulator3D, control_variate_combination
 
 # Module-level backend functions (loaded once at import)
 _triangular_allocation, _box_allocation = _get_grid_backend_functions()
@@ -858,25 +854,16 @@ class DensityGrid:
             )
 
         # Finalise Welford statistics
-        var_buffer, cov_buffer_force = self._welford.finalise()
+        var_delta, cov_delta_force = self._welford.finalise()
 
-        # lambda_raw = Cov(delta, rho_force) / Var(delta).
-        # _lambda_weights = 1 - lambda_raw.
-        # combine_estimators computes:
-        #   rho_lambda = rho_count * lambda_raw + rho_force * (1 - lambda_raw)
-        # i.e. rho_count * (1 - _lambda_weights) + rho_force * _lambda_weights
-        # (see Coles et al., J. Chem. Phys. 154, 191101 (2021)).
-        # The FFTs round every voxel at the scale of the whole grid.
-        lambda_raw = compute_lambda_weights(
-            var_buffer, cov_buffer_force,
+        # In the notation of Coles et al. (2021), E_0 = rho_count and
+        # E_1 = rho_force. The accumulator stores Cov(delta, rho_force); since
+        # rho_count = rho_force - delta, Cov(rho_count, delta) is that minus
+        # Var(delta). The FFTs round every voxel at the scale of the whole grid.
+        self._rho_lambda, self._lambda_weights = control_variate_combination(
+            expected_rho_count, expected_rho_force, var_delta, cov_delta_force - var_delta,
             scale=float(max(np.max(np.abs(expected_rho_count)), np.max(np.abs(expected_rho_force)))),
-        )
-        self._lambda_weights = 1.0 - lambda_raw
-
-        self._rho_lambda = combine_estimators(
-            expected_rho_count,
-            expected_rho_force,
-            self._lambda_weights,
+            fallback=1.0,
         )
 
     def _compute_real_densities(self) -> None:

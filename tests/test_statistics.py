@@ -5,201 +5,116 @@ import pytest
 
 from revelsMD.statistics import (
     WelfordAccumulator3D,
-    combine_estimators,
-    compute_lambda_weights,
+    control_variate_combination,
 )
 
 
-class TestComputeLambdaWeights:
-    """Tests for compute_lambda_weights function."""
+def _moments(e0, e1):
+    """Means of E_0 and E_1, and population moments of Delta, over axis 0."""
+    delta = e1 - e0
+    d_delta = delta - delta.mean(axis=0)
+    return (
+        e0.mean(axis=0),
+        e1.mean(axis=0),
+        np.mean(d_delta**2, axis=0),
+        np.mean((e0 - e0.mean(axis=0)) * d_delta, axis=0),
+    )
 
-    def test_basic_computation(self):
-        """Standard case: lambda = cov / var."""
-        variance = np.array([1.0, 2.0, 4.0])
-        covariance = np.array([0.5, 1.0, 2.0])
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        expected = np.array([0.5, 0.5, 0.5])
-        np.testing.assert_allclose(result, expected)
 
-    def test_zero_variance_uses_replacement(self):
-        """Zero variance locations get replacement value."""
-        variance = np.array([1.0, 0.0, 2.0])
-        covariance = np.array([0.5, 0.5, 1.0])
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        expected = np.array([0.5, 0.0, 0.5])
-        np.testing.assert_allclose(result, expected)
+def _samples(seed, n_blocks=12, shape=(5,)):
+    """Correlated per-block estimates E_0 and E_1 of the same quantity."""
+    rng = np.random.default_rng(seed)
+    common = rng.normal(size=(n_blocks, *shape))
+    e0 = 2.0 + common + 0.5 * rng.normal(size=(n_blocks, *shape))
+    e1 = 2.0 + 0.3 * common + 0.2 * rng.normal(size=(n_blocks, *shape))
+    return e0, e1
 
-    def test_zero_variance_custom_replacement(self):
-        """Custom replacement value for zero variance."""
-        variance = np.array([0.0])
-        covariance = np.array([1.0])
-        result = compute_lambda_weights(
-            variance, covariance, scale=0.0, negligible_variance_replacement=0.5
+
+class TestControlVariateCombination:
+    """Tests for control_variate_combination (Coles et al. (2021), Eqs. 3-4)."""
+
+    def test_formula(self):
+        combined, lam = control_variate_combination(
+            np.array([1.0, 2.0]), np.array([1.5, 1.0]), np.array([2.0, 4.0]),
+            np.array([-1.0, 1.0]), scale=1.0, fallback=0.0,
         )
-        assert result[0] == 0.5
+        np.testing.assert_allclose(lam, [0.5, -0.25])
+        np.testing.assert_allclose(combined, [1.25, 2.25])
 
-    def test_nan_in_covariance_produces_replacement(self):
-        """NaN in covariance produces replacement value."""
-        variance = np.array([1.0, 1.0])
-        covariance = np.array([0.5, np.nan])
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        assert result[0] == 0.5
-        assert result[1] == 0.0
+    @pytest.mark.parametrize("seed", range(5))
+    def test_lambda_minimises_the_variance_of_the_combination(self, seed):
+        # In-sample: no other weight gives a smaller spread of E_0 + w * Delta.
+        e0, e1 = _samples(seed)
+        combined, lam = control_variate_combination(*_moments(e0, e1), scale=1.0, fallback=0.0)
+        trial = np.linspace(-3, 3, 6001)[:, None]
+        spreads = np.var(e0[:, None, :] + trial[None] * (e1 - e0)[:, None, :], axis=0)
+        best = np.var(e0 + lam * (e1 - e0), axis=0)
+        assert np.all(best <= spreads.min(axis=0) + 1e-12)
+        np.testing.assert_allclose(combined, np.mean(e0 + lam * (e1 - e0), axis=0))
 
-    def test_inf_result_produces_replacement(self):
-        """Inf from division produces replacement value."""
-        import warnings
-        # Very small variance can produce inf
-        variance = np.array([1e-320])  # subnormal
-        covariance = np.array([1.0])
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            result = compute_lambda_weights(variance, covariance, scale=0.0)
-        assert np.isfinite(result[0])
-
-    def test_negative_covariance(self):
-        """Negative covariance produces negative weights."""
-        variance = np.array([1.0])
-        covariance = np.array([-0.5])
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        assert result[0] == -0.5
-
-    def test_multidimensional_1d_array(self):
-        """Works with 1D arrays."""
-        variance = np.ones(10)
-        covariance = np.full(10, 0.5)
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        assert result.shape == (10,)
-        np.testing.assert_allclose(result, 0.5)
-
-    def test_multidimensional_3d_array(self):
-        """Works with 3D arrays (typical for density grids)."""
-        variance = np.ones((3, 4, 5))
-        covariance = np.full((3, 4, 5), 0.5)
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        assert result.shape == (3, 4, 5)
-        np.testing.assert_allclose(result, 0.5)
-
-    def test_mixed_zero_and_nonzero_variance(self):
-        """Handles arrays with mix of zero and non-zero variance."""
-        variance = np.array([0.0, 1.0, 0.0, 2.0, 0.0])
-        covariance = np.array([1.0, 1.0, 2.0, 1.0, 3.0])
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        expected = np.array([0.0, 1.0, 0.0, 0.5, 0.0])
-        np.testing.assert_allclose(result, expected)
-
-    def test_all_zero_variance(self):
-        """All zero variance returns all replacement values."""
-        variance = np.zeros(5)
-        covariance = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        np.testing.assert_allclose(result, 0.0)
+    @pytest.mark.parametrize("seed", range(5))
+    def test_relabelling_the_estimators_gives_the_same_combination(self, seed):
+        # Passing E_1 as E_0, with the fallback flipped too, gives the same
+        # estimate with weight 1 - lambda, so swapping the estimators cannot
+        # silently invert the result. Element 0 has a negligible variance.
+        e0, e1 = _samples(seed)
+        e1[:, 0] = e0[:, 0] + 0.7
+        combined, lam = control_variate_combination(*_moments(e0, e1), scale=1.0, fallback=0.0)
+        swapped, lam_swapped = control_variate_combination(*_moments(e1, e0), scale=1.0, fallback=1.0)
+        assert lam[0] == 0.0 and lam_swapped[0] == 1.0
+        np.testing.assert_allclose(swapped, combined, rtol=1e-12)
+        np.testing.assert_allclose(lam_swapped, 1 - lam, rtol=1e-12)
 
     @pytest.mark.parametrize("scale", [1e-6, 1.0, 1e6])
-    def test_variance_too_small_for_the_scale_counts_as_zero(self, scale):
-        # A standard deviation of delta at most 1e-10 of the estimates is
-        # rounding, not sampling: it takes the replacement. The result does
-        # not depend on the units of the estimates.
-        variance = np.array([(1e-11 * scale) ** 2, (1e-9 * scale) ** 2, 0.0])
-        covariance = np.array([1.0, 2.0, 3.0]) * variance + np.array([0.0, 0.0, 1.0])
-        result = compute_lambda_weights(
-            variance, covariance, scale=scale, negligible_variance_replacement=0.5
+    @pytest.mark.parametrize("fallback", [0.0, 1.0])
+    def test_negligible_variance_takes_the_fallback(self, scale, fallback):
+        # A standard deviation of delta at most 1e-10 of the scale is
+        # rounding, not sampling. The result does not depend on units.
+        var_delta = np.array([(1e-11 * scale) ** 2, (1e-9 * scale) ** 2, 0.0])
+        cov_e0_delta = -np.array([3.0, 2.0, 3.0]) * var_delta - np.array([0.0, 0.0, scale**2])
+        combined, lam = control_variate_combination(
+            np.full(3, scale), np.full(3, 1.5 * scale), var_delta, cov_e0_delta,
+            scale=scale, fallback=fallback,
         )
-        np.testing.assert_allclose(result, [0.5, 2.0, 0.5])
+        np.testing.assert_allclose(lam, [fallback, 2.0, fallback])
+        # The fallback reproduces the chosen estimator exactly.
+        chosen = 1.5 * scale if fallback else scale
+        np.testing.assert_allclose(combined, [chosen, 2.0 * scale, chosen])
+        assert combined[0] == combined[2] == chosen
 
-    def test_scale_is_required(self):
-        with pytest.raises(TypeError, match="scale"):
-            compute_lambda_weights(np.ones(2), np.ones(2))
+    @pytest.mark.filterwarnings("ignore:invalid value encountered")  # numpy reports the NaN
+    def test_non_finite_moments_are_not_hidden(self):
+        combined, lam = control_variate_combination(
+            np.ones(2), np.full(2, 1.1), np.array([np.nan, 1.0]), np.array([0.5, np.inf]),
+            scale=1.0, fallback=1.0,
+        )
+        assert np.isnan(lam[0]) and np.isinf(lam[1])
+        assert not np.isfinite(combined).any()
 
-    def test_preserves_dtype_float64(self):
-        """Output dtype matches input dtype."""
-        variance = np.array([1.0, 2.0], dtype=np.float64)
-        covariance = np.array([0.5, 1.0], dtype=np.float64)
-        result = compute_lambda_weights(variance, covariance, scale=0.0)
-        assert result.dtype == np.float64
+    def test_scale_is_one_number(self):
+        # A scale per element would let degenerate elements through.
+        with pytest.raises(TypeError):
+            control_variate_combination(
+                np.ones(2), np.ones(2), np.ones(2), np.ones(2), scale=np.ones(2), fallback=0.0
+            )
 
+    def test_non_finite_estimates_are_not_hidden(self):
+        combined, _ = control_variate_combination(
+            np.array([np.nan, np.inf]), np.ones(2), np.ones(2), np.zeros(2), scale=1.0, fallback=0.0,
+        )
+        assert np.isnan(combined[0]) and np.isinf(combined[1])
 
-class TestCombineEstimators:
-    """Tests for combine_estimators function."""
+    def test_works_on_grids(self):
+        e0, e1 = _samples(7, shape=(3, 4, 5))
+        combined, lam = control_variate_combination(*_moments(e0, e1), scale=1.0, fallback=0.0)
+        assert combined.shape == lam.shape == (3, 4, 5)
 
-    def test_basic_combination(self):
-        """Standard linear combination."""
-        a = np.array([1.0, 2.0])
-        b = np.array([3.0, 4.0])
-        weights = np.array([0.5, 0.5])
-        result = combine_estimators(a, b, weights)
-        # (1*0.5 + 3*0.5) = 2.0, (2*0.5 + 4*0.5) = 3.0
-        expected = np.array([2.0, 3.0])
-        np.testing.assert_allclose(result, expected)
-
-    def test_weights_zero_returns_estimator_a(self):
-        """Weight 0 returns estimator_a unchanged."""
-        a = np.array([1.0, 2.0])
-        b = np.array([10.0, 20.0])
-        weights = np.array([0.0, 0.0])
-        result = combine_estimators(a, b, weights)
-        np.testing.assert_allclose(result, a)
-
-    def test_weights_one_returns_estimator_b(self):
-        """Weight 1 returns estimator_b unchanged."""
-        a = np.array([1.0, 2.0])
-        b = np.array([10.0, 20.0])
-        weights = np.array([1.0, 1.0])
-        result = combine_estimators(a, b, weights)
-        np.testing.assert_allclose(result, b)
-
-    def test_non_finite_values_are_not_hidden(self):
-        """NaN and infinity pass through rather than becoming plausible zeros."""
-        a = np.array([np.nan, np.inf])
-        b = np.array([1.0, 1.0])
-        result = combine_estimators(a, b, np.array([0.5, 0.0]))
-        assert np.isnan(result[0]) and np.isinf(result[1])
-
-    def test_broadcasting_scalar_weight(self):
-        """Scalar weight broadcasts to array."""
-        a = np.array([1.0, 2.0, 3.0])
-        b = np.array([10.0, 20.0, 30.0])
-        result = combine_estimators(a, b, 0.5)
-        expected = np.array([5.5, 11.0, 16.5])
-        np.testing.assert_allclose(result, expected)
-
-    def test_multidimensional_3d_array(self):
-        """Works with 3D arrays."""
-        a = np.ones((2, 3, 4))
-        b = np.full((2, 3, 4), 3.0)
-        weights = np.full((2, 3, 4), 0.5)
-        result = combine_estimators(a, b, weights)
-        assert result.shape == (2, 3, 4)
-        np.testing.assert_allclose(result, 2.0)
-
-    def test_varying_weights(self):
-        """Different weights at different positions."""
-        a = np.array([1.0, 1.0, 1.0])
-        b = np.array([5.0, 5.0, 5.0])
-        weights = np.array([0.0, 0.5, 1.0])
-        result = combine_estimators(a, b, weights)
-        expected = np.array([1.0, 3.0, 5.0])
-        np.testing.assert_allclose(result, expected)
-
-    def test_negative_weights(self):
-        """Negative weights extrapolate beyond estimator_a."""
-        a = np.array([2.0])
-        b = np.array([4.0])
-        weights = np.array([-0.5])
-        result = combine_estimators(a, b, weights)
-        # 2.0 * (1 - (-0.5)) + 4.0 * (-0.5) = 2.0 * 1.5 - 2.0 = 1.0
-        expected = np.array([1.0])
-        np.testing.assert_allclose(result, expected)
-
-    def test_weights_greater_than_one(self):
-        """Weights > 1 extrapolate beyond estimator_b."""
-        a = np.array([2.0])
-        b = np.array([4.0])
-        weights = np.array([1.5])
-        result = combine_estimators(a, b, weights)
-        # 2.0 * (1 - 1.5) + 4.0 * 1.5 = 2.0 * (-0.5) + 6.0 = 5.0
-        expected = np.array([5.0])
-        np.testing.assert_allclose(result, expected)
+    @pytest.mark.parametrize("missing", ["scale", "fallback"])
+    def test_scale_and_fallback_are_required(self, missing):
+        keywords = {"scale": 1.0, "fallback": 0.0}
+        del keywords[missing]
+        with pytest.raises(TypeError, match=missing):
+            control_variate_combination(np.ones(2), np.ones(2), np.ones(2), np.ones(2), **keywords)
 
 
 def test_welford_inplace_matches_reference():

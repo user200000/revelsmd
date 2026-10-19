@@ -10,7 +10,7 @@ from tqdm import tqdm
 from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.frame_sources import Frame
 from revelsMD.rdf.rdf_helpers import get_backend_functions
-from revelsMD.statistics import compute_lambda_weights
+from revelsMD.statistics import control_variate_combination
 from revelsMD.trajectories._base import frame_range
 
 
@@ -405,22 +405,15 @@ class RDF:
     def _compute_lambda(self) -> None:
         """Compute the optimal linear combination of forward and backward g(r).
 
-        Implements the control-variate combination of Coles et al. (2021)
-        [J. Chem. Phys. 154, 191101], Eqs. 3-4:
-
-            E_lambda = E_0 + lambda * Delta,    Delta = E_1 - E_0
-            lambda*  = -Cov(E_0, Delta) / Var(Delta)
-
-        For the RDF the paper assigns E_0 = g_inf (backward estimator,
-        integrated down from r -> infinity) and E_1 = g_0 (forward
-        estimator, integrated up from r = 0). Note the notation collision:
-        the paper's E_0 is NOT g_0. Because E_0 appears in both the base
-        term and the covariance, this form cannot be inverted by swapping
-        argument order.
+        Uses control_variate_combination (Coles et al. (2021), Eqs. 3-4)
+        with frames as blocks. For the RDF the paper assigns E_0 = g_inf
+        (backward estimator, integrated down from r -> infinity) and
+        E_1 = g_0 (forward estimator, integrated up from r = 0). Note the
+        notation collision: the paper's E_0 is NOT g_0.
 
         Where Delta is the same in every frame to within rounding
-        (degenerate input, e.g. a single frame), lambda = 0 and E_lambda
-        reduces to the backward estimator g_inf.
+        (degenerate input, e.g. a single frame), lambda = 0 and the result
+        is the backward estimator g_inf.
         """
         base_array = np.nan_to_num(np.array(self._frame_data))
         base_array *= self._prefactor * self._beta / (4 * np.pi)
@@ -446,17 +439,13 @@ class RDF:
         cov_e0_delta = np.mean(
             (delta - exp_delta) * (g_backward - exp_backward), axis=0
         )
-        # lambda* = -Cov(E_0, Delta) / Var(Delta); the helper returns 0
-        # where Var(Delta) is negligible. g_backward subtracts cumulative
-        # sums from 1, so the rounding in Delta is set by 1 and the largest
-        # cumulative sum, in every bin.
-        lam = compute_lambda_weights(
-            var_delta, -cov_e0_delta,
+        # g_backward subtracts cumulative sums from 1, so the rounding in
+        # Delta is set by 1 and the largest cumulative sum, in every bin.
+        g_lambda, lam = control_variate_combination(
+            exp_backward, exp_forward, var_delta, cov_e0_delta,
             scale=float(max(1.0, np.max(np.abs(np.cumsum(mean_scaled))))),
+            fallback=0.0,
         )
-
-        per_frame_combined = g_backward + lam * delta
-        g_lambda = np.mean(per_frame_combined, axis=0)
 
         # Pad the result so all integration methods return the same grid:
         # bins[:-1] = [0, delr, ..., rmax], with g(0) = 0.

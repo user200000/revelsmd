@@ -100,32 +100,23 @@ These are population (not sample) estimates — the denominator is total weight,
 not total weight minus one. `finalise()` raises `ValueError` if fewer than two
 blocks have been accumulated.
 
-### Lambda weight computation
+### Lambda weights and the combined density
 
-`compute_lambda_weights(variance, covariance, scale=...)` returns the ratio
-`covariance / variance`, guarded so that voxels with negligible variance and
-non-finite results receive a fixed replacement value. A variance is negligible
-where the standard deviation of $\delta$ across blocks is at most $10^{-10}$
-of `scale`, the largest estimate anywhere in the grid: that is rounding, not
-sampling, and dividing by it would give an arbitrarily large $\lambda$.
-`DensityGrid` passes it $\text{Var}(\delta)$ and
-$\text{Cov}(\delta, \rho_\text{force})$ and takes one minus the ratio as the
-weight on the force density:
+With $E_0 = \rho_\text{count}$ and $E_1 = \rho_\text{force}$,
+`control_variate_combination` computes the weight on the force density,
 
 $$
-\lambda = 1 - \frac{\text{Cov}(\delta, \rho_\text{force})}{\text{Var}(\delta)}
-= -\frac{\text{Cov}(\rho_\text{count}, \delta)}{\text{Var}(\delta)}
+\lambda = -\frac{\text{Cov}(\rho_\text{count}, \delta)}{\text{Var}(\delta)}
+= 1 - \frac{\text{Cov}(\delta, \rho_\text{force})}{\text{Var}(\delta)},
 $$
 
-Voxels with negligible variance, where every block gave the same $\delta$
-to within rounding, report $\lambda = 1$ (force density), as do voxels whose
-ratio is non-finite.
-
-### Estimator combination
-
-`combine_estimators(rho_count, rho_force, lambda_weights)` evaluates
-$(1 - \lambda)\,\rho_\text{count} + \lambda\,\rho_\text{force}$, sanitising
-NaN and Inf to 0.
+and returns $(1 - \lambda)\,\rho_\text{count} + \lambda\,\rho_\text{force}$. A
+variance is negligible where the standard deviation of $\delta$ across blocks
+is at most $10^{-10}$ of the largest estimate anywhere in the grid: that is
+rounding, not sampling, and dividing by it would give an arbitrarily large
+$\lambda$. Voxels with negligible variance, where every block gave the same
+$\delta$ to within rounding, report $\lambda = 1$ (force density), as do voxels
+whose ratio is non-finite.
 
 ## Note on user-facing access
 
