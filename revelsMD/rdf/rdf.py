@@ -14,6 +14,32 @@ from revelsMD.statistics import control_variate_combination
 from revelsMD.trajectories._base import check_same_system, frame_range
 
 
+def _forward_estimator(scaled: np.ndarray) -> np.ndarray:
+    """Forward g(r) at the bin edges r_k, along the last axis.
+
+    ``scaled`` holds the force sum of each bin [r_j, r_j+1), scaled to
+    g(r) units; its last entry is the overflow bin beyond rmax, which the
+    accumulators leave at 0. The result has one point fewer than
+    ``scaled``: r_k for every bin but the overflow bin. g(r_k) integrates
+    over the pairs closer than r_k, so it sums the bins below r_k and is
+    0 at r = 0.
+    """
+    cumulative = np.cumsum(scaled, axis=-1)
+    zero = np.zeros(scaled.shape[:-1] + (1,))
+    return np.concatenate([zero, cumulative[..., :-2]], axis=-1)
+
+
+def _backward_estimator(scaled: np.ndarray) -> np.ndarray:
+    """Backward g(r) at the bin edges r_k, along the last axis.
+
+    ``scaled`` and the grid are as for :func:`_forward_estimator`. g(r_k) is
+    1 minus the integral over the pairs at r_k and beyond, so it subtracts
+    the bins from r_k outwards, including the overflow bin.
+    """
+    beyond = np.cumsum(scaled[..., ::-1], axis=-1)[..., ::-1]
+    return 1 - beyond[..., :-1]
+
+
 class RDF:
     """
     Radial distribution function calculator.
@@ -41,7 +67,8 @@ class RDF:
     Attributes
     ----------
     r : np.ndarray or None
-        Bin centres (available after get_rdf).
+        Bin edges 0, delr, ..., rmax at which g(r) is reported (available
+        after get_rdf).
     g : np.ndarray or None
         g(r) values (available after get_rdf).
     g_count : np.ndarray or None
@@ -136,12 +163,12 @@ class RDF:
 
     @property
     def r(self) -> np.ndarray | None:
-        """Bin centres.
+        """The r values at which g(r) is reported: the bin edges 0, delr, ..., rmax.
 
         Returns
         -------
         np.ndarray or None
-            1D array of bin centre values in the same units as the trajectory
+            1D array of r values in the same units as the trajectory
             positions, or None before get_rdf() is called.
         """
         return self._r
@@ -164,16 +191,16 @@ class RDF:
 
         This is the Eq. 3 weight of Coles et al. (2021) applied to the
         forward estimator g_0 (E_1 in the paper's notation; the backward
-        estimator g_inf is E_0 and carries weight 1 - lambda). Bins where
-        Delta is the same in every frame, to within rounding, report
-        lambda = 0, i.e. the backward estimator.
+        estimator g_inf is E_0 and carries weight 1 - lambda). At r = 0
+        the forward estimator is exact (g(0) = 0), so lambda = 1 there.
+        Elsewhere, bins where Delta is the same in every frame, to within
+        rounding, report lambda = 0, i.e. the backward estimator.
 
         Returns
         -------
         np.ndarray or None
             1D array of per-bin lambda weights, or None if
-            integration='lambda' was not used. The first entry (r = 0)
-            is padding and is always 0.
+            integration='lambda' was not used.
         """
         return self._lam
 
@@ -403,7 +430,6 @@ class RDF:
 
         g_count = np.nan_to_num(g_count, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Exclude the overflow bin — all integration methods use r = bins[:-1]
         self._g_count = g_count[:-1]
 
     def _compute_standard(self, integration: str) -> None:
@@ -411,14 +437,12 @@ class RDF:
         scaled = np.nan_to_num(self._accumulated.copy())
         scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
 
-        if integration == 'forward':
-            g_full = np.cumsum(scaled)
-        else:  # backward
-            g_full = 1 - np.cumsum(scaled[::-1])[::-1]
-
-        # Exclude the overflow bin — all integration methods use r = bins[:-1]
+        # Every integration method reports r = bins[:-1], without the overflow bin.
         self._r = self._bins[:-1]
-        self._g = g_full[:-1]
+        if integration == 'forward':
+            self._g = _forward_estimator(scaled)
+        else:  # backward
+            self._g = _backward_estimator(scaled)
         self._lam = None
         self._compute_g_count()
 
@@ -431,9 +455,10 @@ class RDF:
         E_1 = g_0 (forward estimator, integrated up from r = 0). Note the
         notation collision: the paper's E_0 is NOT g_0.
 
-        Where Delta is the same in every frame to within rounding
-        (degenerate input, e.g. a single frame), lambda = 0 and the result
-        is the backward estimator g_inf.
+        At r = 0 the forward estimator is exact (g(0) = 0), so g = 0 and
+        lambda = 1 there. Elsewhere, where Delta is the same in every frame
+        to within rounding (degenerate input, e.g. a single frame),
+        lambda = 0 and the result is the backward estimator g_inf.
         """
         base_array = np.nan_to_num(np.array(self._frame_data))
         base_array *= self._prefactor * self._beta / (4 * np.pi)
@@ -441,16 +466,13 @@ class RDF:
         mean_scaled = np.nan_to_num(self._accumulated.copy())
         mean_scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
 
-        # Expectation curves. The forward/backward alignment ([:-1] and
-        # [1:]) places both estimators on the same r grid, excluding r=0
-        # where both are trivially zero.
-        exp_forward = np.cumsum(mean_scaled)[:-1]
-        exp_backward = 1 - np.cumsum(mean_scaled[::-1])[::-1][1:]
-
-        # Per-frame estimator curves: E_1 = g_0 (forward), E_0 = g_inf
-        # (backward).
-        g_forward = np.cumsum(base_array, axis=1)[:, :-1]
-        g_backward = 1 - np.cumsum(base_array[:, ::-1], axis=1)[:, ::-1][:, 1:]
+        # Both estimators on the reported grid, from the mean and from each
+        # frame: E_1 = g_0 (forward), E_0 = g_inf (backward). The combination
+        # runs over r > 0.
+        exp_forward = _forward_estimator(mean_scaled)[1:]
+        exp_backward = _backward_estimator(mean_scaled)[1:]
+        g_forward = _forward_estimator(base_array)[:, 1:]
+        g_backward = _backward_estimator(base_array)[:, 1:]
 
         delta = g_forward - g_backward
         exp_delta = exp_forward - exp_backward
@@ -467,11 +489,10 @@ class RDF:
             fallback=0.0,
         )
 
-        # Pad the result so all integration methods return the same grid:
-        # bins[:-1] = [0, delr, ..., rmax], with g(0) = 0.
+        # At r = 0 the result is the exact forward estimator: g = 0, lambda = 1.
         self._r = self._bins[:-1]
-        self._g = np.concatenate([[0.0], g_lambda[:-1]])
-        self._lam = np.concatenate([[0.0], lam[:-1]])
+        self._g = np.concatenate([[0.0], g_lambda])
+        self._lam = np.concatenate([[1.0], lam])
         self._compute_g_count()
 
 

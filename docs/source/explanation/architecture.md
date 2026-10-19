@@ -166,7 +166,8 @@ into the result.
 $E_1 = \rho_\text{force}$ and a fallback of 1 (force density), exposing the results
 as `grid.lambda_weights` and `grid.rho_lambda`. `RDF` uses
 `control_variate_combination` with $E_0$ the backward $g(r)$, $E_1$ the forward
-$g(r)$ and a fallback of 0 (backward $g(r)$).
+$g(r)$ and a fallback of 0 (backward $g(r)$) at $r > 0$; at $r = 0$ it reports
+the exact forward value.
 
 ## Cell geometry
 

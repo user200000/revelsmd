@@ -9,7 +9,7 @@ from revelsMD.rdf import compute_rdf
 
 rdf = compute_rdf(ts, "1", "1", integration="forward")
 
-rdf.r        # bin centres
+rdf.r        # r values: bin edges 0, delr, ..., rmax
 rdf.g_count  # histogram-based g(r)
 rdf.g_force  # force-based g(r)
 ```

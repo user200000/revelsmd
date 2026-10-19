@@ -46,7 +46,7 @@ are `'forward'` (from g(0) = 0) and `'backward'` (from g(inf) = 1).
 ```python
 import numpy as np
 
-r       = rdf.r        # bin centres, shape (N,)
+r       = rdf.r        # bin edges 0, delr, ..., rmax, shape (N,)
 g_force = rdf.g_force  # force-based g(r), alias for rdf.g
 g_count = rdf.g_count  # histogram-based g(r)
 ```
@@ -104,8 +104,8 @@ lam   = rdf.lam      # lambda weights; available only after integration='lambda'
 ```
 
 The `lam` array shows where the estimator blends between backward (lam = 0)
-and forward (lam = 1) integration. Its first entry, at r = 0, is padding and
-is always 0.
+and forward (lam = 1) integration. At r = 0 the forward estimator is exact
+(g(0) = 0), so the first entry is always 1.
 
 ## Frame selection
 
