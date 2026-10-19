@@ -78,32 +78,31 @@ class Frame:
 that atom counts match. `frozen=True` prevents mutation after creation.
 `eq=False` leaves identity-based equality in place.
 
-## The deposit/accumulate pattern
+## Accumulation
 
-Both `DensityGrid` and `RDF` follow the same two-level pattern:
+Both `DensityGrid` and `RDF` take frames only through `accumulate()`, which
+iterates a trajectory's frames and passes each to a private per-frame method,
+`_deposit()`. Calling `accumulate()` again adds more frames, from the same or
+another trajectory. A set of structures is a trajectory too: wrap the arrays in
+a `NumpyTrajectory`.
 
-- `deposit()` — low-level single-frame method; user controls the iteration loop.
-- `accumulate()` — convenience wrapper that iterates frames and calls `deposit()`.
+Keeping `_deposit()` private means a frame cannot be split across calls: each
+call counts as one frame, so depositing a frame's species one call at a time
+would under-normalise the density.
 
-This separation lets you add custom iteration logic (e.g. subsampling,
-multi-trajectory accumulation) without duplicating normalisation or bookkeeping.
+### DensityGrid._deposit takes arrays
 
-### DensityGrid.deposit takes raw arrays
-
-`DensityGrid.deposit(positions, forces, weights, kernel)` operates below
-`Selection`, accepting raw numpy arrays (or lists of arrays for multi-species).
+`DensityGrid._deposit(positions, forces, weights, kernel)` operates below
+`Selection`, accepting numpy arrays (or lists of arrays for multi-species).
 Each call deposits exactly one frame: for a multi-species selection, every
 array in the lists belongs to that same frame, and `count` advances by one
 per call rather than per array. `accumulate()` builds a `Selection` from
 `atom_names` and calls `Selection.extract(frame)` to produce inputs for each
-`deposit()` call.
+`_deposit()` call.
 
-This keeps `deposit()` general enough to call with pre-processed data, without
-requiring a trajectory.
+### RDF._deposit takes a Frame
 
-### RDF.deposit takes a Frame
-
-`RDF.deposit(frame)` accepts a `Frame` and performs atom selection internally
+`RDF._deposit(frame)` accepts a `Frame` and performs atom selection internally
 using indices stored at `__init__`. This is appropriate because the RDF always
 computes a pairwise property between two fixed species — there is no equivalent
 of the flexible `Selection` class.
@@ -115,7 +114,7 @@ two-species pairwise calculation.
 ## Selection and Selection.extract
 
 `Selection` (`revelsMD/density/selection.py`) bridges `Frame` to
-`DensityGrid.deposit()` inputs. It is constructed once per `accumulate()` call
+`DensityGrid._deposit()` inputs. It is constructed once per `accumulate()` call
 with the trajectory and `atom_names`, then called per frame via
 `extract(frame)`.
 

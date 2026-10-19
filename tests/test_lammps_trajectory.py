@@ -261,7 +261,7 @@ class TestOpenFiles:
             return wrapper
 
         monkeypatch.setattr(Selection, "extract", failing(Selection.extract))
-        monkeypatch.setattr(RDF, "deposit", failing(RDF.deposit))
+        monkeypatch.setattr(RDF, "_deposit", failing(RDF._deposit))
         self.check_files_closed(run, traj, "the analysis failed")
 
     @staticmethod

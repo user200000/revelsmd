@@ -239,7 +239,7 @@ class Selection:
         Returns
         -------
         tuple of (positions, forces, weights)
-            Ready for passing to grid.deposit().
+            Ready for passing to DensityGrid._deposit().
         """
         return (
             self.get_positions(frame.positions),

@@ -268,7 +268,7 @@ class DensityGrid:
         homeX, homeY, homeZ = frac[:, 0], frac[:, 1], frac[:, 2]
         return homeX, homeY, homeZ
 
-    def deposit(
+    def _deposit(
         self,
         positions: np.ndarray | list[np.ndarray],
         forces: np.ndarray | list[np.ndarray],
@@ -276,13 +276,12 @@ class DensityGrid:
         kernel: str = "triangular",
     ) -> None:
         """
-        Deposit positions/forces to the grid using weights.
+        Deposit one frame's selected positions and forces to the grid.
 
-        Each call deposits exactly one frame: all of a frame's species
-        arrays must be passed together in a single call as a list.
-        Calling once per species counts each call as a separate frame
-        and under-normalises the resulting density by the number of
-        species (see issue #66 for the planned structural fix).
+        Each call is one frame: all of a frame's species arrays are passed
+        together, as lists, as Selection.extract returns them. Private, so
+        that a frame cannot be split across calls, which would count each
+        call as a frame and under-normalise the density.
 
         Parameters
         ----------
@@ -490,7 +489,7 @@ class DensityGrid:
             )) as frames:
                 for frame in tqdm(frames, total=len(frame_indices)):
                     deposit_positions, deposit_forces, weights = self._selection.extract(frame)
-                    self.deposit(deposit_positions, deposit_forces, weights, kernel=kernel)
+                    self._deposit(deposit_positions, deposit_forces, weights, kernel=kernel)
                     self.frames_processed += 1
         else:
             # Block accumulation with lambda statistics
@@ -604,7 +603,7 @@ class DensityGrid:
                         )
 
                         # One frame per deposit, however many species arrays it
-                        # carries (consistent with deposit()): block_count is the
+                        # carries (consistent with _deposit()): block_count is the
                         # number of frames in the block, which is also the correct
                         # Welford weight below.
                         block_count += 1

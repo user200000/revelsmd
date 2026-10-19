@@ -131,7 +131,7 @@ class TestRDFClassAPI:
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, 'O', 'H')
         frame = water_trajectory.get_frame(0)
-        rdf.deposit(frame)
+        rdf._deposit(frame)
         assert rdf.progress == 'accumulated'
 
     def test_rdf_deposit_multiple_frames(self, water_trajectory):
@@ -139,7 +139,7 @@ class TestRDFClassAPI:
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, 'O', 'H')
         for frame in water_trajectory.iter_frames(stop=3):
-            rdf.deposit(frame)
+            rdf._deposit(frame)
         rdf.get_rdf(integration='forward')
         assert rdf.r is not None
         assert rdf.g is not None
@@ -149,13 +149,13 @@ class TestRDFBasicFunctionality:
     """Test basic RDF functionality with Frame objects."""
 
     def test_deposit_accepts_frame(self, water_trajectory):
-        """deposit() accepts a Frame instance."""
+        """_deposit() accepts a Frame instance."""
         from revelsMD.frame_sources import Frame
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, 'O', 'H')
         frame = water_trajectory.get_frame(0)
         assert isinstance(frame, Frame)
-        rdf.deposit(frame)
+        rdf._deposit(frame)
         assert rdf._frame_count == 1
 
 
@@ -174,7 +174,7 @@ class TestRDFDepositMatchesAccumulate:
         # Using deposit
         rdf2 = RDF(water_trajectory, 'O', 'H')
         for frame in water_trajectory.iter_frames():
-            rdf2.deposit(frame)
+            rdf2._deposit(frame)
         rdf2.get_rdf(integration='forward')
 
         np.testing.assert_allclose(rdf1.r, rdf2.r)
@@ -376,7 +376,7 @@ class TestRDFCountAccumulation:
 
         rdf = RDF(ts, 'H', 'H')
         frame = ts.get_frame(0)
-        rdf.deposit(frame)
+        rdf._deposit(frame)
 
         # Distance is 2.0, rmax is 5.0, delr is 0.01, so should be in bins
         assert np.sum(rdf._counts) > 0
