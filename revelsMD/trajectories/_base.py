@@ -123,12 +123,15 @@ def as_paths(files: TrajectoryFiles) -> list[str]:
     return paths
 
 
-def check_same_system(trajectory: Any, cell_matrix: np.ndarray, beta: float, owner: str) -> None:
+def check_same_system(
+    trajectory: "Trajectory", cell_matrix: np.ndarray, beta: float, owner: str
+) -> None:
     """Raise ValueError unless ``trajectory`` has the given cell and beta.
 
-    Frames from several trajectories can be accumulated into one ``owner``
-    (a density grid or RDF) only if they describe the same system: the same
-    cell, and the same temperature and units, which set beta.
+    DensityGrid.accumulate() and RDF.accumulate() call this to check a
+    trajectory against the system they were built for. Beta is set by the
+    temperature and units. ``owner`` names the caller in the error message.
+    RDF.accumulate() also checks its species counts.
     """
     if not cells_are_compatible(trajectory.cell_matrix, cell_matrix):
         raise ValueError(f"the trajectory's cell differs from the {owner}'s")
@@ -187,7 +190,9 @@ def compute_beta(units: str, temperature: float) -> float:
         raise ValueError(f"Temperature must be finite. Got: {temperature!r}")
     if temperature <= 0.0:
         raise ValueError(f"Temperature must be positive. Got: {temperature!r}")
-    return 1.0 / (_BOLTZMANN_CONSTANTS[units] * temperature)
+    # As a Python float, equal temperatures give the same beta whatever their
+    # type: a float32 temperature would otherwise give a float32-rounded beta.
+    return 1.0 / (_BOLTZMANN_CONSTANTS[units] * float(temperature))
 
 
 # Exceptions that say something other than "MDAnalysis cannot parse this
@@ -336,8 +341,8 @@ class Trajectory(ABC):
     def __init__(self, *, units: str, temperature: float) -> None:
         """Set ``units``, ``temperature`` and ``beta``; subclasses call this first."""
         self.units = units.lower().strip()
-        self.temperature = temperature
         self.beta = compute_beta(self.units, temperature)
+        self.temperature = float(temperature)
 
     @property
     def cell_volume(self) -> float:

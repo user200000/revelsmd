@@ -35,7 +35,8 @@ class DensityGrid:
     Parameters
     ----------
     trajectory : Trajectory
-        Trajectory-state object providing `cell_matrix` and `units`.
+        A trajectory of the system, for its cell and beta (temperature and
+        units). Its frames are not read; pass it to accumulate() for that.
     density_type : {'number', 'charge', 'polarisation'}
         Type of density to be constructed (controls the estimator weighting).
     nbins : int or tuple of int
@@ -45,7 +46,7 @@ class DensityGrid:
     Attributes
     ----------
     force_x, force_y, force_z : np.ndarray
-        Accumulators for voxelized force components (shape: nbinsx x nbinsy x nbinsz).
+        Accumulators for voxelised force components (shape: nbinsx x nbinsy x nbinsz).
     counter : np.ndarray
         Accumulator for counting-based density (same shape as force accumulators).
     binsx, binsy, binsz : np.ndarray
@@ -297,17 +298,13 @@ class DensityGrid:
 
         Notes
         -----
-        ``count`` increments once per call (one frame), regardless of how
-        many species arrays are deposited, so a multi-species deposit
-        yields the total (summed) density of the selected atoms — see the
-        Notes of :meth:`accumulate` for the convention and its scope.
+        A multi-species deposit yields the total (summed) density of the
+        selected atoms; see the Notes of :meth:`accumulate`.
         """
         self._deposit_to_arrays(
             self.force_x, self.force_y, self.force_z, self.counter,
             positions, forces, weights, kernel,
         )
-        # One frame per call, however many species arrays it carries —
-        # the normalised density is the total over the selected atoms.
         self.count += 1
 
     def accumulate(
@@ -332,7 +329,8 @@ class DensityGrid:
         Parameters
         ----------
         trajectory : Trajectory
-            Trajectory-state object with positions/forces.
+            Trajectory whose frames to add; its cell, temperature and units
+            must be those the grid was built with.
         atom_names : str or list of str
             Atom name(s) used for selection (single species or multi-species molecule).
         rigid : bool, optional
@@ -340,7 +338,7 @@ class DensityGrid:
             For a species to be treated as rigid each atom in the molecule must have a different name.
 
         centre_location : bool or int, optional
-            If `True`, use center-of-mass; if `int`, use that atom index within the
+            If `True`, use the centre of mass; if `int`, use that atom index within the
             rigid set as the reference position (default: True).
         kernel : {'triangular','box'}, optional
             Deposition kernel for grid assignment (default: 'triangular').
@@ -396,14 +394,14 @@ class DensityGrid:
         integrates to the selection's net charge). Molecule-level counting
         is provided by ``rigid=True``.
 
+        Each call selects atoms with its own arguments, so use the same
+        selection in every call. Accumulating ``'O'`` and then ``'H'`` from
+        the same frames counts each frame twice, giving half the total that
+        ``['O', 'H']`` gives in one call.
+
         When ``compute_lambda=True``, variance statistics accumulate across
         multiple ``accumulate()`` calls, enabling lambda estimation from
         multiple trajectories.
-
-        Each call selects atoms with its own arguments. Use the same
-        selection in every call: accumulating ``'O'`` and then ``'H'`` counts
-        each frame twice and halves the density, where ``['O', 'H']`` in one
-        call gives their total.
 
         If a frame cannot be read, the frames deposited before it are kept,
         so a later ``accumulate()`` on another trajectory adds to them. With
@@ -418,10 +416,9 @@ class DensityGrid:
         ------
         ValueError
             If the trajectory's cell, temperature or units differ from the
-            grid's; on invalid frame selection, unsupported density/kernel combinations,
-            malformed inputs for rigid/centre options, or if ``rho_lambda`` is
-            accessed with fewer than 2 accumulated sections (variance estimation
-            requires at least 2 data points).
+            grid's, or on invalid atom names, an invalid frame selection, an
+            unknown kernel or blocking option, or malformed rigid, centre or
+            polarisation options.
         """
         check_same_system(trajectory, self.cell_matrix, self.beta, "density grid")
 

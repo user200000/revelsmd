@@ -317,7 +317,7 @@ def test_deposit_in_a_triclinic_cell(kernel):
     gs.accumulate(traj, atom_names="A", kernel=kernel)
     assert gs.count == 2
     assert gs.counter.sum() == pytest.approx(2.0, abs=1e-12)
-    assert np.any(gs.force_x != 0)
+    assert gs.force_x.sum() == pytest.approx(1.0, abs=1e-12)
 
 
 def test_deposit_at_the_cell_boundary_in_a_triclinic_cell():

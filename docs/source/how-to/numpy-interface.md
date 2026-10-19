@@ -68,4 +68,5 @@ grid.accumulate(traj, atom_names='O')
 ```
 
 To add more structures later, call `accumulate()` again with another
-trajectory of the same system: the same cell, temperature and units.
+trajectory of the same system: the same cell, temperature and units, and for
+an RDF the same number of atoms of its two species.

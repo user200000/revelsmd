@@ -21,7 +21,7 @@ revelsMD/
         rdf_helpers.py   # pairwise / bin helpers (numpy backend)
         rdf_helpers_numba.py  # numba backend equivalents
     trajectories/
-        _base.py         # Trajectory ABC, normalize_bounds
+        _base.py         # Trajectory ABC, normalize_bounds, frame_range, check_same_system
         lammps.py        # LAMMPS dump reader
         mda.py           # MDAnalysis adapter
         numpy.py         # in-memory numpy trajectory
@@ -82,7 +82,7 @@ that atom counts match. `frozen=True` prevents mutation after creation.
 
 The constructor of `DensityGrid` or `RDF` takes the system from a trajectory:
 its cell and beta (temperature and units), and for the RDF the number of atoms
-of each species. It keeps those values, not the trajectory. Frames go in only
+of each of its two species. It keeps those values, not the trajectory. Frames go in only
 through `accumulate()`, which takes a trajectory of that system, raises if its
 cell, temperature or units differ (or, for the RDF, its species counts), and
 iterates its frames. Calling `accumulate()` again adds frames from the same
@@ -91,9 +91,9 @@ trajectory or another of the same system, such as an independent run; see
 
 Whole frames are deposited at a time, so a frame cannot be split across calls.
 `DensityGrid` builds its `Selection` from each call's `atom_names`, so a grid
-can still mix selections across calls: accumulating `'O'` and then `'H'` counts
-each frame twice and halves the density, where `['O', 'H']` in one call gives
-the total.
+can still mix selections across calls: accumulating `'O'` and then `'H'` from
+the same frames counts each frame twice, giving half the total that
+`['O', 'H']` gives in one call.
 
 ### DensityGrid deposition
 

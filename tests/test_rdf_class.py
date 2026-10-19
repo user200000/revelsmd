@@ -127,10 +127,10 @@ class TestRDFClassAPI:
             rdf.get_rdf()
 
 
-def _water(box=10.0, temperature=300.0, order=None, seed=0):
+def _water(box=10.0, temperature=300.0, order=None, seed=0, n_waters=4):
     """A small water-like trajectory; ``order`` permutes its atoms."""
     rng = np.random.default_rng(seed)
-    species = np.array(["O", "H", "H"] * 4)
+    species = np.array(["O", "H", "H"] * n_waters)
     positions = rng.uniform(0, box, (6, len(species), 3))
     forces = rng.normal(size=(6, len(species), 3))
     if order is not None:
@@ -145,8 +145,7 @@ class TestRDFAccumulateTrajectories:
     @pytest.mark.parametrize("other, message", [
         (lambda: _water(box=12.0), "cell differs"),
         (lambda: _water(temperature=600.0), "temperature or units"),
-        (lambda: NumpyTrajectory(np.zeros((2, 3, 3)), np.ones((2, 3, 3)), 10.0, 10.0, 10.0,
-                                 ["O", "H", "H"], temperature=300.0, units="real"), "built for 4 and 8"),
+        (lambda: _water(n_waters=3), "has 3 'O' and 6 'H' atoms, but the RDF was built for 4 and 8"),
     ], ids=["cell", "temperature", "species counts"])
     def test_another_system_raises(self, other, message):
         from revelsMD.rdf import RDF
@@ -154,7 +153,26 @@ class TestRDFAccumulateTrajectories:
         with pytest.raises(ValueError, match=message):
             rdf.accumulate(other())
 
-    def test_atoms_are_found_by_name_in_each_trajectory(self):
+    def test_like_species_counts_differ_raises(self):
+        from revelsMD.rdf import RDF
+        rdf = RDF(_water(), 'O', 'O', delr=0.1)
+        with pytest.raises(ValueError, match="has 3 'O' atoms, but the RDF was built for 4\\."):
+            rdf.accumulate(_water(n_waters=3))
+
+    def test_a_rejected_trajectory_keeps_earlier_results(self):
+        from revelsMD.rdf import RDF
+        traj = _water()
+        rdf = RDF(traj, 'O', 'H', delr=0.1)
+        rdf.accumulate(traj)
+        rdf.get_rdf(integration='lambda')
+        g = rdf.g.copy()
+        with pytest.raises(ValueError, match="cell differs"):
+            rdf.accumulate(_water(box=12.0))
+        assert rdf._frame_count == 6
+        np.testing.assert_array_equal(rdf.g, g)
+
+    @pytest.mark.parametrize("integration", ['forward', 'backward', 'lambda'])
+    def test_atoms_are_found_by_name_in_each_trajectory(self, integration):
         # The same frames with the atoms listed in another order.
         from revelsMD.rdf import RDF
         order = np.random.default_rng(1).permutation(12)
@@ -162,10 +180,9 @@ class TestRDFAccumulateTrajectories:
         reference.accumulate(_water())
         reordered = RDF(_water(), 'O', 'H', delr=0.1)
         reordered.accumulate(_water(order=order))
-        for integration in ('forward', 'backward', 'lambda'):
-            reference.get_rdf(integration=integration)
-            reordered.get_rdf(integration=integration)
-            np.testing.assert_allclose(reordered.g, reference.g, rtol=1e-12, atol=1e-14)
+        reference.get_rdf(integration=integration)
+        reordered.get_rdf(integration=integration)
+        np.testing.assert_allclose(reordered.g, reference.g, rtol=1e-12, atol=1e-14)
 
     @pytest.mark.parametrize("integration", ['forward', 'backward', 'lambda'])
     def test_accumulating_in_parts_matches_one_call(self, integration):
@@ -367,7 +384,7 @@ class TestRDFCountAccumulation:
         assert rdf._counts.shape == rdf._accumulated.shape
         np.testing.assert_array_equal(rdf._counts, 0)
 
-    def test_counts_accumulated_after_accumulate(self):
+    def test_counts_sum_to_one_per_pair(self):
         """Counts hold one unit of weight per pair within rmax."""
         from revelsMD.rdf import RDF
 

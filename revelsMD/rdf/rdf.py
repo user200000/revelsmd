@@ -19,9 +19,9 @@ class RDF:
     Radial distribution function calculator.
 
     The constructor takes the system from ``trajectory``: its cell, beta and
-    the number of atoms of each species. accumulate() adds the frames of a
-    trajectory of that system, which may be another trajectory, such as an
-    independent run; get_rdf() computes g(r) with the chosen integration.
+    the number of atoms of each of its two species. accumulate() adds the
+    frames of any trajectory of that system, such as an independent run;
+    get_rdf() computes g(r) with the chosen integration.
 
     Parameters
     ----------
@@ -35,7 +35,8 @@ class RDF:
     delr : float
         Bin spacing (default: 0.01).
     rmax : float or None
-        Maximum r value. If None, uses half the minimum box dimension.
+        Maximum r value. If None, the radius of the sphere inscribed in the
+        cell (half the smallest box length for an orthorhombic cell).
 
     Attributes
     ----------
@@ -66,7 +67,7 @@ class RDF:
         self.delr = delr
 
         # The system: frames from any trajectory with this cell, beta and
-        # species counts can be accumulated.
+        # species counts (set below) can be accumulated.
         self._cell_matrix = np.array(trajectory.cell_matrix, dtype=np.float64)
         self._cell_inverse = np.linalg.inv(self._cell_matrix)
         self._cell_volume = float(abs(np.linalg.det(self._cell_matrix)))
@@ -251,9 +252,9 @@ class RDF:
         ------
         ValueError
             If the trajectory's cell, temperature, units or species counts
-            differ from the RDF's; if start or stop lies outside the
-            trajectory, or the selected range is empty. Negative values count
-            from the end of the trajectory.
+            differ from the RDF's, or it has no atoms of a species; if start
+            or stop lies outside the trajectory, or the selected range is
+            empty. Negative values count from the end of the trajectory.
 
         Notes
         -----
@@ -264,10 +265,15 @@ class RDF:
         indices = self._species_indices(trajectory)
         counts = tuple(len(i) for i in indices)
         if counts != self._species_counts:
+            if self._like_species:
+                found = f"{counts[0]} '{self.species_a}' atoms"
+                expected = f"{self._species_counts[0]}"
+            else:
+                found = (f"{counts[0]} '{self.species_a}' and {counts[1]} "
+                         f"'{self.species_b}' atoms")
+                expected = f"{self._species_counts[0]} and {self._species_counts[1]}"
             raise ValueError(
-                f"the trajectory has {counts[0]} '{self.species_a}' and {counts[1]} "
-                f"'{self.species_b}' atoms, but the RDF was built for "
-                f"{self._species_counts[0]} and {self._species_counts[1]}"
+                f"The trajectory has {found}, but the RDF was built for {expected}."
             )
         to_run = frame_range(trajectory.frames, start, stop, period)
         self._indices = indices
@@ -483,8 +489,6 @@ def compute_rdf(
     """
     Compute RDF from trajectory with a single function call.
 
-    Mirrors compute_density() pattern.
-
     Parameters
     ----------
     trajectory : Trajectory
@@ -496,7 +500,8 @@ def compute_rdf(
     delr : float
         Bin spacing (default: 0.01).
     rmax : float or None
-        Maximum r value. If None, uses half the minimum box dimension.
+        Maximum r value. If None, the radius of the sphere inscribed in the
+        cell (half the smallest box length for an orthorhombic cell).
     start : int
         First frame index (default: 0).
     stop : int or None
