@@ -102,6 +102,7 @@ blocks have been accumulated.
 
 ### Lambda weights and the combined density
 
+With $E_0 = \rho_\text{count}$ and $E_1 = \rho_\text{force}$,
 `control_variate_combination` computes the weight on the force density,
 
 $$

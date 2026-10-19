@@ -856,8 +856,8 @@ class DensityGrid:
         # Finalise Welford statistics
         var_delta, cov_delta_force = self._welford.finalise()
 
-        # E_0 = rho_count and E_1 = rho_force (Coles et al. (2021)). The
-        # accumulator stores Cov(delta, rho_force); since
+        # In the notation of Coles et al. (2021), E_0 = rho_count and
+        # E_1 = rho_force. The accumulator stores Cov(delta, rho_force); since
         # rho_count = rho_force - delta, Cov(rho_count, delta) is that minus
         # Var(delta). The FFTs round every voxel at the scale of the whole grid.
         self._rho_lambda, self._lambda_weights = control_variate_combination(

@@ -10,13 +10,12 @@ estimator to float precision. For densities E_0 = rho_count and
 E_1 = rho_force; the exposed lambda_weights is the Eq. 3 weight on
 rho_force, so rho_lambda = (1 - lambda) * rho_count + lambda * rho_force.
 
-This guard exists because pinned-output tests cannot catch an inverted
-combination: passing the estimators to control_variate_combination in the
-wrong roles, with moments for the other assignment, leaves every other test
-passing. Because
-rho_force comes from a global FFT solve, the RDF invariant test's
-region-wise-exactness trick is unavailable; instead these tests drive
-the two constructions where one estimator is exact everywhere.
+Pinned-output tests can show that a result changed, but not which
+estimator should win; these tests encode that. Because rho_force comes from
+a global FFT solve, the RDF invariant test's region-wise-exactness trick is
+unavailable; instead these tests drive the two constructions where one
+estimator is exact everywhere, and compare with lambda and rho_lambda
+computed from scratch from per-frame densities.
 """
 
 import numpy as np
@@ -111,3 +110,29 @@ def test_lambda_degenerate_blocks_return_force_estimator():
     # Sanity: the contract is only meaningfully pinned if the two
     # estimators actually differ.
     assert not np.array_equal(grid.rho_force, grid.rho_count)
+
+
+def test_lambda_matches_a_calculation_from_per_frame_densities():
+    """lambda and rho_lambda equal Eqs. 3-4 evaluated directly on per-frame densities."""
+    rng = np.random.default_rng(67)
+    positions = rng.random((N_FRAMES, N_ATOMS, 3)) * BOX
+    forces = rng.normal(scale=5.0, size=(N_FRAMES, N_ATOMS, 3))
+    trajectory = _make_trajectory(positions, forces)
+    grid = DensityGrid(trajectory, 'number', nbins=4)
+    grid.accumulate(trajectory, atom_names='A', compute_lambda=True)  # one frame per block
+
+    count, force = [], []
+    for k in range(N_FRAMES):
+        frame = DensityGrid(trajectory, 'number', nbins=4)
+        frame.accumulate(trajectory, atom_names='A', start=k, stop=k + 1)
+        count.append(frame.rho_count)
+        force.append(frame.rho_force)
+    count, force = np.array(count), np.array(force)
+    delta = force - count
+    var_delta = np.mean((delta - delta.mean(axis=0)) ** 2, axis=0)
+    cov_count_delta = np.mean((count - count.mean(axis=0)) * (delta - delta.mean(axis=0)), axis=0)
+    lam = -cov_count_delta / var_delta
+    rho_lambda = (1 - lam) * count.mean(axis=0) + lam * force.mean(axis=0)
+
+    np.testing.assert_allclose(grid.lambda_weights, lam, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(grid.rho_lambda, rho_lambda, rtol=1e-9, atol=1e-12)

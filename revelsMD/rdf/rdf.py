@@ -412,8 +412,8 @@ class RDF:
         notation collision: the paper's E_0 is NOT g_0.
 
         Where Delta is the same in every frame to within rounding
-        (degenerate input, e.g. a single frame), lambda = 0 and E_lambda
-        reduces to the backward estimator g_inf.
+        (degenerate input, e.g. a single frame), lambda = 0 and the result
+        is the backward estimator g_inf.
         """
         base_array = np.nan_to_num(np.array(self._frame_data))
         base_array *= self._prefactor * self._beta / (4 * np.pi)

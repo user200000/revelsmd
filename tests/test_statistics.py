@@ -10,7 +10,7 @@ from revelsMD.statistics import (
 
 
 def _moments(e0, e1):
-    """Means and population moments over axis 0, as the callers compute them."""
+    """Means of E_0 and E_1, and population moments of Delta, over axis 0."""
     delta = e1 - e0
     d_delta = delta - delta.mean(axis=0)
     return (
@@ -54,11 +54,14 @@ class TestControlVariateCombination:
 
     @pytest.mark.parametrize("seed", range(5))
     def test_relabelling_the_estimators_gives_the_same_combination(self, seed):
-        # Passing E_1 as E_0 gives the same estimate with weight 1 - lambda,
-        # so swapping the estimators cannot silently invert the result.
+        # Passing E_1 as E_0, with the fallback flipped too, gives the same
+        # estimate with weight 1 - lambda, so swapping the estimators cannot
+        # silently invert the result. Element 0 has a negligible variance.
         e0, e1 = _samples(seed)
+        e1[:, 0] = e0[:, 0] + 0.7
         combined, lam = control_variate_combination(*_moments(e0, e1), scale=1.0, fallback=0.0)
         swapped, lam_swapped = control_variate_combination(*_moments(e1, e0), scale=1.0, fallback=1.0)
+        assert lam[0] == 0.0 and lam_swapped[0] == 1.0
         np.testing.assert_allclose(swapped, combined, rtol=1e-12)
         np.testing.assert_allclose(lam_swapped, 1 - lam, rtol=1e-12)
 
@@ -68,23 +71,32 @@ class TestControlVariateCombination:
         # A standard deviation of delta at most 1e-10 of the scale is
         # rounding, not sampling. The result does not depend on units.
         var_delta = np.array([(1e-11 * scale) ** 2, (1e-9 * scale) ** 2, 0.0])
-        cov_e0_delta = -np.array([1.0, 2.0, 3.0]) * var_delta - np.array([0.0, 0.0, scale**2])
-        mean_e0 = np.full(3, scale)
-        mean_e1 = np.full(3, 1.5 * scale)
+        cov_e0_delta = -np.array([3.0, 2.0, 3.0]) * var_delta - np.array([0.0, 0.0, scale**2])
         combined, lam = control_variate_combination(
-            mean_e0, mean_e1, var_delta, cov_e0_delta, scale=scale, fallback=fallback
+            np.full(3, scale), np.full(3, 1.5 * scale), var_delta, cov_e0_delta,
+            scale=scale, fallback=fallback,
         )
         np.testing.assert_allclose(lam, [fallback, 2.0, fallback])
-        np.testing.assert_allclose(combined, (1 - lam) * mean_e0 + lam * mean_e1)
         # The fallback reproduces the chosen estimator exactly.
-        chosen = mean_e1 if fallback else mean_e0
-        np.testing.assert_array_equal(combined[[0, 2]], chosen[[0, 2]])
+        chosen = 1.5 * scale if fallback else scale
+        np.testing.assert_allclose(combined, [chosen, 2.0 * scale, chosen])
+        assert combined[0] == combined[2] == chosen
 
-    def test_non_finite_ratio_takes_the_fallback(self):
-        _, lam = control_variate_combination(
-            np.ones(2), np.ones(2), np.ones(2), np.array([np.nan, -0.5]), scale=1.0, fallback=1.0,
+    @pytest.mark.filterwarnings("ignore:invalid value encountered")  # numpy reports the NaN
+    def test_non_finite_moments_are_not_hidden(self):
+        combined, lam = control_variate_combination(
+            np.ones(2), np.full(2, 1.1), np.array([np.nan, 1.0]), np.array([0.5, np.inf]),
+            scale=1.0, fallback=1.0,
         )
-        np.testing.assert_allclose(lam, [1.0, 0.5])
+        assert np.isnan(lam[0]) and np.isinf(lam[1])
+        assert not np.isfinite(combined).any()
+
+    def test_scale_is_one_number(self):
+        # A scale per element would let degenerate elements through.
+        with pytest.raises(TypeError):
+            control_variate_combination(
+                np.ones(2), np.ones(2), np.ones(2), np.ones(2), scale=np.ones(2), fallback=0.0
+            )
 
     def test_non_finite_estimates_are_not_hidden(self):
         combined, _ = control_variate_combination(

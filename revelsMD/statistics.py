@@ -155,8 +155,9 @@ class WelfordAccumulator3D:
         self._C_delta_force.fill(0)
 
 
-#: A standard deviation of delta across blocks at most this fraction of the
-#: estimates' size is rounding, not sampling, so the variance counts as zero.
+#: A standard deviation of Delta at most this fraction of the scale (the size
+#: of the numbers whose rounding sets that of Delta) is rounding, not
+#: sampling, so the variance counts as zero.
 NEGLIGIBLE_SPREAD = 1e-10
 
 
@@ -176,27 +177,29 @@ def control_variate_combination(
         E_lambda = (1 - lambda) * E_0 + lambda * E_1,
         lambda   = -Cov(E_0, Delta) / Var(Delta),    Delta = E_1 - E_0,
 
-    which is the in-sample optimum. E_0 sets both the base term and the
-    covariance, so relabelling the estimators (with their moments) gives
-    the same estimate with weight 1 - lambda rather than an inverted one.
+    This lambda minimises the variance of E_0 + lambda * Delta over the
+    blocks or frames the moments come from. E_0 sets both the base term and
+    the covariance, so relabelling the estimators (with their moments, and
+    with ``fallback`` replaced by 1 - ``fallback``) gives the same estimate
+    with weight 1 - lambda rather than an inverted one.
 
     Where Var(Delta) is negligible, lambda is ``fallback``. A variance is
     negligible where the standard deviation of Delta is at most
     ``NEGLIGIBLE_SPREAD`` times ``scale``: it is then rounding, and dividing
-    by it would give an arbitrarily large lambda. A non-finite ratio also
-    takes the fallback.
+    by it would give an arbitrarily large lambda. Non-finite inputs are not
+    hidden: they propagate into the result.
 
     Parameters
     ----------
     mean_e0, mean_e1 : ndarray
-        The two estimates, averaged over blocks or frames.
+        Means of E_0 and E_1 over the blocks or frames.
     var_delta : ndarray
-        Var(Delta) across blocks or frames.
+        Var(Delta) over the blocks or frames.
     cov_e0_delta : ndarray
-        Cov(E_0, Delta) across blocks or frames.
+        Cov(E_0, Delta) over the blocks or frames.
     scale : float
-        The size of the numbers whose rounding sets that of Delta, over the
-        whole grid or g(r).
+        One number: the size of the numbers whose rounding sets that of
+        Delta, everywhere in the arrays.
     fallback : float
         lambda where Var(Delta) is negligible: 0 gives E_0, 1 gives E_1.
 
@@ -207,7 +210,9 @@ def control_variate_combination(
     lam : ndarray
         lambda, the weight on E_1.
     """
+    # One number for all the arrays: a scale per voxel or bin lets degenerate
+    # ones through, since their rounding is set by the largest values.
+    scale = float(scale)
     negligible = var_delta <= (NEGLIGIBLE_SPREAD * scale) ** 2
-    lam = -cov_e0_delta / np.where(negligible, 1.0, var_delta)
-    lam = np.where(negligible | ~np.isfinite(lam), fallback, lam)
+    lam = np.where(negligible, fallback, -cov_e0_delta / np.where(negligible, 1.0, var_delta))
     return (1 - lam) * mean_e0 + lam * mean_e1, lam
