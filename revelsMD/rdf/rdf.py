@@ -188,14 +188,14 @@ class RDF:
         forward estimator g_0 (E_1 in the paper's notation; the backward
         estimator g_inf is E_0 and carries weight 1 - lambda). Bins where
         Delta is the same in every frame, to within rounding, report
-        lambda = 0, i.e. the backward estimator.
+        lambda = 0, i.e. the backward estimator. At r = 0 the forward
+        estimator is exactly 0, so lambda = 1 there.
 
         Returns
         -------
         np.ndarray or None
             1D array of per-bin lambda weights, or None if
-            integration='lambda' was not used. The first entry (r = 0)
-            is padding and is always 0.
+            integration='lambda' was not used.
         """
         return self._lam
 
