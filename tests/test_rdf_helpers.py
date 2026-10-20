@@ -15,6 +15,7 @@ from revelsMD.rdf.rdf_helpers import (
     compute_pairwise_contributions,
     accumulate_binned_contributions,
     accumulate_triangular_counts,
+    get_backend_functions,
 )
 
 
@@ -98,6 +99,26 @@ class TestBackendSelection:
         tri_np = np_tri(r_np, bins)
         tri_nb = nb_tri(r_nb, bins)
         np.testing.assert_allclose(tri_np, tri_nb, rtol=1e-10)
+
+
+class TestPairwiseNonFinite:
+    """Both backends treat a coincident pair as no contribution, and let NaN through."""
+
+    @pytest.mark.parametrize("backend", ["numpy", "numba"])
+    def test_coincident_pair_contributes_zero_and_nan_shows(self, backend):
+        if backend == "numba":
+            pytest.importorskip("numba")
+        pairwise, _, _ = get_backend_functions(backend)
+        cell = np.eye(3) * 10.0
+        pos_a = np.array([[1.0, 1.0, 1.0], [5.0, 5.0, 5.0]])
+        pos_b = np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 1.0]])
+        forces_a = np.array([[1.0, 0.0, 0.0], [np.nan, 0.0, 0.0]])
+        forces_b = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 0.0]])
+        r, dot = pairwise(pos_a, pos_b, forces_a, forces_b, cell, np.linalg.inv(cell))
+        # Pairs in the order (b0, a0), (b0, a1), (b1, a0), (b1, a1).
+        assert r[0] == 0.0 and dot[0] == 0.0
+        assert np.isnan(dot[1]) and np.isnan(dot[3])
+        assert np.isfinite(dot[2])
 
 
 class TestMinimumImage:
@@ -504,16 +525,18 @@ class TestBinnedAccumulation:
         # 10.0 goes to last bin (zeroed)
         np.testing.assert_almost_equal(result[1], 2.0)
 
-    def test_nan_handling(self):
-        """NaN values converted to zero."""
-        values = np.array([1.0, np.nan, 3.0])
-        distances = np.array([0.5, 1.5, 2.5])
-        bins = np.array([0.0, 1.0, 2.0, 3.0])
-
-        result = accumulate_binned_contributions(values, distances, bins)
-
-        # Result should have no NaN values
-        assert np.all(np.isfinite(result))
+    @pytest.mark.parametrize("backend", ["numpy", "numba"])
+    def test_a_non_finite_value_shows_in_its_bin(self, backend):
+        """Both backends let NaN and infinity through to their bin; other bins are unaffected."""
+        if backend == "numba":
+            pytest.importorskip("numba")
+        _, accumulate, _ = get_backend_functions(backend)
+        values = np.array([1.0, np.nan, 2.0, np.inf, 3.0])
+        distances = np.array([0.5, 1.5, 1.6, 2.5, 0.6])
+        bins = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        np.testing.assert_array_equal(
+            accumulate(values, distances, bins), [4.0, np.nan, np.inf, 0.0, 0.0]
+        )
 
     def test_matches_original_loop(self):
         """Output matches the original backward loop implementation."""

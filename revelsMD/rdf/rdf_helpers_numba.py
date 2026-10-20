@@ -194,10 +194,6 @@ def _accumulate_binned_contributions_numba(
         d = distances[k]
         v = values[k]
 
-        # Skip NaN/inf values
-        if not np.isfinite(v):
-            continue
-
         # np.digitize(d, bins) - 1: find rightmost bin edge <= d
         # This is equivalent to searchsorted with side='right' minus 1
         bin_idx = np.searchsorted(bins, d, side='right') - 1

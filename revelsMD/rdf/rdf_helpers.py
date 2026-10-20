@@ -153,7 +153,7 @@ def accumulate_binned_contributions(
     - Uses np.digitize for bin assignment (same as original).
     - Uses np.bincount for O(m) accumulation instead of O(n_bins) loop.
     - Values in the last bin are set to zero (matching original behaviour).
-    - Handles nan/inf via nan_to_num at the end.
+    - A non-finite value makes its bin non-finite, as in the numba backend.
     """
     n_bins = len(bins)
 
@@ -178,7 +178,7 @@ def accumulate_binned_contributions(
         minlength=n_bins,
     ).astype(np.float64)
 
-    return np.nan_to_num(storage, nan=0.0, posinf=0.0, neginf=0.0)
+    return storage
 
 
 def accumulate_triangular_counts(
@@ -307,12 +307,14 @@ def compute_pairwise_contributions(
     r_vec = apply_minimum_image(r_vec, cell_matrix, cell_inverse)
 
     # Compute |r| and (F_diff . r) / |r|^3. Using axis=-1 works for both
-    # 2D (n_pairs, 3) and 3D (n_b, n_a, 3) arrays.
+    # 2D (n_pairs, 3) and 3D (n_b, n_a, 3) arrays. A coincident pair (r = 0)
+    # contributes nothing, as in the numba backend.
     r_mag = np.sqrt(np.sum(r_vec ** 2, axis=-1))
-    with np.errstate(divide='ignore', invalid='ignore'):
-        dot_prod = np.sum(F_diff * r_vec, axis=-1) / r_mag ** 3
+    coincident = r_mag == 0
+    dot_prod = np.sum(F_diff * r_vec, axis=-1) / np.where(coincident, 1.0, r_mag) ** 3
+    dot_prod[coincident] = 0.0
 
     return (
         r_mag.ravel().astype(np.float64),
-        np.nan_to_num(dot_prod.ravel(), nan=0.0, posinf=0.0, neginf=0.0).astype(np.float64),
+        dot_prod.ravel().astype(np.float64),
     )
