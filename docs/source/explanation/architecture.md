@@ -110,7 +110,7 @@ the block is complete.
 `RDF._deposit(frame)` takes a `Frame` and selects the atoms of the two species
 using the indices found in the trajectory being accumulated. The RDF always
 computes a pairwise property between two species, so it needs no `Selection`.
-Each frame also updates the running statistics for λ, whatever integration
+Each frame also updates the running statistics for $\lambda$, whatever integration
 `get_rdf()` is later asked for.
 
 ## Selection and Selection.extract
