@@ -15,6 +15,15 @@ from revelsMD.statistics import control_variate_combination
 from revelsMD.trajectories._base import check_same_system, frame_range
 
 
+def _shortest_rmax(n_bins: int, delr: float) -> str:
+    """The shortest printed rmax that gives a grid of exactly ``n_bins`` bins."""
+    for digits in range(6, 18):
+        text = f"{n_bins * delr:.{digits}g}"
+        if math.floor(float(text) / delr + 1e-9) == n_bins:
+            return text
+    return repr(n_bins * delr)
+
+
 def _forward_estimator(scaled: np.ndarray) -> np.ndarray:
     """Forward g(r) at the bin edges r_k, along the last axis.
 
@@ -144,7 +153,7 @@ class RDF:
             if (n_bins + 1) * delr > radius * (1 + 1e-9):
                 raise ValueError(
                     f"rmax={rmax} is too large for this cell: with delr={delr}, "
-                    f"the largest rmax is {largest_n_bins * delr:.6g}"
+                    f"the largest rmax is {_shortest_rmax(largest_n_bins, delr)}"
                 )
         n_edges = n_bins + 2  # up to the outermost edge, plus the overflow slot
         self._bins = np.arange(n_edges) * delr

@@ -104,13 +104,22 @@ class TestRDFClassAPI:
         traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
         assert RDF(traj, 'A', 'A', rmax=4.5, delr=0.5).rmax == 4.5
 
-    def test_largest_rmax_in_the_message_is_accepted(self):
+    @pytest.mark.parametrize("box, delr, n_bins", [
+        (14.227, 0.02, 354),
+        # Six significant figures would print values that lose a bin
+        # (4.81481), fall below delr (2) or pass the cell (5).
+        (10.0, 0.1234567, 39),
+        (10.0, 2.000001, 1),
+        (10.0, 1e-6, 4_999_999),
+    ])
+    def test_largest_rmax_in_the_message_gives_the_largest_grid(self, box, delr, n_bins):
         from revelsMD.rdf import RDF
-        traj = _ideal_gas(14.227, n_frames=1, n_atoms=4)
+        traj = _ideal_gas(box, n_frames=1, n_atoms=4)
         with pytest.raises(ValueError, match="too large") as raised:
-            RDF(traj, 'A', 'A', rmax=7.2, delr=0.02)
+            RDF(traj, 'A', 'A', rmax=box, delr=delr)
         largest = float(str(raised.value).rsplit(" ", 1)[1])
-        assert RDF(traj, 'A', 'A', rmax=largest, delr=0.02).rmax == pytest.approx(largest)
+        rdf = RDF(traj, 'A', 'A', rmax=largest, delr=delr)
+        assert len(rdf._bins) == n_bins + 2
 
     @pytest.mark.parametrize("kwargs, message", [
         ({"delr": 0.0}, "delr must be finite and positive"),
