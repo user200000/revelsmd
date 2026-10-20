@@ -110,6 +110,8 @@ the block is complete.
 `RDF._deposit(frame)` takes a `Frame` and selects the atoms of the two species
 using the indices found in the trajectory being accumulated. The RDF always
 computes a pairwise property between two species, so it needs no `Selection`.
+Each frame also updates the running statistics for λ, whatever integration
+`get_rdf()` is later asked for.
 
 ## Selection and Selection.extract
 
@@ -154,8 +156,8 @@ array, across samples, using a weighted online algorithm. The caller calls
 `update(delta, other, weight)` per sample, and `finalise()` returns population
 Var(delta) and Cov(delta, other) arrays; at least two samples are required.
 `DensityGrid` passes each block's `delta = rho_force - rho_count` and `rho_force`,
-weighted by the block's frames; `RDF` passes each frame's forward minus backward
-g(r) and backward g(r), so it keeps no per-frame data.
+weighted by the block's frame count; `RDF` passes each frame's forward minus
+backward g(r) and backward g(r) at $r > 0$, with weight 1.
 
 **`control_variate_combination(mean_e0, mean_e1, var_delta, cov_e0_delta, scale=..., fallback=...)`**
 — combines two estimators with the variance-minimising weight
@@ -166,7 +168,8 @@ into the result.
 
 `DensityGrid` uses both when `compute_lambda=True`, with $E_0 = \rho_\text{count}$,
 $E_1 = \rho_\text{force}$ and a fallback of 1 (force density), exposing the results
-as `grid.lambda_weights` and `grid.rho_lambda`. `RDF` uses
+as `grid.lambda_weights` and `grid.rho_lambda`. `RDF` updates a
+`WelfordAccumulator` with every frame it accumulates, and uses
 `control_variate_combination` with $E_0$ the backward $g(r)$, $E_1$ the forward
 $g(r)$ and a fallback of 0 (backward $g(r)$) at $r > 0$; at $r = 0$ it reports
 the exact forward value.

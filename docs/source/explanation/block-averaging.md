@@ -80,7 +80,9 @@ statistics and raises a `UserWarning`.
 ## WelfordAccumulator internals
 
 `WelfordAccumulator` implements a weighted Welford algorithm, computing running
-mean, variance, and covariance without storing all samples.
+mean, variance, and covariance without storing all samples. It works on arrays
+of any shape and takes $\delta$ and a second quantity; `DensityGrid` passes
+$\rho_\text{force}$ as that quantity, so the terms below are in density terms.
 
 For each new block $(k)$ with weight $w_k$, the accumulator updates:
 

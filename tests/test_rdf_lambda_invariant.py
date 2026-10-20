@@ -54,8 +54,8 @@ def _make_rdf():
 
 
 def _inject_synthetic_frames(rdf, scaled_frames):
-    """Add per-frame per-bin sums through the path accumulate() uses,
-    pre-dividing out the physical scale so that the RDF's
+    """Add per-frame per-bin sums through RDF._add_frame, which accumulate()
+    calls for every frame, pre-dividing out the physical scale so that the RDF's
     prefactor*beta/(4*pi) multiplication reproduces `scaled_frames` to
     floating-point round-trip precision. Counts feed only g_count, which
     these tests never assert; ones avoid divide-by-zero noise."""

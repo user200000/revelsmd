@@ -23,7 +23,7 @@ class WelfordAccumulator:
     - other, a second quantity to correlate with delta
 
     and the accumulator returns Var(delta) and Cov(delta, other) across the
-    samples, each weighted.
+    samples, each sample weighted by the weight passed to update().
 
     Parameters
     ----------
@@ -40,8 +40,8 @@ class WelfordAccumulator:
     Examples
     --------
     >>> acc = WelfordAccumulator((10, 10, 10))
-    >>> for delta, rho_force, n_frames in block_data:
-    ...     acc.update(delta, rho_force, weight=n_frames)
+    >>> for delta, other, weight in samples:
+    ...     acc.update(delta, other, weight=weight)
     >>> variance, covariance = acc.finalise()
     """
 
@@ -76,9 +76,9 @@ class WelfordAccumulator:
             The quantity whose covariance with delta is wanted, for this
             sample.
         weight : float, optional
-            Weight for this sample (e.g. number of frames). Samples with
-            more frames contribute proportionally more to the mean and
-            variance estimates. Default is 1.0 (unweighted).
+            Weight for this sample, e.g. its number of frames. A sample
+            contributes to the means, the variance and the covariance in
+            proportion to its weight. Default is 1.0.
         """
         if weight <= 0:
             raise ValueError(f"weight must be positive, got {weight}")

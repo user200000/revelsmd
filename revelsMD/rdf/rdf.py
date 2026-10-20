@@ -183,7 +183,6 @@ class RDF:
         self.progress = 'initialized'
         self._accumulated = np.zeros(len(self._bins), dtype=np.float64)
         self._counts = np.zeros(len(self._bins), dtype=np.float64)
-        self._frame_count = 0
         # Each frame's forward and backward g(r) at r > 0 feed running
         # statistics for lambda, so no per-frame data is kept.
         self._g_scale = self._prefactor * self._beta / (4 * np.pi)
@@ -194,6 +193,11 @@ class RDF:
         self._g: np.ndarray | None = None
         self._g_count: np.ndarray | None = None
         self._lam: np.ndarray | None = None
+
+    @property
+    def _frame_count(self) -> int:
+        """The number of frames accumulated."""
+        return self._frame_statistics.count
 
     @property
     def rmax(self) -> float:
@@ -297,14 +301,17 @@ class RDF:
         self._add_frame(*self._single_frame(frame))
 
     def _add_frame(self, force_result: np.ndarray, count_result: np.ndarray) -> None:
-        """Add one frame's binned force sums and counts."""
+        """Add one frame's binned force sums and counts, and its lambda statistics.
+
+        The frame's forward minus backward g(r) and its backward g(r), at
+        r > 0, update the running Var(Delta) and Cov(Delta, E_0).
+        """
         self._accumulated += force_result
         self._counts += count_result
-        scaled = np.nan_to_num(force_result) * self._g_scale
+        scaled = force_result * self._g_scale
         g_forward = _forward_estimator(scaled)[1:]
         g_backward = _backward_estimator(scaled)[1:]
         self._frame_statistics.update(g_forward - g_backward, g_backward)
-        self._frame_count += 1
 
         self.progress = 'accumulated'
 
@@ -494,8 +501,7 @@ class RDF:
 
     def _compute_standard(self, integration: str) -> None:
         """Compute forward or backward integrated g(r)."""
-        scaled = np.nan_to_num(self._accumulated.copy())
-        scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
+        scaled = self._accumulated * (self._g_scale / self._frame_count)
 
         # Every integration method reports r = bins[:-1], without the overflow bin.
         self._r = self._bins[:-1]
@@ -520,8 +526,7 @@ class RDF:
         to within rounding (degenerate input, e.g. a single frame),
         lambda = 0 and the result is the backward estimator g_inf.
         """
-        mean_scaled = np.nan_to_num(self._accumulated.copy())
-        mean_scaled *= self._g_scale / self._frame_count
+        mean_scaled = self._accumulated * (self._g_scale / self._frame_count)
 
         # Both estimators on the reported grid at r > 0, from the mean: E_1 =
         # g_0 (forward), E_0 = g_inf (backward). Their spread across frames
@@ -533,8 +538,9 @@ class RDF:
             var_delta = cov_e0_delta = np.zeros_like(exp_forward)
         else:
             var_delta, cov_e0_delta = self._frame_statistics.finalise()
-        # g_backward subtracts cumulative sums from 1, so the rounding in
-        # Delta is set by 1 and the largest cumulative sum, in every bin.
+        # Each frame's backward g(r) subtracts cumulative sums from 1, so the
+        # rounding in Delta is set by 1 and the largest cumulative sum, in
+        # every bin.
         g_lambda, lam = control_variate_combination(
             exp_backward, exp_forward, var_delta, cov_e0_delta,
             scale=float(max(1.0, np.max(np.abs(np.cumsum(mean_scaled))))),
