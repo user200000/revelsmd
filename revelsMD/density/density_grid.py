@@ -726,9 +726,12 @@ class DensityGrid:
         Convert force/counter arrays to densities via FFT.
 
         This is the core density calculation implementing (Borgis et al.,
-        Mol. Phys. 111, 3486-3492 (2013)):
-        delta_rho(k) = i / (k_B T k^2) * k . F(k), with delta_rho(k=0) := 0,
-        then rho(r) = <rho_count(r)> + F^-1[delta_rho(k)].
+        Mol. Phys. 111, 3486-3492 (2013)): grad rho = beta * rho <F>, so
+        delta_rho(k) = -i / (k_B T k^2) * k . F(k), with delta_rho(k=0) := 0
+        and F(k) the forward FFT (sum over r of F(r) exp(-i k.r)), then
+        rho(r) = <rho_count(r)> + F^-1[delta_rho(k)]. The array del_rho_k
+        holds i / (k_B T k^2) * k . F(k), which is -delta_rho(k), and the
+        perturbation is del_rho_n = -irfftn(del_rho_k).
 
         del_rho_k is held in rfft layout (nbinsx, nbinsy, nbinsz // 2 + 1),
         matching scipy.fft.rfftn's output for these real-valued forces. Its
