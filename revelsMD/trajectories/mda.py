@@ -208,7 +208,8 @@ class MDATrajectory(Trajectory):
         if ts.dimensions is None:
             raise ValueError(f"{where}: no simulation box")
         check_fixed_cell(np.array(ts.dimensions, dtype=np.float64), self._dimensions, where)
-        return Frame(ts.positions.copy(), ts.forces.copy())
+        # New arrays: the reader reuses ts's buffers for the next frame.
+        return Frame(np.array(ts.positions, dtype=np.float64), np.array(ts.forces, dtype=np.float64))
 
     def _iter_frames_impl(
         self,

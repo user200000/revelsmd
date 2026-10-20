@@ -376,6 +376,33 @@ class TestRDFAccumulateTrajectories:
         assert rdf.g is None and rdf.g_count is None and rdf.lam is None and rdf.r is None
 
 
+class TestSinglePrecisionInput:
+    """Single-precision trajectory data gives the same g(r) as double, on both backends."""
+
+    @pytest.mark.parametrize("backend", ["numpy", "numba"])
+    def test_float32_and_float64_input_give_the_same_rdf(self, backend, monkeypatch):
+        if backend == "numba":
+            pytest.importorskip("numba")
+        import revelsMD.rdf.rdf as rdf_module
+        from revelsMD.rdf import RDF
+        from revelsMD.rdf.rdf_helpers import get_backend_functions
+        monkeypatch.setattr(rdf_module, "get_backend_functions", lambda: get_backend_functions(backend))
+
+        rng = np.random.default_rng(4)
+        positions = rng.uniform(0, 30.0, (3, 60, 3)).astype(np.float32)
+        forces = rng.normal(size=positions.shape).astype(np.float32)
+        species = ["O", "H"] * 30
+        g = []
+        for dtype in (np.float32, np.float64):
+            traj = NumpyTrajectory(positions.astype(dtype), forces.astype(dtype), 30.0, 30.0, 30.0,
+                                   species, temperature=300.0, units="real")
+            rdf = RDF(traj, 'O', 'H', delr=0.1)
+            rdf.accumulate(traj)
+            rdf.get_rdf('forward')
+            g.append(rdf.g)
+        np.testing.assert_allclose(g[0], g[1], rtol=1e-12, atol=1e-12)
+
+
 class TestForwardAndBackwardOnOneGrid:
     """g(r) from both estimators is reported at the r it belongs to."""
 

@@ -260,6 +260,16 @@ class TestInterleavedBlocks:
 class TestFrame:
     """Tests for the Frame dataclass."""
 
+    def test_single_precision_arrays_are_stored_in_double_precision(self):
+        """MDAnalysis gives float32; a frame holds the same values as float64."""
+        from revelsMD.frame_sources import Frame
+        positions = np.array([[1.1, 2.2, 3.3]], dtype=np.float32)
+        forces = np.array([[0.1, -0.2, 0.3]], dtype=np.float32)
+        frame = Frame(positions, forces)
+        assert frame.positions.dtype == frame.forces.dtype == np.float64
+        np.testing.assert_array_equal(frame.positions, positions.astype(np.float64))
+        np.testing.assert_array_equal(frame.forces, forces.astype(np.float64))
+
     def test_named_field_access(self):
         """Frame supports .positions and .forces attribute access."""
         from revelsMD.frame_sources import Frame
