@@ -10,50 +10,49 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-class WelfordAccumulator3D:
+class WelfordAccumulator:
     """
-    Online variance/covariance accumulator for 3D grids.
+    Online variance/covariance accumulator for arrays of any shape.
 
     Uses Welford's algorithm to compute running mean, variance, and covariance
-    in a single pass, without storing all samples. This enables variance
-    estimation across multiple trajectories without memory explosion.
+    in a single pass, without storing all samples, so memory does not grow
+    with the number of samples. Each sample (a block of frames for a density
+    grid, a frame for an RDF) gives, at every point of the array:
 
-    Callers provide per-block values of:
-    - delta = rho_force - rho_count
-    - rho_force
+    - delta, the difference between the two estimators
+    - other, a second quantity to correlate with delta
 
-    And compute:
-    - Var(delta) across blocks
-    - Cov(delta, rho_force) across blocks
+    and the accumulator returns Var(delta) and Cov(delta, other) across the
+    samples, each weighted.
 
     Parameters
     ----------
     shape : tuple of int
-        Shape of the 3D grid (nx, ny, nz).
+        Shape of the arrays, e.g. (nx, ny, nz) for a grid or (n,) for g(r).
 
     Attributes
     ----------
     count : int
-        Number of blocks accumulated.
+        Number of samples accumulated.
     sum_weights : float
-        Sum of weights across all blocks.
+        Sum of weights across all samples.
 
     Examples
     --------
-    >>> acc = WelfordAccumulator3D((10, 10, 10))
+    >>> acc = WelfordAccumulator((10, 10, 10))
     >>> for delta, rho_force, n_frames in block_data:
     ...     acc.update(delta, rho_force, weight=n_frames)
     >>> variance, covariance = acc.finalise()
     """
 
-    def __init__(self, shape: tuple[int, int, int]) -> None:
+    def __init__(self, shape: tuple[int, ...]) -> None:
         self.shape = shape
         self.count = 0
         self.sum_weights: float = 0.0
         self._mean_delta: NDArray[np.floating] = np.zeros(shape)
-        self._mean_rho_force: NDArray[np.floating] = np.zeros(shape)
+        self._mean_other: NDArray[np.floating] = np.zeros(shape)
         self._M2_delta: NDArray[np.floating] = np.zeros(shape)
-        self._C_delta_force: NDArray[np.floating] = np.zeros(shape)
+        self._C_delta_other: NDArray[np.floating] = np.zeros(shape)
 
         # Scratch buffers for in-place update (avoids temporary allocations)
         self._scratch_a: NDArray[np.floating] = np.empty(shape)
@@ -63,20 +62,21 @@ class WelfordAccumulator3D:
     def update(
         self,
         delta: NDArray[np.floating],
-        rho_force: NDArray[np.floating],
+        other: NDArray[np.floating],
         weight: float = 1.0,
     ) -> None:
         """
-        Add one block's densities to the running statistics.
+        Add one sample to the running statistics.
 
         Parameters
         ----------
         delta : ndarray
-            The difference rho_force - rho_count for this block.
-        rho_force : ndarray
-            The force-based density for this block.
+            The difference between the two estimators for this sample.
+        other : ndarray
+            The quantity whose covariance with delta is wanted, for this
+            sample.
         weight : float, optional
-            Weight for this block (e.g. number of frames). Blocks with
+            Weight for this sample (e.g. number of frames). Samples with
             more frames contribute proportionally more to the mean and
             variance estimates. Default is 1.0 (unweighted).
         """
@@ -99,16 +99,16 @@ class WelfordAccumulator3D:
         sc *= weight
         self._M2_delta += sc
 
-        # d_force = rho_force - mean_rho_force
-        np.subtract(rho_force, self._mean_rho_force, out=sb)
-        # mean_rho_force += d_force * ratio
+        # d_other = other - mean_other
+        np.subtract(other, self._mean_other, out=sb)
+        # mean_other += d_other * ratio
         np.multiply(sb, ratio, out=sc)
-        self._mean_rho_force += sc
-        # C_delta_force += weight * d_delta * (rho_force - mean_rho_force_new)
-        np.subtract(rho_force, self._mean_rho_force, out=sb)
+        self._mean_other += sc
+        # C_delta_other += weight * d_delta * (other - mean_other_new)
+        np.subtract(other, self._mean_other, out=sb)
         np.multiply(sa, sb, out=sc)
         sc *= weight
-        self._C_delta_force += sc
+        self._C_delta_other += sc
 
     def finalise(
         self,
@@ -119,30 +119,30 @@ class WelfordAccumulator3D:
         Returns
         -------
         variance : ndarray
-            Weighted population Var(delta) across all blocks.
+            Weighted population Var(delta) across all samples.
         covariance : ndarray
-            Weighted population Cov(delta, rho_force) across all blocks.
+            Weighted population Cov(delta, other) across all samples.
 
         Raises
         ------
         ValueError
-            If fewer than 2 blocks have been accumulated.
+            If fewer than 2 samples have been accumulated.
         """
         if self.count < 2:
             msg = (
-                f"need at least 2 blocks for variance estimation, "
+                f"need at least 2 samples for variance estimation, "
                 f"but only {self.count} have been accumulated"
             )
             raise ValueError(msg)
 
         # Population variance (divide by sum_weights, not count)
         variance = self._M2_delta / self.sum_weights
-        covariance = self._C_delta_force / self.sum_weights
+        covariance = self._C_delta_other / self.sum_weights
         return variance, covariance
 
     @property
     def has_data(self) -> bool:
-        """Return True if any blocks have been accumulated."""
+        """Return True if any samples have been accumulated."""
         return self.count > 0
 
     def reset(self) -> None:
@@ -150,9 +150,9 @@ class WelfordAccumulator3D:
         self.count = 0
         self.sum_weights = 0.0
         self._mean_delta.fill(0)
-        self._mean_rho_force.fill(0)
+        self._mean_other.fill(0)
         self._M2_delta.fill(0)
-        self._C_delta_force.fill(0)
+        self._C_delta_other.fill(0)
 
 
 #: A standard deviation of Delta at most this fraction of the scale (the size

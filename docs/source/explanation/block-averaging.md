@@ -67,7 +67,7 @@ Each block is processed independently. After all frames in a block are deposited
 the block-level densities are normalised to per-block $\rho_\text{force}$ and
 $\rho_\text{count}$. The difference
 $\delta = \rho_\text{force} - \rho_\text{count}$ is then passed to the
-`WelfordAccumulator3D` along with $\rho_\text{force}$ and the block frame count
+`WelfordAccumulator` along with $\rho_\text{force}$ and the block frame count
 as its weight.
 
 Accumulation is additive across `accumulate()` calls: a second call (e.g. with a
@@ -77,9 +77,9 @@ $\lambda$ estimation from multiple trajectories.
 Calling `accumulate(..., compute_lambda=False)` clears any existing lambda
 statistics and raises a `UserWarning`.
 
-## WelfordAccumulator3D internals
+## WelfordAccumulator internals
 
-`WelfordAccumulator3D` implements a weighted Welford algorithm, computing running
+`WelfordAccumulator` implements a weighted Welford algorithm, computing running
 mean, variance, and covariance without storing all samples.
 
 For each new block $(k)$ with weight $w_k$, the accumulator updates:

@@ -50,12 +50,12 @@ $$\operatorname{Cov}(A, \delta) \approx \frac{1}{N} \sum_{i=1}^N (A_i - \bar{A})
 
 The two calculations draw their samples differently:
 
-- **RDFs** keep the per-frame $g_\text{fwd}(r)$ and $g_\text{bwd}(r)$ profiles, so each frame is one sample and no blocking parameters apply. Lambda estimation is enabled by passing `integration='lambda'` to `compute_rdf` or `get_rdf`.
+- **RDFs** take each frame's $g_\text{fwd}(r)$ and $g_\text{bwd}(r)$ as one sample, so no blocking parameters apply. Lambda estimation is enabled by passing `integration='lambda'` to `compute_rdf` or `get_rdf`.
 - **3D densities** divide frames into $N$ blocks, and each block yields one sample. By default, blocks are contiguous (consecutive frames), controlled by `block_size`. Interleaved blocking (`sections` parameter) can reduce bias from slow drift. Strategy selection is covered in [Block Averaging](block-averaging.md).
 
 ### The Welford accumulator
 
-For 3D density fields, where storing all block densities would be prohibitive, RevelsMD uses an online algorithm (`WelfordAccumulator3D` in `revelsMD/statistics.py`) that updates running mean, variance, and covariance in a single pass. Blocks are weighted by frame count, so unequal sizes are handled correctly.
+RevelsMD does not store the samples. An online algorithm (`WelfordAccumulator` in `revelsMD/statistics.py`) updates the running mean, variance and covariance with each one, so memory does not grow with the length of the trajectory. Density blocks are weighted by frame count, so unequal sizes are handled correctly; RDF frames have equal weight.
 
 ### Block parameters
 

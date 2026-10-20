@@ -8,7 +8,7 @@ revelsMD/
     backends.py          # backend selection (numba / numpy)
     cell.py              # cell geometry utilities
     frame_sources.py     # Frame dataclass, contiguous_blocks, interleaved_blocks
-    statistics.py        # WelfordAccumulator3D, control_variate_combination
+    statistics.py        # WelfordAccumulator, control_variate_combination
     density/
         density_grid.py  # DensityGrid accumulation and FFT conversion
         selection.py     # Selection: atom picking, weight computation
@@ -149,11 +149,13 @@ FFT parallelism is configured separately via `REVELSMD_FFT_WORKERS`.
 
 `revelsMD/statistics.py` provides two components:
 
-**`WelfordAccumulator3D`** — accumulates per-voxel variance and covariance across
-blocks using a weighted online algorithm. The caller calls
-`update(delta, rho_force, weight)` per block, where `delta = rho_force - rho_count`.
-`finalise()` returns population variance and covariance arrays. At least two blocks
-are required.
+**`WelfordAccumulator`** — accumulates variance and covariance at each point of an
+array, across samples, using a weighted online algorithm. The caller calls
+`update(delta, other, weight)` per sample, and `finalise()` returns population
+Var(delta) and Cov(delta, other) arrays; at least two samples are required.
+`DensityGrid` passes each block's `delta = rho_force - rho_count` and `rho_force`,
+weighted by the block's frames; `RDF` passes each frame's forward minus backward
+g(r) and backward g(r), so it keeps no per-frame data.
 
 **`control_variate_combination(mean_e0, mean_e1, var_delta, cov_e0_delta, scale=..., fallback=...)`**
 — combines two estimators with the variance-minimising weight

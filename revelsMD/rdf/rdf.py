@@ -11,7 +11,7 @@ from tqdm import tqdm
 from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.frame_sources import Frame
 from revelsMD.rdf.rdf_helpers import get_backend_functions
-from revelsMD.statistics import control_variate_combination
+from revelsMD.statistics import WelfordAccumulator, control_variate_combination
 from revelsMD.trajectories._base import check_same_system, frame_range
 
 
@@ -183,8 +183,11 @@ class RDF:
         self.progress = 'initialized'
         self._accumulated = np.zeros(len(self._bins), dtype=np.float64)
         self._counts = np.zeros(len(self._bins), dtype=np.float64)
-        self._frame_data: list[np.ndarray] = []
         self._frame_count = 0
+        # Each frame's forward and backward g(r) at r > 0 feed running
+        # statistics for lambda, so no per-frame data is kept.
+        self._g_scale = self._prefactor * self._beta / (4 * np.pi)
+        self._frame_statistics = WelfordAccumulator((len(self._bins) - 2,))
 
         # Results (set by get_rdf())
         self._r: np.ndarray | None = None
@@ -291,11 +294,16 @@ class RDF:
         frame : Frame
             Trajectory frame with positions and forces.
         """
-        # Compute and accumulate
-        force_result, count_result = self._single_frame(frame)
+        self._add_frame(*self._single_frame(frame))
+
+    def _add_frame(self, force_result: np.ndarray, count_result: np.ndarray) -> None:
+        """Add one frame's binned force sums and counts."""
         self._accumulated += force_result
         self._counts += count_result
-        self._frame_data.append(force_result)
+        scaled = np.nan_to_num(force_result) * self._g_scale
+        g_forward = _forward_estimator(scaled)[1:]
+        g_backward = _backward_estimator(scaled)[1:]
+        self._frame_statistics.update(g_forward - g_backward, g_backward)
         self._frame_count += 1
 
         self.progress = 'accumulated'
@@ -512,27 +520,19 @@ class RDF:
         to within rounding (degenerate input, e.g. a single frame),
         lambda = 0 and the result is the backward estimator g_inf.
         """
-        base_array = np.nan_to_num(np.array(self._frame_data))
-        base_array *= self._prefactor * self._beta / (4 * np.pi)
-
         mean_scaled = np.nan_to_num(self._accumulated.copy())
-        mean_scaled *= self._prefactor * self._beta / (4 * np.pi * self._frame_count)
+        mean_scaled *= self._g_scale / self._frame_count
 
-        # Both estimators on the reported grid, from the mean and from each
-        # frame: E_1 = g_0 (forward), E_0 = g_inf (backward). The combination
-        # runs over r > 0.
+        # Both estimators on the reported grid at r > 0, from the mean: E_1 =
+        # g_0 (forward), E_0 = g_inf (backward). Their spread across frames
+        # comes from the running statistics: Var(Delta) and Cov(Delta, E_0).
         exp_forward = _forward_estimator(mean_scaled)[1:]
         exp_backward = _backward_estimator(mean_scaled)[1:]
-        g_forward = _forward_estimator(base_array)[:, 1:]
-        g_backward = _backward_estimator(base_array)[:, 1:]
-
-        delta = g_forward - g_backward
-        exp_delta = exp_forward - exp_backward
-
-        var_delta = np.mean((delta - exp_delta) ** 2, axis=0)
-        cov_e0_delta = np.mean(
-            (delta - exp_delta) * (g_backward - exp_backward), axis=0
-        )
+        if self._frame_statistics.count < 2:
+            # A single frame has no spread.
+            var_delta = cov_e0_delta = np.zeros_like(exp_forward)
+        else:
+            var_delta, cov_e0_delta = self._frame_statistics.finalise()
         # g_backward subtracts cumulative sums from 1, so the rounding in
         # Delta is set by 1 and the largest cumulative sum, in every bin.
         g_lambda, lam = control_variate_combination(
