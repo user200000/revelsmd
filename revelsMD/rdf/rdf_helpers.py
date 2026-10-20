@@ -163,7 +163,7 @@ def accumulate_binned_contributions(
     # Bin assignment (same as original)
     bin_indices = np.digitize(distances, bins) - 1
 
-    # Zero out overflow bin contributions (beyond rmax)
+    # Zero out overflow bin contributions (pairs past the outermost edge)
     values = np.asarray(values, dtype=np.float64).copy()
     values[bin_indices == n_bins - 1] = 0
 

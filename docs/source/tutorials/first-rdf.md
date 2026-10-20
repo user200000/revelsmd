@@ -126,7 +126,7 @@ These follow Python slice semantics.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `delr` | `0.01` | Bin width in distance units |
-| `rmax` | `None` | Maximum r; defaults to the inscribed sphere radius |
+| `rmax` | `None` | Last r reported; `rmax + delr` must lie within the sphere inscribed in the cell, and the default is the largest such value |
 | `start` | `0` | First frame index |
 | `stop` | `None` | Stop frame index (exclusive); `None` = all frames |
 | `period` | `1` | Frame stride |

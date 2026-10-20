@@ -36,81 +36,169 @@ class TestRDFClassAPI:
         assert rdf.species_b == 'H'
         assert rdf.delr == 0.02
 
-    def test_rdf_default_rmax_is_half_box(self, water_trajectory):
-        """Default rmax should be half the shortest box dimension."""
-        from revelsMD.rdf import RDF
-        rdf = RDF(water_trajectory, 'O', 'H')
-        assert rdf.rmax == pytest.approx(5.0)  # box is 10x10x10
+    # The grid: r runs 0, delr, ... up to rmax, the last reported point.
+    # Above it is one more shell, whose outer edge, the outermost edge, must
+    # lie within R, the radius of the sphere inscribed in the cell: past R
+    # some pairs at each distance are missed. The default rmax is the largest
+    # that allows this.
 
-    def test_rdf_custom_rmax(self, water_trajectory):
-        """Custom rmax should override the default."""
-        from revelsMD.rdf import RDF
-        rdf = RDF(water_trajectory, 'O', 'H', rmax=3.0)
-        assert rdf.rmax == 3.0
-        rdf.accumulate(water_trajectory)
-        rdf.get_rdf(integration='forward')
-        assert rdf.r[-1] == pytest.approx(3.0)
-
-    def test_standard_r_reaches_rmax(self, water_trajectory):
-        """Standard integration r grid should include rmax."""
-        from revelsMD.rdf import RDF
-        rdf = RDF(water_trajectory, 'O', 'H', rmax=5.0, delr=0.1)
-        rdf.accumulate(water_trajectory)
-        rdf.get_rdf(integration='forward')
-        assert rdf.r[-1] == pytest.approx(5.0)
-        assert rdf.r[0] == pytest.approx(0.0)
-
-    def test_rmax_beyond_the_inscribed_sphere_raises(self):
-        from revelsMD.rdf import RDF
-        traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
-        with pytest.raises(ValueError, match=r"rmax=5\.5 is larger than .* \(5\)"):
-            RDF(traj, 'A', 'A', rmax=5.5)
-
-    @pytest.mark.parametrize("rmax", [5.0, 5.0 * (1 + 1e-12)])
-    def test_rmax_at_the_inscribed_sphere_is_accepted(self, rmax):
-        # Including a value that differs from the radius only by rounding.
-        from revelsMD.rdf import RDF
-        traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
-        assert RDF(traj, 'A', 'A', rmax=rmax).rmax == rmax
-
-    @pytest.mark.parametrize("box, delr, last", [
-        (10.0, 0.3, 4.8),      # rmax 5.0 is 16.67 bins: the grid stops at 16
-        (14.227, 0.02, 7.10),  # rmax 7.1135 is 355.7 bins
+    @pytest.mark.parametrize("box, delr", [
+        (10.0, 0.01), (10.0, 0.3), (10.0, 0.5), (14.227, 0.02), (7.0, 0.1),
     ])
-    def test_r_grid_stops_at_the_last_whole_bin_within_rmax(self, box, delr, last):
+    def test_default_grid_keeps_its_outermost_edge_within_the_cell(self, box, delr):
         from revelsMD.rdf import RDF
         traj = _ideal_gas(box, n_frames=1, n_atoms=4)
         rdf = RDF(traj, 'A', 'A', delr=delr)
         rdf.accumulate(traj)
         rdf.get_rdf(integration='forward')
-        assert rdf.r[-1] == pytest.approx(last)
-        assert rdf.r[-1] <= rdf.rmax
+        assert rdf.r[-1] + delr <= box / 2 * (1 + 1e-9)
+        assert rdf.r[-1] + 2 * delr > box / 2
+        assert rdf.rmax == rdf.r[-1]
 
-    @pytest.mark.parametrize("box, rmax, delr, last", [
-        # rmax / delr is a whole number, but in floating point falls just
-        # below it: 2.9999999999999996, 6.999999999999999, and for the
-        # inscribed radius of a 7 A cube 34.99999999999998.
-        (10.0, 0.3, 0.1, 0.3),
-        (10.0, 0.7, 0.1, 0.7),
-        (7.0, None, 0.1, 3.5),
+    @pytest.mark.parametrize("box, delr, last", [
+        (10.0, 0.01, 4.99),
+        (10.0, 0.3, 4.5),      # R / delr = 16.67
+        (14.227, 0.02, 7.08),  # R / delr = 355.7
+        (7.0, 0.1, 3.4),       # R / delr = 34.99999999999998 in floating point
     ])
-    def test_a_whole_number_of_bins_keeps_its_last_point(self, box, rmax, delr, last):
+    def test_default_rmax_is_one_bin_inside_the_last_whole_bin(self, box, delr, last):
         from revelsMD.rdf import RDF
         traj = _ideal_gas(box, n_frames=1, n_atoms=4)
+        assert RDF(traj, 'A', 'A', delr=delr).rmax == pytest.approx(last)
+
+    @pytest.mark.parametrize("rmax, delr, last", [
+        (3.0, 0.01, 3.0),
+        # rmax / delr is a whole number that floating point leaves just below
+        # it (2.9999999999999996, 6.999999999999999): the last bin is kept.
+        (0.3, 0.1, 0.3),
+        (0.7, 0.1, 0.7),
+        # Not a multiple of delr: the grid stops at the largest multiple within it.
+        (0.29995, 0.1, 0.2),
+        (3.05, 0.1, 3.0),
+    ])
+    def test_user_rmax_is_the_last_reported_point(self, rmax, delr, last):
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
         rdf = RDF(traj, 'A', 'A', rmax=rmax, delr=delr)
         rdf.accumulate(traj)
         rdf.get_rdf(integration='forward')
         assert rdf.r[-1] == pytest.approx(last)
+        assert rdf.rmax == rdf.r[-1]
 
-    def test_ideal_gas_counts_are_unbiased_at_the_last_point(self):
-        # Past the inscribed radius a shell is only partly sampled, and an
-        # ideal gas gives g_count < 1 there (0.93 at r = 5.1 in this box).
+    def test_rmax_whose_outermost_edge_passes_the_cell_raises(self):
         from revelsMD.rdf import RDF
-        traj = _ideal_gas(10.0, n_frames=200, n_atoms=200)
-        rdf = RDF(traj, 'A', 'A', delr=0.3)
+        traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
+        with pytest.raises(ValueError, match=r"^rmax=5\.0 is too large for this cell: "
+                                             r"with delr=0\.5, the largest rmax is 4\.5$"):
+            RDF(traj, 'A', 'A', rmax=5.0, delr=0.5)
+
+    def test_outermost_edge_just_past_the_inscribed_sphere_raises(self):
+        # R = 5 / (1 + 1e-6): the outermost edge 5.0 is past it by 1e-6 relative.
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(10.0 / (1 + 1e-6), n_frames=1, n_atoms=4)
+        with pytest.raises(ValueError, match="too large for this cell"):
+            RDF(traj, 'A', 'A', rmax=4.5, delr=0.5)
+
+    def test_outermost_edge_on_the_inscribed_sphere_is_accepted(self):
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
+        assert RDF(traj, 'A', 'A', rmax=4.5, delr=0.5).rmax == 4.5
+
+    def test_largest_rmax_in_the_message_is_accepted(self):
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(14.227, n_frames=1, n_atoms=4)
+        with pytest.raises(ValueError, match="too large") as raised:
+            RDF(traj, 'A', 'A', rmax=7.2, delr=0.02)
+        largest = float(str(raised.value).rsplit(" ", 1)[1])
+        assert RDF(traj, 'A', 'A', rmax=largest, delr=0.02).rmax == pytest.approx(largest)
+
+    @pytest.mark.parametrize("kwargs, message", [
+        ({"delr": 0.0}, "delr must be finite and positive"),
+        ({"delr": -0.1}, "delr must be finite and positive"),
+        ({"delr": float("nan")}, "delr must be finite and positive"),
+        ({"delr": float("inf")}, "delr must be finite and positive"),
+        ({"rmax": 0.0}, "rmax must be positive"),
+        ({"rmax": float("nan")}, "rmax must be positive"),
+        ({"rmax": 0.05, "delr": 0.1}, r"rmax=0\.05 is smaller than delr=0\.1"),
+        ({"delr": 3.0}, r"delr=3\.0 is too large for this cell"),
+    ])
+    def test_invalid_grid_arguments_raise(self, kwargs, message):
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
+        with pytest.raises(ValueError, match=message):
+            RDF(traj, 'A', 'A', **kwargs)
+
+    def test_rmax_is_read_only(self):
+        from revelsMD.rdf import RDF
+        rdf = RDF(_ideal_gas(10.0, n_frames=1, n_atoms=4), 'A', 'A')
+        with pytest.raises(AttributeError):
+            rdf.rmax = 3.0
+
+    @pytest.mark.parametrize("delr", [0.5, 0.25])
+    def test_ideal_gas_counts_are_unbiased_up_to_the_last_point(self, delr):
+        # With R / delr a whole number, the shell above the last reported
+        # point was wholly past R, and g_count there read about 0.95.
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(10.0, n_frames=400, n_atoms=200)
+        rdf = RDF(traj, 'A', 'A', delr=delr)
         rdf.accumulate(traj)
         rdf.get_rdf(integration='forward')
-        assert rdf.g_count[-1] == pytest.approx(1.0, abs=0.03)
+        np.testing.assert_allclose(rdf.g_count[rdf.r >= 0.5], 1.0, atol=0.01)
+
+    def test_ideal_gas_in_a_sheared_cell_is_unbiased_up_to_the_last_point(self):
+        from revelsMD.cell import inscribed_sphere_radius
+        from revelsMD.rdf import RDF
+        cell = np.array([[10.0, 0.0, 0.0], [3.0, 10.0, 0.0], [0.0, 0.0, 10.0]])
+        delr = inscribed_sphere_radius(cell) / 10
+        rng = np.random.default_rng(2)
+        positions = rng.random((400, 200, 3)) @ cell
+        traj = NumpyTrajectory(positions, rng.normal(size=positions.shape), cell_matrix=cell,
+                               species_list=["A"] * 200, temperature=1.0, units="lj")
+        rdf = RDF(traj, 'A', 'A', delr=delr)
+        rdf.accumulate(traj)
+        rdf.get_rdf(integration='forward')
+        assert rdf.r[-1] == pytest.approx(9 * delr)
+        np.testing.assert_allclose(rdf.g_count[rdf.r >= 1.0], 1.0, atol=0.015)
+        with pytest.raises(ValueError, match="too large for this cell"):
+            RDF(traj, 'A', 'A', delr=delr, rmax=10 * delr)
+
+    @staticmethod
+    def _pair(distance):
+        # One A-B pair at ``distance`` along a face diagonal of a 10 A box,
+        # with a radial force; three identical frames.
+        offset = distance / np.sqrt(2)
+        positions = np.array([[[1.0, 1.0, 1.0], [1.0 + offset, 1.0 + offset, 1.0]]] * 3)
+        forces = np.array([[[-1.0, -1.0, 0.0], [1.0, 1.0, 0.0]]] * 3)
+        return NumpyTrajectory(positions, forces, 10.0, 10.0, 10.0, ["A", "B"],
+                               temperature=1.0, units="lj")
+
+    def test_a_pair_past_the_outermost_edge_changes_nothing(self):
+        # delr = 0.5: the last reported point is 4.5 and the outermost edge 5.0.
+        from revelsMD.rdf import RDF
+        traj = self._pair(5.2)
+        rdf = RDF(traj, 'A', 'B', delr=0.5)
+        rdf.accumulate(traj)
+        rdf.get_rdf('forward')
+        np.testing.assert_array_equal(rdf.g, 0.0)
+        np.testing.assert_array_equal(rdf.g_count, 0.0)
+        rdf.get_rdf('backward')
+        np.testing.assert_array_equal(rdf.g, 1.0)
+        rdf.get_rdf('lambda')
+        np.testing.assert_array_equal(rdf.g[1:], 1.0)
+        np.testing.assert_array_equal(rdf.lam[1:], 0.0)
+
+    def test_a_pair_in_the_shell_above_the_last_point_enters_the_backward_estimator(self):
+        # The same pair at 4.75, between the last point 4.5 and the outermost
+        # edge 5.0: it is in no forward value, but the backward integral
+        # starts at the outermost edge and includes it.
+        from revelsMD.rdf import RDF
+        traj = self._pair(4.75)
+        rdf = RDF(traj, 'A', 'B', delr=0.5)
+        rdf.accumulate(traj)
+        rdf.get_rdf('forward')
+        np.testing.assert_array_equal(rdf.g, 0.0)
+        rdf.get_rdf('backward')
+        assert np.all(rdf.g != 1.0)
 
     def test_all_methods_return_same_grid(self, water_trajectory):
         """All integration methods should return the same r grid."""
@@ -645,9 +733,11 @@ class TestRDFCellMatrix:
 
         rdf = RDF(ts, 'O', 'H')
 
+        # The last reported point is one bin inside the last whole bin within
+        # the inscribed radius, so that the shell above it lies within the cell.
         from revelsMD.cell import inscribed_sphere_radius
-        expected_rmax = inscribed_sphere_radius(cell_matrix)
-        assert abs(rdf.rmax - expected_rmax) < 1e-10
+        radius = inscribed_sphere_radius(cell_matrix)
+        assert rdf.rmax == pytest.approx((np.floor(radius / rdf.delr) - 1) * rdf.delr)
 
     def test_rdf_volume_from_cell_determinant(self):
         """RDF prefactor should use det(cell_matrix) for volume."""

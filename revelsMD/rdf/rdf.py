@@ -19,9 +19,10 @@ def _forward_estimator(scaled: np.ndarray) -> np.ndarray:
     """Forward g(r) at the bin edges r_k, along the last axis.
 
     ``scaled`` holds the force sum of each bin [r_j, r_{j+1}), scaled to
-    g(r) units; its last entry is the overflow bin beyond rmax, which the
-    accumulators leave at 0. The result has one point fewer than
-    ``scaled``: r_k for every bin but the overflow bin. g(r_k) integrates
+    g(r) units: the bins below rmax, the shell above rmax, and last the
+    overflow slot for pairs past the outermost edge, which the force
+    accumulator leaves at 0. The result has one point fewer than
+    ``scaled``: g(r_k) at r_k = 0, delr, ..., rmax. g(r_k) integrates
     over the pairs closer than r_k, so it sums the bins below r_k and is
     0 at r = 0.
     """
@@ -62,9 +63,11 @@ class RDF:
     delr : float
         Bin spacing (default: 0.01).
     rmax : float or None
-        Maximum r value, at most the radius of the sphere inscribed in the
-        cell (half the smallest box length for an orthorhombic cell), which
-        is the default. The r grid stops at the last whole bin within it.
+        The last r at which g(r) is reported; a value that is not a multiple
+        of delr is rounded down to one. The shell of width delr above it
+        must lie within the sphere inscribed in the cell (radius half the
+        smallest box length for an orthorhombic cell), past which some pairs
+        are missed. The default is the largest rmax for which it does.
 
     Attributes
     ----------
@@ -85,9 +88,10 @@ class RDF:
     Raises
     ------
     ValueError
-        If ``rmax`` is larger than the radius of the sphere inscribed in the
-        cell, a species has no atoms, or a like-species RDF has fewer than
-        2 atoms.
+        If ``delr`` is not finite and positive; ``rmax`` is not positive,
+        is smaller than ``delr``, or puts the shell above it past the sphere
+        inscribed in the cell; a species has no atoms; or a like-species RDF
+        has fewer than 2 atoms.
     """
 
     def __init__(
@@ -109,29 +113,42 @@ class RDF:
         self._cell_volume = float(abs(np.linalg.det(self._cell_matrix)))
         self._beta = trajectory.beta
 
-        # Beyond the sphere inscribed in the cell, the minimum image misses
-        # some pairs at each distance, so g(r) there would be biased low.
-        largest = inscribed_sphere_radius(self._cell_matrix)
+        # The grid. g(r) is reported at r = 0, delr, ..., n_bins*delr, the
+        # last reported point being rmax. Above it is one more shell, up to
+        # the outermost edge (n_bins + 1)*delr: the last point takes counts
+        # from both sides of it, and the backward integral starts at its
+        # outer edge. Pairs past the outermost edge fall in an overflow slot
+        # that the force accumulator zeroes and the count accumulator skips.
+        # The outermost edge must lie within the sphere inscribed in the
+        # cell: past it the minimum image misses some pairs at each
+        # distance, biasing g_count low and the force estimators. The 1e-9
+        # tolerances keep a whole number of bins that rounding leaves just
+        # below it (0.3 / 0.1 = 2.9999999999999996).
+        if not (math.isfinite(delr) and delr > 0):
+            raise ValueError(f"delr must be finite and positive, got {delr!r}")
+        radius = inscribed_sphere_radius(self._cell_matrix)
+        largest_n_bins = math.floor(radius / delr + 1e-9) - 1
         if rmax is None:
-            self.rmax = largest
-        elif rmax > largest * (1 + 1e-9):
-            raise ValueError(
-                f"rmax={rmax} is larger than the radius of the sphere inscribed "
-                f"in the cell ({largest:.6g}), beyond which not every pair is found"
-            )
+            n_bins = largest_n_bins
+            if n_bins < 1:
+                raise ValueError(
+                    f"delr={delr} is too large for this cell: the radius of the "
+                    f"sphere inscribed in it is {radius:.6g}"
+                )
         else:
-            self.rmax = rmax
-
-        # Bin edges 0, delr, ..., n*delr, with n the largest whole number of
-        # bins within rmax, so the reported r never passes rmax: beyond the
-        # inscribed sphere a shell is only partly sampled. The tolerance
-        # keeps the last bin when rmax / delr is a whole number that
-        # rounding leaves just below it (0.3 / 0.1 = 2.9999999999999996).
-        # One more edge closes the overflow bin, which the accumulation
-        # helpers leave at zero; the returned r values exclude it.
-        n_bins = math.floor(self.rmax / delr + 1e-9)
-        n_edges = n_bins + 2  # +1 fence-post, +1 overflow
+            if not rmax > 0:
+                raise ValueError(f"rmax must be positive, got {rmax!r}")
+            n_bins = math.floor(rmax / delr + 1e-9)
+            if n_bins < 1:
+                raise ValueError(f"rmax={rmax} is smaller than delr={delr}")
+            if (n_bins + 1) * delr > radius * (1 + 1e-9):
+                raise ValueError(
+                    f"rmax={rmax} is too large for this cell: with delr={delr}, "
+                    f"the largest rmax is {largest_n_bins * delr:.6g}"
+                )
+        n_edges = n_bins + 2  # up to the outermost edge, plus the overflow slot
         self._bins = np.arange(n_edges) * delr
+        self._rmax = float(self._bins[n_bins])
 
         # Species counts and prefactor
         self._like_species = (species_a == species_b)
@@ -165,6 +182,16 @@ class RDF:
         self._g: np.ndarray | None = None
         self._g_count: np.ndarray | None = None
         self._lam: np.ndarray | None = None
+
+    @property
+    def rmax(self) -> float:
+        """The last r at which g(r) is reported.
+
+        Set at construction: the largest multiple of delr within the
+        ``rmax`` given, or by default the largest for which the shell above
+        it lies within the sphere inscribed in the cell.
+        """
+        return self._rmax
 
     def _species_indices(self, trajectory) -> list[np.ndarray]:
         """The indices of species_a and species_b in ``trajectory``."""
@@ -401,8 +428,9 @@ class RDF:
 
             V_eff(0) = pi * delr^3 / 3
 
-        The last bin edge (at r_max + delr) also has only one contributing shell,
-        but we discard this bin from returned results, so no correction is needed.
+        The outermost edge, one bin above the last reported point, also has
+        only one contributing shell, but it is not reported, so no correction
+        is needed.
 
         See the kernels page of the documentation (section "CIC normalisation
         for the RDF") for the full derivation.
@@ -536,9 +564,11 @@ def compute_rdf(
     delr : float
         Bin spacing (default: 0.01).
     rmax : float or None
-        Maximum r value, at most the radius of the sphere inscribed in the
-        cell (half the smallest box length for an orthorhombic cell), which
-        is the default.
+        The last r at which g(r) is reported; a value that is not a multiple
+        of delr is rounded down to one. The shell of width delr above it
+        must lie within the sphere inscribed in the cell (radius half the
+        smallest box length for an orthorhombic cell), past which some pairs
+        are missed. The default is the largest rmax for which it does.
     start : int
         First frame index (default: 0).
     stop : int or None
@@ -552,6 +582,12 @@ def compute_rdf(
     -------
     RDF
         RDF object with computed results available as properties.
+
+    Raises
+    ------
+    ValueError
+        As :class:`RDF`, :meth:`RDF.accumulate` and :meth:`RDF.get_rdf`
+        raise for invalid arguments.
 
     Examples
     --------
