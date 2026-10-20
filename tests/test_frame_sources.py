@@ -270,6 +270,17 @@ class TestFrame:
         np.testing.assert_array_equal(frame.positions, positions.astype(np.float64))
         np.testing.assert_array_equal(frame.forces, forces.astype(np.float64))
 
+    def test_a_frame_is_independent_of_the_arrays_it_was_built_from(self):
+        """Overwriting the input arrays after construction leaves the frame unchanged."""
+        from revelsMD.frame_sources import Frame
+        positions = np.array([[1.0, 2.0, 3.0]])
+        forces = np.array([[0.1, 0.2, 0.3]])
+        frame = Frame(positions, forces)
+        positions[:] = 0.0
+        forces[:] = 0.0
+        np.testing.assert_array_equal(frame.positions, [[1.0, 2.0, 3.0]])
+        np.testing.assert_array_equal(frame.forces, [[0.1, 0.2, 0.3]])
+
     def test_named_field_access(self):
         """Frame supports .positions and .forces attribute access."""
         from revelsMD.frame_sources import Frame

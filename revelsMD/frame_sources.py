@@ -26,9 +26,10 @@ class Frame:
     """A single trajectory frame with named field access.
 
     Both arrays must have shape ``(n_atoms, 3)`` with matching ``n_atoms``.
-    They are stored as float64, so every calculation on a frame runs in
-    double precision whatever the trajectory supplies (MDAnalysis gives
-    float32).
+    A frame owns its arrays: both are stored as new float64 arrays, so
+    every calculation on a frame runs in double precision whatever the
+    trajectory supplies, and nothing a frame was built from can change
+    it afterwards.
 
     Parameters
     ----------
@@ -68,7 +69,7 @@ class Frame:
                     f"{name} must have shape (n_atoms, 3), "
                     f"got {arr.shape}"
                 )
-            object.__setattr__(self, name, np.asarray(arr, dtype=np.float64))
+            object.__setattr__(self, name, np.array(arr, dtype=np.float64))
         if self.positions.shape[0] != self.forces.shape[0]:
             raise ValueError(
                 f"mismatched atom counts: positions has "
