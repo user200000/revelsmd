@@ -5,13 +5,14 @@ import sys
 # Add project root to sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 from revelsMD import *
+import revelsMD
 
 # -- Project information -----------------------------------------------------
 project = 'revelsMD'
 copyright = '2025, Samuel Coles'
 author = 'Samuel Coles'
-release = '0.1'
-version = '0.1.0'
+release = revelsMD.__version__
+version = '.'.join(release.split('.')[:2])
 
 # -- General configuration ---------------------------------------------------
 extensions = [
