@@ -117,8 +117,9 @@ class TestRDFClassAPI:
         ({"delr": -0.1}, "delr must be finite and positive"),
         ({"delr": float("nan")}, "delr must be finite and positive"),
         ({"delr": float("inf")}, "delr must be finite and positive"),
-        ({"rmax": 0.0}, "rmax must be positive"),
-        ({"rmax": float("nan")}, "rmax must be positive"),
+        ({"rmax": 0.0}, "rmax must be finite and positive"),
+        ({"rmax": float("nan")}, "rmax must be finite and positive"),
+        ({"rmax": float("inf")}, "rmax must be finite and positive"),
         ({"rmax": 0.05, "delr": 0.1}, r"rmax=0\.05 is smaller than delr=0\.1"),
         ({"delr": 3.0}, r"delr=3\.0 is too large for this cell"),
     ])
@@ -127,6 +128,15 @@ class TestRDFClassAPI:
         traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
         with pytest.raises(ValueError, match=message):
             RDF(traj, 'A', 'A', **kwargs)
+
+    @pytest.mark.parametrize("rmax", [None, 0.5])
+    def test_delr_too_large_for_any_rmax_raises_the_same_error(self, rmax):
+        # A 1 A cube has R = 0.5, so with delr = 0.5 no rmax keeps the
+        # outermost edge within it, whether rmax is given or not.
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(1.0, n_frames=1, n_atoms=4)
+        with pytest.raises(ValueError, match=r"^delr=0\.5 is too large for this cell"):
+            RDF(traj, 'A', 'A', rmax=rmax, delr=0.5)
 
     def test_rmax_is_read_only(self):
         from revelsMD.rdf import RDF

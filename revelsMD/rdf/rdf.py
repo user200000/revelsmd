@@ -128,16 +128,16 @@ class RDF:
             raise ValueError(f"delr must be finite and positive, got {delr!r}")
         radius = inscribed_sphere_radius(self._cell_matrix)
         largest_n_bins = math.floor(radius / delr + 1e-9) - 1
+        if largest_n_bins < 1:
+            raise ValueError(
+                f"delr={delr} is too large for this cell: the radius of the "
+                f"sphere inscribed in it is {radius:.6g}"
+            )
         if rmax is None:
             n_bins = largest_n_bins
-            if n_bins < 1:
-                raise ValueError(
-                    f"delr={delr} is too large for this cell: the radius of the "
-                    f"sphere inscribed in it is {radius:.6g}"
-                )
         else:
-            if not rmax > 0:
-                raise ValueError(f"rmax must be positive, got {rmax!r}")
+            if not (math.isfinite(rmax) and rmax > 0):
+                raise ValueError(f"rmax must be finite and positive, got {rmax!r}")
             n_bins = math.floor(rmax / delr + 1e-9)
             if n_bins < 1:
                 raise ValueError(f"rmax={rmax} is smaller than delr={delr}")
