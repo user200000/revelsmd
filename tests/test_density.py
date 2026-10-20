@@ -440,6 +440,30 @@ def test_full_number_density_pipeline(tmp_path, ts):
 # DensityGrid.accumulate: rigid and polarisation configurations
 # ---------------------------------------------------------------------------
 
+def test_float32_and_float64_input_give_the_same_rigid_polarisation_density():
+    """Single-precision trajectory data gives the same rigid polarisation density as double."""
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+    rng = np.random.default_rng(4)
+    n_molecules = 20
+    oxygens = rng.uniform(0, 10.0, (3, n_molecules, 1, 3))
+    hydrogens = oxygens + rng.normal(scale=0.5, size=(3, n_molecules, 2, 3))
+    positions = np.concatenate([oxygens, hydrogens], axis=2).reshape(3, 3 * n_molecules, 3)
+    forces = rng.normal(size=positions.shape)
+    species = ["O", "H1", "H2"] * n_molecules
+    masses = np.array([16.0, 1.0, 1.0] * n_molecules)
+    charges = np.array([-0.8, 0.4, 0.4] * n_molecules)
+    rho = []
+    for dtype in (np.float32, np.float64):
+        traj = NumpyTrajectory(positions.astype(np.float32).astype(dtype),
+                               forces.astype(np.float32).astype(dtype),
+                               10.0, 10.0, 10.0, species, temperature=300.0, units="real",
+                               mass_list=masses, charge_list=charges)
+        grid = DensityGrid(traj, "polarisation", nbins=6)
+        grid.accumulate(traj, ["O", "H1", "H2"], rigid=True)
+        rho.append(grid.rho_force)
+    np.testing.assert_allclose(rho[0], rho[1], rtol=1e-12, atol=1e-12)
+
+
 def test_accumulate_number_rigid_atom(ts):
     """Rigid number density deposits exactly one unit weight per molecule per frame."""
     gs = DensityGrid(ts, "number", nbins=4)
