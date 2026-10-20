@@ -76,7 +76,10 @@ class RDF:
         of delr is rounded down to one. The shell of width delr above it
         must lie within the sphere inscribed in the cell (radius half the
         smallest box length for an orthorhombic cell), past which some pairs
-        are missed. The default is the largest rmax for which it does.
+        are missed. The default is the largest rmax for which it does. The
+        backward and lambda estimators take g = 1 at rmax + delr, so rmax
+        should lie beyond the range of pair correlations: a smaller rmax
+        shifts the backward g(r) by g(rmax + delr) - 1 at every r.
 
     Attributes
     ----------
@@ -585,7 +588,10 @@ def compute_rdf(
         of delr is rounded down to one. The shell of width delr above it
         must lie within the sphere inscribed in the cell (radius half the
         smallest box length for an orthorhombic cell), past which some pairs
-        are missed. The default is the largest rmax for which it does.
+        are missed. The default is the largest rmax for which it does. The
+        backward and lambda estimators take g = 1 at rmax + delr, so rmax
+        should lie beyond the range of pair correlations: a smaller rmax
+        shifts the backward g(r) by g(rmax + delr) - 1 at every r.
     start : int
         First frame index (default: 0).
     stop : int or None

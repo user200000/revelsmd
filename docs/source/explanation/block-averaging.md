@@ -75,7 +75,7 @@ different trajectory) adds more blocks to the same accumulator, allowing
 $\lambda$ estimation from multiple trajectories.
 
 Calling `accumulate(..., compute_lambda=False)` clears any existing lambda
-statistics and raises a `UserWarning`.
+statistics, and issues a `UserWarning` if there were any.
 
 ## WelfordAccumulator internals
 

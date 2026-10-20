@@ -138,7 +138,8 @@ The backend selects the implementation of inner loops, chosen at import time fro
 
 `get_backend()` (`revelsMD/backends.py`) returns the resolved name.
 `get_backend_functions()` in `grid_helpers.py` and `rdf_helpers.py` returns the
-matching function pair.
+matching functions: the triangular and box deposition kernels for densities, and
+the pairwise, binned and triangular-count functions for the RDF.
 
 The numba backend (`grid_helpers_numba.py`, `rdf_helpers_numba.py`) provides
 JIT-compiled implementations. The numpy backend uses `np.add.at()` for correct

@@ -126,7 +126,7 @@ These select frames as a Python slice does, and negative values count from the e
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `delr` | `0.01` | Bin width in distance units |
-| `rmax` | `None` | Last r reported; `rmax + delr` must lie within the sphere inscribed in the cell, and the default is the largest such value |
+| `rmax` | `None` | Last r reported; `rmax + delr` must lie within the sphere inscribed in the cell, and the default is the largest such value. Backward and lambda integration take g = 1 at `rmax + delr`, so keep `rmax` beyond the range of pair correlations |
 | `start` | `0` | First frame index |
 | `stop` | `None` | Stop frame index (exclusive); `None` = all frames |
 | `period` | `1` | Frame stride |

@@ -52,7 +52,7 @@ class DensityGrid:
     binsx, binsy, binsz : np.ndarray
         Bin edges per dimension (inclusive right edge by construction here).
     lx, ly, lz : float
-        Voxel sizes in x/y/z.
+        Fractional voxel sizes along each cell vector (1/nbins).
     voxel_volume : float
         Volume of a single voxel.
     count : int
@@ -1077,7 +1077,7 @@ def compute_density(
     start : int, optional
         First frame to process (default: 0).
     stop : int or None, optional
-        Last frame to process, None for all frames (default: None).
+        Stop frame index (exclusive), None for all frames (default: None).
     period : int, optional
         Frame stride (default: 1).
     compute_lambda : bool, optional
