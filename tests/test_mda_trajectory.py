@@ -127,6 +127,10 @@ class TestReading:
         with pytest.raises(ValueError, match=f"{argument}= names atom names that no atom has: Na, Xx"):
             MDATrajectory(TRR, TPR, temperature=300.0, **{argument: {"Ow": 1.0, "Xx": 1.0, "Na": 2.0}})
 
+    def test_frames_hold_float64_arrays(self, traj):
+        frame = traj.get_frame(0)
+        assert frame.positions.dtype == frame.forces.dtype == np.float64
+
     def test_iteration_and_slicing(self, traj, universe):
         frames = list(traj.iter_frames())
         assert len(frames) == 10

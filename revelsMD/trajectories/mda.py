@@ -208,7 +208,7 @@ class MDATrajectory(Trajectory):
         if ts.dimensions is None:
             raise ValueError(f"{where}: no simulation box")
         check_fixed_cell(np.array(ts.dimensions, dtype=np.float64), self._dimensions, where)
-        return Frame(ts.positions.copy(), ts.forces.copy())
+        return Frame(ts.positions, ts.forces)
 
     def _iter_frames_impl(
         self,
