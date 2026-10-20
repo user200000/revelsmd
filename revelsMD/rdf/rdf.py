@@ -62,14 +62,15 @@ class RDF:
     delr : float
         Bin spacing (default: 0.01).
     rmax : float or None
-        Maximum r value. If None, the radius of the sphere inscribed in the
-        cell (half the smallest box length for an orthorhombic cell).
+        Maximum r value, at most the radius of the sphere inscribed in the
+        cell (half the smallest box length for an orthorhombic cell), which
+        is the default. The r grid stops at the last whole bin within it.
 
     Attributes
     ----------
     r : np.ndarray or None
-        Bin edges 0, delr, ..., rmax at which g(r) is reported (available
-        after get_rdf).
+        Bin edges 0, delr, 2 delr, ... up to rmax, at which g(r) is
+        reported (available after get_rdf).
     g : np.ndarray or None
         g(r) values (available after get_rdf).
     g_count : np.ndarray or None
@@ -80,6 +81,13 @@ class RDF:
         Lambda(r) values (only for integration='lambda').
     progress : str
         State: 'initialized', 'accumulated', or 'computed'.
+
+    Raises
+    ------
+    ValueError
+        If ``rmax`` is larger than the radius of the sphere inscribed in the
+        cell, a species has no atoms, or a like-species RDF has fewer than
+        2 atoms.
     """
 
     def __init__(
@@ -101,9 +109,16 @@ class RDF:
         self._cell_volume = float(abs(np.linalg.det(self._cell_matrix)))
         self._beta = trajectory.beta
 
-        # Compute rmax
+        # Beyond the sphere inscribed in the cell, the minimum image misses
+        # some pairs at each distance, so g(r) there would be biased low.
+        largest = inscribed_sphere_radius(self._cell_matrix)
         if rmax is None:
-            self.rmax = inscribed_sphere_radius(self._cell_matrix)
+            self.rmax = largest
+        elif rmax > largest * (1 + 1e-9):
+            raise ValueError(
+                f"rmax={rmax} is larger than the radius of the sphere inscribed "
+                f"in the cell ({largest:.6g}), beyond which not every pair is found"
+            )
         else:
             self.rmax = rmax
 
@@ -163,7 +178,7 @@ class RDF:
 
     @property
     def r(self) -> np.ndarray | None:
-        """The r values at which g(r) is reported: the bin edges 0, delr, ..., rmax.
+        """The r values at which g(r) is reported: the bin edges 0, delr, ... up to rmax.
 
         Returns
         -------
@@ -521,8 +536,9 @@ def compute_rdf(
     delr : float
         Bin spacing (default: 0.01).
     rmax : float or None
-        Maximum r value. If None, the radius of the sphere inscribed in the
-        cell (half the smallest box length for an orthorhombic cell).
+        Maximum r value, at most the radius of the sphere inscribed in the
+        cell (half the smallest box length for an orthorhombic cell), which
+        is the default.
     start : int
         First frame index (default: 0).
     stop : int or None

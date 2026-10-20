@@ -46,7 +46,7 @@ are `'forward'` (from g(0) = 0) and `'backward'` (from g(inf) = 1).
 ```python
 import numpy as np
 
-r       = rdf.r        # bin edges 0, delr, ..., rmax, shape (N,)
+r       = rdf.r        # bin edges 0, delr, ... up to rmax, shape (N,)
 g_force = rdf.g_force  # force-based g(r), alias for rdf.g
 g_count = rdf.g_count  # histogram-based g(r)
 ```

@@ -60,6 +60,19 @@ class TestRDFClassAPI:
         assert rdf.r[-1] == pytest.approx(5.0)
         assert rdf.r[0] == pytest.approx(0.0)
 
+    def test_rmax_beyond_the_inscribed_sphere_raises(self):
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
+        with pytest.raises(ValueError, match=r"rmax=5\.5 is larger than .* \(5\)"):
+            RDF(traj, 'A', 'A', rmax=5.5)
+
+    @pytest.mark.parametrize("rmax", [5.0, 5.0 * (1 + 1e-12)])
+    def test_rmax_at_the_inscribed_sphere_is_accepted(self, rmax):
+        # Including a value that differs from the radius only by rounding.
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(10.0, n_frames=1, n_atoms=4)
+        assert RDF(traj, 'A', 'A', rmax=rmax).rmax == rmax
+
     @pytest.mark.parametrize("box, delr, last", [
         (10.0, 0.3, 4.8),      # rmax 5.0 is 16.67 bins: the grid stops at 16
         (14.227, 0.02, 7.10),  # rmax 7.1135 is 355.7 bins
