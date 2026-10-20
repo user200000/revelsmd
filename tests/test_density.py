@@ -381,6 +381,24 @@ def test_selection_rigid_with_polarisation(ts):
     assert len(ss.charges) == 2
 
 
+@pytest.mark.parametrize("centre_location", [False, -1, 2])
+def test_selection_centre_location_must_be_true_or_an_atom_of_the_molecule(ts, centre_location):
+    # False would otherwise act as atom 0, and -1 as the last atom.
+    with pytest.raises(ValueError, match="centre_location"):
+        Selection(ts, ["H", "O"], centre_location=centre_location, rigid=True)
+
+
+@pytest.mark.parametrize("axis", [3, -1, True])
+def test_polarisation_axis_must_be_0_1_or_2(axis):
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+    traj = NumpyTrajectory(np.zeros((1, 3, 3)), np.ones((1, 3, 3)), 10.0, 10.0, 10.0,
+                           ["O", "H1", "H2"], temperature=300.0, units="real",
+                           charge_list=np.array([-0.8, 0.4, 0.4]), mass_list=np.array([16.0, 1.0, 1.0]))
+    grid = DensityGrid(traj, "polarisation", nbins=4)
+    with pytest.raises(ValueError, match=r"polarisation_axis must be 0, 1 or 2"):
+        grid.accumulate(traj, ["O", "H1", "H2"], rigid=True, polarisation_axis=axis)
+
+
 def test_selection_invalid_centre_location(ts):
     with pytest.raises(ValueError):
         Selection(ts, ["H", "O"], centre_location="invalid")
@@ -2280,7 +2298,7 @@ class TestWriteToCube:
         """write_to_cube raises RuntimeError if density not yet computed."""
         gs = DensityGrid(ts, "number", nbins=4)
 
-        with pytest.raises(RuntimeError, match="not been computed"):
+        with pytest.raises(RuntimeError, match=r"not been computed yet\. Call accumulate\(\)[^.]*$"):
             gs.write_to_cube("force", "test.cube")
 
     def test_write_to_cube_hybrid_without_threshold_raises(self, ts):

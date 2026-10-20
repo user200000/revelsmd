@@ -261,7 +261,7 @@ class TestValidation:
     def test_degenerate_box_raises_naming_the_file(self, tmp_path):
         dims = np.array([1e-5, 1e-5, 1e-5, 90.0, 90.0, 90.0])
         path = write_frames(tmp_path / "flat.trr", edit=lambda ts: setattr(ts, "dimensions", dims))
-        with pytest.raises(ValueError, match=r"flat\.trr: Cell matrix must have positive volume"):
+        with pytest.raises(ValueError, match=r"flat\.trr: cell matrix must have positive volume"):
             MDATrajectory(path, TPR, temperature=300.0)
 
     def test_trajectory_without_a_box_raises_at_construction(self, tmp_path):

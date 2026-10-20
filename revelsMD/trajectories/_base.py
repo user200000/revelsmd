@@ -413,16 +413,16 @@ class Trajectory(ABC):
         prefix = f"{where}: " if where is not None else ""
         if cell_matrix.shape != (3, 3):
             raise ValueError(
-                f"{prefix}Cell matrix must have shape (3, 3). Got shape: {cell_matrix.shape}"
+                f"{prefix}cell matrix must have shape (3, 3), got {cell_matrix.shape}"
             )
         if not np.all(np.isfinite(cell_matrix)):
             raise ValueError(
-                f"{prefix}Cell matrix elements must all be finite. Got:\n{cell_matrix}"
+                f"{prefix}cell matrix elements must all be finite, got:\n{cell_matrix}"
             )
         volume = abs(np.linalg.det(cell_matrix))
         if volume < 1e-12:
             raise ValueError(
-                f"{prefix}Cell matrix must have positive volume. Got volume: {volume}"
+                f"{prefix}cell matrix must have positive volume, got volume {volume}"
             )
 
     @abstractmethod

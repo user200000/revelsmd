@@ -55,11 +55,18 @@ class NumpyTrajectory(Trajectory):
         charge_list: np.ndarray | None = None,
         mass_list: np.ndarray | None = None,
     ):
+        if positions.ndim != 3 or positions.shape[2] != 3:
+            raise ValueError(f"positions must have shape (frames, atoms, 3), got {positions.shape}")
         if positions.shape != forces.shape:
             raise ValueError("force and position arrays are incommensurate")
 
         if species_list is not None and positions.shape[1] != len(species_list):
             raise ValueError("species list and trajectory arrays are incommensurate")
+        for name, values in (("charge_list", charge_list), ("mass_list", mass_list)):
+            if values is not None and len(values) != positions.shape[1]:
+                raise ValueError(
+                    f"{name} has {len(values)} values for {positions.shape[1]} atoms"
+                )
 
         # Determine cell geometry from either cell_matrix or box_x/y/z
         box_args = (box_x, box_y, box_z)

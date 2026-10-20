@@ -225,6 +225,11 @@ def index_dump(path: str) -> DumpIndex:
     partial: PartialFrame | None = None
     with open(path, "rb") as f:
         size = os.fstat(f.fileno()).st_size
+        head = f.read(64)
+        if head.startswith(b"\x1f\x8b"):
+            raise ValueError(f"{path}: compressed dumps are not supported; decompress it first (gunzip)")
+        if b"\x00" in head:
+            raise ValueError(f"{path}: binary dumps are not supported; convert it to text first (binary2txt)")
         with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) if size else contextlib.nullcontext(b"") as m:
             position = 0
             while _CONTENT.search(m, position) is not None:

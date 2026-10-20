@@ -176,7 +176,7 @@ class TestFiles:
         head, calculations, tail = split(SOURCE.read_bytes())
         flat = [with_basis(c, lambda b: b * np.array([[1.0], [1.0], [0.0]])) for c in calculations]
         path = write(tmp_path / "flat.xml", join(head, flat, tail))
-        with pytest.raises(ValueError, match=r"flat\.xml, calculation 0: Cell matrix must have positive volume"):
+        with pytest.raises(ValueError, match=r"flat\.xml, calculation 0: cell matrix must have positive volume"):
             VaspTrajectory(path, temperature=600.0)
 
     def test_files_with_different_atoms_raise(self, tmp_path):
