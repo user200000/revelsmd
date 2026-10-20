@@ -50,12 +50,12 @@ $$\operatorname{Cov}(A, \delta) \approx \frac{1}{N} \sum_{i=1}^N (A_i - \bar{A})
 
 The two calculations draw their samples differently:
 
-- **RDFs** keep the per-frame $g_\text{fwd}(r)$ and $g_\text{bwd}(r)$ profiles, so each frame is one sample and no blocking parameters apply. Lambda estimation is enabled by passing `integration='lambda'` to `compute_rdf` or `get_rdf`.
+- **RDFs** take each frame's $g_\text{fwd}(r)$ and $g_\text{bwd}(r)$ as one sample, so no blocking parameters apply. The statistics are gathered for every frame; passing `integration='lambda'` to `compute_rdf` or `get_rdf` selects the combination.
 - **3D densities** divide frames into $N$ blocks, and each block yields one sample. By default, blocks are contiguous (consecutive frames), controlled by `block_size`. Interleaved blocking (`sections` parameter) can reduce bias from slow drift. Strategy selection is covered in [Block Averaging](block-averaging.md).
 
 ### The Welford accumulator
 
-For 3D density fields, where storing all block densities would be prohibitive, RevelsMD uses an online algorithm (`WelfordAccumulator3D` in `revelsMD/statistics.py`) that updates running mean, variance, and covariance in a single pass. Blocks are weighted by frame count, so unequal sizes are handled correctly.
+RevelsMD does not store the samples. An online algorithm (`WelfordAccumulator` in `revelsMD/statistics.py`) updates the running mean, variance and covariance with each one, so memory does not grow with the length of the trajectory. Density blocks are weighted by frame count, so unequal sizes are handled correctly; RDF frames have equal weight.
 
 ### Block parameters
 
@@ -65,15 +65,9 @@ For 3D density fields, where storing all block densities would be prohibitive, R
 
 Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample, $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. RevelsMD then reports a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
 
-## When to use lambda estimation
+## Cost
 
-Lambda estimation is most beneficial when:
-
-- Trajectories are short and variance is the dominant source of error.
-- The system is inhomogeneous and different regions have very different sampling quality.
-- Low-density or high-barrier regions are of particular interest.
-
-For well-converged trajectories where counting already meets accuracy requirements, the extra computation is unnecessary.
+For a density, `compute_lambda=True` adds block buffers and per-block statistics to accumulation. For an RDF the statistics cost one pass over the bins per frame and are always gathered.
 
 ## References
 

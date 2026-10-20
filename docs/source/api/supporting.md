@@ -54,10 +54,10 @@
 
 ## Statistics
 
-### WelfordAccumulator3D
+### WelfordAccumulator
 
 ```{eval-rst}
-.. autoclass:: revelsMD.statistics.WelfordAccumulator3D
+.. autoclass:: revelsMD.statistics.WelfordAccumulator
    :members:
    :show-inheritance:
 ```

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from revelsMD.statistics import (
-    WelfordAccumulator3D,
+    WelfordAccumulator,
     control_variate_combination,
 )
 
@@ -117,74 +117,62 @@ class TestControlVariateCombination:
             control_variate_combination(np.ones(2), np.ones(2), np.ones(2), np.ones(2), **keywords)
 
 
-def test_welford_inplace_matches_reference():
-    """In-place Welford update must produce identical results to naive version."""
+@pytest.mark.parametrize("shape", [(20,), (6, 7), (20, 20, 20)])
+def test_welford_inplace_matches_reference(shape):
+    """In-place Welford update matches a direct weighted calculation, for any shape."""
     rng = np.random.default_rng(42)
-    shape = (20, 20, 20)
-    n_blocks = 10
+    n_samples = 10
 
-    deltas = [rng.standard_normal(shape) for _ in range(n_blocks)]
-    rho_forces = [rng.standard_normal(shape) for _ in range(n_blocks)]
-    weights = rng.integers(1, 10, size=n_blocks).astype(float)
+    deltas = [rng.standard_normal(shape) for _ in range(n_samples)]
+    others = [rng.standard_normal(shape) for _ in range(n_samples)]
+    weights = rng.integers(1, 10, size=n_samples).astype(float)
 
-    acc = WelfordAccumulator3D(shape)
-    for delta, rho_force, w in zip(deltas, rho_forces, weights):
-        acc.update(delta, rho_force, weight=w)
+    acc = WelfordAccumulator(shape)
+    for delta, other, w in zip(deltas, others, weights):
+        acc.update(delta, other, weight=w)
 
     variance, covariance = acc.finalise()
 
     # Compare against manual numpy computation
     total_w = weights.sum()
     mean_delta = sum(w * d for w, d in zip(weights, deltas)) / total_w
-    mean_force = sum(w * f for w, f in zip(weights, rho_forces)) / total_w
+    mean_other = sum(w * o for w, o in zip(weights, others)) / total_w
     var_expected = sum(w * (d - mean_delta)**2 for w, d in zip(weights, deltas)) / total_w
-    cov_expected = sum(w * (d - mean_delta) * (f - mean_force) for w, d, f in zip(weights, deltas, rho_forces)) / total_w
+    cov_expected = sum(w * (d - mean_delta) * (o - mean_other) for w, d, o in zip(weights, deltas, others)) / total_w
 
     np.testing.assert_allclose(variance, var_expected, rtol=1e-10)
     np.testing.assert_allclose(covariance, cov_expected, rtol=1e-10)
 
 
-class TestWelfordAccumulator3D:
-    """Tests for WelfordAccumulator3D online variance/covariance accumulator."""
-
-    def test_init_creates_zero_arrays(self):
-        """Accumulator initialises with zero arrays of correct shape."""
-        acc = WelfordAccumulator3D((3, 4, 5))
-        assert acc.shape == (3, 4, 5)
-        assert acc.count == 0
-        assert acc._mean_delta.shape == (3, 4, 5)
-        assert acc._mean_rho_force.shape == (3, 4, 5)
-        assert acc._M2_delta.shape == (3, 4, 5)
-        assert acc._C_delta_force.shape == (3, 4, 5)
-        np.testing.assert_array_equal(acc._mean_delta, 0)
-        np.testing.assert_array_equal(acc._M2_delta, 0)
+class TestWelfordAccumulator:
+    """Tests for WelfordAccumulator online variance/covariance accumulator."""
 
     def test_has_data_false_initially(self):
         """has_data is False before any updates."""
-        acc = WelfordAccumulator3D((2, 2, 2))
+        acc = WelfordAccumulator((2, 2, 2))
         assert acc.has_data is False
 
     def test_has_data_true_after_update(self):
         """has_data is True after first update."""
-        acc = WelfordAccumulator3D((2, 2, 2))
+        acc = WelfordAccumulator((2, 2, 2))
         acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)))
         assert acc.has_data is True
 
     def test_count_increments(self):
         """Count increments with each update call."""
-        acc = WelfordAccumulator3D((2, 2, 2))
+        acc = WelfordAccumulator((2, 2, 2))
         for i in range(5):
             acc.update(np.ones((2, 2, 2)) * i, np.ones((2, 2, 2)) * i)
         assert acc.count == 5
 
-    def test_finalise_raises_with_less_than_two_blocks(self):
-        """finalise() requires at least 2 blocks."""
-        acc = WelfordAccumulator3D((2, 2, 2))
-        with pytest.raises(ValueError, match="at least 2 blocks"):
+    def test_finalise_raises_with_fewer_than_two_samples(self):
+        """finalise() requires at least 2 samples."""
+        acc = WelfordAccumulator((2, 2, 2))
+        with pytest.raises(ValueError, match="at least 2 samples"):
             acc.finalise()
 
         acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)))
-        with pytest.raises(ValueError, match="at least 2 blocks"):
+        with pytest.raises(ValueError, match="at least 2 samples"):
             acc.finalise()
 
     def test_variance_matches_numpy_simple(self):
@@ -198,7 +186,7 @@ class TestWelfordAccumulator3D:
         forces = np.random.randn(n_sections, *shape)
 
         # Compute with Welford
-        acc = WelfordAccumulator3D(shape)
+        acc = WelfordAccumulator(shape)
         for i in range(n_sections):
             acc.update(deltas[i], forces[i])
 
@@ -219,7 +207,7 @@ class TestWelfordAccumulator3D:
         forces = deltas * 0.5 + np.random.randn(n_sections, *shape) * 0.1
 
         # Compute with Welford
-        acc = WelfordAccumulator3D(shape)
+        acc = WelfordAccumulator(shape)
         for i in range(n_sections):
             acc.update(deltas[i], forces[i])
 
@@ -236,7 +224,7 @@ class TestWelfordAccumulator3D:
     def test_zero_variance_when_constant(self):
         """Variance is zero when all samples are identical."""
         shape = (2, 2, 2)
-        acc = WelfordAccumulator3D(shape)
+        acc = WelfordAccumulator(shape)
 
         constant_delta = np.ones(shape) * 3.0
         constant_force = np.ones(shape) * 5.0
@@ -251,7 +239,7 @@ class TestWelfordAccumulator3D:
     def test_mean_delta_correct(self):
         """Mean delta is correctly computed."""
         shape = (2, 2, 2)
-        acc = WelfordAccumulator3D(shape)
+        acc = WelfordAccumulator(shape)
 
         deltas = [
             np.ones(shape) * 1.0,
@@ -269,7 +257,7 @@ class TestWelfordAccumulator3D:
     def test_numerical_stability_large_values(self):
         """Welford remains stable with large values."""
         shape = (2, 2, 2)
-        acc = WelfordAccumulator3D(shape)
+        acc = WelfordAccumulator(shape)
 
         # Large values that would cause issues with naive variance
         base = 1e10
@@ -288,40 +276,10 @@ class TestWelfordAccumulator3D:
         expected = 2.0 / 3.0
         np.testing.assert_allclose(variance, expected, rtol=1e-10)
 
-    def test_multiple_trajectories_equivalent_to_single_run(self):
-        """Accumulating in batches gives same result as single run."""
-        np.random.seed(42)
-        shape = (3, 3, 3)
-        n_total = 20
-
-        # Generate data
-        deltas = np.random.randn(n_total, *shape)
-        forces = np.random.randn(n_total, *shape)
-
-        # Single accumulator with all data
-        acc_single = WelfordAccumulator3D(shape)
-        for i in range(n_total):
-            acc_single.update(deltas[i], forces[i])
-
-        var_single, cov_single = acc_single.finalise()
-
-        # Two accumulators (simulating two trajectories contributing)
-        # Note: Welford naturally handles this - just keep updating
-        acc_multi = WelfordAccumulator3D(shape)
-        for i in range(10):  # "First trajectory"
-            acc_multi.update(deltas[i], forces[i])
-        for i in range(10, 20):  # "Second trajectory"
-            acc_multi.update(deltas[i], forces[i])
-
-        var_multi, cov_multi = acc_multi.finalise()
-
-        np.testing.assert_allclose(var_single, var_multi)
-        np.testing.assert_allclose(cov_single, cov_multi)
-
     def test_reset_clears_state(self):
         """reset() clears all accumulated state."""
         shape = (2, 2, 2)
-        acc = WelfordAccumulator3D(shape)
+        acc = WelfordAccumulator(shape)
 
         # Add some data
         acc.update(np.ones(shape) * 5, np.ones(shape) * 3)
@@ -329,17 +287,17 @@ class TestWelfordAccumulator3D:
         assert acc.count == 2
         assert acc.has_data is True
 
-        # Reset
+        # After reset, the accumulator behaves as a fresh one.
         acc.reset()
-
-        # Check all state is cleared
-        assert acc.count == 0
-        assert acc.sum_weights == 0.0
-        assert acc.has_data is False
-        np.testing.assert_array_equal(acc._mean_delta, 0)
-        np.testing.assert_array_equal(acc._mean_rho_force, 0)
-        np.testing.assert_array_equal(acc._M2_delta, 0)
-        np.testing.assert_array_equal(acc._C_delta_force, 0)
+        assert acc.count == 0 and acc.has_data is False
+        rng = np.random.default_rng(3)
+        samples = [(rng.standard_normal(shape), rng.standard_normal(shape)) for _ in range(4)]
+        fresh = WelfordAccumulator(shape)
+        for delta, other in samples:
+            acc.update(delta, other, weight=2.0)
+            fresh.update(delta, other, weight=2.0)
+        for after_reset, from_fresh in zip(acc.finalise(), fresh.finalise()):
+            np.testing.assert_array_equal(after_reset, from_fresh)
 
     def test_weighted_variance_matches_numpy(self):
         """Weighted Welford variance matches numpy weighted average."""
@@ -351,7 +309,7 @@ class TestWelfordAccumulator3D:
         forces = np.random.randn(4, *shape)
         weights = [10.0, 10.0, 10.0, 3.0]  # last block is a remainder
 
-        acc = WelfordAccumulator3D(shape)
+        acc = WelfordAccumulator(shape)
         for i in range(4):
             acc.update(deltas[i], forces[i], weight=weights[i])
 
@@ -378,42 +336,22 @@ class TestWelfordAccumulator3D:
         ) / w_sum
         np.testing.assert_allclose(covariance, expected_covariance, rtol=1e-10)
 
-    def test_uniform_weights_match_unweighted(self):
-        """Uniform weights produce the same result as unweighted updates."""
-        shape = (3, 3, 3)
-        np.random.seed(42)
-
-        deltas = np.random.randn(5, *shape)
-        forces = np.random.randn(5, *shape)
-
-        acc_unweighted = WelfordAccumulator3D(shape)
-        acc_weighted = WelfordAccumulator3D(shape)
-        for i in range(5):
-            acc_unweighted.update(deltas[i], forces[i])
-            acc_weighted.update(deltas[i], forces[i], weight=1.0)
-
-        var_u, cov_u = acc_unweighted.finalise()
-        var_w, cov_w = acc_weighted.finalise()
-
-        np.testing.assert_allclose(var_u, var_w)
-        np.testing.assert_allclose(cov_u, cov_w)
-
     def test_update_rejects_zero_weight(self):
         """update() raises ValueError for zero weight."""
-        acc = WelfordAccumulator3D((2, 2, 2))
+        acc = WelfordAccumulator((2, 2, 2))
         with pytest.raises(ValueError, match="weight must be positive"):
             acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)), weight=0.0)
 
     def test_update_rejects_negative_weight(self):
         """update() raises ValueError for negative weight."""
-        acc = WelfordAccumulator3D((2, 2, 2))
+        acc = WelfordAccumulator((2, 2, 2))
         with pytest.raises(ValueError, match="weight must be positive"):
             acc.update(np.ones((2, 2, 2)), np.ones((2, 2, 2)), weight=-1.0)
 
     def test_finalise_returns_correct_shapes(self):
         """finalise() returns arrays matching input shape."""
         shape = (5, 6, 7)
-        acc = WelfordAccumulator3D(shape)
+        acc = WelfordAccumulator(shape)
 
         acc.update(np.random.randn(*shape), np.random.randn(*shape))
         acc.update(np.random.randn(*shape), np.random.randn(*shape))

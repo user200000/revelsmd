@@ -22,7 +22,7 @@ from revelsMD.cell import (
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
-from revelsMD.statistics import WelfordAccumulator3D, control_variate_combination
+from revelsMD.statistics import WelfordAccumulator, control_variate_combination
 
 # Module-level backend functions (loaded once at import)
 _triangular_allocation, _box_allocation = _get_grid_backend_functions()
@@ -125,7 +125,7 @@ class DensityGrid:
         self._lambda_weights: np.ndarray | None = None
 
         # Lambda statistics accumulator (populated if compute_lambda=True in accumulate)
-        self._welford: WelfordAccumulator3D | None = None
+        self._welford: WelfordAccumulator | None = None
 
     @property
     def rho_count(self) -> np.ndarray | None:
@@ -572,7 +572,7 @@ class DensityGrid:
         """
         # Initialise Welford accumulator if first call with compute_lambda
         if self._welford is None:
-            self._welford = WelfordAccumulator3D(
+            self._welford = WelfordAccumulator(
                 shape=(self.nbinsx, self.nbinsy, self.nbinsz)
             )
 
