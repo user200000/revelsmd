@@ -106,7 +106,7 @@ class Selection:
             # atoms. False and negative indices are rejected rather than read
             # as atom 0 or an atom counted from the end.
             if centre_location is True:
-                self.centre_location = centre_location
+                self.centre_location: bool | int = centre_location
             elif isinstance(centre_location, int) and not isinstance(centre_location, bool):
                 if not 0 <= centre_location < len(atom_names):
                     raise ValueError(
