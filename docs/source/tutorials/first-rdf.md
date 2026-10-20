@@ -46,7 +46,7 @@ are `'forward'` (from g(0) = 0) and `'backward'` (from g(inf) = 1).
 ```python
 import numpy as np
 
-r       = rdf.r        # bin edges 0, delr, ..., rmax, shape (N,)
+r       = rdf.r        # bin edges 0, delr, ... up to rmax, shape (N,)
 g_force = rdf.g_force  # force-based g(r), alias for rdf.g
 g_count = rdf.g_count  # histogram-based g(r)
 ```
@@ -126,7 +126,7 @@ These follow Python slice semantics.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `delr` | `0.01` | Bin width in distance units |
-| `rmax` | `None` | Maximum r; defaults to the inscribed sphere radius |
+| `rmax` | `None` | Last r reported; `rmax + delr` must lie within the sphere inscribed in the cell, and the default is the largest such value |
 | `start` | `0` | First frame index |
 | `stop` | `None` | Stop frame index (exclusive); `None` = all frames |
 | `period` | `1` | Frame stride |

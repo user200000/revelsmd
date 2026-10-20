@@ -144,10 +144,11 @@ $$
 This is exactly half the value the general formula gives at $r = 0$. The
 implementation corrects for this explicitly.
 
-**Last bin edge ($r = r_\text{max}$):** the implementation allocates an extra
-overflow bin extending to $r_\text{max} + \Delta r$ and discards it before
-returning results. This means the last *returned* bin edge is an interior edge
-with both shells contributing, so no special handling is needed.
+**Last reported edge ($r = r_\text{max}$):** the grid has one more shell above
+it, up to the outermost edge $r_\text{max} + \Delta r$, which is not reported.
+The last reported edge is therefore an interior edge with both shells
+contributing, so no special handling is needed. The outermost edge must lie
+within the sphere inscribed in the cell, so that shell is fully sampled.
 
 ### Comparison with shell-volume approximations
 
