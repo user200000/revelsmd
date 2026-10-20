@@ -102,9 +102,17 @@ class Selection:
                     )
                 if needs_masses:
                     self._molecule_masses  # checked now rather than at the first frame
-            if isinstance(centre_location, bool) or isinstance(centre_location, int):
-                if isinstance(centre_location, int) and centre_location >= len(atom_names):
-                    raise ValueError("centre_location index exceeds number of provided atom names")
+            # True is the centre of mass; an int is one of the molecule's
+            # atoms. False and negative indices are rejected rather than read
+            # as atom 0 or an atom counted from the end.
+            if centre_location is True:
+                self.centre_location = centre_location
+            elif isinstance(centre_location, int) and not isinstance(centre_location, bool):
+                if not 0 <= centre_location < len(atom_names):
+                    raise ValueError(
+                        f"centre_location={centre_location} is not an index into the "
+                        f"{len(atom_names)} atom names"
+                    )
                 self.centre_location = centre_location
             else:
                 raise ValueError("centre_location must be True (COM) or an integer index")

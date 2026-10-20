@@ -457,6 +457,8 @@ class DensityGrid:
 
         # Validate polarisation constraints
         if self.density_type == "polarisation":
+            if isinstance(polarisation_axis, bool) or polarisation_axis not in (0, 1, 2):
+                raise ValueError(f"polarisation_axis must be 0, 1 or 2, got {polarisation_axis!r}")
             if isinstance(atom_names, str) and len(atom_names.replace(',', ' ').split()) == 1:
                 raise ValueError("a single atom does not have a polarisation density; specify a rigid molecule")
             if not rigid:
@@ -1017,9 +1019,9 @@ class DensityGrid:
 
         if grid is None:
             hint = (
-                "Call accumulate() with compute_lambda=True."
+                "Call accumulate() with compute_lambda=True"
                 if density == "lambda"
-                else "Call accumulate() first."
+                else "Call accumulate() first"
             )
             raise RuntimeError(
                 f"{density} density has not been computed yet. {hint}"

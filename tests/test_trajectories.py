@@ -402,6 +402,27 @@ class TestTrajectoryBetaAttribute:
         assert state.beta == 1.0
 
 
+class TestNumpyTrajectoryShapes:
+    """NumpyTrajectory checks its arrays when it is built, not at the first frame read."""
+
+    def _make(self, **kwargs):
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+        args = dict(positions=np.zeros((2, 4, 3)), forces=np.zeros((2, 4, 3)), box_x=10.0, box_y=10.0,
+                    box_z=10.0, species_list=["A"] * 4, temperature=1.0, units="lj")
+        args.update(kwargs)
+        return NumpyTrajectory(**args)
+
+    def test_positions_without_a_frame_axis_raise(self):
+        with pytest.raises(ValueError, match=r"positions must have shape \(frames, atoms, 3\)"):
+            self._make(positions=np.zeros((4, 3)), forces=np.zeros((4, 3)))
+
+    @pytest.mark.parametrize("name", ["charge_list", "mass_list"])
+    @pytest.mark.parametrize("length", [2, 6])
+    def test_charge_and_mass_lists_need_one_value_per_atom(self, name, length):
+        with pytest.raises(ValueError, match=rf"{name} has {length} values for 4 atoms"):
+            self._make(**{name: np.ones(length)})
+
+
 class TestComputeBeta:
     """Tests for the compute_beta() function."""
 
@@ -488,7 +509,7 @@ class TestComputeBeta:
 class TestValidateCellMatrixContext:
 
     def test_where_prefixes_the_message(self):
-        with pytest.raises(ValueError, match="^a.dump, frame 0: Cell matrix must have positive volume"):
+        with pytest.raises(ValueError, match="^a.dump, frame 0: cell matrix must have positive volume"):
             Trajectory._validate_cell_matrix(np.zeros((3, 3)), "a.dump, frame 0")
 
 

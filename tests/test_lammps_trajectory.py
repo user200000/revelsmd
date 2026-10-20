@@ -37,6 +37,25 @@ def six_frames(tmp_path):
     return write(tmp_path / "six.dump", *(frame(100 * k, float(k)) for k in range(6)))
 
 
+class TestCompressedAndBinaryDumps:
+    """A compressed or binary dump says so, rather than reporting a cut-short frame."""
+
+    def test_gzipped_dump_raises(self, tmp_path):
+        import gzip
+        from revelsMD.trajectories.lammps import index_dump
+        path = tmp_path / "dump.lammps.gz"
+        path.write_bytes(gzip.compress(b"ITEM: TIMESTEP\n0\n"))
+        with pytest.raises(ValueError, match=r"dump\.lammps\.gz: compressed dumps are not supported"):
+            index_dump(str(path))
+
+    def test_binary_dump_raises(self, tmp_path):
+        from revelsMD.trajectories.lammps import index_dump
+        path = tmp_path / "dump.bin"
+        path.write_bytes((0).to_bytes(8, "little") + bytes(range(1, 64)))
+        with pytest.raises(ValueError, match=r"dump\.bin: binary dumps are not supported"):
+            index_dump(str(path))
+
+
 class TestReading:
 
     def test_frames_and_cell(self, six_frames):
@@ -318,7 +337,7 @@ class TestValidation:
 
     def test_zero_volume_box_raises_naming_the_file(self, tmp_path):
         z = write(tmp_path / "z.dump", frame(0, bounds="0.0 10.0\n0.0 10.0\n5.0 5.0\n"))
-        with pytest.raises(ValueError, match=r"z\.dump, frame 0 \(timestep 0\): Cell matrix must have positive volume"):
+        with pytest.raises(ValueError, match=r"z\.dump, frame 0 \(timestep 0\): cell matrix must have positive volume"):
             load(z)
 
     def test_atom_count_must_match_the_topology(self, tmp_path):
