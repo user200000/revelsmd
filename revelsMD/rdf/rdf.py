@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import math
 
 import numpy as np
 from tqdm import tqdm
@@ -106,16 +107,15 @@ class RDF:
         else:
             self.rmax = rmax
 
-        # Set up bins from 0 to rmax + delr (inclusive), with spacing delr.
-        # The extra bin beyond rmax is an overflow bin: the accumulation
-        # helpers zero/skip the last bin to handle pairs at distances > rmax,
-        # so the overflow bin absorbs this rather than losing valid data.
-        # The returned r values exclude the overflow bin.
-        #
-        # Use round() rather than np.arange to avoid floating point
-        # sensitivity: inscribed_sphere_radius can introduce ~1e-14 noise
-        # that causes np.arange to produce an extra bin edge.
-        n_edges = int(round(self.rmax / delr)) + 2  # +1 fence-post, +1 overflow
+        # Bin edges 0, delr, ..., n*delr, with n the largest whole number of
+        # bins within rmax, so the reported r never passes rmax: beyond the
+        # inscribed sphere a shell is only partly sampled. The tolerance
+        # keeps the last bin when rmax / delr is a whole number that
+        # rounding leaves just below it (0.3 / 0.1 = 2.9999999999999996).
+        # One more edge closes the overflow bin, which the accumulation
+        # helpers leave at zero; the returned r values exclude it.
+        n_bins = math.floor(self.rmax / delr + 1e-9)
+        n_edges = n_bins + 2  # +1 fence-post, +1 overflow
         self._bins = np.arange(n_edges) * delr
 
         # Species counts and prefactor

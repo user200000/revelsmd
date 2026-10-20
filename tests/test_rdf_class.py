@@ -60,6 +60,45 @@ class TestRDFClassAPI:
         assert rdf.r[-1] == pytest.approx(5.0)
         assert rdf.r[0] == pytest.approx(0.0)
 
+    @pytest.mark.parametrize("box, delr, last", [
+        (10.0, 0.3, 4.8),      # rmax 5.0 is 16.67 bins: the grid stops at 16
+        (14.227, 0.02, 7.10),  # rmax 7.1135 is 355.7 bins
+    ])
+    def test_r_grid_stops_at_the_last_whole_bin_within_rmax(self, box, delr, last):
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(box, n_frames=1, n_atoms=4)
+        rdf = RDF(traj, 'A', 'A', delr=delr)
+        rdf.accumulate(traj)
+        rdf.get_rdf(integration='forward')
+        assert rdf.r[-1] == pytest.approx(last)
+        assert rdf.r[-1] <= rdf.rmax
+
+    @pytest.mark.parametrize("box, rmax, delr, last", [
+        # rmax / delr is a whole number, but in floating point falls just
+        # below it: 2.9999999999999996, 6.999999999999999, and for the
+        # inscribed radius of a 7 A cube 34.99999999999998.
+        (10.0, 0.3, 0.1, 0.3),
+        (10.0, 0.7, 0.1, 0.7),
+        (7.0, None, 0.1, 3.5),
+    ])
+    def test_a_whole_number_of_bins_keeps_its_last_point(self, box, rmax, delr, last):
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(box, n_frames=1, n_atoms=4)
+        rdf = RDF(traj, 'A', 'A', rmax=rmax, delr=delr)
+        rdf.accumulate(traj)
+        rdf.get_rdf(integration='forward')
+        assert rdf.r[-1] == pytest.approx(last)
+
+    def test_ideal_gas_counts_are_unbiased_at_the_last_point(self):
+        # Past the inscribed radius a shell is only partly sampled, and an
+        # ideal gas gives g_count < 1 there (0.93 at r = 5.1 in this box).
+        from revelsMD.rdf import RDF
+        traj = _ideal_gas(10.0, n_frames=200, n_atoms=200)
+        rdf = RDF(traj, 'A', 'A', delr=0.3)
+        rdf.accumulate(traj)
+        rdf.get_rdf(integration='forward')
+        assert rdf.g_count[-1] == pytest.approx(1.0, abs=0.03)
+
     def test_all_methods_return_same_grid(self, water_trajectory):
         """All integration methods should return the same r grid."""
         from revelsMD.rdf import RDF
@@ -125,6 +164,14 @@ class TestRDFClassAPI:
         rdf = RDF(water_trajectory, 'O', 'H')
         with pytest.raises(RuntimeError):
             rdf.get_rdf()
+
+
+def _ideal_gas(box, n_frames, n_atoms, seed=1):
+    """Uniformly random positions and random forces in a cubic box."""
+    rng = np.random.default_rng(seed)
+    positions = rng.uniform(0, box, (n_frames, n_atoms, 3))
+    return NumpyTrajectory(positions, rng.normal(size=positions.shape), box, box, box,
+                           ["A"] * n_atoms, temperature=1.0, units="lj")
 
 
 def _water(box=10.0, temperature=300.0, order=None, seed=0, n_waters=4):
