@@ -721,17 +721,17 @@ class TestRDFCountAccumulation:
 class TestRDFBackendSelection:
     """Test that RDF class uses backend-selected functions."""
 
-    def test_rdf_uses_numba_backend_when_available(self, water_trajectory):
-        """RDF should use Numba functions when numba is available."""
-        pytest.importorskip('numba')
+    def test_rdf_uses_the_selected_backend(self, water_trajectory):
+        """RDF uses the functions of the selected backend."""
+        from revelsMD.backends import get_backend
         from revelsMD.rdf import RDF
 
         rdf = RDF(water_trajectory, 'O', 'H')
 
-        # Check that the instance methods are from the numba module
-        assert 'numba' in rdf._compute_pairwise.__module__
-        assert 'numba' in rdf._accumulate_binned.__module__
-        assert 'numba' in rdf._accumulate_triangular.__module__
+        uses_numba = get_backend() == 'numba'
+        assert ('numba' in rdf._compute_pairwise.__module__) == uses_numba
+        assert ('numba' in rdf._accumulate_binned.__module__) == uses_numba
+        assert ('numba' in rdf._accumulate_triangular.__module__) == uses_numba
 
     def test_rdf_stores_backend_functions_as_instance_methods(self, water_trajectory):
         """RDF should store backend functions as instance methods."""

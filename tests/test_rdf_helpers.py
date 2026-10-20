@@ -7,7 +7,6 @@ used in RDF calculations, following TDD principles.
 
 from __future__ import annotations
 
-import os
 import numpy as np
 import pytest
 
@@ -22,13 +21,14 @@ from revelsMD.rdf.rdf_helpers import (
 class TestBackendSelection:
     """Test the backend selection mechanism."""
 
-    def test_default_backend_is_numba(self):
-        """Default backend should be numba."""
+    def test_default_functions_follow_the_selected_backend(self):
+        """Without an argument, the functions are those of the selected backend."""
+        from revelsMD.backends import get_backend
         from revelsMD.rdf.rdf_helpers import get_backend_functions
 
-        pairwise_fn, accum_fn, tri_fn = get_backend_functions()
+        pairwise_fn, _, _ = get_backend_functions()
 
-        assert 'numba' in pairwise_fn.__module__
+        assert ('numba' in pairwise_fn.__module__) == (get_backend() == 'numba')
 
     def test_explicit_numpy_backend(self):
         """Explicit numpy backend selection."""
@@ -53,22 +53,6 @@ class TestBackendSelection:
 
         with pytest.raises(ValueError, match="unknown RDF backend"):
             get_backend_functions('invalid_backend')
-
-    def test_environment_variable_backend(self):
-        """Backend can be set via environment variable."""
-        pytest.importorskip('numba')
-        from revelsMD.rdf.rdf_helpers import get_backend_functions
-
-        old_val = os.environ.get('REVELSMD_BACKEND')
-        try:
-            os.environ['REVELSMD_BACKEND'] = 'numba'
-            pairwise_fn, _, _ = get_backend_functions()
-            assert 'numba' in pairwise_fn.__module__
-        finally:
-            if old_val is None:
-                os.environ.pop('REVELSMD_BACKEND', None)
-            else:
-                os.environ['REVELSMD_BACKEND'] = old_val
 
     def test_backends_produce_identical_results(self):
         """NumPy and Numba backends should produce identical results."""

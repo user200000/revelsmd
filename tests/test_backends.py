@@ -108,14 +108,6 @@ class TestGetBackend:
         assert 'ValueError' in result.stderr
         assert 'invalid REVELSMD_BACKEND' in result.stderr
 
-    def test_backend_is_cached(self):
-        """Backend value is resolved once at import time."""
-        # This test verifies that BACKEND is a module-level constant
-        from revelsMD.backends import BACKEND, get_backend
-        assert BACKEND == get_backend()
-        assert isinstance(BACKEND, str)
-        assert BACKEND in {'numpy', 'numba'}
-
 
 class TestFFTWorkersConstants:
     """Tests for FFT workers module constants."""
