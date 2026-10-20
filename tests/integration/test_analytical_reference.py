@@ -72,10 +72,15 @@ def _harmonic_analytic_g(r_vals):
     return HARMONIC_BOX**3 * np.exp(-HARMONIC_BETA * u) / z
 
 
-@pytest.fixture(scope="module")
-def harmonic_pair_rdf():
+@pytest.fixture(scope="module", params=["unlike", "like"])
+def harmonic_pair_rdf(request):
     """
     Compute the RDF of a synthetic harmonic-pair trajectory once per module.
+
+    The pair is two species (A-B), or two atoms of one species (A-A). For a
+    single pair both normalisations, V/(2 N_A N_B) and V/(N (N - 1)), are
+    V/2, so the same analytic g(r) checks each; a wrong like-species
+    factor shows at full size, since N/(N - 1) = 2.
 
     Returns a dict with the RDF object, the analytic reference curve, its
     peak value, and a mask selecting the region where p(r) is non-negligible.
@@ -99,14 +104,15 @@ def harmonic_pair_rdf():
     forces[:, 0, :] = -f_b
 
     # kB = 1 in lj units, so trajectory.beta == HARMONIC_BETA exactly.
+    species_b = 'B' if request.param == "unlike" else 'A'
     ts = NumpyTrajectory(
         positions, forces,
         HARMONIC_BOX, HARMONIC_BOX, HARMONIC_BOX,
-        ['A', 'B'],
+        ['A', species_b],
         temperature=1.0 / HARMONIC_BETA, units='lj',
     )
 
-    rdf = compute_rdf(ts, 'A', 'B', delr=HARMONIC_DELR, integration='backward')
+    rdf = compute_rdf(ts, 'A', species_b, delr=HARMONIC_DELR, integration='backward')
 
     g_ref = _harmonic_analytic_g(rdf.r)
     peak = g_ref.max()
