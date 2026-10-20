@@ -320,6 +320,38 @@ def test_deposit_in_a_triclinic_cell(kernel):
     assert gs.force_x.sum() == pytest.approx(1.0, abs=1e-12)
 
 
+@pytest.mark.parametrize("x, node", [(3.7, 4), (3.4, 3), (9.6, 0), (0.2, 0)])
+def test_box_kernel_assigns_each_atom_to_the_nearest_grid_point(x, node):
+    # Grid point i sits at i voxels from the origin, as for the triangular
+    # kernel; 9.6 is nearest the point at 10.0, which wraps to 0.
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+    traj = NumpyTrajectory(np.array([[[x, 0.2, 0.2]]]), np.zeros((1, 1, 3)), 10.0, 10.0, 10.0,
+                           ["A"], temperature=300.0, units="real")
+    gs = DensityGrid(traj, density_type="number", nbins=10)
+    gs.accumulate(traj, atom_names="A", kernel="box")
+    assert gs.counter[node, 0, 0] == 1.0 and gs.counter.sum() == 1.0
+
+
+@pytest.mark.parametrize("kernel", ["box", "triangular"])
+def test_both_kernels_place_a_cloud_of_atoms_at_its_centre(kernel):
+    # The counts' centroid, with grid point i at i voxels, is the cloud's
+    # centre for either kernel. The cloud is a voxel wide: nearest-grid-point
+    # rounding then averages out, so any shift is the kernel's, not rounding's.
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+    rng = np.random.default_rng(5)
+    centre = np.array([3.7, 5.2, 4.6])  # far enough from the faces that nothing wraps
+    positions = centre + 1.0 * rng.normal(size=(1, 20000, 3))
+    traj = NumpyTrajectory(positions, np.zeros_like(positions), 10.0, 10.0, 10.0,
+                           ["A"] * 20000, temperature=300.0, units="real")
+    gs = DensityGrid(traj, density_type="number", nbins=10)
+    gs.accumulate(traj, atom_names="A", kernel=kernel)
+    points = np.arange(10) * 1.0
+    counts = gs.counter
+    centroid = [np.sum(counts.sum(axis=tuple(a for a in range(3) if a != axis)) * points) / counts.sum()
+                for axis in range(3)]
+    np.testing.assert_allclose(centroid, centre, atol=0.05)
+
+
 def test_deposit_at_the_cell_boundary_in_a_triclinic_cell():
     traj = _triclinic_trajectory([[[0.0, 0.0, 0.0], [12.99, 8.99, 7.99]]])
     gs = DensityGrid(traj, density_type="number", nbins=4)

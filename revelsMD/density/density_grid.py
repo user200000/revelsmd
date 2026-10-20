@@ -708,9 +708,13 @@ class DensityGrid:
                 self.nbinsx, self.nbinsy, self.nbinsz,
             )
         elif kernel.lower() == "box":
+            # Nearest grid point: grid point i sits at i voxels, as for the
+            # triangular kernel, and collects the atoms within half a voxel.
             _box_allocation(
                 force_x, force_y, force_z, counter,
-                x - 1, y - 1, z - 1,
+                np.floor(homeX / self.lx + 0.5).astype(np.intp) % self.nbinsx,
+                np.floor(homeY / self.ly + 0.5).astype(np.intp) % self.nbinsy,
+                np.floor(homeZ / self.lz + 0.5).astype(np.intp) % self.nbinsz,
                 fox, foy, foz, weight,
             )
         else:
