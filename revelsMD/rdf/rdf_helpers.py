@@ -164,7 +164,7 @@ def accumulate_binned_contributions(
     bin_indices = np.digitize(distances, bins) - 1
 
     # Zero out overflow bin contributions (pairs past the outermost edge)
-    values = np.asarray(values, dtype=np.float64).copy()
+    values = np.array(values, dtype=np.float64)
     values[bin_indices == n_bins - 1] = 0
 
     # Clip indices to valid range for bincount
@@ -176,7 +176,7 @@ def accumulate_binned_contributions(
         bin_indices_clipped,
         weights=values,
         minlength=n_bins,
-    ).astype(np.float64)
+    )
 
     return storage
 
@@ -314,7 +314,4 @@ def compute_pairwise_contributions(
     dot_prod = np.sum(F_diff * r_vec, axis=-1) / np.where(coincident, 1.0, r_mag) ** 3
     dot_prod[coincident] = 0.0
 
-    return (
-        r_mag.ravel().astype(np.float64),
-        dot_prod.ravel().astype(np.float64),
-    )
+    return r_mag.ravel(), dot_prod.ravel()
