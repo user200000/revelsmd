@@ -84,7 +84,7 @@ For separate control over accumulation and integration, use `RDF` directly:
 from revelsMD.rdf import RDF
 
 rdf = RDF(traj, '1', '1', delr=0.005, rmax=4.0)
-rdf.accumulate(traj, start=10, stop=None, period=2)
+rdf.accumulate(traj, start=2, stop=None, period=2)
 rdf.get_rdf(integration='lambda')
 ```
 
@@ -119,7 +119,7 @@ rdf.accumulate(traj, start=4, period=2)
 rdf.accumulate(traj, stop=5)
 ```
 
-These follow Python slice semantics.
+These select frames as a Python slice does, and negative values count from the end, but a `start` or `stop` outside the trajectory, or a selection with no frames, raises a `ValueError`.
 
 ## Parameters
 

@@ -192,8 +192,11 @@ dimensionless and generalises correctly to triclinic cells.
 on first access. The conversion uses:
 
 $$
-\delta\tilde{\rho}(\mathbf{k}) = \frac{i\beta}{k^2} \,\mathbf{k} \cdot \tilde{\mathbf{F}}(\mathbf{k})
+\delta\tilde{\rho}(\mathbf{k}) = -\frac{i\beta}{k^2} \,\mathbf{k} \cdot \tilde{\mathbf{F}}(\mathbf{k})
 $$
+
+with $\tilde{\mathbf{F}}(\mathbf{k}) = \sum_{\mathbf{r}} \mathbf{F}(\mathbf{r})\, e^{-i\mathbf{k}\cdot\mathbf{r}}$ (numpy's
+forward FFT), and $\rho = \bar{\rho} + \mathcal{F}^{-1}[\delta\tilde{\rho}]$.
 
 This provides an exact solution to the Poisson equation under periodic boundary
 conditions with $O(N \log N)$ scaling. `rho_lambda` is similarly lazy, finalising

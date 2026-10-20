@@ -40,13 +40,13 @@ Both are exact in principle but accumulate noise in different regions: forward i
 
 For three-dimensional density fields, the analogous relationship is:
 
-$$\nabla \rho(\mathbf{r}) = -\beta \rho(\mathbf{r}) \langle \mathbf{F}(\mathbf{r}) \rangle$$
+$$\nabla \rho(\mathbf{r}) = \beta \rho(\mathbf{r}) \langle \mathbf{F}(\mathbf{r}) \rangle$$
 
-This is solved in Fourier space. Treating the density as a small perturbation around the mean $\bar{\rho}$:
+The right-hand side is the accumulated force density, so the relation is linear and is solved exactly in Fourier space for the deviation from the mean density $\bar{\rho}$:
 
-$$\delta\tilde{\rho}(\mathbf{k}) = \frac{i \beta}{k^2} \mathbf{k} \cdot \tilde{\mathbf{F}}(\mathbf{k})$$
+$$\delta\tilde{\rho}(\mathbf{k}) = -\frac{i \beta}{k^2} \mathbf{k} \cdot \tilde{\mathbf{F}}(\mathbf{k})$$
 
-where $\tilde{\mathbf{F}}(\mathbf{k})$ is the Fourier transform of the accumulated force field. The real-space density is then recovered by inverse FFT:
+where $\tilde{\mathbf{F}}(\mathbf{k}) = \sum_{\mathbf{r}} \mathbf{F}(\mathbf{r})\, e^{-i\mathbf{k}\cdot\mathbf{r}}$ is the Fourier transform of the accumulated force field $\rho\langle\mathbf{F}\rangle$, and $\delta\tilde{\rho}(\mathbf{0}) = 0$. The real-space density is then recovered by inverse FFT:
 
 $$\rho(\mathbf{r}) = \bar{\rho} + \mathcal{F}^{-1}[\delta\tilde{\rho}(\mathbf{k})]$$
 
