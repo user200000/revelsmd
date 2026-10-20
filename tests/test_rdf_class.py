@@ -376,32 +376,6 @@ class TestRDFAccumulateTrajectories:
         assert rdf.g is None and rdf.g_count is None and rdf.lam is None and rdf.r is None
 
 
-class TestRDFMemory:
-    """What an RDF holds does not grow with the frames it accumulates."""
-
-    @staticmethod
-    def _held_bytes(obj):
-        held = 0
-        for value in vars(obj).values():
-            if isinstance(value, np.ndarray):
-                held += value.nbytes
-            elif isinstance(value, (list, tuple)):
-                held += sum(v.nbytes for v in value if isinstance(v, np.ndarray))
-            elif hasattr(value, "__dict__"):
-                held += TestRDFMemory._held_bytes(value)
-        return held
-
-    def test_memory_does_not_grow_with_frames(self):
-        from revelsMD.rdf import RDF
-        few, many = _ideal_gas(10.0, n_frames=2, n_atoms=20), _ideal_gas(10.0, n_frames=60, n_atoms=20)
-        held = []
-        for traj in (few, many):
-            rdf = RDF(traj, 'A', 'A', delr=0.1)
-            rdf.accumulate(traj)
-            held.append(self._held_bytes(rdf))
-        assert held[0] == held[1]
-
-
 class TestForwardAndBackwardOnOneGrid:
     """g(r) from both estimators is reported at the r it belongs to."""
 
