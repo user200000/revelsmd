@@ -807,17 +807,21 @@ class TestAccumulateComputeLambda:
         assert gs.lambda_weights is not None
         assert gs.lambda_weights.shape == (4, 4, 4)
 
-    def test_identical_blocks_take_the_force_density(self):
+    @pytest.mark.parametrize("box", [10.0, 1e-3])
+    def test_identical_blocks_take_the_force_density(self, box):
         # Seven identical frames in blocks of 3, 3 and 1: every block gives
         # the same delta, but the blocks' densities differ in their last
         # digits, so Var(delta) is rounding rather than zero. Dividing by it
-        # would give rho_lambda tens of percent off the force density.
+        # would give rho_lambda tens of percent off the force density. In
+        # the 1e-3 box the densities are of order 1e11, so the rounding
+        # variance is large in absolute terms and only a threshold set by
+        # the density's own scale recognises it.
         from revelsMD.trajectories import NumpyTrajectory
         rng = np.random.default_rng(71)
-        positions = np.repeat(rng.uniform(0, 10, (1, 20, 3)), 7, axis=0)
+        positions = np.repeat(rng.uniform(0, box, (1, 20, 3)), 7, axis=0)
         forces = np.repeat(rng.normal(size=(1, 20, 3)), 7, axis=0)
         trajectory = NumpyTrajectory(
-            positions, forces, 10, 10, 10, ["H"] * 20, temperature=300.0
+            positions, forces, box, box, box, ["H"] * 20, temperature=300.0
         )
         gs = DensityGrid(trajectory, "number", nbins=8)
         gs.accumulate(trajectory, atom_names="H", compute_lambda=True, block_size=3)
