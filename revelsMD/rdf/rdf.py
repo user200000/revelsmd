@@ -12,7 +12,7 @@ from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.frame_sources import Frame
 from revelsMD.rdf.rdf_helpers import get_backend_functions
 from revelsMD.statistics import WelfordAccumulator, control_variate_combination
-from revelsMD.trajectories._base import check_same_system, frame_range
+from revelsMD.trajectories._base import check_atom_name, check_same_system, frame_range
 
 
 def _shortest_rmax(n_bins: int, delr: float) -> str:
@@ -111,6 +111,8 @@ class RDF:
         delr: float = 0.01,
         rmax: float | None = None,
     ):
+        check_atom_name(species_a)
+        check_atom_name(species_b)
         self.species_a = species_a
         self.species_b = species_b
         self.delr = delr

@@ -57,3 +57,21 @@ class TestVaspSpeciesSelection:
 
         combined = np.concatenate([indices_ba, indices_sn, indices_f])
         assert len(np.unique(combined)) == 324
+
+
+@pytest.mark.integration
+@pytest.mark.requires_example4
+class TestOneNamePerString:
+    """A string names one species: MDAnalysis would read 'Ow Hw1 Hw2' as a
+    union of three names, losing the rigid grouping or mixing species."""
+
+    def test_density_string_of_several_names_raises(self, example4_trajectory):
+        from revelsMD.density import DensityGrid
+        grid = DensityGrid(example4_trajectory, "number", nbins=10)
+        with pytest.raises(ValueError, match=r"pass a list: \['Ow', 'Hw1', 'Hw2'\]"):
+            grid.accumulate(example4_trajectory, "Ow Hw1 Hw2", rigid=True, stop=1)
+
+    def test_rdf_species_of_several_names_raises(self, example4_trajectory):
+        from revelsMD.rdf import RDF
+        with pytest.raises(ValueError, match="'Ow Hw1' must be a single name"):
+            RDF(example4_trajectory, "Ow Hw1", "Ow")

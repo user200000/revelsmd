@@ -142,6 +142,16 @@ def check_same_system(
         )
 
 
+def check_atom_name(name: str) -> None:
+    """Raise ValueError unless ``name`` is a single atom name.
+
+    A space or comma would make MDAnalysis read it as a selection of several
+    names, so the wrong atoms would be selected without an error.
+    """
+    if not name or "," in name or any(c.isspace() for c in name):
+        raise ValueError(f"atom name {name!r} must be a single name, without spaces or commas")
+
+
 def frame_range(n_frames: int, start: int, stop: int | None, period: int) -> range:
     """Return the frames that ``start``, ``stop`` and ``period`` select.
 

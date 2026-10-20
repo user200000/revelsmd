@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from revelsMD.backends import get_fft_workers
 from revelsMD.frame_sources import BlockSource, contiguous_blocks, interleaved_blocks
-from revelsMD.trajectories._base import Trajectory, check_same_system, frame_range
+from revelsMD.trajectories._base import Trajectory, check_atom_name, check_same_system, frame_range
 from revelsMD.cell import (
     cartesian_to_fractional,
     wrap_fractional,
@@ -332,7 +332,8 @@ class DensityGrid:
             Trajectory whose frames to add; its cell, temperature and units
             must be those the grid was built with.
         atom_names : str or list of str
-            Atom name(s) used for selection (single species or multi-species molecule).
+            One atom name, or a list of names for several species or a rigid
+            molecule. A string holding several names raises; pass a list.
         rigid : bool, optional
             Treat listed species as a rigid group and sum forces (default: False).
             For a species to be treated as rigid each atom in the molecule must have a different name.
@@ -422,12 +423,16 @@ class DensityGrid:
         """
         check_same_system(trajectory, self.cell_matrix, self.beta, "density grid")
 
-        # --- Validate atom_names ---
+        # --- Validate atom_names: a string is one name, a list several ---
         if isinstance(atom_names, str):
-            atom_list = atom_names.replace(',', ' ').split()
-            if len(atom_list) != len(set(atom_list)):
-                raise ValueError(f"duplicate atom names detected in input string: {atom_names!r}")
+            names = atom_names.replace(',', ' ').split()
+            if names != [atom_names]:
+                raise ValueError(
+                    f"atom_names={atom_names!r} looks like several names; pass a list: {names!r}"
+                )
         elif isinstance(atom_names, list):
+            for name in atom_names:
+                check_atom_name(name)
             if len(atom_names) != len(set(atom_names)):
                 raise ValueError(f"duplicate atom names detected in list: {atom_names!r}")
         else:
@@ -1050,7 +1055,8 @@ def compute_density(
     trajectory : Trajectory
         Trajectory-state object providing positions, forces, and box dimensions.
     atom_names : str or list of str
-        Atom type(s) to include in the density calculation.
+        One atom name, or a list of names for several species or a rigid
+        molecule. A string holding several names raises; pass a list.
     rigid : bool, optional
         Whether to treat multi-atom selections as rigid molecules (default: False).
     centre_location : bool or int, optional

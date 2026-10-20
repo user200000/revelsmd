@@ -1257,6 +1257,19 @@ class IterableMockTrajectory(MockTrajectory):
             yield Frame(self._positions[i], self._forces[i])
 
 
+@pytest.mark.parametrize("atom_names, message", [
+    ("O H", r"atom_names='O H' looks like several names; pass a list: \['O', 'H'\]"),
+    ("O,H", r"atom_names='O,H' looks like several names; pass a list: \['O', 'H'\]"),
+    (["O", "H H"], "atom name 'H H' must be a single name"),
+])
+def test_accumulate_rejects_several_names_in_one_string(atom_names, message):
+    from revelsMD.trajectories.numpy import NumpyTrajectory
+    traj = NumpyTrajectory(np.zeros((1, 3, 3)), np.ones((1, 3, 3)), 10.0, 10.0, 10.0,
+                           ["O", "H", "H"], temperature=300.0, units="real")
+    with pytest.raises(ValueError, match=message):
+        DensityGrid(traj, "number", nbins=4).accumulate(traj, atom_names)
+
+
 def test_accumulate_another_temperature_raises():
     from revelsMD.trajectories.numpy import NumpyTrajectory
 
