@@ -70,6 +70,16 @@ rdf.g_count  # histogram g(r)
 Tutorials, how-to guides and the API reference are at
 [revelsmd.readthedocs.io](https://revelsmd.readthedocs.io).
 
+## Citing RevelsMD
+
+If you use RevelsMD in published work, please cite
+
+- S. W. Coles, B. J. Morgan and B. Rotenberg, RevelsMD: Reduced Variance
+  Estimators of the Local Structure in Molecular Dynamics,
+  [arXiv:2310.06149](https://arxiv.org/abs/2310.06149) (2023)
+
+and the papers describing the methods you use, below.
+
 ## Methods
 
 RevelsMD implements the force-sampling estimators of
