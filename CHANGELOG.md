@@ -1,10 +1,10 @@
 # Changelog
 
-## 1.0.0b1 (unreleased)
+## 0.2.0 (unreleased)
 
-The first release since 0.1.5, and a beta: the API may still change before
-1.0.0. It replaces the 0.1.5 API (`Revels3D.GridState`, `RevelsRDF`, the
-`*TrajectoryState` classes) entirely; there is no compatibility layer.
+The first release since 0.1.5. It replaces the 0.1.5 API
+(`Revels3D.GridState`, `RevelsRDF`, the `*TrajectoryState` classes)
+entirely; there is no compatibility layer.
 
 ### Calculations
 
