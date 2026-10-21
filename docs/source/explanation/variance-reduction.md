@@ -51,7 +51,7 @@ $$\operatorname{Cov}(A, \delta) \approx \frac{1}{N} \sum_{i=1}^N (A_i - \bar{A})
 The two calculations draw their samples differently:
 
 - **RDFs** take each frame's $g_\text{fwd}(r)$ and $g_\text{bwd}(r)$ as one sample, so no blocking parameters apply. The statistics are gathered for every frame; passing `integration='lambda'` to `compute_rdf` or `get_rdf` selects the combination.
-- **3D densities** divide each half of the frames into blocks, and each block yields one sample. By default, blocks are contiguous (consecutive frames), controlled by `block_size`. Interleaved blocking (`sections` parameter) can reduce bias from slow drift. Strategy selection is covered in [Block Averaging](block-averaging.md).
+- **3D densities** divide each half of the frames into blocks, and each block yields one sample. By default, blocks are contiguous (consecutive frames), controlled by `block_size`; interleaved sections (`sections` parameter) are also available. Strategy selection is covered in [Block Averaging](block-averaging.md).
 
 ### The Welford accumulator
 

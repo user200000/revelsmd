@@ -47,9 +47,10 @@ of the first half gets its frames $[0, 4, 8, \ldots]$, section 1 gets
 $[1, 5, 9, \ldots]$, and so on; the second half has its own 4 sections.
 
 Interleaved blocking reads each section in one pass over the trajectory,
-skipping the frames of other sections. It gives better statistical independence
-between sections when equilibration varies over the trajectory: each section
-samples the full time range rather than a contiguous window.
+skipping the frames of other sections. Neighbouring frames fall in different
+sections, so the sections are correlated with each other, and the spread across
+them understates the variation that the variances and covariances for $\lambda$
+are meant to measure.
 
 ```python
 grid.accumulate(traj, atom_names='O', compute_lambda=True,
@@ -58,10 +59,9 @@ grid.accumulate(traj, atom_names='O', compute_lambda=True,
 
 ### Choosing a strategy
 
-Use contiguous blocking unless you have reason to prefer interleaved. It is
-simpler, reads frames in order, and suffices for well-converged trajectories.
-Interleaved blocking is useful when each block should represent the full ensemble
-rather than a temporal slice.
+Use contiguous blocking. Blocks that are each long compared with the
+correlation time of the trajectory are close to independent samples, and
+contiguous blocking reads frames in order.
 
 Each half needs at least two blocks, across all `accumulate()` calls on the same
 `DensityGrid`, before `rho_lambda` can be computed; fewer raise `ValueError`.

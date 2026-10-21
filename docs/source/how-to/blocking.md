@@ -32,8 +32,9 @@ block of a half may be shorter if the half is not evenly divisible.
 With *N* sections, each half of the frames has *N* sections, and section *k*
 receives every *N*-th frame of the half from its frame *k*: section 0 gets the
 half's frames 0, N, 2N, …; section 1 gets frames 1, N+1, 2N+1, …; and so on.
-This spreads each block across its half, improving variance estimates when
-slow relaxations are present.
+Neighbouring frames fall in different sections, so the sections are correlated
+with each other; contiguous blocks, each long compared with the correlation
+time, are closer to independent samples.
 
 Each section is read in one pass over the trajectory, skipping the frames of
 other sections.
