@@ -66,7 +66,7 @@ def main():
         density_type='number',
         nbins=200,
         compute_lambda=True,
-        block_size=750,
+        block_size=75,  # 50 blocks in each half of the 7500 frames
     )
 
     # z = 0.375 slice captures Li cage structure

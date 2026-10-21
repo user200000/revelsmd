@@ -1,6 +1,6 @@
 # Variance Reduction and Lambda Weighting
 
-RevelsMD provides two independent estimators for each quantity: counting-based and force-based (see [Force Sampling](force-sampling.md)). Both are unbiased, but their variance differs by region. The lambda method combines them with position-dependent weights that minimise variance, producing a single estimate that outperforms either alone.
+RevelsMD provides two independent estimators for each quantity: counting-based and force-based (see [Force Sampling](force-sampling.md)). Both are unbiased, but their variance differs by region. The lambda method combines them with position-dependent weights that minimise variance, producing a single estimate with lower variance than either, given enough samples to estimate the weights.
 
 ## The problem
 
@@ -38,7 +38,7 @@ For 3D densities, $A = \rho_\text{count}$ and $B = \rho_\text{force}$, so $\lamb
 
 $$\rho_\lambda(\mathbf{r}) = (1 - \lambda(\mathbf{r}))\, \rho_\text{count}(\mathbf{r}) + \lambda(\mathbf{r})\, \rho_\text{force}(\mathbf{r})$$
 
-These are the weights exposed as `rdf.lam` and `grid.lambda_weights`.
+RevelsMD estimates $\lambda$ in two halves of the frames and applies each half's $\lambda$ to the other half (see *Estimating λ from held-out frames* below). `rdf.lam` and `grid.lambda_weights` report the weight the combination puts on $B$ overall; where the two halves' $\lambda$ agree, the combined estimate is exactly the expression above with that weight.
 
 ## Estimating variance and covariance
 
@@ -51,23 +51,41 @@ $$\operatorname{Cov}(A, \delta) \approx \frac{1}{N} \sum_{i=1}^N (A_i - \bar{A})
 The two calculations draw their samples differently:
 
 - **RDFs** take each frame's $g_\text{fwd}(r)$ and $g_\text{bwd}(r)$ as one sample, so no blocking parameters apply. The statistics are gathered for every frame; passing `integration='lambda'` to `compute_rdf` or `get_rdf` selects the combination.
-- **3D densities** divide frames into $N$ blocks, and each block yields one sample. By default, blocks are contiguous (consecutive frames), controlled by `block_size`. Interleaved blocking (`sections` parameter) can reduce bias from slow drift. Strategy selection is covered in [Block Averaging](block-averaging.md).
+- **3D densities** divide each half of the frames into blocks, and each block yields one sample. By default, blocks are contiguous (consecutive frames), controlled by `block_size`. Interleaved blocking (`sections` parameter) can reduce bias from slow drift. Strategy selection is covered in [Block Averaging](block-averaging.md).
 
 ### The Welford accumulator
 
-RevelsMD does not store the samples. An online algorithm (`WelfordAccumulator` in `revelsMD/statistics.py`) updates the running mean, variance and covariance with each one, so memory does not grow with the length of the trajectory. Density blocks are weighted by frame count, so unequal sizes are handled correctly; RDF frames have equal weight.
+RevelsMD does not store the samples. An online algorithm (`WelfordAccumulator` in `revelsMD/statistics.py`) updates the running mean, variance and covariance with each one, so memory does not grow with the length of the trajectory. Each half of the frames has its own accumulator. Density blocks are weighted by frame count, so unequal sizes are handled correctly; RDF frames have equal weight.
 
 ### Block parameters
 
-`block_size` sets frames per block (contiguous); `sections` sets the number of interleaved blocks. More blocks yield better variance estimates but fewer frames per block. At least two blocks are required.
+`block_size` sets frames per block (contiguous); `sections` sets the number of interleaved sections in each half of the frames. More blocks yield better variance estimates but fewer frames per block. For a density, each half needs at least two blocks, and fewer raise `ValueError`. For densities and RDFs, fewer than 10 samples in either half give a warning.
+
+## Estimating λ from held-out frames
+
+An estimate of $\lambda$ from the same samples whose means it weights is correlated with them, which biases the combination:
+
+$$\operatorname{E}[\hat\lambda\,\bar\delta] = \lambda\operatorname{E}[\bar\delta] + \operatorname{Cov}(\hat\lambda, \bar\delta)$$
+
+The second term is small when there are many independent samples, and large where samples are sparse. For a density, a voxel the histogram over-counted by chance gets a large $\hat\lambda$, and a voxel it never reached gets $\hat\lambda = 0$, so the combination falls below both estimators. On a 7500-frame ab initio trajectory of Li$_6$PS$_5$I on a $200^3$ grid, a $\lambda$ estimated from the same blocks gave a density holding 72 to 82% of the Li atoms, depending on the block size.
+
+RevelsMD therefore splits the frames of each `accumulate()` call into a first and a second half in time. $\lambda_A$ is estimated from the samples in the first half and $\lambda_B$ from those in the second, and each weights the other half's estimators:
+
+$$\hat\theta = w_A\,(\bar A_A + \lambda_B\,\bar\delta_A) + w_B\,(\bar A_B + \lambda_A\,\bar\delta_B)$$
+
+where $w_A$ and $w_B$ are the halves' fractions of the frames, and $\bar A_A$, $\bar\delta_A$ are the first half's means. Each $\lambda$ is independent of the samples it weights, so the combination is unbiased. The frames are split into halves in time, not into alternating samples, because neighbouring frames are correlated.
+
+The weight the combination puts on $B$ overall, reported as `rdf.lam` and `grid.lambda_weights`, is $w_A\lambda_B + w_B\lambda_A$.
+
+Each $\lambda$ is estimated from half the samples, and its noise adds to the variance of the combination. With fewer than about 10 samples in each half, the combination can be less precise than the force estimator alone; with 50 or more, the loss is a few percent.
 
 ## Edge cases
 
-Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample, $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. RevelsMD then reports a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
+Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample of a half, that half's $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. That half then takes a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). An RDF half with fewer than two frames takes the same fixed weight. These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
 
 ## Cost
 
-For a density, `compute_lambda=True` adds block buffers and per-block statistics to accumulation. For an RDF the statistics cost one pass over the bins per frame and are always gathered.
+For a density, `compute_lambda=True` adds block buffers and two sets of per-block statistics, one for each half of the frames, to accumulation. For an RDF the statistics cost one pass over the bins per frame and are always gathered.
 
 ## References
 

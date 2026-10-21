@@ -28,14 +28,18 @@ rho_force = grid.rho_force   # force-based density
 rho_count = grid.rho_count   # counting-based density
 ```
 
-At least two blocks are needed before accessing `rho_lambda`. Statistics
-accumulate across multiple `accumulate()` calls, so you can split a long
-trajectory across several calls. Calling
+Lambda is estimated in each half in time of the frames of every
+`accumulate()` call and applied to the other half's densities, so it is never
+estimated from the blocks it weights; `lambda_weights` is the weight
+`rho_lambda` puts on the force density overall. Each half needs at least two
+blocks before accessing `rho_lambda`, and fewer than 10 in either half gives a
+warning. Statistics accumulate across multiple `accumulate()` calls, so you can
+split a long trajectory across several calls. Calling
 `accumulate(..., compute_lambda=False)` clears existing statistics.
 
-Voxels where every block gave the same difference between the force and
-counting densities, to within rounding, have no variance to weigh and report
-a weight of 1 (force density). This is a
+Voxels where every block of a half gave the same difference between the force
+and counting densities, to within rounding, have no variance to weigh and take
+a weight of 1 (force density) in that half. This is a
 guard for degenerate input, not a treatment for poorly sampled regions; use
 the hybrid estimator below for that.
 

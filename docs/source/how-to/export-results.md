@@ -39,7 +39,7 @@ Density grids expose accumulated arrays as NumPy arrays.
 grid.rho_count       # histogram-based density
 grid.rho_force       # force-based density
 grid.rho_lambda      # lambda-weighted density
-grid.lambda_weights  # accumulated lambda weights
+grid.lambda_weights  # lambda weights
 ```
 
 Save individual arrays with `np.save`:

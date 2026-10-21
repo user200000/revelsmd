@@ -15,8 +15,11 @@ entirely; there is no compatibility layer.
   polarisation densities, with counting, force, lambda and hybrid estimates.
   Rigid molecules are supported, centred on their centre of mass or on a
   chosen atom.
-- Lambda estimation for densities uses contiguous or interleaved blocks of
-  frames; for RDFs each frame is a sample. Both keep running statistics.
+- Lambda is estimated in each half in time of the frames and applied to the
+  other half, so it is never estimated from the samples it weights. Densities
+  use contiguous or interleaved blocks of frames within each half; for RDFs
+  each frame is a sample. Both keep running statistics, and warn when a half
+  has fewer than 10 samples.
 - `accumulate()` adds frames from further trajectories of the same system,
   and checks that the cell, temperature and units (and for an RDF the
   species counts) match.
@@ -45,6 +48,14 @@ entirely; there is no compatibility layer.
   wrong atoms for topologies numbered from 1 (e.g. GRO, PDB).
 - LAMMPS dumps whose rows were not sorted by atom id were paired with the
   wrong atoms.
+- Lambda was estimated from the same frames it weighted, which biased the
+  combination. The lambda density fell short of the particle count where
+  voxels are sparsely sampled: on a 7500-frame ab initio trajectory on a
+  200^3 grid it held 72 to 82% of the atoms. The lambda g(r) was biased at
+  small numbers of frames. With lambda estimated in one half of the frames
+  and applied to the other, both are unbiased; each half's lambda is noisier,
+  so a half needs at least 10 samples for the lambda estimate to be reliably
+  better than the force estimate alone.
 
 ### Requirements
 
