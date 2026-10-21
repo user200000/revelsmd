@@ -39,7 +39,9 @@ two halves, so the result depends on how frames are divided between calls, and
 each call should be long compared with the correlation time of the trajectory:
 with short calls, the two halves interleave in time and are no longer
 independent. A call of one frame adds only to the first half. Calling
-`accumulate(..., compute_lambda=False)` clears existing statistics.
+`accumulate(..., compute_lambda=False)` clears existing statistics, and
+`accumulate(..., compute_lambda=True)` on a grid holding frames accumulated
+without them raises `ValueError`.
 
 Voxels where every block of a half gave the same difference between the force
 and counting densities, to within rounding, have no variance to weigh and take

@@ -861,7 +861,6 @@ class TestAccumulateComputeLambda:
         )
         gs = DensityGrid(trajectory, "number", nbins=8)
         gs.accumulate(trajectory, atom_names="H", compute_lambda=True, block_size=3)
-        _ = gs.rho_lambda
         np.testing.assert_array_equal(gs.lambda_weights, 1.0)
         np.testing.assert_array_equal(gs.rho_lambda, gs.rho_force)
 
@@ -1032,6 +1031,19 @@ class TestAccumulateComputeLambda:
             )
         assert gs._lambda_statistics is None
 
+    def test_compute_lambda_after_frames_without_it_raises(self, multi_frame_trajectory):
+        """accumulate(compute_lambda=True) raises on a grid holding frames accumulated without lambda statistics.
+
+        Each half's lambda weights the other half's densities, which must
+        together be the grid's densities; frames in neither half would
+        break that and bring back the same-sample bias.
+        """
+        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
+        gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=False, stop=4)
+
+        with pytest.raises(ValueError, match="frames accumulated without lambda statistics"):
+            gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True, start=4)
+
     def test_rho_lambda_raises_with_fewer_than_two_blocks_in_a_half(self, multi_frame_trajectory):
         """lambda is estimated in each time half of the frames, so each half needs 2 blocks."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
@@ -1041,7 +1053,7 @@ class TestAccumulateComputeLambda:
             compute_lambda=True, block_size=1, start=0, stop=3
         )
 
-        with pytest.raises(ValueError, match="fewer than 2 blocks"):
+        with pytest.raises(ValueError, match="at least 2 blocks in each half"):
             _ = gs.rho_lambda
 
     def test_rho_lambda_works_with_one_block_per_half_per_call(
@@ -1054,7 +1066,7 @@ class TestAccumulateComputeLambda:
             multi_frame_trajectory, atom_names="H",
             compute_lambda=True, block_size=2, start=0, stop=4
         )
-        with pytest.raises(ValueError, match="fewer than 2 blocks"):
+        with pytest.raises(ValueError, match="at least 2 blocks in each half"):
             _ = gs.rho_lambda
 
         gs.accumulate(
@@ -2674,6 +2686,20 @@ class TestFailedAccumulate:
 
         grid.accumulate(good, "1", **options)
         assert grid.frames_processed == kept + 4
+
+    def test_rho_lambda_raises_when_no_block_was_kept(self, tmp_path):
+        """A failed first block leaves the lambda statistics empty, and rho_lambda raises as for too few blocks rather than returning None."""
+        from lammps_dumps import frame, load, rows, write
+
+        frames = [frame(100 * k, float(k)) for k in range(6)]
+        frames[0] = frame(0, atom_rows=rows(0, fy="nan"))
+        bad = load(write(tmp_path / "bad.dump", *frames))
+
+        grid = DensityGrid(bad, "number", nbins=4)
+        with pytest.raises(ValueError, match="NaN"):
+            grid.accumulate(bad, "1", compute_lambda=True, block_size=2)
+        with pytest.raises(ValueError, match=r"at least 2 blocks in each half of the frames \(have 0 and 0\)"):
+            _ = grid.rho_lambda
 
 
 class TestLambdaStatisticsReset:

@@ -193,7 +193,7 @@ class RDF:
         # estimated in each time half of the frames and applied to the
         # other, so the statistics are kept in two folds.
         self._g_scale = self._prefactor * self._beta / (4 * np.pi)
-        self._frame_statistics = CrossFitStatistics((len(self._bins) - 2,))
+        self._frame_statistics = CrossFitStatistics((len(self._bins) - 2,), samples="frames")
 
         # Results (set by get_rdf())
         self._r: np.ndarray | None = None
@@ -559,27 +559,16 @@ class RDF:
         # Cov(Delta, E_0), with the half's mean Delta and E_0.
         exp_forward = _forward_estimator(mean_scaled)[1:]
         exp_backward = _backward_estimator(mean_scaled)[1:]
-        counts = [fold.count for fold in self._frame_statistics.folds]
-        if min(counts) < 2:
-            # g(r) from fewer frames is valid; lambda, which needs their
-            # spread, is not, and neither estimator is a right default.
-            raise ValueError(
-                f"lambda needs at least 2 frames in each half of the frames (have "
-                f"{counts[0]} and {counts[1]}); each accumulate() call's frames are "
-                "split into two halves, so a call of one frame adds only to the "
-                "first. Use integration='forward' or 'backward' with fewer frames"
-            )
-        moments = []
-        for fold in self._frame_statistics.folds:
-            mean_delta, mean_backward = fold.means()
-            var_delta, cov_e0_delta = fold.finalise()
-            moments.append((fold.sum_weights, mean_backward, mean_backward + mean_delta,
-                            var_delta, cov_e0_delta))
+        # g(r) from fewer frames is valid; lambda, which needs their spread,
+        # is not, and neither estimator is a right default.
+        folds = self._frame_statistics.finalise(
+            remedy="Use integration='forward' or 'backward' with fewer frames"
+        )
         # Each frame's backward g(r) subtracts cumulative sums from 1, so the
         # rounding in Delta is set by 1 and the largest cumulative sum, in
         # every bin.
         g_lambda, lam = cross_fitted_combination(
-            (moments[0], moments[1]), exp_backward, exp_forward,
+            folds, exp_backward, exp_forward,
             scale=float(max(1.0, np.max(np.abs(np.cumsum(mean_scaled))))),
             fallback=0.0,
         )

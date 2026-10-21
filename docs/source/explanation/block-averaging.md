@@ -75,7 +75,7 @@ Each block is processed independently. After all frames in a block are deposited
 the block-level densities are normalised to per-block $\rho_\text{force}$ and
 $\rho_\text{count}$. The difference
 $\delta = \rho_\text{force} - \rho_\text{count}$ is then passed to the
-`WelfordAccumulator` along with $\rho_\text{force}$ and the block frame count
+`WelfordAccumulator` along with $\rho_\text{count}$ and the block frame count
 as its weight. Each half of the frames has its own accumulator.
 
 Accumulation is additive across `accumulate()` calls: a second call (e.g. with a
@@ -84,33 +84,36 @@ and those of its second half to the second, allowing $\lambda$ estimation from
 multiple trajectories.
 
 Calling `accumulate(..., compute_lambda=False)` clears any existing lambda
-statistics, and issues a `UserWarning` if there were any.
+statistics, and issues a `UserWarning` if there were any. Calling
+`accumulate(..., compute_lambda=True)` on a grid holding frames accumulated
+without lambda statistics raises `ValueError`: each half's $\lambda$ weights the
+other half's densities, which must together be the grid's densities.
 
 ## WelfordAccumulator internals
 
 `WelfordAccumulator` implements a weighted Welford algorithm, computing running
 mean, variance, and covariance without storing all samples. It works on arrays
 of any shape and takes $\delta$ and a second quantity; `DensityGrid` passes
-$\rho_\text{force}$ as that quantity, so the terms below are in density terms.
+$\rho_\text{count}$ as that quantity, so the terms below are in density terms.
 
 For each new block $(k)$ with weight $w_k$, the accumulator updates:
 
 - Running weighted mean of $\delta$
-- Running weighted mean of $\rho_\text{force}$
+- Running weighted mean of $\rho_\text{count}$
 - Weighted sum of squared deviations $M_2(\delta)$, from which variance is derived
-- Weighted cross-deviation $C(\delta, \rho_\text{force})$, from which covariance is derived
+- Weighted cross-deviation $C(\delta, \rho_\text{count})$, from which covariance is derived
 
 After all blocks, `finalise()` returns:
 
 $$
 \text{Var}(\delta) = \frac{M_2(\delta)}{\sum_k w_k}, \qquad
-\text{Cov}(\delta, \rho_\text{force}) = \frac{C(\delta, \rho_\text{force})}{\sum_k w_k}
+\text{Cov}(\delta, \rho_\text{count}) = \frac{C(\delta, \rho_\text{count})}{\sum_k w_k}
 $$
 
 These are population (not sample) estimates — the denominator is total weight,
 not total weight minus one. `finalise()` raises `ValueError` if fewer than two
 blocks have been accumulated. The accumulator's weighted means of $\delta$ and
-$\rho_\text{force}$ are its half's densities, since the block densities are
+$\rho_\text{count}$ are its half's densities, since the block densities are
 linear in the accumulated arrays.
 
 ### Lambda weights and the combined density
@@ -119,8 +122,7 @@ With $E_0 = \rho_\text{count}$ and $E_1 = \rho_\text{force}$, each half $h$ of
 the frames gives a weight on the force density,
 
 $$
-\lambda_h = -\frac{\text{Cov}_h(\rho_\text{count}, \delta)}{\text{Var}_h(\delta)}
-= 1 - \frac{\text{Cov}_h(\delta, \rho_\text{force})}{\text{Var}_h(\delta)},
+\lambda_h = -\frac{\text{Cov}_h(\rho_\text{count}, \delta)}{\text{Var}_h(\delta)},
 $$
 
 and `cross_fitted_combination` applies each half's $\lambda$ to the other half:

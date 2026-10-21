@@ -197,6 +197,38 @@ def test_lambda_matches_a_cross_fitted_calculation_from_per_frame_estimators():
     np.testing.assert_allclose(rdf.g[1:], g, rtol=1e-9, atol=1e-12)
 
 
+def test_a_degenerate_half_takes_the_fallback_while_the_other_half_is_estimated():
+    """With identical frames in the first half, its lambda is the fallback 0, and each half still weights the other.
+
+    Var(Delta) is 0 in the first half, so the second half's estimators take
+    the backward estimator; the first half's estimators are weighted by the
+    lambda estimated from the second half.
+    """
+    rdf = _make_rdf()
+    n_bins = len(rdf._bins)
+    rng = np.random.default_rng(12)
+    frozen = rng.normal(0.1, 0.05, n_bins)
+    frames = [frozen.copy() for _ in range(5)] + [rng.normal(0.1, 0.05, n_bins) for _ in range(4)]
+    _inject_synthetic_frames(rdf, frames)
+    rdf.get_rdf(integration='lambda')
+
+    s = np.array(frames)
+    k = np.arange(1, n_bins - 1)
+    forward = np.array([[f[:i].sum() for i in k] for f in s])
+    backward = np.array([[1 - f[i:].sum() for i in k] for f in s])
+    first, second = slice(0, 5), slice(5, 9)
+    delta = forward[second] - backward[second]
+    var = np.mean((delta - delta.mean(axis=0)) ** 2, axis=0)
+    cov = np.mean((backward[second] - backward[second].mean(axis=0)) * (delta - delta.mean(axis=0)), axis=0)
+    lam_second = -cov / var
+    w_first, w_second = 5 / 9, 4 / 9
+    g = (w_first * ((1 - lam_second) * backward[first].mean(axis=0) + lam_second * forward[first].mean(axis=0))
+         + w_second * backward[second].mean(axis=0))
+
+    np.testing.assert_allclose(rdf.lam[1:], w_first * lam_second, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(rdf.g[1:], g, rtol=1e-9, atol=1e-12)
+
+
 def _pair_trajectory(n_frames):
     """Two 'A' atoms 0.55 apart, with random forces, repeated for n_frames identical frames."""
     rng = np.random.default_rng(3)

@@ -51,7 +51,7 @@ grid.accumulate(
 ```
 
 If `sections` is not set it defaults to one section per frame. `sections`
-larger than the number of frames in a half raises `ValueError`.
+larger than the number of frames in the smaller half raises `ValueError`.
 
 ## Choosing block size
 

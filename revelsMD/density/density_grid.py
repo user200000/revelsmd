@@ -193,11 +193,11 @@ class DensityGrid:
         (1 - lambda) * rho_count + lambda * rho_force plus a term in the
         difference between the halves' lambdas, so the two are equal where
         those agree.
-        Voxels where delta is the same in every block of a half, to within rounding
-        (a standard deviation at most 1e-10 of the largest density in the
-        grid), report lambda = 1, i.e. the force estimator (a guard for
-        degenerate input, not a poorly-sampled-regions policy -- see
-        rho_hybrid for that).
+        Voxels where delta is the same in every block of a half, to within
+        rounding (a standard deviation at most 1e-10 of the largest density
+        in the grid), take lambda = 1 in that half, i.e. the force estimator
+        (a guard for degenerate input, not a poorly-sampled-regions policy
+        -- see rho_hybrid for that).
 
         Returns
         -------
@@ -358,27 +358,32 @@ class DensityGrid:
         period : int, optional
             Frame stride (default: 1).
         compute_lambda : bool, optional
-            If True, collect variance statistics for lambda estimation during
-            accumulation using Welford's algorithm. The variance-minimised density
-            will be available via grid.rho_lambda. Default is False (faster, no
-            lambda overhead).
+            If True, collect running statistics for lambda estimation during
+            accumulation. The variance-minimised density will be available
+            via grid.rho_lambda. Default is False (faster, no lambda
+            overhead). A grid's frames must all carry lambda statistics or
+            none: accumulating with compute_lambda=True on a grid holding
+            frames accumulated without them raises ValueError, and
+            accumulating without them discards any held, with a warning.
         blocking : {'contiguous', 'interleaved'}, optional
             How frames are grouped into blocks for lambda estimation
             (default: 'contiguous'). Only used when compute_lambda=True.
 
             - ``'contiguous'``: each block is a sequential slice of frames,
               read in order. Block size is controlled by ``block_size``.
-            - ``'interleaved'``: with *n* sections, section *k* gets every
-              *n*-th frame from the *k*-th (e.g. frames [0,2,4,...] and
-              [1,3,5,...] for 2 sections); each section is read in one pass
-              over the trajectory. Number of sections is controlled by
-              ``sections``.
+            - ``'interleaved'``: within each half of the frames (see
+              ``sections``), with *n* sections, section *k* gets every
+              *n*-th frame of the half from its *k*-th (e.g. the half's
+              frames [0,2,4,...] and [1,3,5,...] for 2 sections); each
+              section is read in one pass over the half. Number of sections
+              is controlled by ``sections``.
         block_size : int or None, optional
             Number of frames per block for contiguous blocking. Only used when
             blocking='contiguous' and compute_lambda=True. If None, defaults
             to one frame per block (i.e. each frame is its own block).
-            The final block may contain fewer frames if the total is not
-            evenly divisible.
+            Blocks are formed within each half of the frames (see
+            ``sections``), so the final block of each half may contain fewer
+            frames if the half is not evenly divisible.
         sections : int or None, optional
             Number of interleaved sections in each half of the frames (see
             below). Only used when blocking='interleaved' and
@@ -509,6 +514,13 @@ class DensityGrid:
                     self.frames_processed += 1
         else:
             # Block accumulation with lambda statistics
+            if self._lambda_statistics is None and self.count > 0:
+                raise ValueError(
+                    f"cannot compute lambda on a grid holding {self.count} frames "
+                    "accumulated without lambda statistics; each half's lambda weights "
+                    "the other half's densities, which must together be the grid's. Use "
+                    "compute_lambda=True in every accumulate() call, or a new grid"
+                )
             if blocking == "contiguous" and sections is not None:
                 warnings.warn(
                     "sections is ignored with blocking='contiguous'. "
@@ -541,7 +553,7 @@ class DensityGrid:
                 if sections is not None and sections > len(halves[-1]):
                     raise ValueError(
                         f"sections ({sections}) exceeds the number of frames in "
-                        f"each half of the frames to process ({len(halves[-1])})"
+                        f"the smaller half of the frames to process ({len(halves[-1])})"
                     )
                 for fold, frames_half in enumerate(halves):
                     n_sections = sections if sections is not None else len(frames_half)
@@ -604,7 +616,7 @@ class DensityGrid:
         # Create the lambda statistics on the first call with compute_lambda
         if self._lambda_statistics is None:
             self._lambda_statistics = CrossFitStatistics(
-                shape=(self.nbinsx, self.nbinsy, self.nbinsz)
+                shape=(self.nbinsx, self.nbinsy, self.nbinsz), samples="blocks"
             )
 
         # Preallocate block buffers once, reused each iteration via .fill(0).
@@ -633,11 +645,11 @@ class DensityGrid:
 
                         # One frame per deposit, however many species arrays it
                         # carries (consistent with _deposit()): block_count is the
-                        # number of frames in the block, which is also the correct
-                        # Welford weight below.
+                        # number of frames in the block, which is also the block's
+                        # weight in the lambda statistics below.
                         block_count += 1
 
-                # Compute block densities for the Welford update before
+                # Compute block densities for the lambda statistics before
                 # changing any state, so the commit below is short.
                 block_rho_force, block_rho_count = self._compute_densities_from_arrays(
                     block_force_x, block_force_y, block_force_z,
@@ -645,7 +657,9 @@ class DensityGrid:
                 )
                 block_delta = block_rho_force - block_rho_count
 
-                self._lambda_statistics.update(fold, block_delta, block_rho_force, weight=block_count)
+                # In the notation of Coles et al. (2021), E_0 = rho_count and
+                # E_1 = rho_force.
+                self._lambda_statistics.update(fold, block_delta, block_rho_count, weight=block_count)
                 self.force_x += block_force_x
                 self.force_y += block_force_y
                 self.force_z += block_force_z
@@ -859,19 +873,13 @@ class DensityGrid:
     def _finalise_lambda(self) -> None:
         """Compute lambda in each half of the frames and the cross-fitted density."""
         statistics = self._lambda_statistics
-        if statistics is None:
-            return
-        if not statistics.has_data:
-            warnings.warn(
-                "compute_lambda was requested but the lambda statistics "
-                "have no data — rho_lambda will be None",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+        if statistics is None or self._rho_lambda is not None:
             return
 
-        if self._rho_lambda is not None:
-            return  # Already finalised
+        folds = statistics.finalise(
+            remedy="Use a smaller block_size (contiguous) or more sections (interleaved), "
+                   "or accumulate more frames per call"
+        )
 
         # Compute the expected densities from full accumulation (uses caching)
         expected_rho_force = self.rho_force
@@ -882,31 +890,13 @@ class DensityGrid:
                 "rho_force/rho_count unexpectedly None after accumulation"
             )
 
-        counts = [fold.count for fold in statistics.folds]
-        if min(counts) < 2:
-            raise ValueError(
-                f"cannot compute lambda with fewer than 2 blocks in each half of the "
-                f"frames (have {counts[0]} and {counts[1]}); each accumulate() call's "
-                "frames are split into two halves, so a call of one frame adds only to "
-                "the first. Use a smaller block_size (contiguous) or more sections "
-                "(interleaved), or accumulate more frames per call"
-            )
-
-        # In the notation of Coles et al. (2021), E_0 = rho_count and
-        # E_1 = rho_force. Each fold's frame-weighted mean block densities are
-        # its densities, since they are linear in the accumulated arrays. The
-        # statistics store delta and Cov(delta, rho_force); since
-        # rho_count = rho_force - delta, Cov(rho_count, delta) is that minus
-        # Var(delta).
-        moments = []
-        for fold in statistics.folds:
-            var_delta, cov_delta_force = fold.finalise()
-            mean_delta, mean_force = fold.means()
-            moments.append((fold.sum_weights, mean_force - mean_delta, mean_force,
-                            var_delta, cov_delta_force - var_delta))
-        # The FFTs round every voxel at the scale of the whole grid.
+        # Each fold's frame-weighted mean block densities are its densities,
+        # since they are linear in the accumulated arrays, so the grid's
+        # densities are the folds' means weighted by their frames, as
+        # cross_fitted_combination needs. The FFTs round every voxel at the
+        # scale of the whole grid.
         self._rho_lambda, self._lambda_weights = cross_fitted_combination(
-            (moments[0], moments[1]), expected_rho_count, expected_rho_force,
+            folds, expected_rho_count, expected_rho_force,
             scale=float(max(np.max(np.abs(expected_rho_count)), np.max(np.abs(expected_rho_force)))),
             fallback=1.0,
         )
