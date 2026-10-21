@@ -141,7 +141,11 @@ class WelfordAccumulator:
         return variance, covariance
 
     def means(self) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
-        """Return the weighted means of delta and other across the samples."""
+        """Return the weighted means of delta and other across the samples.
+
+        These are the accumulator's own arrays, updated in place by update():
+        copy them to keep them, and do not modify them.
+        """
         return self._mean_delta, self._mean_other
 
     @property

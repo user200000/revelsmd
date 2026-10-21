@@ -891,9 +891,10 @@ class DensityGrid:
         if min(counts) < 2:
             raise ValueError(
                 f"cannot compute lambda with fewer than 2 blocks in each half of the "
-                f"frames (have {counts[0]} and {counts[1]}). Use a smaller block_size "
-                "(contiguous) or more sections (interleaved), or accumulate from "
-                "additional trajectories"
+                f"frames (have {counts[0]} and {counts[1]}); each accumulate() call's "
+                "frames are split into two halves, so a call of one frame adds only to "
+                "the first. Use a smaller block_size (contiguous) or more sections "
+                "(interleaved), or accumulate more frames per call"
             )
         if min(counts) < 10:
             warnings.warn(

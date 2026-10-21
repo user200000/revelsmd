@@ -33,8 +33,12 @@ Lambda is estimated in each half in time of the frames of every
 estimated from the blocks it weights; `lambda_weights` is the weight
 `rho_lambda` puts on the force density overall. Each half needs at least two
 blocks before accessing `rho_lambda`, and fewer than 10 in either half gives a
-warning. Statistics accumulate across multiple `accumulate()` calls, so you can
-split a long trajectory across several calls. Calling
+warning. Statistics accumulate across multiple `accumulate()` calls, such as one
+per trajectory of the same system. Each call's frames are split into their own
+two halves, so the result depends on how frames are divided between calls, and
+each call should be long compared with the correlation time of the trajectory:
+with short calls, the two halves interleave in time and are no longer
+independent. A call of one frame adds only to the first half. Calling
 `accumulate(..., compute_lambda=False)` clears existing statistics.
 
 Voxels where every block of a half gave the same difference between the force

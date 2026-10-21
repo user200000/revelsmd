@@ -73,7 +73,7 @@ RevelsMD therefore splits the frames of each `accumulate()` call into a first an
 
 $$\hat\theta = w_A\,(\bar A_A + \lambda_B\,\bar\delta_A) + w_B\,(\bar A_B + \lambda_A\,\bar\delta_B)$$
 
-where $w_A$ and $w_B$ are the halves' fractions of the frames, and $\bar A_A$, $\bar\delta_A$ are the first half's means. Each $\lambda$ is independent of the samples it weights, so the combination is unbiased. The frames are split into halves in time, not into alternating samples, because neighbouring frames are correlated.
+where $w_A$ and $w_B$ are the halves' fractions of the frames, and $\bar A_A$, $\bar\delta_A$ are the first half's means. Each $\lambda$ is independent of the samples it weights, so the combination is unbiased. The frames are split into halves in time, not into alternating samples, because neighbouring frames are correlated. For the same reason, each `accumulate()` call should be long compared with the correlation time: the halves of short calls interleave in time and are no longer independent.
 
 The weight the combination puts on $B$ overall, reported as `rdf.lam` and `grid.lambda_weights`, is $w_A\lambda_B + w_B\lambda_A$.
 

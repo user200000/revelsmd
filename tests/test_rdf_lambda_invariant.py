@@ -239,3 +239,61 @@ def test_single_frame_degenerate_contract_returns_backward():
             "the degenerate Var(Delta) = 0 contract"
         ),
     )
+
+
+def _water_like_trajectory(n_frames):
+    """Random positions and forces for 3 'A' and 4 'B' atoms, in a 10 x 10 x 10 box."""
+    rng = np.random.default_rng(29)
+    positions = rng.uniform(0.0, 10.0, (n_frames, 7, 3))
+    forces = rng.normal(0.0, 1.0, (n_frames, 7, 3))
+    return NumpyTrajectory(positions, forces, box_x=10.0, box_y=10.0, box_z=10.0,
+                           species_list=['A'] * 3 + ['B'] * 4, temperature=1.0, units='lj')
+
+
+@pytest.mark.parametrize('calls', [[(0, 9)], [(0, 5), (5, 9)]], ids=['one call', 'two calls'])
+def test_accumulate_splits_each_call_into_time_halves_for_lambda(calls):
+    """Through accumulate(), lambda is estimated in each time half of each call and applied to the other.
+
+    The first half of a call's frames (the larger when the number is odd)
+    is one fold, the rest the other: 9 frames give frames 0-4 and 5-8;
+    calls of 5 and 4 frames give 0-2 and 5-6, and 3-4 and 7-8. The
+    expected g(r) and lambda come from each frame's forward and backward
+    g(r), computed one frame at a time.
+    """
+    trajectory = _water_like_trajectory(9)
+    rdf = RDF(trajectory, 'A', 'B', delr=0.5)
+    for start, stop in calls:
+        rdf.accumulate(trajectory, start=start, stop=stop)
+    rdf.get_rdf(integration='lambda')
+
+    forward, backward = [], []
+    for k in range(9):
+        single = RDF(trajectory, 'A', 'B', delr=0.5)
+        single.accumulate(trajectory, start=k, stop=k + 1)
+        single.get_rdf(integration='forward')
+        forward.append(single.g[1:].copy())
+        single.get_rdf(integration='backward')
+        backward.append(single.g[1:].copy())
+    forward, backward = np.array(forward), np.array(backward)
+
+    folds = [[], []]
+    for start, stop in calls:
+        frames = list(range(start, stop))
+        half = -(-len(frames) // 2)
+        folds[0] += frames[:half]
+        folds[1] += frames[half:]
+    fold_lam = []
+    for frames in folds:
+        delta = forward[frames] - backward[frames]
+        var = np.mean((delta - delta.mean(axis=0)) ** 2, axis=0)
+        cov = np.mean((backward[frames] - backward[frames].mean(axis=0))
+                      * (delta - delta.mean(axis=0)), axis=0)
+        fold_lam.append(-cov / var)
+    weights = [len(frames) / 9 for frames in folds]
+    g = sum(w * ((1 - other_lam) * backward[frames].mean(axis=0) + other_lam * forward[frames].mean(axis=0))
+            for w, frames, other_lam in zip(weights, folds, fold_lam[::-1]))
+    lam = sum(w * other_lam for w, other_lam in zip(weights, fold_lam[::-1]))
+
+    assert rdf.g[0] == 0.0 and rdf.lam[0] == 1.0
+    np.testing.assert_allclose(rdf.lam[1:], lam, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(rdf.g[1:], g, rtol=1e-9, atol=1e-12)
