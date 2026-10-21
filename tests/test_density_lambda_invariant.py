@@ -5,10 +5,12 @@ Encodes what lambda is FOR (Coles et al. (2021), J. Chem. Phys. 154,
 191101, Eqs. 3-4): the combination E_lambda = E_0 + lambda*Delta with
 Delta = E_1 - E_0 and lambda* = -Cov(E_0, Delta)/Var(Delta) is
 variance-minimising, so wherever one estimator is exact (zero variance
-across blocks), the in-sample optimal combination must reproduce that
-estimator to float precision. For densities E_0 = rho_count and
-E_1 = rho_force; the exposed lambda_weights is the Eq. 3 weight on
-rho_force, so rho_lambda = (1 - lambda) * rho_count + lambda * rho_force.
+across blocks), the optimal combination must reproduce that estimator to
+float precision. For densities E_0 = rho_count and E_1 = rho_force.
+lambda is estimated in each time half of the frames and applied to the
+other half; where the halves agree, as they do where one estimator is
+exact, rho_lambda = (1 - lambda) * rho_count + lambda * rho_force with the
+exposed lambda_weights.
 
 Pinned-output tests can show that a result changed, but not which
 estimator should win; these tests encode that. Because rho_force comes from
@@ -36,6 +38,10 @@ CELLS = {
     'triclinic': np.array([[10.0, 0.0, 0.0], [3.0, 9.0, 0.0], [1.0, 2.0, 8.0]]),
 }
 geometries = pytest.mark.parametrize('geometry', ['cubic', 'triclinic'])
+
+# The trajectories here are short, with fewer than 10 blocks in each half of
+# the frames.
+pytestmark = pytest.mark.filterwarnings('ignore:.*blocks in one half of the frames')
 
 
 def _nbins(geometry, n):
@@ -127,29 +133,88 @@ def test_lambda_degenerate_blocks_return_force_estimator(geometry):
     assert not np.array_equal(grid.rho_force, grid.rho_count)
 
 
+def _fold_blocks(frames, blocking, size):
+    """Blocks of one half of an accumulate() call's frames, as lists of frame indices."""
+    if blocking == 'contiguous':
+        return [frames[i:i + size] for i in range(0, len(frames), size)]
+    return [frames[k::size] for k in range(size)]
+
+
+def _cross_fitted_lambda(count, force, calls, blocking, size):
+    """Cross-fitted lambda and rho_lambda from per-frame densities, from scratch.
+
+    Each call's frames (a list of frame indices) are split by time into a
+    first half (the larger when the number is odd) and a second half; fold 0
+    collects the first halves, fold 1 the second. Blocks are formed within
+    each half. lambda is estimated in each fold from its blocks, weighted by
+    frames, and applied to the other fold's mean densities.
+    """
+    folds = [[], []]
+    for frames in calls:
+        half = -(-len(frames) // 2)
+        folds[0] += _fold_blocks(frames[:half], blocking, size)
+        folds[1] += _fold_blocks(frames[half:], blocking, size)
+    stats = []
+    for blocks in folds:
+        weight = np.array([len(b) for b in blocks], dtype=float)
+        block_count = np.array([count[b].mean(axis=0) for b in blocks])
+        block_delta = np.array([(force[b] - count[b]).mean(axis=0) for b in blocks])
+        w = weight[:, None, None, None] / weight.sum()
+        mean_count = (w * block_count).sum(axis=0)
+        mean_delta = (w * block_delta).sum(axis=0)
+        var_delta = (w * (block_delta - mean_delta) ** 2).sum(axis=0)
+        cov = (w * (block_count - mean_count) * (block_delta - mean_delta)).sum(axis=0)
+        stats.append((weight.sum(), mean_count, mean_delta, -cov / var_delta))
+    total = stats[0][0] + stats[1][0]
+    rho_lambda = sum(n / total * (mean_count + other_lam * mean_delta)
+                     for (n, mean_count, mean_delta, _), (_, _, _, other_lam)
+                     in zip(stats, stats[::-1]))
+    # The weight on the force density overall: each half's data carries the
+    # other half's lambda.
+    lam = sum(n / total * other_lam for (n, _, _, _), (_, _, _, other_lam) in zip(stats, stats[::-1]))
+    return lam, rho_lambda
+
+
+CROSS_FIT_CASES = {
+    # name: (accumulate() calls as (start, stop), blocking, block_size or sections)
+    'one call, one frame per block': ([(0, 24)], 'contiguous', 1),
+    'odd frames, blocks of three': ([(0, 23)], 'contiguous', 3),
+    'interleaved sections': ([(0, 24)], 'interleaved', 3),
+    'two calls': ([(0, 10), (10, 24)], 'contiguous', 2),
+}
+
+
 @geometries
-def test_lambda_matches_a_calculation_from_per_frame_densities(geometry):
-    """lambda and rho_lambda equal Eqs. 3-4 evaluated directly on per-frame densities."""
+@pytest.mark.parametrize('case', CROSS_FIT_CASES)
+def test_lambda_matches_a_cross_fitted_calculation_from_per_frame_densities(geometry, case):
+    """lambda and rho_lambda equal the cross-fitted Eqs. 3-4 evaluated directly on per-frame densities.
+
+    lambda is estimated in each time half of the frames and applied to the
+    other half, so it is never estimated from the blocks it weights.
+    """
+    calls, blocking, size = CROSS_FIT_CASES[case]
+    n_frames = calls[-1][1]
     rng = np.random.default_rng(67)
-    fractional = rng.random((N_FRAMES, N_ATOMS, 3))
-    forces = rng.normal(scale=5.0, size=(N_FRAMES, N_ATOMS, 3))
+    fractional = rng.random((n_frames, N_ATOMS, 3))
+    forces = rng.normal(scale=5.0, size=(n_frames, N_ATOMS, 3))
     trajectory = _make_trajectory(fractional, forces, geometry)
     nbins = _nbins(geometry, 4)
     grid = DensityGrid(trajectory, 'number', nbins=nbins)
-    grid.accumulate(trajectory, atom_names='A', compute_lambda=True)  # one frame per block
+    option = {'block_size': size} if blocking == 'contiguous' else {'sections': size}
+    for start, stop in calls:
+        grid.accumulate(trajectory, atom_names='A', start=start, stop=stop,
+                        compute_lambda=True, blocking=blocking, **option)
 
     count, force = [], []
-    for k in range(N_FRAMES):
+    for k in range(n_frames):
         frame = DensityGrid(trajectory, 'number', nbins=nbins)
         frame.accumulate(trajectory, atom_names='A', start=k, stop=k + 1)
         count.append(frame.rho_count)
         force.append(frame.rho_force)
-    count, force = np.array(count), np.array(force)
-    delta = force - count
-    var_delta = np.mean((delta - delta.mean(axis=0)) ** 2, axis=0)
-    cov_count_delta = np.mean((count - count.mean(axis=0)) * (delta - delta.mean(axis=0)), axis=0)
-    lam = -cov_count_delta / var_delta
-    rho_lambda = (1 - lam) * count.mean(axis=0) + lam * force.mean(axis=0)
+    lam, rho_lambda = _cross_fitted_lambda(
+        np.array(count), np.array(force),
+        [list(range(start, stop)) for start, stop in calls], blocking, size,
+    )
 
     np.testing.assert_allclose(grid.lambda_weights, lam, rtol=1e-9, atol=1e-12)
     np.testing.assert_allclose(grid.rho_lambda, rho_lambda, rtol=1e-9, atol=1e-12)

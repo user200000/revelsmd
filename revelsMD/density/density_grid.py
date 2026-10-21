@@ -22,7 +22,7 @@ from revelsMD.cell import (
 from revelsMD.density.constants import validate_density_type
 from revelsMD.density.selection import Selection
 from revelsMD.density.grid_helpers import get_backend_functions as _get_grid_backend_functions
-from revelsMD.statistics import WelfordAccumulator, control_variate_combination
+from revelsMD.statistics import CrossFitStatistics, cross_fitted_combination
 
 # Module-level backend functions (loaded once at import)
 _triangular_allocation, _box_allocation = _get_grid_backend_functions()
@@ -124,8 +124,8 @@ class DensityGrid:
         self._rho_lambda: np.ndarray | None = None
         self._lambda_weights: np.ndarray | None = None
 
-        # Lambda statistics accumulator (populated if compute_lambda=True in accumulate)
-        self._welford: WelfordAccumulator | None = None
+        # Lambda statistics in two time folds (populated if compute_lambda=True in accumulate)
+        self._lambda_statistics: CrossFitStatistics | None = None
 
     @property
     def rho_count(self) -> np.ndarray | None:
@@ -172,10 +172,14 @@ class DensityGrid:
         Raises
         ------
         ValueError
-            If fewer than two blocks have been accumulated with
-            compute_lambda=True.
+            If either half of the frames has fewer than two blocks.
+
+        Warns
+        -----
+        UserWarning
+            If either half of the frames has fewer than ten blocks.
         """
-        if self._rho_lambda is None and self._welford is not None:
+        if self._rho_lambda is None and self._lambda_statistics is not None:
             self._finalise_lambda()
         return self._rho_lambda
 
@@ -183,11 +187,18 @@ class DensityGrid:
     def lambda_weights(self) -> np.ndarray | None:
         """Per-voxel lambda weights (available after accumulate with compute_lambda).
 
-        This is the Eq. 3 weight of Coles et al. (2021) applied to
-        rho_force (E_1 in the paper's notation; rho_count is E_0 and
-        carries weight 1 - lambda), so
-        rho_lambda = (1 - lambda) * rho_count + lambda * rho_force.
-        Voxels where delta is the same in every block, to within rounding
+        The Eq. 3 weight of Coles et al. (2021) on rho_force (E_1 in the
+        paper's notation; rho_count is E_0). lambda is estimated separately
+        in the first and second halves in time of the frames of each
+        accumulate() call, and each half's lambda weights the other half's
+        densities, so it is never estimated from the blocks it weights.
+        This property is the weight rho_lambda puts on rho_force overall,
+        w_A * lambda_B + w_B * lambda_A, where w_A and w_B are the halves'
+        fractions of the frames. rho_lambda is
+        (1 - lambda) * rho_count + lambda * rho_force plus a term in the
+        difference between the halves' lambdas, so the two are equal where
+        those agree.
+        Voxels where delta is the same in every block of a half, to within rounding
         (a standard deviation at most 1e-10 of the largest density in the
         grid), report lambda = 1, i.e. the force estimator (a guard for
         degenerate input, not a poorly-sampled-regions policy -- see
@@ -202,10 +213,9 @@ class DensityGrid:
         Raises
         ------
         ValueError
-            If fewer than two blocks have been accumulated with
-            compute_lambda=True.
+            If either half of the frames has fewer than two blocks.
         """
-        if self._lambda_weights is None and self._welford is not None:
+        if self._lambda_weights is None and self._lambda_statistics is not None:
             self._finalise_lambda()
         return self._lambda_weights
 
@@ -375,12 +385,18 @@ class DensityGrid:
             The final block may contain fewer frames if the total is not
             evenly divisible.
         sections : int or None, optional
-            Number of interleaved sections for lambda estimation. Only used
-            when blocking='interleaved' and compute_lambda=True. If None,
-            defaults to one section per frame.
-            At least 2 blocks/sections are required across all
-            ``accumulate()`` calls for variance estimation; accessing
-            ``rho_lambda`` with fewer raises ValueError.
+            Number of interleaved sections in each half of the frames (see
+            below). Only used when blocking='interleaved' and
+            compute_lambda=True. If None, defaults to one section per frame.
+
+            lambda is estimated in each half in time of the frames of every
+            call and applied to the other half, so that it is never
+            estimated from the blocks it weights. Blocks and sections are
+            formed within each half, and each half needs at least 2 of them
+            across all ``accumulate()`` calls: accessing ``rho_lambda`` with
+            fewer raises ValueError, and with fewer than 10 it warns, since
+            lambda is then noisy enough that ``rho_lambda`` can be less
+            precise than ``rho_force``.
 
         Notes
         -----
@@ -477,15 +493,15 @@ class DensityGrid:
         # Invalidate any previous derived state — accumulator data is changing,
         # so cached results would be stale.
         self._invalidate_derived_state()
-        if not compute_lambda and self._welford is not None:
-            if self._welford.has_data:
+        if not compute_lambda and self._lambda_statistics is not None:
+            if self._lambda_statistics.has_data:
                 warnings.warn(
                     "calling accumulate() with compute_lambda=False discards existing "
                     "lambda statistics. Use compute_lambda=True to preserve them",
                     UserWarning,
                     stacklevel=2,
                 )
-            self._welford = None
+            self._lambda_statistics = None
 
         if not compute_lambda:
             # Simple accumulation — stream frames directly, no block overhead.
@@ -514,37 +530,46 @@ class DensityGrid:
                     UserWarning,
                     stacklevel=2,
                 )
+            # lambda is estimated in each time half of the frames and applied
+            # to the other, so the halves are folds 0 and 1; the first half
+            # takes the extra frame of an odd number.
+            half = -(-len(frame_indices) // 2)
+            halves = [h for h in (frame_indices[:half], frame_indices[half:]) if len(h)]
             if blocking == "interleaved":
-                effective_sections = sections if sections is not None else len(frame_indices)
-                if effective_sections <= 0:
+                if sections is not None and sections <= 0:
                     raise ValueError("sections must be a positive integer")
                 # Requesting more sections than frames is almost certainly a
                 # user error — fail fast rather than silently producing fewer
                 # blocks than requested.  (interleaved_blocks itself skips
                 # empty sections defensively, but that is an internal safety
                 # net, not a public contract.)
-                if effective_sections > len(frame_indices):
+                if sections is not None and sections > len(halves[-1]):
                     raise ValueError(
-                        f"sections ({effective_sections}) exceeds the number of "
-                        f"frames to process ({len(frame_indices)})"
+                        f"sections ({sections}) exceeds the number of frames in "
+                        f"each half of the frames to process ({len(halves[-1])})"
                     )
-                self._accumulate_blocks(
-                    interleaved_blocks(trajectory, frame_indices, effective_sections),
-                    kernel,
-                    n_blocks=effective_sections,
-                )
+                for fold, frames_half in enumerate(halves):
+                    n_sections = sections if sections is not None else len(frames_half)
+                    self._accumulate_blocks(
+                        interleaved_blocks(trajectory, frames_half, n_sections),
+                        kernel,
+                        fold,
+                        n_blocks=n_sections,
+                    )
             else:
                 effective_block_size = block_size if block_size is not None else 1
                 if effective_block_size <= 0:
                     raise ValueError("block_size must be a positive integer")
-                with contextlib.closing(trajectory.iter_frames(
-                    frame_indices.start, frame_indices.stop, frame_indices.step
-                )) as frames:
-                    self._accumulate_blocks(
-                        contiguous_blocks(frames, effective_block_size),
-                        kernel,
-                        n_blocks=-(-len(frame_indices) // effective_block_size),  # ceiling division
-                    )
+                for fold, frames_half in enumerate(halves):
+                    with contextlib.closing(trajectory.iter_frames(
+                        frames_half.start, frames_half.stop, frames_half.step
+                    )) as frames:
+                        self._accumulate_blocks(
+                            contiguous_blocks(frames, effective_block_size),
+                            kernel,
+                            fold,
+                            n_blocks=-(-len(frames_half) // effective_block_size),  # ceiling division
+                        )
 
     def _invalidate_derived_state(self) -> None:
         """Clear cached densities and lambda weights.
@@ -561,6 +586,7 @@ class DensityGrid:
         self,
         blocks: BlockSource,
         kernel: str,
+        fold: int,
         n_blocks: int | None = None,
     ) -> None:
         """Accumulate blocks of frames while collecting lambda statistics.
@@ -572,14 +598,17 @@ class DensityGrid:
             generator, is closed when it has been read or reading fails.
         kernel : str
             Deposition kernel name.
+        fold : int
+            The lambda fold the blocks belong to: 0 for the first half in
+            time of the call's frames, 1 for the second.
 
         A block's frames are added to the grid and the lambda statistics
         only once all of them have been deposited and the block's densities
         computed, so a block whose reading fails is discarded whole.
         """
-        # Initialise Welford accumulator if first call with compute_lambda
-        if self._welford is None:
-            self._welford = WelfordAccumulator(
+        # Create the lambda statistics on the first call with compute_lambda
+        if self._lambda_statistics is None:
+            self._lambda_statistics = CrossFitStatistics(
                 shape=(self.nbinsx, self.nbinsy, self.nbinsz)
             )
 
@@ -621,7 +650,7 @@ class DensityGrid:
                 )
                 block_delta = block_rho_force - block_rho_count
 
-                self._welford.update(block_delta, block_rho_force, weight=block_count)
+                self._lambda_statistics.update(fold, block_delta, block_rho_force, weight=block_count)
                 self.force_x += block_force_x
                 self.force_y += block_force_y
                 self.force_z += block_force_z
@@ -833,13 +862,14 @@ class DensityGrid:
         return rho_force, rho_count
 
     def _finalise_lambda(self) -> None:
-        """Compute final lambda weights and density from Welford statistics."""
-        if self._welford is None:
+        """Compute lambda in each half of the frames and the cross-fitted density."""
+        statistics = self._lambda_statistics
+        if statistics is None:
             return
-        if not self._welford.has_data:
+        if not statistics.has_data:
             warnings.warn(
-                "compute_lambda was requested but the Welford accumulator "
-                "has no data — rho_lambda will be None",
+                "compute_lambda was requested but the lambda statistics "
+                "have no data — rho_lambda will be None",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -857,22 +887,39 @@ class DensityGrid:
                 "rho_force/rho_count unexpectedly None after accumulation"
             )
 
-        if self._welford.count < 2:
+        counts = [fold.count for fold in statistics.folds]
+        if min(counts) < 2:
             raise ValueError(
-                f"cannot compute lambda with fewer than 2 blocks (have {self._welford.count}). "
-                "Use a smaller block_size (contiguous) or more sections (interleaved), "
-                "or accumulate from additional trajectories"
+                f"cannot compute lambda with fewer than 2 blocks in each half of the "
+                f"frames (have {counts[0]} and {counts[1]}). Use a smaller block_size "
+                "(contiguous) or more sections (interleaved), or accumulate from "
+                "additional trajectories"
+            )
+        if min(counts) < 10:
+            warnings.warn(
+                f"lambda is estimated from {min(counts)} blocks in one half of the "
+                "frames; with fewer than 10 in each half, rho_lambda can be less "
+                "precise than rho_force. Use a smaller block_size (contiguous) or "
+                "more sections (interleaved)",
+                UserWarning,
+                stacklevel=3,
             )
 
-        # Finalise Welford statistics
-        var_delta, cov_delta_force = self._welford.finalise()
-
         # In the notation of Coles et al. (2021), E_0 = rho_count and
-        # E_1 = rho_force. The accumulator stores Cov(delta, rho_force); since
+        # E_1 = rho_force. Each fold's frame-weighted mean block densities are
+        # its densities, since they are linear in the accumulated arrays. The
+        # statistics store delta and Cov(delta, rho_force); since
         # rho_count = rho_force - delta, Cov(rho_count, delta) is that minus
-        # Var(delta). The FFTs round every voxel at the scale of the whole grid.
-        self._rho_lambda, self._lambda_weights = control_variate_combination(
-            expected_rho_count, expected_rho_force, var_delta, cov_delta_force - var_delta,
+        # Var(delta).
+        moments = []
+        for fold in statistics.folds:
+            var_delta, cov_delta_force = fold.finalise()
+            mean_delta, mean_force = fold.means()
+            moments.append((fold.sum_weights, mean_force - mean_delta, mean_force,
+                            var_delta, cov_delta_force - var_delta))
+        # The FFTs round every voxel at the scale of the whole grid.
+        self._rho_lambda, self._lambda_weights = cross_fitted_combination(
+            (moments[0], moments[1]), expected_rho_count, expected_rho_force,
             scale=float(max(np.max(np.abs(expected_rho_count)), np.max(np.abs(expected_rho_force)))),
             fallback=1.0,
         )

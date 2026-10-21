@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import warnings
 
 import numpy as np
 from tqdm import tqdm
@@ -11,7 +12,7 @@ from tqdm import tqdm
 from revelsMD.cell import inscribed_sphere_radius
 from revelsMD.frame_sources import Frame
 from revelsMD.rdf.rdf_helpers import get_backend_functions
-from revelsMD.statistics import WelfordAccumulator, control_variate_combination
+from revelsMD.statistics import CrossFitStatistics, cross_fitted_combination
 from revelsMD.trajectories._base import check_atom_name, check_same_system, frame_range
 
 
@@ -189,9 +190,11 @@ class RDF:
         self._accumulated = np.zeros(len(self._bins), dtype=np.float64)
         self._counts = np.zeros(len(self._bins), dtype=np.float64)
         # Each frame's forward and backward g(r) at r > 0 feed running
-        # statistics for lambda, so no per-frame data is kept.
+        # statistics for lambda, so no per-frame data is kept. lambda is
+        # estimated in each time half of the frames and applied to the
+        # other, so the statistics are kept in two folds.
         self._g_scale = self._prefactor * self._beta / (4 * np.pi)
-        self._frame_statistics = WelfordAccumulator((len(self._bins) - 2,))
+        self._frame_statistics = CrossFitStatistics((len(self._bins) - 2,))
 
         # Results (set by get_rdf())
         self._r: np.ndarray | None = None
@@ -252,12 +255,20 @@ class RDF:
     def lam(self) -> np.ndarray | None:
         """Lambda(r) values (only available after get_rdf(integration='lambda')).
 
-        This is the Eq. 3 weight of Coles et al. (2021) applied to the
-        forward estimator g_0 (E_1 in the paper's notation; the backward
-        estimator g_inf is E_0 and carries weight 1 - lambda). At r = 0
-        the forward estimator is exact (g(0) = 0), so lambda = 1 there.
-        Elsewhere, bins where Delta is the same in every frame, to within
-        rounding, report lambda = 0, i.e. the backward estimator.
+        The Eq. 3 weight of Coles et al. (2021) on the forward estimator
+        g_0 (E_1 in the paper's notation; the backward estimator g_inf is
+        E_0). lambda is estimated separately in the first and second halves
+        in time of the frames of each accumulate() call, and each half's
+        lambda weights the other half's estimators, so it is never
+        estimated from the frames it weights. This property is the weight
+        g puts on the forward estimator overall, w_A * lambda_B +
+        w_B * lambda_A, where w_A and w_B are the halves' fractions of the
+        frames; g equals (1 - lambda) g_inf + lambda g_0 for it where the
+        halves' lambdas agree. At r = 0 the forward estimator is exact
+        (g(0) = 0), so lambda = 1 there. Elsewhere, bins where Delta is the
+        same in every frame of a half, to within rounding, take lambda = 0
+        in that half, i.e. the backward estimator; so does a half with
+        fewer than two frames.
 
         Returns
         -------
@@ -291,7 +302,7 @@ class RDF:
         """
         return self._g
 
-    def _deposit(self, frame: Frame) -> None:
+    def _deposit(self, frame: Frame, fold: int) -> None:
         """
         Deposit a single frame's contribution to the RDF accumulator.
 
@@ -302,21 +313,24 @@ class RDF:
         ----------
         frame : Frame
             Trajectory frame with positions and forces.
+        fold : int
+            The lambda fold of the frame: 0 for the first half in time of
+            its accumulate() call's frames, 1 for the second.
         """
-        self._add_frame(*self._single_frame(frame))
+        self._add_frame(*self._single_frame(frame), fold=fold)
 
-    def _add_frame(self, force_result: np.ndarray, count_result: np.ndarray) -> None:
+    def _add_frame(self, force_result: np.ndarray, count_result: np.ndarray, fold: int) -> None:
         """Add one frame's binned force sums and counts, and its lambda statistics.
 
         The frame's forward minus backward g(r) and its backward g(r), at
-        r > 0, update the running Var(Delta) and Cov(Delta, E_0).
+        r > 0, update its fold's running Var(Delta) and Cov(Delta, E_0).
         """
         self._accumulated += force_result
         self._counts += count_result
         scaled = force_result * self._g_scale
         g_forward = _forward_estimator(scaled)[1:]
         g_backward = _backward_estimator(scaled)[1:]
-        self._frame_statistics.update(g_forward - g_backward, g_backward)
+        self._frame_statistics.update(fold, g_forward - g_backward, g_backward)
 
         self.progress = 'accumulated'
 
@@ -379,8 +393,11 @@ class RDF:
         with contextlib.closing(
             trajectory.iter_frames(to_run.start, to_run.stop, to_run.step)
         ) as frames:
-            for frame in tqdm(frames, total=len(to_run)):
-                self._deposit(frame)
+            # lambda folds: the first half of the frames (the larger when
+            # their number is odd) and the second.
+            half = -(-len(to_run) // 2)
+            for k, frame in enumerate(tqdm(frames, total=len(to_run))):
+                self._deposit(frame, fold=int(k >= half))
 
     def _single_frame(
         self, frame: Frame
@@ -520,34 +537,50 @@ class RDF:
     def _compute_lambda(self) -> None:
         """Compute the optimal linear combination of forward and backward g(r).
 
-        Uses control_variate_combination (Coles et al. (2021), Eqs. 3-4)
-        with frames as blocks. For the RDF the paper assigns E_0 = g_inf
-        (backward estimator, integrated down from r -> infinity) and
-        E_1 = g_0 (forward estimator, integrated up from r = 0). Note the
-        notation collision: the paper's E_0 is NOT g_0.
+        Uses cross_fitted_combination (Coles et al. (2021), Eqs. 3-4, with
+        lambda estimated in each time half of the frames and applied to the
+        other), with frames as samples. For the RDF the paper assigns
+        E_0 = g_inf (backward estimator, integrated down from r -> infinity)
+        and E_1 = g_0 (forward estimator, integrated up from r = 0). Note
+        the notation collision: the paper's E_0 is NOT g_0.
 
         At r = 0 the forward estimator is exact (g(0) = 0), so g = 0 and
         lambda = 1 there. Elsewhere, where Delta is the same in every frame
-        to within rounding (degenerate input, e.g. a single frame),
-        lambda = 0 and the result is the backward estimator g_inf.
+        of a half to within rounding (degenerate input, e.g. a single
+        frame), that half's lambda is 0, the backward estimator g_inf.
         """
         mean_scaled = self._accumulated * (self._g_scale / self._frame_count)
 
         # Both estimators on the reported grid at r > 0, from the mean: E_1 =
-        # g_0 (forward), E_0 = g_inf (backward). Their spread across frames
-        # comes from the running statistics: Var(Delta) and Cov(Delta, E_0).
+        # g_0 (forward), E_0 = g_inf (backward). Their spread across each
+        # half's frames comes from its running statistics: Var(Delta) and
+        # Cov(Delta, E_0), with the half's mean Delta and E_0.
         exp_forward = _forward_estimator(mean_scaled)[1:]
         exp_backward = _backward_estimator(mean_scaled)[1:]
-        if self._frame_statistics.count < 2:
-            # A single frame has no spread.
-            var_delta = cov_e0_delta = np.zeros_like(exp_forward)
-        else:
-            var_delta, cov_e0_delta = self._frame_statistics.finalise()
+        counts = [fold.count for fold in self._frame_statistics.folds]
+        if min(counts) < 10:
+            warnings.warn(
+                f"lambda is estimated from {min(counts)} frames in one half of the "
+                "frames; with fewer than 10 in each half, the lambda g(r) can be "
+                "less precise than the forward or backward one",
+                UserWarning,
+                stacklevel=3,
+            )
+        moments = []
+        for fold in self._frame_statistics.folds:
+            mean_delta, mean_backward = fold.means()
+            if fold.count < 2:
+                # Fewer than two frames have no spread.
+                var_delta = cov_e0_delta = np.zeros_like(exp_forward)
+            else:
+                var_delta, cov_e0_delta = fold.finalise()
+            moments.append((fold.sum_weights, mean_backward, mean_backward + mean_delta,
+                            var_delta, cov_e0_delta))
         # Each frame's backward g(r) subtracts cumulative sums from 1, so the
         # rounding in Delta is set by 1 and the largest cumulative sum, in
         # every bin.
-        g_lambda, lam = control_variate_combination(
-            exp_backward, exp_forward, var_delta, cov_e0_delta,
+        g_lambda, lam = cross_fitted_combination(
+            (moments[0], moments[1]), exp_backward, exp_forward,
             scale=float(max(1.0, np.max(np.abs(np.cumsum(mean_scaled))))),
             fallback=0.0,
         )

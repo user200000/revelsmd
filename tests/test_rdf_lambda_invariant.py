@@ -22,6 +22,9 @@ import pytest
 from revelsMD.rdf import RDF
 from revelsMD.trajectories import NumpyTrajectory
 
+# The synthetic runs here are short, with fewer than 10 frames in each half.
+pytestmark = pytest.mark.filterwarnings('ignore:.*frames in one half of the frames')
+
 # Frame-to-frame noise is added to bins NOISE_LO..NOISE_HI-1 of the raw
 # per-bin sums S. On the reported grid r_k, forward g(r_k) sums the bins
 # j < k, so it is exact for k <= NOISE_LO; backward g(r_k) is 1 minus the
@@ -57,11 +60,14 @@ def _inject_synthetic_frames(rdf, scaled_frames):
     """Add per-frame per-bin sums through RDF._add_frame, which accumulate()
     calls for every frame, pre-dividing out the physical scale so that the RDF's
     prefactor*beta/(4*pi) multiplication reproduces `scaled_frames` to
-    floating-point round-trip precision. Counts feed only g_count, which
-    these tests never assert; ones avoid divide-by-zero noise."""
+    floating-point round-trip precision. As accumulate() does, the first half
+    of the frames (the larger when their number is odd) goes to lambda fold 0
+    and the rest to fold 1. Counts feed only g_count, which these tests never
+    assert; ones avoid divide-by-zero noise."""
     scale = rdf._prefactor * rdf._beta / (4 * np.pi)
-    for frame in scaled_frames:
-        rdf._add_frame(frame / scale, np.ones_like(frame))
+    half = -(-len(scaled_frames) // 2)
+    for k, frame in enumerate(scaled_frames):
+        rdf._add_frame(frame / scale, np.ones_like(frame), fold=int(k >= half))
 
 
 def test_lambda_reproduces_exact_estimator_in_each_region():
@@ -155,12 +161,14 @@ def test_delta_constant_to_rounding_takes_the_negligible_variance_fallback(size)
     np.testing.assert_allclose(rdf.g[1:], backward, rtol=0, atol=1e-12)
 
 
-def test_lambda_matches_a_calculation_from_per_frame_estimators():
-    """lambda and g_lambda equal Eqs. 3-4 evaluated on per-frame forward and backward g(r).
+def test_lambda_matches_a_cross_fitted_calculation_from_per_frame_estimators():
+    """lambda and g_lambda equal the cross-fitted Eqs. 3-4 evaluated on per-frame forward and backward g(r).
 
     On the reported grid r_k = k*delr, forward g(r_k) sums the bins below
     r_k and backward g(r_k) is 1 minus the sum of the bins from r_k out.
-    At r = 0 the forward estimator is exactly 0, so g = 0 and lambda = 1.
+    lambda is estimated in each time half of the frames and weights the
+    other half's estimators. At r = 0 the forward estimator is exactly 0,
+    so g = 0 and lambda = 1.
     """
     rdf = _make_rdf()
     n_bins = len(rdf._bins)
@@ -173,11 +181,18 @@ def test_lambda_matches_a_calculation_from_per_frame_estimators():
     k = np.arange(1, n_bins - 1)
     forward = np.array([[f[:i].sum() for i in k] for f in s])
     backward = np.array([[1 - f[i:].sum() for i in k] for f in s])
-    delta = forward - backward
-    var = np.mean((delta - delta.mean(axis=0)) ** 2, axis=0)
-    cov = np.mean((backward - backward.mean(axis=0)) * (delta - delta.mean(axis=0)), axis=0)
-    lam = -cov / var
-    g = (1 - lam) * backward.mean(axis=0) + lam * forward.mean(axis=0)
+    halves = [slice(0, 5), slice(5, N_FRAMES)]  # 9 frames: 5 and 4
+    fold_lam = []
+    for h in halves:
+        delta = forward[h] - backward[h]
+        var = np.mean((delta - delta.mean(axis=0)) ** 2, axis=0)
+        cov = np.mean((backward[h] - backward[h].mean(axis=0)) * (delta - delta.mean(axis=0)), axis=0)
+        fold_lam.append(-cov / var)
+    weights = [5 / N_FRAMES, 4 / N_FRAMES]
+    # Each half's estimators are weighted by the other half's lambda.
+    g = sum(w * ((1 - other_lam) * backward[h].mean(axis=0) + other_lam * forward[h].mean(axis=0))
+            for w, h, other_lam in zip(weights, halves, fold_lam[::-1]))
+    lam = sum(w * other_lam for w, other_lam in zip(weights, fold_lam[::-1]))
 
     np.testing.assert_allclose(rdf.r, np.arange(n_bins - 1) * 0.1, atol=1e-12)
     assert rdf.g[0] == 0.0 and rdf.lam[0] == 1.0

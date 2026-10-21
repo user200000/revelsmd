@@ -5,6 +5,9 @@ import pytest
 
 from revelsMD.trajectories import NumpyTrajectory
 
+# The trajectories here are short, with fewer than 10 frames in each half.
+pytestmark = pytest.mark.filterwarnings('ignore:.*frames in one half of the frames')
+
 
 @pytest.fixture
 def water_trajectory():
@@ -351,7 +354,9 @@ class TestRDFAccumulateTrajectories:
         reordered.get_rdf(integration=integration)
         np.testing.assert_allclose(reordered.g, reference.g, rtol=1e-12, atol=1e-14)
 
-    @pytest.mark.parametrize("integration", ['forward', 'backward', 'lambda'])
+    # Not 'lambda': each call's frames are split into its own two halves for
+    # lambda, so two calls do not give the halves of one call.
+    @pytest.mark.parametrize("integration", ['forward', 'backward'])
     def test_accumulating_in_parts_matches_one_call(self, integration):
         from revelsMD.rdf import RDF
         traj = _water()
