@@ -1,7 +1,8 @@
 # 3D densities
 
-Compute a 3D lithium density for Li6PS5I using VASP trajectory data from the
-`examples/` directory of the [repository](https://github.com/user200000/revelsmd).
+This worked example computes a 3D lithium density for the solid electrolyte
+Li6PS5I from a 7500-frame VASP run at 500 K. The run is not distributed with
+RevelsMD; to follow along, load your own `vasprun.xml` in its place.
 
 ## Load the trajectory
 
@@ -9,7 +10,7 @@ Compute a 3D lithium density for Li6PS5I using VASP trajectory data from the
 from revelsMD.trajectories import VaspTrajectory
 
 traj = VaspTrajectory(
-    'examples/Li6PS5I_run1_vasprun.xml',
+    'Li6PS5I_run1_vasprun.xml',  # your vasprun.xml
     temperature=500.0,
 )
 ```
