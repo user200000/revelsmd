@@ -59,7 +59,7 @@ RevelsMD does not store the samples. An online algorithm (`WelfordAccumulator` i
 
 ### Block parameters
 
-`block_size` sets frames per block (contiguous); `sections` sets the number of interleaved sections in each half of the frames. More blocks yield better variance estimates but fewer frames per block. Each half needs at least two samples, blocks for a density and frames for an RDF, and fewer raise `ValueError`; forward and backward g(r) need only one frame. Fewer than 10 samples in either half give a warning.
+`block_size` sets frames per block (contiguous); `sections` sets the number of interleaved sections in each half of the frames. More blocks yield better variance estimates but fewer frames per block. Each half needs at least two samples, blocks for a density and frames for an RDF, and fewer raise `ValueError`; forward and backward g(r) need only one frame. For a density, fewer than 10 blocks in either half give a warning, since `rho_lambda` can then be less precise than `rho_force`; in tests, the RDF's lambda g(r) was at least as precise as the better of the forward and backward estimators even at 2 frames per half, so it does not warn.
 
 ## Estimating λ from held-out frames
 
@@ -77,7 +77,7 @@ where $w_A$ and $w_B$ are the halves' fractions of the frames, and $\bar A_A$, $
 
 The weight the combination puts on $B$ overall, reported as `rdf.lam` and `grid.lambda_weights`, is $w_A\lambda_B + w_B\lambda_A$.
 
-Each $\lambda$ is estimated from half the samples, and its noise adds to the variance of the combination. With fewer than about 10 samples in each half, the combination can be less precise than the force estimator alone; with 50 or more, the loss is a few percent.
+Each $\lambda$ is estimated from half the samples, and its noise adds to the variance of the combination. For a density with fewer than about 10 blocks in each half, the combination can be less precise than the force estimator alone; with 50 or more, the loss is a few percent.
 
 ## Edge cases
 

@@ -112,7 +112,6 @@ def _rdf_estimates(trajectory):
     return rdf.r, g_lambda, g_forward, rdf.g.copy(), lam
 
 
-@pytest.mark.filterwarnings('ignore:.*frames in one half of the frames')
 def test_rdf_lambda_is_not_biased_by_estimating_lambda_from_the_same_frames():
     """g_lambda agrees on average with the same combination using lambda from an independent run.
 

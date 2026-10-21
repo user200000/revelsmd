@@ -19,8 +19,8 @@ entirely; there is no compatibility layer.
   other half, so it is never estimated from the samples it weights. Densities
   use contiguous or interleaved blocks of frames within each half; for RDFs
   each frame is a sample. Both keep running statistics. Lambda needs at least
-  2 samples in each half, and warns with fewer than 10; forward and backward
-  g(r) need only one frame.
+  2 samples in each half, and a density warns with fewer than 10 blocks in a
+  half; forward and backward g(r) need only one frame.
 - `accumulate()` adds frames from further trajectories of the same system,
   and checks that the cell, temperature and units (and for an RDF the
   species counts) match.
@@ -55,8 +55,8 @@ entirely; there is no compatibility layer.
   200^3 grid it held 72 to 82% of the atoms. The lambda g(r) was biased at
   small numbers of frames. With lambda estimated in one half of the frames
   and applied to the other, both are unbiased; each half's lambda is noisier,
-  so a half needs at least 10 samples for the lambda estimate to be reliably
-  better than the force estimate alone.
+  so a density needs at least 10 blocks in each half for the lambda estimate
+  to be reliably better than the force estimate alone.
 
 ### Requirements
 

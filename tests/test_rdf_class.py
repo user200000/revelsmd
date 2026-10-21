@@ -5,9 +5,6 @@ import pytest
 
 from revelsMD.trajectories import NumpyTrajectory
 
-# The trajectories here are short, with fewer than 10 frames in each half.
-pytestmark = pytest.mark.filterwarnings('ignore:.*frames in one half of the frames')
-
 
 @pytest.fixture
 def water_trajectory():

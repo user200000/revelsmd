@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import math
-import warnings
 
 import numpy as np
 from tqdm import tqdm
@@ -443,12 +442,6 @@ class RDF:
             'lambda', if either half of the frames of the accumulate() calls
             has fewer than two frames. Forward and backward integration need
             only one frame.
-
-        Warns
-        -----
-        UserWarning
-            For 'lambda', if either half of the frames has fewer than ten
-            frames.
         """
         if self.progress == 'initialized':
             raise RuntimeError("call accumulate() before get_rdf()")
@@ -575,14 +568,6 @@ class RDF:
                 f"{counts[0]} and {counts[1]}); each accumulate() call's frames are "
                 "split into two halves, so a call of one frame adds only to the "
                 "first. Use integration='forward' or 'backward' with fewer frames"
-            )
-        if min(counts) < 10:
-            warnings.warn(
-                f"lambda is estimated from {min(counts)} frames in one half of the "
-                "frames; with fewer than 10 in each half, the lambda g(r) can be "
-                "less precise than the forward or backward one",
-                UserWarning,
-                stacklevel=3,
             )
         moments = []
         for fold in self._frame_statistics.folds:

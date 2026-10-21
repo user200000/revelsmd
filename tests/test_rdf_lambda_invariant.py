@@ -22,9 +22,6 @@ import pytest
 from revelsMD.rdf import RDF
 from revelsMD.trajectories import NumpyTrajectory
 
-# The synthetic runs here are short, with fewer than 10 frames in each half.
-pytestmark = pytest.mark.filterwarnings('ignore:.*frames in one half of the frames')
-
 # Frame-to-frame noise is added to bins NOISE_LO..NOISE_HI-1 of the raw
 # per-bin sums S. On the reported grid r_k, forward g(r_k) sums the bins
 # j < k, so it is exact for k <= NOISE_LO; backward g(r_k) is 1 minus the
@@ -323,3 +320,14 @@ def test_accumulate_splits_each_call_into_time_halves_for_lambda(calls):
     assert rdf.g[0] == 0.0 and rdf.lam[0] == 1.0
     np.testing.assert_allclose(rdf.lam[1:], lam, rtol=1e-9, atol=1e-12)
     np.testing.assert_allclose(rdf.g[1:], g, rtol=1e-9, atol=1e-12)
+
+
+def test_lambda_with_few_frames_does_not_warn():
+    """Two frames in each half are enough for lambda, and the lambda g(r) is no less precise than forward or backward, so nothing warns."""
+    import warnings
+    trajectory = _water_like_trajectory(4)
+    rdf = RDF(trajectory, 'A', 'B', delr=0.5)
+    rdf.accumulate(trajectory)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        rdf.get_rdf(integration='lambda')

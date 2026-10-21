@@ -44,9 +44,9 @@ from .conftest import assert_arrays_close
 
 REFERENCE_DIR = Path(__file__).parent.parent / "reference_data"
 
-# The pinned inputs are short, with fewer than 10 blocks or frames in each
-# half of the frames.
-pytestmark = pytest.mark.filterwarnings("ignore:.*in one half of the frames")
+# The pinned density inputs are short, with fewer than 10 blocks in each half
+# of the frames.
+pytestmark = pytest.mark.filterwarnings("ignore:.*blocks in one half of the frames")
 
 
 def load_reference(subdir: str, filename: str):
