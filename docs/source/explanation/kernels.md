@@ -30,10 +30,12 @@ enforced by wrapping vertex indices modulo the grid dimensions.
 
 ## Box kernel
 
-The box kernel places the entire contribution in the host voxel — the voxel whose
-lower corner is closest to the particle in fractional coordinates. It is equivalent
-to nearest-grid-point (NGP) assignment. Use it when speed matters more than
-smoothness, or when post-processing will smooth the result anyway.
+The box kernel places the entire contribution on the grid point nearest the
+particle in fractional coordinates (nearest-grid-point, NGP, assignment): grid
+point $i$ collects the particles within half a voxel of it. These are the same
+grid points the triangular kernel deposits to, so the two kernels' grids line up.
+Use it when speed matters more than smoothness, or when post-processing will
+smooth the result anyway.
 
 ## CIC normalisation for the RDF
 
