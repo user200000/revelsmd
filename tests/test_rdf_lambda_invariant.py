@@ -323,7 +323,7 @@ def test_accumulate_splits_each_call_into_time_halves_for_lambda(calls):
 
 
 def test_lambda_with_few_frames_does_not_warn():
-    """Two frames in each half are enough for lambda, and the lambda g(r) is no less precise than forward or backward, so nothing warns."""
+    """Two frames in each half are enough for lambda: whether it helps depends on the system, not on a frame count, so nothing warns."""
     import warnings
     trajectory = _water_like_trajectory(4)
     rdf = RDF(trajectory, 'A', 'B', delr=0.5)

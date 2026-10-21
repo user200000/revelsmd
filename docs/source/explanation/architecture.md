@@ -108,8 +108,9 @@ half's lambda statistics once the block is complete.
 
 ### RDF deposition
 
-`RDF._deposit(frame)` takes a `Frame` and selects the atoms of the two species
-using the indices found in the trajectory being accumulated. The RDF always
+`RDF._deposit(frame, fold)` takes a `Frame` and its lambda fold, and selects
+the atoms of the two species using the indices found in the trajectory being
+accumulated. The RDF always
 computes a pairwise property between two species, so it needs no `Selection`.
 Each frame also updates the running statistics for $\lambda$ of its half of the
 call's frames, whatever integration `get_rdf()` is later asked for.

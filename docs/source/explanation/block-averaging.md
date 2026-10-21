@@ -65,9 +65,9 @@ rather than a temporal slice.
 
 Each half needs at least two blocks, across all `accumulate()` calls on the same
 `DensityGrid`, before `rho_lambda` can be computed; fewer raise `ValueError`.
-With fewer than 10 blocks in either half, accessing `rho_lambda` warns: each
-half's $\lambda$ is then noisy enough that $\rho_\lambda$ can be less precise
-than $\rho_\text{force}$.
+With few blocks in a half, that half's $\lambda$ is noisy, and $\rho_\lambda$
+can be less precise than $\rho_\text{force}$ (see
+[Variance Reduction](variance-reduction.md)).
 
 ## How blocks feed the Welford accumulator
 

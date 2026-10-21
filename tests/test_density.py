@@ -597,8 +597,7 @@ def test_accumulate_number_multi_species_not_rigid_blocked(ts):
     assert gs.counter.sum() == pytest.approx(8.0, abs=1e-12)
     # The lambda machinery actually ran: a finite variance-minimised density
     # and grid-shaped weights exist.
-    with pytest.warns(UserWarning, match="blocks in one half of the frames"):
-        assert gs.rho_lambda is not None
+    assert gs.rho_lambda is not None
     assert np.all(np.isfinite(gs.rho_lambda))
     assert gs.lambda_weights is not None
     assert gs.lambda_weights.shape == (4, 4, 4)
@@ -784,9 +783,6 @@ class _MultiFrameTrajectory:
         return Frame(self._positions[index], self._forces[index])
 
 
-# These fixtures have few frames, so most of these tests have fewer than 10
-# blocks in each half of the frames.
-@pytest.mark.filterwarnings("ignore:.*blocks in one half of the frames")
 class TestAccumulateComputeLambda:
     """Tests for accumulate() with compute_lambda parameter."""
 
@@ -864,9 +860,8 @@ class TestAccumulateComputeLambda:
             positions, forces, box, box, box, ["H"] * 20, temperature=300.0
         )
         gs = DensityGrid(trajectory, "number", nbins=8)
-        with pytest.warns(UserWarning, match="blocks in one half of the frames"):
-            gs.accumulate(trajectory, atom_names="H", compute_lambda=True, block_size=3)
-            _ = gs.rho_lambda
+        gs.accumulate(trajectory, atom_names="H", compute_lambda=True, block_size=3)
+        _ = gs.rho_lambda
         np.testing.assert_array_equal(gs.lambda_weights, 1.0)
         np.testing.assert_array_equal(gs.rho_lambda, gs.rho_force)
 
@@ -1049,7 +1044,6 @@ class TestAccumulateComputeLambda:
         with pytest.raises(ValueError, match="fewer than 2 blocks"):
             _ = gs.rho_lambda
 
-    @pytest.mark.filterwarnings("ignore:.*blocks in one half of the frames")
     def test_rho_lambda_works_with_one_block_per_half_per_call(
         self, multi_frame_trajectory
     ):
@@ -1069,25 +1063,13 @@ class TestAccumulateComputeLambda:
         )
         assert gs.rho_lambda is not None
 
-    def test_rho_lambda_warns_with_fewer_than_ten_blocks_in_a_half(self, multi_frame_trajectory):
-        """With few blocks per half, lambda is noisy enough to cost precision, so a warning says so."""
+    def test_rho_lambda_does_not_warn_with_few_blocks_in_a_half(self, multi_frame_trajectory):
+        """Two blocks in each half are enough for lambda: whether it helps depends on the system, not on a block count, so nothing warns."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
-        # 10 frames, one per block: 5 blocks in each half
+        # 4 frames, one per block: 2 blocks in each half
         gs.accumulate(
-            multi_frame_trajectory, atom_names="H", compute_lambda=True, block_size=1
+            multi_frame_trajectory, atom_names="H", compute_lambda=True, block_size=1, stop=4
         )
-
-        with pytest.warns(UserWarning, match="5 blocks in one half of the frames"):
-            _ = gs.rho_lambda
-
-    def test_rho_lambda_does_not_warn_with_ten_blocks_in_each_half(self, multi_frame_trajectory):
-        """Ten blocks in each half is enough: no warning."""
-        gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
-        # Two calls of 10 frames, one per block: 5 + 5 blocks in each half
-        for _ in range(2):
-            gs.accumulate(
-                multi_frame_trajectory, atom_names="H", compute_lambda=True, block_size=1
-            )
 
         with warnings.catch_warnings():
             warnings.simplefilter("error")
@@ -1154,7 +1136,6 @@ class TestBlockingParameter:
         np.testing.assert_allclose(gs_contig.rho_force, gs_interleaved.rho_force)
         np.testing.assert_allclose(gs_contig.rho_count, gs_interleaved.rho_count)
 
-    @pytest.mark.filterwarnings("ignore:.*blocks in one half of the frames")
     def test_contiguous_and_interleaved_different_lambda(self, multi_frame_trajectory):
         """Different blocking strategies produce different variance estimates."""
         gs_contig = DensityGrid(multi_frame_trajectory, "number", nbins=4)
@@ -1269,7 +1250,6 @@ class TestBlockingParameter:
                 blocking="interleaved",
             )
 
-    @pytest.mark.filterwarnings("ignore:.*blocks in one half of the frames")
     def test_compute_density_passes_blocking(self, multi_frame_trajectory):
         """compute_density() passes blocking parameter through to accumulate()."""
         from revelsMD.density import compute_density
@@ -2215,8 +2195,7 @@ class TestComputeDensity:
             block_size=1,
         )
 
-        with pytest.warns(UserWarning, match="blocks in one half of the frames"):
-            assert grid.rho_lambda is not None
+        assert grid.rho_lambda is not None
         assert grid.rho_lambda.shape == (5, 5, 5)
 
     def test_compute_density_standard_default(self, trajectory):
@@ -2276,8 +2255,7 @@ class TestLambdaEdgeCases:
         gs.accumulate(traj, atom_names="H", compute_lambda=True, block_size=1)
 
         # The key assertion: no NaN or Inf values
-        with pytest.warns(UserWarning, match="blocks in one half of the frames"):
-            assert np.all(np.isfinite(gs.lambda_weights)), "lambda_weights contains NaN/Inf"
+        assert np.all(np.isfinite(gs.lambda_weights)), "lambda_weights contains NaN/Inf"
         assert np.all(np.isfinite(gs.rho_lambda)), "rho_lambda contains NaN/Inf"
 
 
@@ -2476,8 +2454,7 @@ class TestComputeOnDemand:
         rho_force_cached = gs.rho_force
 
         # Now access rho_lambda (should use cached rho_force)
-        with pytest.warns(UserWarning, match="blocks in one half of the frames"):
-            _ = gs.rho_lambda
+        _ = gs.rho_lambda
 
         # The cached rho_force should still be the same object
         assert gs.rho_force is rho_force_cached

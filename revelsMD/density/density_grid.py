@@ -173,11 +173,6 @@ class DensityGrid:
         ------
         ValueError
             If either half of the frames has fewer than two blocks.
-
-        Warns
-        -----
-        UserWarning
-            If either half of the frames has fewer than ten blocks.
         """
         if self._rho_lambda is None and self._lambda_statistics is not None:
             self._finalise_lambda()
@@ -394,8 +389,8 @@ class DensityGrid:
             estimated from the blocks it weights. Blocks and sections are
             formed within each half, and each half needs at least 2 of them
             across all ``accumulate()`` calls: accessing ``rho_lambda`` with
-            fewer raises ValueError, and with fewer than 10 it warns, since
-            lambda is then noisy enough that ``rho_lambda`` can be less
+            fewer raises ValueError. Each half's lambda is estimated from its
+            blocks, and with few blocks its noise can make ``rho_lambda`` less
             precise than ``rho_force``.
 
         Notes
@@ -895,15 +890,6 @@ class DensityGrid:
                 "frames are split into two halves, so a call of one frame adds only to "
                 "the first. Use a smaller block_size (contiguous) or more sections "
                 "(interleaved), or accumulate more frames per call"
-            )
-        if min(counts) < 10:
-            warnings.warn(
-                f"lambda is estimated from {min(counts)} blocks in one half of the "
-                "frames; with fewer than 10 in each half, rho_lambda can be less "
-                "precise than rho_force. Use a smaller block_size (contiguous) or "
-                "more sections (interleaved)",
-                UserWarning,
-                stacklevel=3,
             )
 
         # In the notation of Coles et al. (2021), E_0 = rho_count and

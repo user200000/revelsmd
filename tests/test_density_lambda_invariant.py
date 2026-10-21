@@ -39,10 +39,6 @@ CELLS = {
 }
 geometries = pytest.mark.parametrize('geometry', ['cubic', 'triclinic'])
 
-# The trajectories here are short, with fewer than 10 blocks in each half of
-# the frames.
-pytestmark = pytest.mark.filterwarnings('ignore:.*blocks in one half of the frames')
-
 
 def _nbins(geometry, n):
     return n if geometry == 'cubic' else (n, n - 1, n + 1)
