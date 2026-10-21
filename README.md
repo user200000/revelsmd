@@ -1,5 +1,11 @@
 # RevelsMD
 
+[![Tests](https://github.com/user200000/revelsmd/actions/workflows/tests.yml/badge.svg)](https://github.com/user200000/revelsmd/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/revelsMD)](https://pypi.org/project/revelsMD/)
+[![Python](https://img.shields.io/pypi/pyversions/revelsMD)](https://pypi.org/project/revelsMD/)
+[![Documentation](https://readthedocs.org/projects/revelsmd/badge/?version=latest)](https://revelsmd.readthedocs.io)
+[![Licence: MIT](https://img.shields.io/github/license/user200000/revelsmd)](https://github.com/user200000/revelsmd/blob/main/LICENSE)
+
 RevelsMD (REduced Variance Estimators of the Local Structure in MD simulations)
 computes radial distribution functions and 3D densities from molecular dynamics
 trajectories by force sampling, which gives estimates with much lower variance
