@@ -35,6 +35,7 @@ docs/build/
 *.md
 !README.md
 !CONTRIBUTING.md
+!CHANGELOG.md
 !docs/source/**/*.md
 
 # Prototype/scratch files
