@@ -63,6 +63,8 @@ rdf.g        # force-sampled g(r), lambda-weighted
 rdf.g_count  # histogram g(r)
 ```
 
+<img src="https://raw.githubusercontent.com/user200000/revelsmd/main/docs/source/_static/images/tutorial_rdf.png" alt="Histogram and force-sampled g(r) for a Lennard-Jones fluid" width="450">
+
 ## Documentation
 
 Tutorials, how-to guides and the API reference are at
