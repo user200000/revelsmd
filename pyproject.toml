@@ -9,6 +9,7 @@ authors = [
     {name = "Benjamin J. Morgan", email = "b.j.morgan@bath.ac.uk"}
 ]
 dynamic = ["version", "description"]
+readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.12"
 keywords = ["molecular-dynamics", "radial-distribution-function", "density", "force-sampling", "reduced-variance"]
