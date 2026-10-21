@@ -24,7 +24,7 @@ RevelsMD requires Python 3.12 or later.
 pip install revelsMD
 ```
 
-## Example
+## Examples
 
 An RDF from a LAMMPS trajectory with forces:
 
@@ -44,6 +44,23 @@ rdf = compute_rdf(ts, species_a="1", species_b="1", integration="lambda")
 rdf.r        # r values
 rdf.g        # force-sampled g(r), lambda-weighted
 rdf.g_count  # histogram g(r)
+```
+
+![Histogram and force-sampled g(r) for a Lennard-Jones fluid](https://raw.githubusercontent.com/user200000/revelsmd/main/docs/source/_static/images/tutorial_rdf.png)
+
+A 3D lithium density from a VASP run, written to a cube file:
+
+```python
+from revelsMD.trajectories import VaspTrajectory
+from revelsMD.density import compute_density
+
+ts = VaspTrajectory("vasprun.xml", temperature=500.0)
+grid = compute_density(ts, "Li", nbins=100, compute_lambda=True)
+
+grid.rho_count   # histogram density
+grid.rho_force   # force-sampled density
+grid.rho_lambda  # lambda-weighted density
+grid.write_to_cube("lambda", "li_density.cube")
 ```
 
 ## Documentation
