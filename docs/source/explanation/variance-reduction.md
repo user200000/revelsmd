@@ -59,7 +59,7 @@ RevelsMD does not store the samples. An online algorithm (`WelfordAccumulator` i
 
 ### Block parameters
 
-`block_size` sets frames per block (contiguous); `sections` sets the number of interleaved sections in each half of the frames. More blocks yield better variance estimates but fewer frames per block. For a density, each half needs at least two blocks, and fewer raise `ValueError`. For densities and RDFs, fewer than 10 samples in either half give a warning.
+`block_size` sets frames per block (contiguous); `sections` sets the number of interleaved sections in each half of the frames. More blocks yield better variance estimates but fewer frames per block. Each half needs at least two samples, blocks for a density and frames for an RDF, and fewer raise `ValueError`; forward and backward g(r) need only one frame. Fewer than 10 samples in either half give a warning.
 
 ## Estimating λ from held-out frames
 
@@ -81,7 +81,7 @@ Each $\lambda$ is estimated from half the samples, and its noise adds to the var
 
 ## Edge cases
 
-Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample of a half, that half's $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. That half then takes a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). An RDF half with fewer than two frames takes the same fixed weight. These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
+Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample of a half, that half's $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. That half then takes a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). These are guards against degenerate input such as a single sample; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
 
 ## Cost
 

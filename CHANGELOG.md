@@ -18,8 +18,9 @@ entirely; there is no compatibility layer.
 - Lambda is estimated in each half in time of the frames and applied to the
   other half, so it is never estimated from the samples it weights. Densities
   use contiguous or interleaved blocks of frames within each half; for RDFs
-  each frame is a sample. Both keep running statistics, and warn when a half
-  has fewer than 10 samples.
+  each frame is a sample. Both keep running statistics. Lambda needs at least
+  2 samples in each half, and warns with fewer than 10; forward and backward
+  g(r) need only one frame.
 - `accumulate()` adds frames from further trajectories of the same system,
   and checks that the cell, temperature and units (and for an RDF the
   species counts) match.

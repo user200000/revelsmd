@@ -56,8 +56,9 @@ def main():
         atom_style="id resid type charge x y z ix iy iz",
     )
 
-    # Fine bins + few frames: force-based advantage is striking
-    rdf = compute_rdf(traj, '1', '1', integration='lambda', delr=0.005, stop=1)
+    # Fine bins + one frame: force-based advantage is striking. One frame
+    # gives no spread from which to estimate lambda, so integrate forward.
+    rdf = compute_rdf(traj, '1', '1', integration='forward', delr=0.005, stop=1)
 
     fig, ax = plt.subplots(figsize=(3.15, 2.1))
     ax.plot(rdf.r, rdf.g_count, '-', color='#F9844A', label='Histogram')

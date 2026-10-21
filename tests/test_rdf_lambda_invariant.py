@@ -200,18 +200,44 @@ def test_lambda_matches_a_cross_fitted_calculation_from_per_frame_estimators():
     np.testing.assert_allclose(rdf.g[1:], g, rtol=1e-9, atol=1e-12)
 
 
-def test_single_frame_degenerate_contract_returns_backward():
-    """With one frame Var(Delta) = 0: for r > 0, lambda == 0 and g_lambda equals the backward estimator bit-for-bit."""
+def _pair_trajectory(n_frames):
+    """Two 'A' atoms 0.55 apart, with random forces, repeated for n_frames identical frames."""
     rng = np.random.default_rng(3)
     positions = np.zeros((1, 2, 3))
     positions[0, 1, 0] = 0.55
     forces = rng.normal(scale=1.0, size=(1, 2, 3))
-    trajectory = NumpyTrajectory(
-        positions, forces,
+    return NumpyTrajectory(
+        np.repeat(positions, n_frames, axis=0), np.repeat(forces, n_frames, axis=0),
         box_x=10.0, box_y=10.0, box_z=10.0,
         species_list=['A', 'A'],
         temperature=1.0, units='lj',
     )
+
+
+@pytest.mark.parametrize('calls', [[(0, 1)], [(0, 3)], [(k, k + 1) for k in range(4)]],
+                         ids=['one frame', 'three frames', 'one-frame calls'])
+def test_lambda_raises_with_fewer_than_two_frames_in_a_half(calls):
+    """lambda is undefined without two frames in each half, so it raises; forward and backward still work.
+
+    One frame gives a valid g(r) from its pairs, but no spread across frames
+    from which to estimate lambda. Three frames give halves of 2 and 1, and
+    one-frame accumulate() calls put every frame in the first half.
+    """
+    trajectory = _pair_trajectory(4)
+    rdf = RDF(trajectory, 'A', 'A', delr=0.1, rmax=1.0)
+    for start, stop in calls:
+        rdf.accumulate(trajectory, start=start, stop=stop)
+
+    with pytest.raises(ValueError, match="at least 2 frames in each half"):
+        rdf.get_rdf(integration='lambda')
+    for integration in ('forward', 'backward'):
+        rdf.get_rdf(integration=integration)
+        assert np.all(np.isfinite(rdf.g))
+
+
+def test_identical_frames_take_the_backward_estimator():
+    """With every frame identical, Var(Delta) = 0: for r > 0, lambda == 0 and g_lambda equals the backward estimator bit-for-bit."""
+    trajectory = _pair_trajectory(4)
     rdf = RDF(trajectory, 'A', 'A', delr=0.1, rmax=1.0)
     rdf.accumulate(trajectory)
 
@@ -226,7 +252,7 @@ def test_single_frame_degenerate_contract_returns_backward():
 
     np.testing.assert_array_equal(
         lam[1:], np.zeros_like(lam[1:]),
-        err_msg="degenerate input (single frame) must give lambda = 0 for r > 0",
+        err_msg="degenerate input (identical frames) must give lambda = 0 for r > 0",
     )
     # At r = 0 the forward estimator is exact: g = 0 and lambda = 1, while
     # the backward estimator reports 1 minus the full integral there. All

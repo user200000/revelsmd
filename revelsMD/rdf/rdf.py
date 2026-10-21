@@ -267,8 +267,7 @@ class RDF:
         halves' lambdas agree. At r = 0 the forward estimator is exact
         (g(0) = 0), so lambda = 1 there. Elsewhere, bins where Delta is the
         same in every frame of a half, to within rounding, take lambda = 0
-        in that half, i.e. the backward estimator; so does a half with
-        fewer than two frames.
+        in that half, i.e. the backward estimator.
 
         Returns
         -------
@@ -440,7 +439,16 @@ class RDF:
         RuntimeError
             If called before accumulate().
         ValueError
-            If integration is not one of the recognised options.
+            If integration is not one of the recognised options, or for
+            'lambda', if either half of the frames of the accumulate() calls
+            has fewer than two frames. Forward and backward integration need
+            only one frame.
+
+        Warns
+        -----
+        UserWarning
+            For 'lambda', if either half of the frames has fewer than ten
+            frames.
         """
         if self.progress == 'initialized':
             raise RuntimeError("call accumulate() before get_rdf()")
@@ -546,8 +554,9 @@ class RDF:
 
         At r = 0 the forward estimator is exact (g(0) = 0), so g = 0 and
         lambda = 1 there. Elsewhere, where Delta is the same in every frame
-        of a half to within rounding (degenerate input, e.g. a single
-        frame), that half's lambda is 0, the backward estimator g_inf.
+        of a half to within rounding (degenerate input, e.g. identical
+        frames), that half's lambda is 0, the backward estimator g_inf.
+        Fewer than two frames in a half raise ValueError.
         """
         mean_scaled = self._accumulated * (self._g_scale / self._frame_count)
 
@@ -558,6 +567,15 @@ class RDF:
         exp_forward = _forward_estimator(mean_scaled)[1:]
         exp_backward = _backward_estimator(mean_scaled)[1:]
         counts = [fold.count for fold in self._frame_statistics.folds]
+        if min(counts) < 2:
+            # g(r) from fewer frames is valid; lambda, which needs their
+            # spread, is not, and neither estimator is a right default.
+            raise ValueError(
+                f"lambda needs at least 2 frames in each half of the frames (have "
+                f"{counts[0]} and {counts[1]}); each accumulate() call's frames are "
+                "split into two halves, so a call of one frame adds only to the "
+                "first. Use integration='forward' or 'backward' with fewer frames"
+            )
         if min(counts) < 10:
             warnings.warn(
                 f"lambda is estimated from {min(counts)} frames in one half of the "
@@ -569,11 +587,7 @@ class RDF:
         moments = []
         for fold in self._frame_statistics.folds:
             mean_delta, mean_backward = fold.means()
-            if fold.count < 2:
-                # Fewer than two frames have no spread.
-                var_delta = cov_e0_delta = np.zeros_like(exp_forward)
-            else:
-                var_delta, cov_e0_delta = fold.finalise()
+            var_delta, cov_e0_delta = fold.finalise()
             moments.append((fold.sum_weights, mean_backward, mean_backward + mean_delta,
                             var_delta, cov_e0_delta))
         # Each frame's backward g(r) subtracts cumulative sums from 1, so the
