@@ -8,7 +8,7 @@ revelsMD/
     backends.py          # backend selection (numba / numpy)
     cell.py              # cell geometry utilities
     frame_sources.py     # Frame dataclass, contiguous_blocks, interleaved_blocks
-    statistics.py        # WelfordAccumulator, control_variate_combination
+    statistics.py        # WelfordAccumulator, CrossFitStatistics, cross_fitted_combination
     density/
         density_grid.py  # DensityGrid accumulation and FFT conversion
         selection.py     # Selection: atom picking, weight computation
@@ -101,17 +101,19 @@ Without `compute_lambda`, `accumulate()` calls the private
 `DensityGrid._deposit(positions, forces, weights, kernel)` once per frame, with
 what `Selection.extract(frame)` returns: arrays for one species or rigid
 molecules, lists of arrays for several species. `count` advances by one per
-frame, not per array. With `compute_lambda=True`, `_accumulate_blocks` deposits
-each block's frames into block buffers instead, and adds them to the grid once
-the block is complete.
+frame, not per array. With `compute_lambda=True`, `accumulate()` splits the
+call's frames into two halves in time, and `_accumulate_blocks` deposits each
+block of a half into block buffers instead, adding it to the grid and to that
+half's lambda statistics once the block is complete.
 
 ### RDF deposition
 
-`RDF._deposit(frame)` takes a `Frame` and selects the atoms of the two species
-using the indices found in the trajectory being accumulated. The RDF always
+`RDF._deposit(frame, fold)` takes a `Frame` and its lambda fold, and selects
+the atoms of the two species using the indices found in the trajectory being
+accumulated. The RDF always
 computes a pairwise property between two species, so it needs no `Selection`.
-Each frame also updates the running statistics for $\lambda$, whatever integration
-`get_rdf()` is later asked for.
+Each frame also updates the running statistics for $\lambda$ of its half of the
+call's frames, whatever integration `get_rdf()` is later asked for.
 
 ## Selection and Selection.extract
 
@@ -150,13 +152,13 @@ FFT parallelism is configured separately via `REVELSMD_FFT_WORKERS`.
 
 ## Statistical machinery
 
-`revelsMD/statistics.py` provides two components:
+`revelsMD/statistics.py` provides these components:
 
 **`WelfordAccumulator`** — accumulates variance and covariance at each point of an
 array, across samples, using a weighted online algorithm. The caller calls
 `update(delta, other, weight)` per sample, and `finalise()` returns population
 Var(delta) and Cov(delta, other) arrays; at least two samples are required.
-`DensityGrid` passes each block's `delta = rho_force - rho_count` and `rho_force`,
+`DensityGrid` passes each block's `delta = rho_force - rho_count` and `rho_count`,
 weighted by the block's frame count; `RDF` passes each frame's forward minus
 backward g(r) and backward g(r) at $r > 0$, with weight 1.
 
@@ -167,11 +169,25 @@ $\lambda = -\text{Cov}(E_0, \delta)/\text{Var}(\delta)$, where $\delta = E_1 - E
 negligible for `scale`, $\lambda$ is `fallback`; non-finite moments propagate
 into the result.
 
-`DensityGrid` uses both when `compute_lambda=True`, with $E_0 = \rho_\text{count}$,
+**`CrossFitStatistics`** — two `WelfordAccumulator`s, one for the samples from
+the first half in time of each accumulation and one for the second, sharing
+their scratch buffers. `update(fold, delta, e0, weight)` adds a sample to one, and
+`finalise()` returns each fold's `FoldMoments` (its weight, means of $E_0$ and
+$E_1$, Var($\delta$) and Cov($E_0$, $\delta$)), raising `ValueError` if either
+fold has fewer than two samples.
+
+**`cross_fitted_combination(folds, mean_e0, mean_e1, scale=..., fallback=...)`**
+— computes each fold's $\lambda$ with `control_variate_combination` and applies
+it to the other fold's means, so that $\lambda$ is never estimated from the
+samples it weights (see [Variance Reduction](variance-reduction.md)). It returns
+the combined estimate and $w_A\lambda_B + w_B\lambda_A$, the weight on $E_1$
+overall.
+
+`DensityGrid` uses these when `compute_lambda=True`, with $E_0 = \rho_\text{count}$,
 $E_1 = \rho_\text{force}$ and a fallback of 1 (force density), exposing the results
-as `grid.lambda_weights` and `grid.rho_lambda`. `RDF` updates a
-`WelfordAccumulator` with every frame it accumulates, and uses
-`control_variate_combination` with $E_0$ the backward $g(r)$, $E_1$ the forward
+as `grid.lambda_weights` and `grid.rho_lambda`. `RDF` updates its
+`CrossFitStatistics` with every frame it accumulates, and uses
+`cross_fitted_combination` with $E_0$ the backward $g(r)$, $E_1$ the forward
 $g(r)$ and a fallback of 0 (backward $g(r)$) at $r > 0$; at $r = 0$ it reports
 the exact forward value.
 
@@ -201,7 +217,7 @@ forward FFT), and $\rho = \bar{\rho} + \mathcal{F}^{-1}[\delta\tilde{\rho}]$.
 
 This provides an exact solution to the Poisson equation under periodic boundary
 conditions with $O(N \log N)$ scaling. `rho_lambda` is similarly lazy, finalising
-the Welford accumulator only when first accessed.
+the lambda statistics only when first accessed.
 
 Accumulating additional frames invalidates all cached densities so that stale
 results are never returned.

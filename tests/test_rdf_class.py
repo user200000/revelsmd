@@ -184,10 +184,10 @@ class TestRDFClassAPI:
     @staticmethod
     def _pair(distance):
         # One A-B pair at ``distance`` along a face diagonal of a 10 A box,
-        # with a radial force; three identical frames.
+        # with a radial force; four identical frames, two in each half for lambda.
         offset = distance / np.sqrt(2)
-        positions = np.array([[[1.0, 1.0, 1.0], [1.0 + offset, 1.0 + offset, 1.0]]] * 3)
-        forces = np.array([[[-1.0, -1.0, 0.0], [1.0, 1.0, 0.0]]] * 3)
+        positions = np.array([[[1.0, 1.0, 1.0], [1.0 + offset, 1.0 + offset, 1.0]]] * 4)
+        forces = np.array([[[-1.0, -1.0, 0.0], [1.0, 1.0, 0.0]]] * 4)
         return NumpyTrajectory(positions, forces, 10.0, 10.0, 10.0, ["A", "B"],
                                temperature=1.0, units="lj")
 
@@ -232,7 +232,8 @@ class TestRDFClassAPI:
         rdf_bwd.get_rdf(integration='backward')
 
         rdf_lam = RDF(water_trajectory, 'O', 'H', delr=0.1)
-        rdf_lam.accumulate(water_trajectory)
+        for _ in range(2):  # lambda needs 2 frames in each half
+            rdf_lam.accumulate(water_trajectory)
         rdf_lam.get_rdf(integration='lambda')
 
         np.testing.assert_allclose(rdf_fwd.r, rdf_bwd.r)
@@ -267,7 +268,8 @@ class TestRDFClassAPI:
     def test_rdf_get_rdf_lambda_sets_lambda(self, water_trajectory):
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, 'O', 'H')
-        rdf.accumulate(water_trajectory)
+        for _ in range(2):  # lambda needs 2 frames in each half
+            rdf.accumulate(water_trajectory)
         rdf.get_rdf(integration='lambda')
         assert rdf.lam is not None
         assert len(rdf.lam) == len(rdf.g)
@@ -351,7 +353,9 @@ class TestRDFAccumulateTrajectories:
         reordered.get_rdf(integration=integration)
         np.testing.assert_allclose(reordered.g, reference.g, rtol=1e-12, atol=1e-14)
 
-    @pytest.mark.parametrize("integration", ['forward', 'backward', 'lambda'])
+    # Not 'lambda': each call's frames are split into its own two halves for
+    # lambda, so two calls do not give the halves of one call.
+    @pytest.mark.parametrize("integration", ['forward', 'backward'])
     def test_accumulating_in_parts_matches_one_call(self, integration):
         from revelsMD.rdf import RDF
         traj = _water()
@@ -370,9 +374,9 @@ class TestRDFAccumulateTrajectories:
         from revelsMD.rdf import RDF
         traj = _water()
         rdf = RDF(traj, 'O', 'H', delr=0.1)
-        rdf.accumulate(traj, stop=3)
+        rdf.accumulate(traj, stop=4)
         rdf.get_rdf(integration='lambda')
-        rdf.accumulate(traj, start=3)
+        rdf.accumulate(traj, start=4)
         assert rdf.g is None and rdf.g_count is None and rdf.lam is None and rdf.r is None
 
 
@@ -700,7 +704,8 @@ class TestRDFCountAccumulation:
         from revelsMD.rdf import RDF
 
         rdf = RDF(water_trajectory, 'O', 'H')
-        rdf.accumulate(water_trajectory)
+        for _ in range(2):  # lambda needs 2 frames in each half
+            rdf.accumulate(water_trajectory)
         rdf.get_rdf(integration='lambda')
 
         assert rdf.g_count is not None

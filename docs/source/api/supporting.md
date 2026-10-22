@@ -68,6 +68,27 @@
 .. autofunction:: revelsMD.statistics.control_variate_combination
 ```
 
+### CrossFitStatistics
+
+```{eval-rst}
+.. autoclass:: revelsMD.statistics.CrossFitStatistics
+   :members:
+   :show-inheritance:
+```
+
+### FoldMoments
+
+```{eval-rst}
+.. autoclass:: revelsMD.statistics.FoldMoments
+   :members:
+```
+
+### cross\_fitted\_combination
+
+```{eval-rst}
+.. autofunction:: revelsMD.statistics.cross_fitted_combination
+```
+
 ## Backends
 
 ### get\_backend

@@ -6,6 +6,8 @@ J. Chem. Phys. 154, 191101 (2021).
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -140,6 +142,14 @@ class WelfordAccumulator:
         covariance = self._C_delta_other / self.sum_weights
         return variance, covariance
 
+    def means(self) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+        """Return the weighted means of delta and other across the samples.
+
+        These are the accumulator's own arrays, updated in place by update():
+        copy them to keep them, and do not modify them.
+        """
+        return self._mean_delta, self._mean_other
+
     @property
     def has_data(self) -> bool:
         """Return True if any samples have been accumulated."""
@@ -153,6 +163,134 @@ class WelfordAccumulator:
         self._mean_other.fill(0)
         self._M2_delta.fill(0)
         self._C_delta_other.fill(0)
+
+
+class FoldMoments(NamedTuple):
+    """One fold's moments, as ``cross_fitted_combination`` takes them."""
+
+    #: Total weight of the fold's samples, e.g. their number of frames.
+    weight: float
+    #: Mean of E_0 over the fold's samples.
+    mean_e0: NDArray[np.floating]
+    #: Mean of E_1 over the fold's samples.
+    mean_e1: NDArray[np.floating]
+    #: Var(Delta), Delta = E_1 - E_0, across the fold's samples.
+    var_delta: NDArray[np.floating]
+    #: Cov(E_0, Delta) across the fold's samples.
+    cov_e0_delta: NDArray[np.floating]
+
+
+class CrossFitStatistics:
+    """
+    Running lambda statistics in two folds of samples.
+
+    Fold 0 holds the samples from the first half in time of each
+    accumulation and fold 1 those from the second half. lambda is estimated
+    in each fold and applied to the other fold's means (see
+    ``cross_fitted_combination``), so it is never estimated from the samples
+    it weights. Folds split by time are close to independent, since only the
+    samples near the boundary between the halves are correlated; folds of
+    alternating samples would not be.
+
+    Each sample (a block of frames for a density grid, a frame for an RDF)
+    gives, at every point of the array, Delta = E_1 - E_0 and E_0, the
+    estimators in the notation of Coles et al. (2021).
+
+    Parameters
+    ----------
+    shape : tuple of int
+        Shape of the arrays, e.g. (nx, ny, nz) for a grid or (n,) for g(r).
+    samples : str, optional
+        What the samples are, for error messages: e.g. "blocks" or "frames".
+        Default "samples".
+
+    Attributes
+    ----------
+    folds : tuple of WelfordAccumulator
+        The two folds' running statistics.
+    """
+
+    def __init__(self, shape: tuple[int, ...], *, samples: str = "samples") -> None:
+        self.folds = (WelfordAccumulator(shape), WelfordAccumulator(shape))
+        self._samples = samples
+        # One sample is added at a time, so the folds can share scratch space.
+        first, second = self.folds
+        second._scratch_a = first._scratch_a
+        second._scratch_b = first._scratch_b
+        second._scratch_c = first._scratch_c
+
+    def update(
+        self,
+        fold: int,
+        delta: NDArray[np.floating],
+        e0: NDArray[np.floating],
+        weight: float = 1.0,
+    ) -> None:
+        """Add one sample's Delta = E_1 - E_0 and E_0 to fold 0 or fold 1.
+
+        See ``WelfordAccumulator.update`` for ``weight``.
+
+        Raises
+        ------
+        ValueError
+            If ``fold`` is not 0 or 1.
+        """
+        if fold not in (0, 1):
+            raise ValueError(f"fold must be 0 or 1, got {fold}")
+        self.folds[fold].update(delta, e0, weight)
+
+    def finalise(self, *, remedy: str | None = None) -> tuple[FoldMoments, FoldMoments]:
+        """Return each fold's moments, for ``cross_fitted_combination``.
+
+        Parameters
+        ----------
+        remedy : str, optional
+            What to do about too few samples, appended to the error below.
+
+        Raises
+        ------
+        ValueError
+            If either fold has fewer than 2 samples: lambda is undefined
+            without spread across the samples it is estimated from.
+        """
+        counts = [fold.count for fold in self.folds]
+        if min(counts) < 2:
+            message = (
+                f"lambda needs at least 2 {self._samples} in each half of the frames "
+                f"(have {counts[0]} and {counts[1]}); each accumulate() call's frames "
+                "are split into two halves, so a call of one frame adds only to the first"
+            )
+            if remedy is not None:
+                message = f"{message}. {remedy}"
+            raise ValueError(message)
+        moments = []
+        for fold in self.folds:
+            var_delta, cov_e0_delta = fold.finalise()
+            mean_delta, mean_e0 = fold.means()
+            moments.append(FoldMoments(
+                fold.sum_weights, mean_e0.copy(), mean_e0 + mean_delta, var_delta, cov_e0_delta,
+            ))
+        return moments[0], moments[1]
+
+    @property
+    def count(self) -> int:
+        """Number of samples accumulated, in both folds."""
+        return sum(fold.count for fold in self.folds)
+
+    @property
+    def sum_weights(self) -> float:
+        """Sum of the weights of the samples, in both folds."""
+        return sum(fold.sum_weights for fold in self.folds)
+
+    @property
+    def has_data(self) -> bool:
+        """Return True if any samples have been accumulated."""
+        return self.count > 0
+
+    def reset(self) -> None:
+        """Clear all accumulated state."""
+        for fold in self.folds:
+            fold.reset()
 
 
 #: A standard deviation of Delta at most this fraction of the scale (the size
@@ -216,3 +354,64 @@ def control_variate_combination(
     negligible = var_delta <= (NEGLIGIBLE_SPREAD * scale) ** 2
     lam = np.where(negligible, fallback, -cov_e0_delta / np.where(negligible, 1.0, var_delta))
     return (1 - lam) * mean_e0 + lam * mean_e1, lam
+
+
+def cross_fitted_combination(
+    folds: tuple[FoldMoments, FoldMoments],
+    mean_e0: NDArray[np.floating],
+    mean_e1: NDArray[np.floating],
+    *,
+    scale: float,
+    fallback: float,
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+    """Combine two estimators with lambda estimated in one fold and applied to the other.
+
+    lambda from the samples it weights is correlated with them, which biases
+    the combination: E[lambda * Delta] = lambda E[Delta] + Cov(lambda, Delta).
+    Here each fold's lambda (Coles et al. (2021), Eq. 4, through
+    ``control_variate_combination``, with its negligible-variance
+    ``fallback``) weights the other fold's means, which it is independent of,
+    and the two results are averaged by weight. With fold weights
+    w_A + w_B = 1::
+
+        E = w_A (E_0,A + lambda_B Delta_A) + w_B (E_0,B + lambda_A Delta_B)
+          = (1 - mu) E_0 + mu E_1 + w_A w_B (lambda_B - lambda_A)(Delta_A - Delta_B),
+        mu = w_A lambda_B + w_B lambda_A,
+
+    where E_0 and E_1 are the means over both folds. The second form is the
+    one evaluated: where the folds' lambdas agree it is exactly
+    (1 - lambda) E_0 + lambda E_1, so lambda = 1 gives E_1 exactly.
+
+    Parameters
+    ----------
+    folds : pair of FoldMoments
+        Each fold's total weight, means of E_0 and E_1, Var(Delta) and
+        Cov(E_0, Delta), e.g. from ``CrossFitStatistics.finalise``.
+    mean_e0, mean_e1 : ndarray
+        Means of E_0 and E_1 over both folds. They must be the folds' means
+        weighted by the folds' weights, which is what the identity above
+        assumes; they are passed rather than computed so that the result
+        matches the caller's own estimators exactly where lambda is 0 or 1.
+    scale, fallback : float
+        As for ``control_variate_combination``.
+
+    Returns
+    -------
+    combined : ndarray
+        The combined estimate.
+    lam : ndarray
+        mu, the weight the combination puts on E_1 overall. The combined
+        estimate is (1 - mu) E_0 + mu E_1 only where the folds' lambdas agree.
+    """
+    a, b = folds
+    lam_a = control_variate_combination(
+        a.mean_e0, a.mean_e1, a.var_delta, a.cov_e0_delta, scale=scale, fallback=fallback,
+    )[1]
+    lam_b = control_variate_combination(
+        b.mean_e0, b.mean_e1, b.var_delta, b.cov_e0_delta, scale=scale, fallback=fallback,
+    )[1]
+    w_a = a.weight / (a.weight + b.weight)
+    # Written so that equal lambdas give mu exactly equal to them.
+    mu = lam_a + w_a * (lam_b - lam_a)
+    cross = w_a * (1 - w_a) * (lam_b - lam_a) * ((a.mean_e1 - a.mean_e0) - (b.mean_e1 - b.mean_e0))
+    return (1 - mu) * mean_e0 + mu * mean_e1 + cross, mu

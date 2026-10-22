@@ -25,8 +25,9 @@ ANALYSES = [
     lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(traj, "1"),
     lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
         traj, "1", compute_lambda=True, block_size=2),
+    # One section in each half of the frames: the files here have 3 frames.
     lambda traj: DensityGrid(traj, "number", nbins=4).accumulate(
-        traj, "1", compute_lambda=True, blocking="interleaved", sections=2),
+        traj, "1", compute_lambda=True, blocking="interleaved", sections=1),
     lambda traj: RDF(traj, "1", "2").accumulate(traj),
 ]
 ANALYSIS_NAMES = ["iter_frames", "grid", "contiguous blocks", "interleaved blocks", "rdf"]

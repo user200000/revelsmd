@@ -4,8 +4,11 @@ import numpy as np
 import pytest
 
 from revelsMD.statistics import (
+    CrossFitStatistics,
+    FoldMoments,
     WelfordAccumulator,
     control_variate_combination,
+    cross_fitted_combination,
 )
 
 
@@ -359,3 +362,140 @@ class TestWelfordAccumulator:
         variance, covariance = acc.finalise()
         assert variance.shape == shape
         assert covariance.shape == shape
+
+
+def _fold_moments(e0, e1, weight):
+    """FoldMoments of per-sample estimates E_0 and E_1, with the fold's total weight."""
+    return FoldMoments(weight, *_moments(e0, e1))
+
+
+def _two_folds(seed, sizes=(7, 5)):
+    """Per-sample E_0 and E_1 for two folds, of sizes[0] and sizes[1] samples."""
+    e0, e1 = _samples(seed, n_blocks=sum(sizes))
+    split = sizes[0]
+    return (e0[:split], e1[:split]), (e0[split:], e1[split:])
+
+
+def _means_over(folds):
+    """Means of E_0 and E_1 over the per-sample estimates of both folds."""
+    e0 = np.concatenate([fold[0] for fold in folds]).mean(axis=0)
+    e1 = np.concatenate([fold[1] for fold in folds]).mean(axis=0)
+    return e0, e1
+
+
+class TestCrossFittedCombination:
+    """Tests for cross_fitted_combination: each fold's lambda weights the other fold's means."""
+
+    @pytest.mark.parametrize("seed", [0, 1, 2])
+    def test_each_fold_is_weighted_by_the_other_folds_lambda(self, seed):
+        (e0_a, e1_a), (e0_b, e1_b) = folds = _two_folds(seed)
+        moments = (_fold_moments(e0_a, e1_a, 7.0), _fold_moments(e0_b, e1_b, 5.0))
+        combined, mu = cross_fitted_combination(moments, *_means_over(folds), scale=1.0, fallback=0.0)
+
+        lam_a, lam_b = (-m.cov_e0_delta / m.var_delta for m in moments)
+        w_a, w_b = 7 / 12, 5 / 12
+        expected = (w_a * (e0_a.mean(axis=0) + lam_b * (e1_a - e0_a).mean(axis=0))
+                    + w_b * (e0_b.mean(axis=0) + lam_a * (e1_b - e0_b).mean(axis=0)))
+        np.testing.assert_allclose(combined, expected, rtol=1e-12)
+        np.testing.assert_allclose(mu, w_a * lam_b + w_b * lam_a, rtol=1e-12)
+
+    def test_swapping_the_folds_gives_the_same_result(self):
+        (e0_a, e1_a), (e0_b, e1_b) = folds = _two_folds(3)
+        a, b = _fold_moments(e0_a, e1_a, 7.0), _fold_moments(e0_b, e1_b, 5.0)
+        means = _means_over(folds)
+        combined, mu = cross_fitted_combination((a, b), *means, scale=1.0, fallback=0.0)
+        swapped, mu_swapped = cross_fitted_combination((b, a), *means, scale=1.0, fallback=0.0)
+        np.testing.assert_allclose(swapped, combined, rtol=1e-12)
+        np.testing.assert_allclose(mu_swapped, mu, rtol=1e-12)
+
+    def test_equal_lambdas_give_the_plain_combination_exactly(self):
+        """Where the folds' lambdas agree, the result is (1 - lambda) E_0 + lambda E_1 bit for bit."""
+        e0, e1 = _samples(4, n_blocks=6)
+        a = _fold_moments(e0, e1, 6.0)
+        b = FoldMoments(4.0, a.mean_e0 + 0.5, a.mean_e1 - 0.25, a.var_delta, a.cov_e0_delta)
+        mean_e0 = (6 * a.mean_e0 + 4 * b.mean_e0) / 10
+        mean_e1 = (6 * a.mean_e1 + 4 * b.mean_e1) / 10
+        combined, mu = cross_fitted_combination((a, b), mean_e0, mean_e1, scale=1.0, fallback=0.0)
+
+        lam = -a.cov_e0_delta / a.var_delta
+        np.testing.assert_array_equal(mu, lam)
+        np.testing.assert_array_equal(combined, (1 - lam) * mean_e0 + lam * mean_e1)
+
+    def test_negligible_variance_in_both_folds_gives_the_fallback_estimator_exactly(self):
+        rng = np.random.default_rng(5)
+        zeros = np.zeros(5)
+        a = FoldMoments(3.0, rng.normal(size=5), rng.normal(size=5), zeros, zeros)
+        b = FoldMoments(2.0, rng.normal(size=5), rng.normal(size=5), zeros, zeros)
+        mean_e0 = (3 * a.mean_e0 + 2 * b.mean_e0) / 5
+        mean_e1 = (3 * a.mean_e1 + 2 * b.mean_e1) / 5
+        combined, mu = cross_fitted_combination((a, b), mean_e0, mean_e1, scale=1.0, fallback=1.0)
+        np.testing.assert_array_equal(mu, 1.0)
+        np.testing.assert_array_equal(combined, mean_e1)
+
+    def test_fallback_applies_in_the_degenerate_fold_only(self):
+        (e0_a, e1_a), (e0_b, e1_b) = folds = _two_folds(6)
+        zeros = np.zeros(5)
+        degenerate = FoldMoments(7.0, e0_a.mean(axis=0), e1_a.mean(axis=0), zeros, zeros)
+        live = _fold_moments(e0_b, e1_b, 5.0)
+        _, mu = cross_fitted_combination((degenerate, live), *_means_over(folds), scale=1.0, fallback=1.0)
+
+        lam_live = -live.cov_e0_delta / live.var_delta
+        np.testing.assert_allclose(mu, (7 / 12) * lam_live + (5 / 12) * 1.0, rtol=1e-12)
+
+
+class TestCrossFitStatistics:
+    """Tests for CrossFitStatistics: running moments in two folds for cross_fitted_combination."""
+
+    def _filled(self, seed=0, sizes=(3, 4), weight=1.0):
+        statistics = CrossFitStatistics((5,), samples="blocks")
+        folds = _two_folds(seed, sizes)
+        for fold, (e0, e1) in enumerate(folds):
+            for sample_e0, sample_e1 in zip(e0, e1):
+                statistics.update(fold, sample_e1 - sample_e0, sample_e0, weight=weight)
+        return statistics, folds
+
+    def test_no_data_initially(self):
+        statistics = CrossFitStatistics((5,))
+        assert statistics.count == 0
+        assert statistics.sum_weights == 0.0
+        assert statistics.has_data is False
+
+    def test_count_and_sum_weights_sum_over_both_folds(self):
+        statistics, _ = self._filled(weight=2.0)
+        assert statistics.count == 7
+        assert statistics.sum_weights == 14.0
+        assert statistics.has_data is True
+
+    def test_finalise_gives_each_folds_moments_with_other_as_e0(self):
+        statistics, folds = self._filled(weight=2.0)
+        for got, (e0, e1), n in zip(statistics.finalise(), folds, (3, 4)):
+            expected = FoldMoments(2.0 * n, *_moments(e0, e1))
+            assert got.weight == expected.weight
+            for name in ("mean_e0", "mean_e1", "var_delta", "cov_e0_delta"):
+                np.testing.assert_allclose(getattr(got, name), getattr(expected, name), rtol=1e-12,
+                                           err_msg=name)
+
+    @pytest.mark.parametrize("sizes", [(1, 3), (3, 1), (0, 2)])
+    def test_finalise_raises_with_fewer_than_two_samples_in_either_fold(self, sizes):
+        statistics, _ = self._filled(sizes=sizes)
+        with pytest.raises(ValueError, match=rf"at least 2 blocks in each half of the frames \(have {sizes[0]} and {sizes[1]}\)"):
+            statistics.finalise()
+
+    def test_finalise_appends_the_remedy_to_the_error(self):
+        statistics, _ = self._filled(sizes=(1, 1))
+        with pytest.raises(ValueError, match=r"\(have 1 and 1\).*\. Use more frames$"):
+            statistics.finalise(remedy="Use more frames")
+
+    @pytest.mark.parametrize("fold", [-1, 2])
+    def test_update_rejects_a_fold_other_than_0_or_1(self, fold):
+        statistics = CrossFitStatistics((2,))
+        with pytest.raises(ValueError, match="fold must be 0 or 1"):
+            statistics.update(fold, np.ones(2), np.ones(2))
+
+    def test_reset_clears_both_folds(self):
+        statistics, _ = self._filled()
+        statistics.reset()
+        assert statistics.count == 0
+        assert statistics.has_data is False
+        with pytest.raises(ValueError, match=r"\(have 0 and 0\)"):
+            statistics.finalise()
