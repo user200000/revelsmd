@@ -372,7 +372,7 @@ def cross_fitted_combination(
     ``control_variate_combination``, with its negligible-variance
     ``fallback``) weights the other fold's means, which it is independent of,
     and the two results are averaged by weight. With fold weights
-    w_A + w_B = 1,
+    w_A + w_B = 1::
 
         E = w_A (E_0,A + lambda_B Delta_A) + w_B (E_0,B + lambda_A Delta_B)
           = (1 - mu) E_0 + mu E_1 + w_A w_B (lambda_B - lambda_A)(Delta_A - Delta_B),
