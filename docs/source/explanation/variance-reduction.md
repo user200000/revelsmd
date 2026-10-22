@@ -59,7 +59,7 @@ RevelsMD does not store the samples. An online algorithm (`WelfordAccumulator` i
 
 ### Block parameters
 
-`block_size` sets frames per block (contiguous); `sections` sets the number of interleaved sections in each half of the frames. More blocks yield better variance estimates but fewer frames per block. Each half needs at least two samples, blocks for a density and frames for an RDF, and fewer raise `ValueError`; forward and backward g(r) need only one frame. How many more are needed for lambda to help depends on the system (see below).
+`block_size` sets frames per block (contiguous); `sections` sets the number of interleaved sections in each half of the frames. More blocks yield better variance estimates but fewer frames per block. Each half needs at least four samples, blocks for a density and frames for an RDF, and fewer raise `ValueError` (see below); forward and backward g(r) need only one frame. How many more are needed for lambda to help depends on the system (see below).
 
 ## Estimating λ from held-out frames
 
@@ -79,9 +79,9 @@ The weight the combination puts on $B$ overall, reported as `rdf.lam` and `grid.
 
 Each $\lambda$ is estimated from half the samples, and its noise adds to the variance of the combination, so with few samples the combination can be less precise than the better of the two estimators. How many samples are enough depends on the system, because how much the combination can gain does too.
 
-For an RDF, $\delta$ is the same at every $r$ in a frame: it is the frame's total force integral minus one. $\lambda(r)$ is therefore the regression of $g_\text{bwd}(r)$ on that single number. Inside the core, where no pairs come that close, $g_\text{bwd}(r)$ is one minus the same total, so $\lambda = 1$ and $g_\lambda = 0$ exactly. Elsewhere, in a liquid, the total varies little between frames and $\lambda$ is noisy: in a Lennard-Jones liquid, the lambda $g(r)$ beyond the core was 11 times noisier than the backward estimator at 2 frames per half, 17% noisier at 5 and 5% noisier at 20, because the backward estimator there is already close to optimal.
+Below four samples in a half, $\lambda$ has no finite variance at all, whatever the system. It is a regression slope, $-\text{Cov}(E_0, \delta)/\text{Var}(\delta)$, and when the few values of $\delta$ happen to lie close together the denominator is small and $\lambda$ large. For roughly Gaussian $\delta$, the variance of the slope from $n$ samples is proportional to $1/(n - 3)$, infinite for $n \le 3$, so RevelsMD requires at least four samples in each half.
 
-For a density, in a one-dimensional test, the combination was noisier than $\rho_\text{force}$ with 5 blocks per half, and close to the combination with the exact $\lambda$ with 50.
+For an RDF, $\delta$ is the same at every $r$ in a frame: it is the frame's total force integral minus one. $\lambda(r)$ is therefore the regression of $g_\text{bwd}(r)$ on that single number. Inside the core, where no pairs come that close, $g_\text{bwd}(r)$ is one minus the same total, so $\lambda = 1$ and $g_\lambda = 0$ exactly. Elsewhere, in a liquid, the total varies little between frames, so $\lambda$ is noisy; where the backward estimator is already close to optimal, the combination has little to gain, and its noise can make it less precise than the backward estimator.
 
 RevelsMD does not report uncertainties. To see whether lambda helps for a system, compare the estimators across independent parts of the trajectory, each long compared with the correlation time.
 

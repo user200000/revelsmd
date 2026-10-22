@@ -576,25 +576,25 @@ def test_accumulate_number_multi_species_not_rigid_blocked(ts):
     """Multi-species non-rigid number density through the blocked lambda path.
 
     Routes the same multi-species selection through _accumulate_blocks
-    (compute_lambda=True, block_size=1 over the fixture's 2 frames, twice,
-    gives 2 contiguous blocks in each half of the frames, satisfying the
-    >= 2 blocks requirement). Multi-species densities are normalised as the
+    (compute_lambda=True, block_size=1 over the fixture's 2 frames, four
+    times, gives 4 contiguous blocks in each half of the frames, satisfying the
+    >= 4 blocks requirement). Multi-species densities are normalised as the
     SUM over the selected atoms (labelling-invariant: the result depends
     only on which atoms are selected, not on how they are partitioned into
     species labels).
     """
     gs = DensityGrid(ts, "number", nbins=4)
-    for _ in range(2):
+    for _ in range(4):
         gs.accumulate(
             ts, atom_names=["H", "O"], rigid=False,
             compute_lambda=True, block_size=1,
         )
     # Sum convention: count increments once per frame regardless of the
     # number of species arrays deposited.
-    assert gs.count == 2 * ts.frames
+    assert gs.count == 4 * ts.frames
     # Trilinear kernel weights sum to 1 per atom, so the counter total equals
-    # calls x frames x (n_H + n_O) = 2 x 2 x (1 + 1) exactly.
-    assert gs.counter.sum() == pytest.approx(8.0, abs=1e-12)
+    # calls x frames x (n_H + n_O) = 4 x 2 x (1 + 1) exactly.
+    assert gs.counter.sum() == pytest.approx(16.0, abs=1e-12)
     # The lambda machinery actually ran: a finite variance-minimised density
     # and grid-shaped weights exist.
     assert gs.rho_lambda is not None
@@ -844,8 +844,8 @@ class TestAccumulateComputeLambda:
 
     @pytest.mark.parametrize("box", [10.0, 1e-3])
     def test_identical_blocks_take_the_force_density(self, box):
-        # Thirteen identical frames, in blocks of 3, 3 and 1 in the first
-        # half and 3 and 3 in the second: every block gives the same delta,
+        # Twenty-five identical frames, in blocks of 3, 3, 3, 3 and 1 in the
+        # first half and four of 3 in the second: every block gives the same delta,
         # but the blocks' densities differ in their last digits, so Var(delta)
         # is rounding rather than zero. Dividing by it would give rho_lambda
         # tens of percent off the force density. In the 1e-3 box the
@@ -854,8 +854,8 @@ class TestAccumulateComputeLambda:
         # recognises it.
         from revelsMD.trajectories import NumpyTrajectory
         rng = np.random.default_rng(71)
-        positions = np.repeat(rng.uniform(0, box, (1, 20, 3)), 13, axis=0)
-        forces = np.repeat(rng.normal(size=(1, 20, 3)), 13, axis=0)
+        positions = np.repeat(rng.uniform(0, box, (1, 20, 3)), 25, axis=0)
+        forces = np.repeat(rng.normal(size=(1, 20, 3)), 25, axis=0)
         trajectory = NumpyTrajectory(
             positions, forces, box, box, box, ["H"] * 20, temperature=300.0
         )
@@ -911,7 +911,7 @@ class TestAccumulateComputeLambda:
         gs_lambda = DensityGrid(multi_frame_trajectory, "number", nbins=4)
         gs_lambda.accumulate(
             multi_frame_trajectory, atom_names=["Hsub", "Osub"],
-            compute_lambda=True, block_size=2,
+            compute_lambda=True, block_size=1,
         )
 
         np.testing.assert_allclose(gs_lambda.rho_force, gs_simple.rho_force)
@@ -1044,43 +1044,44 @@ class TestAccumulateComputeLambda:
         with pytest.raises(ValueError, match="frames accumulated without lambda statistics"):
             gs.accumulate(multi_frame_trajectory, atom_names="H", compute_lambda=True, start=4)
 
-    def test_rho_lambda_raises_with_fewer_than_two_blocks_in_a_half(self, multi_frame_trajectory):
-        """lambda is estimated in each time half of the frames, so each half needs 2 blocks."""
+    def test_rho_lambda_raises_with_fewer_than_four_blocks_in_a_half(self, multi_frame_trajectory):
+        """lambda is estimated in each time half of the frames, and below 4 blocks its variance is infinite, so each half needs 4."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
-        # 3 frames, one per block: 2 blocks in the first half, 1 in the second
+        # 7 frames, one per block: 4 blocks in the first half, 3 in the second
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, block_size=1, start=0, stop=3
+            compute_lambda=True, block_size=1, start=0, stop=7
         )
 
-        with pytest.raises(ValueError, match="at least 2 blocks in each half"):
+        with pytest.raises(ValueError, match=r"at least 4 blocks in each half of the frames \(have 4 and 3\)"):
             _ = gs.rho_lambda
 
     def test_rho_lambda_works_with_one_block_per_half_per_call(
         self, multi_frame_trajectory
     ):
-        """One block in each half of each call is enough once two calls are accumulated."""
+        """One block in each half of each call is enough once four calls are accumulated."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
-        # 4 frames in blocks of 2: one block in each half
-        gs.accumulate(
-            multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, block_size=2, start=0, stop=4
-        )
-        with pytest.raises(ValueError, match="at least 2 blocks in each half"):
+        # 2-frame calls, one frame per block: one block in each half of each call
+        for start in (0, 2, 4):
+            gs.accumulate(
+                multi_frame_trajectory, atom_names="H",
+                compute_lambda=True, block_size=1, start=start, stop=start + 2
+            )
+        with pytest.raises(ValueError, match="at least 4 blocks in each half"):
             _ = gs.rho_lambda
 
         gs.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, block_size=2, start=4, stop=8
+            compute_lambda=True, block_size=1, start=6, stop=8
         )
         assert gs.rho_lambda is not None
 
     def test_rho_lambda_does_not_warn_with_few_blocks_in_a_half(self, multi_frame_trajectory):
-        """Two blocks in each half are enough for lambda: whether it helps depends on the system, not on a block count, so nothing warns."""
+        """Four blocks in each half are enough for lambda: whether it helps depends on the system, not on a block count, so nothing warns."""
         gs = DensityGrid(multi_frame_trajectory, "number", nbins=4)
-        # 4 frames, one per block: 2 blocks in each half
+        # 8 frames, one per block: 4 blocks in each half
         gs.accumulate(
-            multi_frame_trajectory, atom_names="H", compute_lambda=True, block_size=1, stop=4
+            multi_frame_trajectory, atom_names="H", compute_lambda=True, block_size=1, stop=8
         )
 
         with warnings.catch_warnings():
@@ -1153,13 +1154,14 @@ class TestBlockingParameter:
         gs_contig = DensityGrid(multi_frame_trajectory, "number", nbins=4)
         gs_contig.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, block_size=2, blocking="contiguous",
+            compute_lambda=True, block_size=1, blocking="contiguous",
         )
 
+        # 4 sections of the 5 frames in each half: one section of 2 frames
         gs_interleaved = DensityGrid(multi_frame_trajectory, "number", nbins=4)
         gs_interleaved.accumulate(
             multi_frame_trajectory, atom_names="H",
-            compute_lambda=True, sections=2, blocking="interleaved",
+            compute_lambda=True, sections=4, blocking="interleaved",
         )
 
         # Lambda weights differ because the block composition is different
@@ -1268,11 +1270,11 @@ class TestBlockingParameter:
 
         grid_c = compute_density(
             multi_frame_trajectory, "H", nbins=4,
-            compute_lambda=True, block_size=2, blocking="contiguous",
+            compute_lambda=True, block_size=1, blocking="contiguous",
         )
         grid_i = compute_density(
             multi_frame_trajectory, "H", nbins=4,
-            compute_lambda=True, sections=2, blocking="interleaved",
+            compute_lambda=True, sections=4, blocking="interleaved",
         )
 
         # Both should have valid lambda, but different weights
@@ -2139,7 +2141,9 @@ class TestComputeDensity:
         class IterableMockTrajectoryWithGetFrame(MockTrajectory):
             def __init__(self):
                 super().__init__()
-                self.frames = 4
+                # The 4 stored frames twice over, so lambda has 4 blocks in
+                # each half
+                self.frames = 8
                 # 9 atoms: 3 water molecules (O, H1, H2 each)
                 self._positions = [
                     np.array([
@@ -2188,10 +2192,10 @@ class TestComputeDensity:
 
             def iter_frames(self, start, stop, period):
                 for i in range(start, stop or self.frames, period):
-                    yield Frame(self._positions[i], self._forces[i])
+                    yield Frame(self._positions[i % 4], self._forces[i % 4])
 
             def get_frame(self, idx):
-                return Frame(self._positions[idx], self._forces[idx])
+                return Frame(self._positions[idx % 4], self._forces[idx % 4])
 
         return IterableMockTrajectoryWithGetFrame()
 
@@ -2243,7 +2247,7 @@ class TestLambdaEdgeCases:
                 self.box_x = self.box_y = self.box_z = 10.0
                 self.cell_matrix = np.diag([10.0, 10.0, 10.0])
                 self.units = 'real'
-                self.frames = 4
+                self.frames = 8
                 self.beta = 1.0 / (300.0 * 0.0019872041)
 
             def get_indices(self, atom_name):
@@ -2459,7 +2463,7 @@ class TestComputeOnDemand:
     def test_rho_lambda_uses_cached_densities(self, ts):
         """rho_lambda finalisation should use cached rho_force if available."""
         gs = DensityGrid(ts, "number", nbins=4)
-        for _ in range(2):  # two blocks in each half of the frames
+        for _ in range(4):  # four blocks in each half of the frames
             gs.accumulate(ts, atom_names="H", compute_lambda=True, block_size=1)
 
         # Access rho_force first (caches it)
@@ -2698,7 +2702,7 @@ class TestFailedAccumulate:
         grid = DensityGrid(bad, "number", nbins=4)
         with pytest.raises(ValueError, match="NaN"):
             grid.accumulate(bad, "1", compute_lambda=True, block_size=2)
-        with pytest.raises(ValueError, match=r"at least 2 blocks in each half of the frames \(have 0 and 0\)"):
+        with pytest.raises(ValueError, match=r"at least 4 blocks in each half of the frames \(have 0 and 0\)"):
             _ = grid.rho_lambda
 
 

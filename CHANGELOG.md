@@ -19,7 +19,8 @@ entirely; there is no compatibility layer.
   other half, so it is never estimated from the samples it weights. Densities
   use contiguous or interleaved blocks of frames within each half; for RDFs
   each frame is a sample. Both keep running statistics. Lambda needs at least
-  2 samples in each half; forward and backward g(r) need only one frame. A
+  4 samples in each half, since with fewer its variance is infinite; forward
+  and backward g(r) need only one frame. A
   density grid's frames all carry lambda statistics or none: accumulating
   with `compute_lambda=True` on a grid holding frames accumulated without
   them raises `ValueError`.

@@ -446,7 +446,7 @@ class TestCrossFittedCombination:
 class TestCrossFitStatistics:
     """Tests for CrossFitStatistics: running moments in two folds for cross_fitted_combination."""
 
-    def _filled(self, seed=0, sizes=(3, 4), weight=1.0):
+    def _filled(self, seed=0, sizes=(4, 5), weight=1.0):
         statistics = CrossFitStatistics((5,), samples="blocks")
         folds = _two_folds(seed, sizes)
         for fold, (e0, e1) in enumerate(folds):
@@ -462,24 +462,29 @@ class TestCrossFitStatistics:
 
     def test_count_and_sum_weights_sum_over_both_folds(self):
         statistics, _ = self._filled(weight=2.0)
-        assert statistics.count == 7
-        assert statistics.sum_weights == 14.0
+        assert statistics.count == 9
+        assert statistics.sum_weights == 18.0
         assert statistics.has_data is True
 
     def test_finalise_gives_each_folds_moments_with_other_as_e0(self):
         statistics, folds = self._filled(weight=2.0)
-        for got, (e0, e1), n in zip(statistics.finalise(), folds, (3, 4)):
+        for got, (e0, e1), n in zip(statistics.finalise(), folds, (4, 5)):
             expected = FoldMoments(2.0 * n, *_moments(e0, e1))
             assert got.weight == expected.weight
             for name in ("mean_e0", "mean_e1", "var_delta", "cov_e0_delta"):
                 np.testing.assert_allclose(getattr(got, name), getattr(expected, name), rtol=1e-12,
                                            err_msg=name)
 
-    @pytest.mark.parametrize("sizes", [(1, 3), (3, 1), (0, 2)])
-    def test_finalise_raises_with_fewer_than_two_samples_in_either_fold(self, sizes):
+    @pytest.mark.parametrize("sizes", [(3, 4), (4, 3), (0, 4), (2, 2)])
+    def test_finalise_raises_with_fewer_than_four_samples_in_either_fold(self, sizes):
+        """Below 4 samples the variance of a fold's lambda, a regression slope, is infinite."""
         statistics, _ = self._filled(sizes=sizes)
-        with pytest.raises(ValueError, match=rf"at least 2 blocks in each half of the frames \(have {sizes[0]} and {sizes[1]}\)"):
+        with pytest.raises(ValueError, match=rf"at least 4 blocks in each half of the frames \(have {sizes[0]} and {sizes[1]}\)"):
             statistics.finalise()
+
+    def test_finalise_accepts_four_samples_in_each_fold(self):
+        statistics, _ = self._filled(sizes=(4, 4))
+        statistics.finalise()
 
     def test_finalise_appends_the_remedy_to_the_error(self):
         statistics, _ = self._filled(sizes=(1, 1))

@@ -243,21 +243,21 @@ def _pair_trajectory(n_frames):
     )
 
 
-@pytest.mark.parametrize('calls', [[(0, 1)], [(0, 3)], [(k, k + 1) for k in range(4)]],
-                         ids=['one frame', 'three frames', 'one-frame calls'])
-def test_lambda_raises_with_fewer_than_two_frames_in_a_half(calls):
-    """lambda is undefined without two frames in each half, so it raises; forward and backward still work.
+@pytest.mark.parametrize('calls', [[(0, 1)], [(0, 7)], [(k, k + 1) for k in range(8)]],
+                         ids=['one frame', 'seven frames', 'one-frame calls'])
+def test_lambda_raises_with_fewer_than_four_frames_in_a_half(calls):
+    """Below four frames in a half lambda's variance is infinite, so it raises; forward and backward still work.
 
     One frame gives a valid g(r) from its pairs, but no spread across frames
-    from which to estimate lambda. Three frames give halves of 2 and 1, and
+    from which to estimate lambda. Seven frames give halves of 4 and 3, and
     one-frame accumulate() calls put every frame in the first half.
     """
-    trajectory = _pair_trajectory(4)
+    trajectory = _pair_trajectory(8)
     rdf = RDF(trajectory, 'A', 'A', delr=0.1, rmax=1.0)
     for start, stop in calls:
         rdf.accumulate(trajectory, start=start, stop=stop)
 
-    with pytest.raises(ValueError, match="at least 2 frames in each half"):
+    with pytest.raises(ValueError, match="at least 4 frames in each half"):
         rdf.get_rdf(integration='lambda')
     for integration in ('forward', 'backward'):
         rdf.get_rdf(integration=integration)
@@ -266,7 +266,7 @@ def test_lambda_raises_with_fewer_than_two_frames_in_a_half(calls):
 
 def test_identical_frames_take_the_backward_estimator():
     """With every frame identical, Var(Delta) = 0: for r > 0, lambda == 0 and g_lambda equals the backward estimator bit-for-bit."""
-    trajectory = _pair_trajectory(4)
+    trajectory = _pair_trajectory(8)
     rdf = RDF(trajectory, 'A', 'A', delr=0.1, rmax=1.0)
     rdf.accumulate(trajectory)
 
@@ -355,9 +355,9 @@ def test_accumulate_splits_each_call_into_time_halves_for_lambda(calls):
 
 
 def test_lambda_with_few_frames_does_not_warn():
-    """Two frames in each half are enough for lambda: whether it helps depends on the system, not on a frame count, so nothing warns."""
+    """Four frames in each half are enough for lambda: whether it helps depends on the system, not on a frame count, so nothing warns."""
     import warnings
-    trajectory = _water_like_trajectory(4)
+    trajectory = _water_like_trajectory(8)
     rdf = RDF(trajectory, 'A', 'B', delr=0.5)
     rdf.accumulate(trajectory)
     with warnings.catch_warnings():

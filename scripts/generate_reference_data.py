@@ -178,7 +178,7 @@ def generate_lammps_references():
     print("  Computing RDF lambda...")
     rdf_lambda = compute_rdf(
         ts, '1', '1',
-        delr=0.02, integration='lambda', start=0, stop=5
+        delr=0.02, integration='lambda', start=0, stop=8
     )
     save_reference(
         output_dir / "rdf_lambda.npz",
@@ -257,12 +257,12 @@ def generate_lammps_example2_references():
     ensure_dir(output_dir)
 
     # Lambda-combined number density through a real loader
-    # (block_size=2 gives 5 contiguous blocks from 10 frames)
-    print("  Computing lambda-combined number density (block_size=2)...")
+    # (block_size=1 gives 5 blocks in each half of 10 frames)
+    print("  Computing lambda-combined number density (block_size=1)...")
     gs = DensityGrid(ts, 'number', nbins=30)
     gs.accumulate(
         ts, '2', kernel='triangular', rigid=False, start=0, stop=10,
-        compute_lambda=True, blocking='contiguous', block_size=2,
+        compute_lambda=True, blocking='contiguous', block_size=1,
     )
 
     save_reference(
@@ -271,7 +271,7 @@ def generate_lammps_example2_references():
         rho_count=gs.rho_count,
         rho_lambda=gs.rho_lambda,
         lambda_weights=gs.lambda_weights,
-        lambda_block_size=2,
+        lambda_block_size=1,
         nbins=30,
         frames_used=10,
         temp=1.35,
@@ -313,7 +313,7 @@ def generate_mda_references():
     print("  Computing RDF lambda...")
     rdf_lambda = compute_rdf(
         ts, 'Ow', 'Ow',
-        delr=0.1, integration='lambda', start=0, stop=5
+        delr=0.1, integration='lambda', start=0, stop=8
     )
     save_reference(
         output_dir / "rdf_lambda_ow.npz",
@@ -572,11 +572,11 @@ def generate_synthetic_references():
     # Lambda-combined density on a separate grid, so the stored rho comes
     # from exactly the same accumulation path as before (block accumulation
     # can differ in floating-point summation order).
-    print("  Computing uniform gas lambda density (block_size=10)...")
+    print("  Computing uniform gas lambda density (block_size=5)...")
     gs_lambda = DensityGrid(ts, 'number', nbins=30)
     gs_lambda.accumulate(
         ts, '1', kernel='triangular', rigid=False,
-        compute_lambda=True, blocking='contiguous', block_size=10,
+        compute_lambda=True, blocking='contiguous', block_size=5,
     )
 
     save_reference(
@@ -584,7 +584,7 @@ def generate_synthetic_references():
         rho=gs.rho_force,
         rho_lambda=gs_lambda.rho_lambda,
         lambda_weights=gs_lambda.lambda_weights,
-        lambda_block_size=10,
+        lambda_block_size=5,
         nbins=30,
         n_atoms=n_atoms,
         n_frames=n_frames,

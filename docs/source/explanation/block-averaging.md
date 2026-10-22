@@ -63,7 +63,7 @@ Use contiguous blocking. Blocks that are each long compared with the
 correlation time of the trajectory are close to independent samples, and
 contiguous blocking reads frames in order.
 
-Each half needs at least two blocks, across all `accumulate()` calls on the same
+Each half needs at least four blocks, across all `accumulate()` calls on the same
 `DensityGrid`, before `rho_lambda` can be computed; fewer raise `ValueError`.
 With few blocks in a half, that half's $\lambda$ is noisy, and $\rho_\lambda$
 can be less precise than $\rho_\text{force}$ (see
@@ -147,5 +147,5 @@ $\lambda$ is 1 (force density).
 
 Block variance is not exposed as error bars. Variance and covariance are used
 internally to compute per-voxel $\lambda$ weights. The combined density is
-available as `grid.rho_lambda` once each half of the frames has at least two
+available as `grid.rho_lambda` once each half of the frames has at least four
 blocks.

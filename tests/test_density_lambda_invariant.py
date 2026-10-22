@@ -29,7 +29,7 @@ from revelsMD.trajectories.numpy import NumpyTrajectory
 
 BOX = 10.0
 N_ATOMS = 4
-N_FRAMES = 6
+N_FRAMES = 8
 
 # Each test runs in a cubic box with cubic bins, and in a triclinic cell with
 # a different number of bins along each axis.
@@ -68,7 +68,7 @@ def test_lambda_reproduces_exact_count_estimator(geometry):
 
     trajectory = _make_trajectory(fractional, forces, geometry)
     grid = DensityGrid(trajectory, 'number', nbins=_nbins(geometry, 8))
-    # Default block_size=1: each frame is its own block (6 blocks).
+    # Default block_size=1: each frame is its own block (8 blocks).
     grid.accumulate(trajectory, atom_names='A', compute_lambda=True)
 
     weights = grid.lambda_weights
@@ -175,7 +175,7 @@ CROSS_FIT_CASES = {
     # name: (accumulate() calls as (start, stop), blocking, block_size or sections)
     'one call, one frame per block': ([(0, 24)], 'contiguous', 1),
     'odd frames, blocks of three': ([(0, 23)], 'contiguous', 3),
-    'interleaved sections': ([(0, 24)], 'interleaved', 3),
+    'interleaved sections': ([(0, 24)], 'interleaved', 4),
     'two calls': ([(0, 10), (10, 24)], 'contiguous', 2),
 }
 
