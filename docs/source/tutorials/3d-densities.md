@@ -75,9 +75,11 @@ plt.show()
 :width: 100%
 ```
 
-The count density is noisy; the force-based density resolves the Li cage
-structure with far less variance; the lambda estimate combines both for
-the optimal result.
+In the Li sites, the force-based density has much lower variance than the
+count density. Between the sites, where Li rarely goes, the count density can
+be the more precise. The lambda estimate weights the two in each voxel, with
+a weight estimated from the blocks to minimise its variance (see
+[Variance Reduction](../explanation/variance-reduction.md)).
 
 ## Hybrid density
 
