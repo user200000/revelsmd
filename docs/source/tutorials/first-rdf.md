@@ -41,7 +41,7 @@ type-1/type-1 RDF; use `'1'` and `'2'` for a cross-species RDF.
 `integration='lambda'` selects the variance-minimised estimator. Alternatives
 are `'forward'` (from g(0) = 0) and `'backward'` (from g(inf) = 1). The lambda
 weights are estimated from the spread across frames, so `'lambda'` needs at
-least two frames in each half of the frames; forward and backward integration
+least four frames in each half of the frames; forward and backward integration
 work from a single frame.
 
 ## Access the results

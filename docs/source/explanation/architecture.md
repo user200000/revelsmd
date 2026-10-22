@@ -174,7 +174,8 @@ the first half in time of each accumulation and one for the second, sharing
 their scratch buffers. `update(fold, delta, e0, weight)` adds a sample to one, and
 `finalise()` returns each fold's `FoldMoments` (its weight, means of $E_0$ and
 $E_1$, Var($\delta$) and Cov($E_0$, $\delta$)), raising `ValueError` if either
-fold has fewer than two samples.
+fold has fewer than four samples (`MIN_LAMBDA_SAMPLES`), below which $\lambda$
+has infinite variance.
 
 **`cross_fitted_combination(folds, mean_e0, mean_e1, scale=..., fallback=...)`**
 — computes each fold's $\lambda$ with `control_variate_combination` and applies

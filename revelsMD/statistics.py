@@ -11,6 +11,13 @@ from typing import NamedTuple
 import numpy as np
 from numpy.typing import NDArray
 
+# Each fold's lambda is a regression slope, -Cov(E_0, Delta) / Var(Delta),
+# over its n samples. Its variance scales as E[1 / sum (Delta_i - mean)^2],
+# which for roughly Gaussian Delta is proportional to 1 / (n - 3): infinite
+# for n <= 3, since n samples bunch together, making the denominator small,
+# too often.
+MIN_LAMBDA_SAMPLES = 4
+
 
 class WelfordAccumulator:
     """
@@ -250,15 +257,15 @@ class CrossFitStatistics:
         Raises
         ------
         ValueError
-            If either fold has fewer than 2 samples: lambda is undefined
-            without spread across the samples it is estimated from.
+            If either fold has fewer than ``MIN_LAMBDA_SAMPLES`` samples.
         """
         counts = [fold.count for fold in self.folds]
-        if min(counts) < 2:
+        if min(counts) < MIN_LAMBDA_SAMPLES:
             message = (
-                f"lambda needs at least 2 {self._samples} in each half of the frames "
-                f"(have {counts[0]} and {counts[1]}); each accumulate() call's frames "
-                "are split into two halves, so a call of one frame adds only to the first"
+                f"lambda needs at least {MIN_LAMBDA_SAMPLES} {self._samples} in each half of "
+                f"the frames (have {counts[0]} and {counts[1]}), since with fewer its variance "
+                "is infinite; each accumulate() call's frames are split into two halves, so "
+                "a call of one frame adds only to the first"
             )
             if remedy is not None:
                 message = f"{message}. {remedy}"

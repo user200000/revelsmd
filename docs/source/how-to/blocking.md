@@ -56,7 +56,7 @@ larger than the number of frames in the smaller half raises `ValueError`.
 ## Choosing block size
 
 More blocks give a better variance estimate but fewer frames per block. Each
-half needs at least 2 blocks, across all `accumulate()` calls. With few blocks
+half needs at least 4 blocks, across all `accumulate()` calls. With few blocks
 per half, lambda is noisy and `rho_lambda` can be less precise than
 `rho_force`; how many blocks are enough depends on the system (see
 [Variance Reduction](../explanation/variance-reduction.md)).

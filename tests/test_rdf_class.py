@@ -184,10 +184,10 @@ class TestRDFClassAPI:
     @staticmethod
     def _pair(distance):
         # One A-B pair at ``distance`` along a face diagonal of a 10 A box,
-        # with a radial force; four identical frames, two in each half for lambda.
+        # with a radial force; eight identical frames, four in each half for lambda.
         offset = distance / np.sqrt(2)
-        positions = np.array([[[1.0, 1.0, 1.0], [1.0 + offset, 1.0 + offset, 1.0]]] * 4)
-        forces = np.array([[[-1.0, -1.0, 0.0], [1.0, 1.0, 0.0]]] * 4)
+        positions = np.array([[[1.0, 1.0, 1.0], [1.0 + offset, 1.0 + offset, 1.0]]] * 8)
+        forces = np.array([[[-1.0, -1.0, 0.0], [1.0, 1.0, 0.0]]] * 8)
         return NumpyTrajectory(positions, forces, 10.0, 10.0, 10.0, ["A", "B"],
                                temperature=1.0, units="lj")
 
@@ -232,7 +232,7 @@ class TestRDFClassAPI:
         rdf_bwd.get_rdf(integration='backward')
 
         rdf_lam = RDF(water_trajectory, 'O', 'H', delr=0.1)
-        for _ in range(2):  # lambda needs 2 frames in each half
+        for _ in range(4):  # lambda needs 4 frames in each half
             rdf_lam.accumulate(water_trajectory)
         rdf_lam.get_rdf(integration='lambda')
 
@@ -268,7 +268,7 @@ class TestRDFClassAPI:
     def test_rdf_get_rdf_lambda_sets_lambda(self, water_trajectory):
         from revelsMD.rdf import RDF
         rdf = RDF(water_trajectory, 'O', 'H')
-        for _ in range(2):  # lambda needs 2 frames in each half
+        for _ in range(4):  # lambda needs 4 frames in each half
             rdf.accumulate(water_trajectory)
         rdf.get_rdf(integration='lambda')
         assert rdf.lam is not None
@@ -297,11 +297,11 @@ def _ideal_gas(box, n_frames, n_atoms, seed=1):
 
 
 def _water(box=10.0, temperature=300.0, order=None, seed=0, n_waters=4):
-    """A small water-like trajectory; ``order`` permutes its atoms."""
+    """A small water-like trajectory of 10 frames; ``order`` permutes its atoms."""
     rng = np.random.default_rng(seed)
     species = np.array(["O", "H", "H"] * n_waters)
-    positions = rng.uniform(0, box, (6, len(species), 3))
-    forces = rng.normal(size=(6, len(species), 3))
+    positions = rng.uniform(0, box, (10, len(species), 3))
+    forces = rng.normal(size=(10, len(species), 3))
     if order is not None:
         species, positions, forces = species[order], positions[:, order], forces[:, order]
     return NumpyTrajectory(positions, forces, box, box, box, list(species),
@@ -337,7 +337,7 @@ class TestRDFAccumulateTrajectories:
         g = rdf.g.copy()
         with pytest.raises(ValueError, match="cell differs"):
             rdf.accumulate(_water(box=12.0))
-        assert rdf._frame_count == 6
+        assert rdf._frame_count == 10
         np.testing.assert_array_equal(rdf.g, g)
 
     @pytest.mark.parametrize("integration", ['forward', 'backward', 'lambda'])
@@ -366,7 +366,7 @@ class TestRDFAccumulateTrajectories:
         parts.accumulate(traj, start=2)
         whole.get_rdf(integration=integration)
         parts.get_rdf(integration=integration)
-        assert parts._frame_count == whole._frame_count == 6
+        assert parts._frame_count == whole._frame_count == 10
         np.testing.assert_allclose(parts.g, whole.g, rtol=1e-12, atol=1e-14)
         np.testing.assert_allclose(parts.g_count, whole.g_count, rtol=1e-12, atol=1e-14)
 
@@ -374,9 +374,9 @@ class TestRDFAccumulateTrajectories:
         from revelsMD.rdf import RDF
         traj = _water()
         rdf = RDF(traj, 'O', 'H', delr=0.1)
-        rdf.accumulate(traj, stop=4)
+        rdf.accumulate(traj, stop=8)
         rdf.get_rdf(integration='lambda')
-        rdf.accumulate(traj, start=4)
+        rdf.accumulate(traj, start=8)
         assert rdf.g is None and rdf.g_count is None and rdf.lam is None and rdf.r is None
 
 
@@ -704,7 +704,7 @@ class TestRDFCountAccumulation:
         from revelsMD.rdf import RDF
 
         rdf = RDF(water_trajectory, 'O', 'H')
-        for _ in range(2):  # lambda needs 2 frames in each half
+        for _ in range(4):  # lambda needs 4 frames in each half
             rdf.accumulate(water_trajectory)
         rdf.get_rdf(integration='lambda')
 

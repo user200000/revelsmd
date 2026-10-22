@@ -172,7 +172,7 @@ class DensityGrid:
         Raises
         ------
         ValueError
-            If either half of the frames has fewer than two blocks.
+            If either half of the frames has fewer than four blocks.
         """
         if self._rho_lambda is None and self._lambda_statistics is not None:
             self._finalise_lambda()
@@ -208,7 +208,7 @@ class DensityGrid:
         Raises
         ------
         ValueError
-            If either half of the frames has fewer than two blocks.
+            If either half of the frames has fewer than four blocks.
         """
         if self._lambda_weights is None and self._lambda_statistics is not None:
             self._finalise_lambda()
@@ -392,9 +392,10 @@ class DensityGrid:
             lambda is estimated in each half in time of the frames of every
             call and applied to the other half, so that it is never
             estimated from the blocks it weights. Blocks and sections are
-            formed within each half, and each half needs at least 2 of them
-            across all ``accumulate()`` calls: accessing ``rho_lambda`` with
-            fewer raises ValueError. Each half's lambda is estimated from its
+            formed within each half, and each half needs at least 4 of them
+            across all ``accumulate()`` calls, since with fewer lambda's
+            variance is infinite: accessing ``rho_lambda`` with fewer raises
+            ValueError. Each half's lambda is estimated from its
             blocks, and with few blocks its noise can make ``rho_lambda`` less
             precise than ``rho_force``.
 

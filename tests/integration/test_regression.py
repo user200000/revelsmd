@@ -152,7 +152,7 @@ class TestLammpsRegression:
 
         result = compute_rdf(
             example1_trajectory, '1', '1',
-            delr=0.02, start=0, stop=5, integration='lambda'
+            delr=0.02, start=0, stop=8, integration='lambda'
         )
 
         assert_arrays_close(
@@ -224,7 +224,7 @@ class TestLammpsExample2Regression:
         # The block size is part of the pinned computation, not a free
         # parameter: assert the baseline was generated with the expected
         # value rather than reading it from the file under test.
-        assert int(ref['lambda_block_size']) == 2
+        assert int(ref['lambda_block_size']) == 1
 
         gs = DensityGrid(
             example2_trajectory, 'number', nbins=30
@@ -232,7 +232,7 @@ class TestLammpsExample2Regression:
         gs.accumulate(
             example2_trajectory, '2', kernel='triangular', rigid=False,
             start=0, stop=10, compute_lambda=True, blocking='contiguous',
-            block_size=2,
+            block_size=1,
         )
 
         assert_arrays_close(
@@ -269,7 +269,7 @@ class TestMDARegression:
 
         result = compute_rdf(
             example4_trajectory, 'Ow', 'Ow',
-            delr=0.1, start=0, stop=5, integration='lambda'
+            delr=0.1, start=0, stop=8, integration='lambda'
         )
 
         assert_arrays_close(
@@ -555,7 +555,7 @@ class TestSyntheticRegression:
         # The block size is part of the pinned computation, not a free
         # parameter: assert the baseline was generated with the expected
         # value rather than reading it from the file under test.
-        assert int(ref['lambda_block_size']) == 10
+        assert int(ref['lambda_block_size']) == 5
         _assert_uniform_gas_baseline(ref)
         assert int(ref['nbins']) == 30
 
@@ -565,7 +565,7 @@ class TestSyntheticRegression:
         gs.accumulate(
             uniform_gas_trajectory, '1', kernel='triangular', rigid=False,
             compute_lambda=True, blocking='contiguous',
-            block_size=10,
+            block_size=5,
         )
 
         assert_arrays_close(

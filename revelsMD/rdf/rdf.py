@@ -440,8 +440,8 @@ class RDF:
         ValueError
             If integration is not one of the recognised options, or for
             'lambda', if either half of the frames of the accumulate() calls
-            has fewer than two frames. Forward and backward integration need
-            only one frame.
+            has fewer than four frames, since with fewer lambda's variance is
+            infinite. Forward and backward integration need only one frame.
         """
         if self.progress == 'initialized':
             raise RuntimeError("call accumulate() before get_rdf()")
@@ -549,7 +549,7 @@ class RDF:
         lambda = 1 there. Elsewhere, where Delta is the same in every frame
         of a half to within rounding (degenerate input, e.g. identical
         frames), that half's lambda is 0, the backward estimator g_inf.
-        Fewer than two frames in a half raise ValueError.
+        Fewer than four frames in a half raise ValueError.
         """
         mean_scaled = self._accumulated * (self._g_scale / self._frame_count)
 
