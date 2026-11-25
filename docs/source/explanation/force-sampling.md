@@ -1,6 +1,6 @@
 # Force Sampling
 
-Force sampling computes radial distribution functions (RDFs) and 3D density fields from molecular dynamics trajectories. Instead of counting how often particles visit a region, it uses the forces acting on particles to infer the underlying density. The result is the same quantity — $g(r)$ or $\rho(\mathbf{r})$ — but with lower variance, particularly in low-density or high-energy regions where histogram counts are sparse.
+Force sampling computes radial distribution functions (RDFs) and 3D density fields from molecular dynamics trajectories. Instead of counting how often particles visit a region, it uses the forces acting on particles to infer the underlying density. The result is the same quantity — $g(r)$ or $\rho(\mathbf{r})$ — but with lower variance, particularly on fine grids, where the variance of a histogram grows without bound as the bin size shrinks.
 
 RevelsMD implements force sampling for both RDFs and 3D density fields, with an optional stage that combines force and counting estimates to minimise variance (see [Variance Reduction and Lambda Weighting](variance-reduction.md)).
 
@@ -54,7 +54,7 @@ The mean density $\bar{\rho}$ comes from counting and anchors the absolute scale
 
 ## Advantages
 
-- **Lower variance in sparse regions.** The force field draws on all particles at all distances, not just those within a given bin.
+- **Lower variance on fine grids.** The force field draws on all particles at all distances, not just those within a given bin, so its variance depends little on the bin size.
 - **Complementary error structure.** Force and counting estimators err differently by region, making combination worthwhile.
 - **No additional simulation cost.** Forces are already computed during MD; force sampling requires changes only to the analysis.
 

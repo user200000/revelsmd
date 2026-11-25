@@ -4,7 +4,7 @@ RevelsMD provides two independent estimators for each quantity: counting-based a
 
 ## The problem
 
-For RDFs, the two estimators are the forward-integrated $g_\text{fwd}(r)$ and backward-integrated $g_\text{bwd}(r)$. Forward integration is more accurate near $r = 0$; backward integration at large $r$. For 3D densities, the two estimators are the counting-based $\rho_\text{count}(\mathbf{r})$ and the force-based $\rho_\text{force}(\mathbf{r})$. Counting performs better in high-density regions; force-based in low-density regions.
+For RDFs, the two estimators are the forward-integrated $g_\text{fwd}(r)$ and backward-integrated $g_\text{bwd}(r)$. Forward integration is more accurate near $r = 0$; backward integration at large $r$. For 3D densities, the two estimators are the counting-based $\rho_\text{count}(\mathbf{r})$ and the force-based $\rho_\text{force}(\mathbf{r})$. The force-based estimator has the lower variance where the density is high; where particles rarely go, the counting estimator can be the more precise.
 
 In both cases, the optimal strategy is a position-dependent weighted average favouring whichever estimator is locally more reliable.
 
