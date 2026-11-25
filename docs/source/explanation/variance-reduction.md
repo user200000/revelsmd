@@ -89,7 +89,7 @@ RevelsMD does not report uncertainties. To see whether lambda helps for a system
 
 Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample of a half, that half's $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. That half then takes a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). These are guards against degenerate input such as identical samples.
 
-Where the counting density is zero in every block of a half, $\operatorname{Cov}(A, \delta)$ is zero, so that half's $\lambda$ is 0. A voxel that no sample reached in either half therefore has $\rho_\lambda = 0$, the counting density, even where $\rho_\text{force}$ is not zero.
+Where the counting density is zero in every block of a half and $\operatorname{Var}(\delta)$ is not, $\operatorname{Cov}(A, \delta)$ is zero, so that half's $\lambda$ is 0. A voxel that no sample reached in either half therefore has $\rho_\lambda = 0$, the counting density, even where $\rho_\text{force}$ is not zero.
 
 ## Cost
 

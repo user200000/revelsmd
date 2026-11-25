@@ -46,7 +46,7 @@ and counting densities, to within rounding, have no variance to weigh and take
 a weight of 1 (force density) in that half. This is a guard for degenerate
 input such as identical frames.
 
-In voxels where a half's blocks have no counts, that half's lambda is 0, so
-in voxels that no sample reached in either half `rho_lambda` is zero, the
-counting density. The force density is not zero there: it fills in the
-volume between the visited voxels, and it can be negative there.
+In voxels where a half's blocks have no counts, that half's lambda is 0 unless
+the guard above applies. In voxels that no sample reached in either half,
+`rho_lambda` is therefore zero, the counting density. The force density there
+is in general not zero, and it can be negative.

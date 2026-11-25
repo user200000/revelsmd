@@ -197,10 +197,10 @@ class DensityGrid:
         rounding (a standard deviation at most 1e-10 of the largest density
         in the grid), take lambda = 1 in that half, i.e. the force estimator
         (a guard for degenerate input).
-        In voxels where a half's blocks have no counts, the counting density
-        is zero in every block, so that half's lambda is 0; in voxels no
-        sample reached in either half, rho_lambda is therefore zero, even
-        where rho_force is not.
+        In voxels where a half's blocks have no counts, Cov(rho_count, delta)
+        is zero, so that half's lambda is 0 unless the guard above applies;
+        in voxels no sample reached in either half, rho_lambda is therefore
+        zero, even where rho_force is not.
 
         Returns
         -------
@@ -969,7 +969,8 @@ class DensityGrid:
         Raises
         ------
         ValueError
-            If *density* is not recognised.
+            If *density* is not recognised, or is ``"lambda"`` and either
+            half of the frames has fewer than four blocks.
         RuntimeError
             If the requested density has not been computed yet.
         """
