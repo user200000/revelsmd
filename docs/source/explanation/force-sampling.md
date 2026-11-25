@@ -1,12 +1,12 @@
 # Force Sampling
 
-Force sampling computes radial distribution functions (RDFs) and 3D density fields from molecular dynamics trajectories. Instead of counting how often particles visit a region, it uses the forces acting on particles to infer the underlying density. The result is the same quantity — $g(r)$ or $\rho(\mathbf{r})$ — but with lower variance, particularly on fine grids, where the variance of a histogram grows without bound as the bin size shrinks.
+Force sampling computes radial distribution functions (RDFs) and 3D density fields from molecular dynamics trajectories. Instead of counting how often particles visit a region, it uses the forces acting on particles to infer the underlying density. The result is the same quantity, $g(r)$ or $\rho(\mathbf{r})$, with much lower variance than a histogram on fine grids.
 
 RevelsMD implements force sampling for both RDFs and 3D density fields, with an optional stage that combines force and counting estimates to minimise variance (see [Variance Reduction and Lambda Weighting](variance-reduction.md)).
 
 ## Histogram convergence
 
-Histogram estimators for $g(r)$ and $\rho(\mathbf{r})$ converge as $1/\sqrt{N_\text{bin}}$, where $N_\text{bin}$ is the number of particle visits to a bin. In low-density regions — near energy barriers, in solvent-excluded volumes, or at distribution tails — bins accumulate counts slowly regardless of trajectory length. The estimator is unbiased but high-variance, and the variance is largest where physical interest is greatest.
+A histogram estimates $g(r)$ or $\rho(\mathbf{r})$ by counting particle visits to each bin. In one configuration, the variance of its estimate in a bin of volume $h^3$ is about $\rho/h^3$ (Rotenberg 2020), so it is largest where the density is high and grows without bound as the bin shrinks. Where particles rarely go, the variance is small, but the relative error, $1/\sqrt{N_\text{bin}}$, is large.
 
 ## The force-based alternative
 
@@ -54,7 +54,7 @@ The mean density $\bar{\rho}$ comes from counting and anchors the absolute scale
 
 ## Advantages
 
-- **Lower variance on fine grids.** The force field draws on all particles at all distances, not just those within a given bin, so its variance depends little on the bin size.
+- **Lower variance on fine grids.** A histogram estimates the density in a bin by counting the particles inside it. The smaller the bin, the fewer particles it counts, and the larger the variance of the estimate. The force estimate uses the forces on all particles in the system, so its variance grows much more slowly as the bin shrinks.
 - **Complementary error structure.** Force and counting estimators err differently by region, making combination worthwhile.
 - **No additional simulation cost.** Forces are already computed during MD; force sampling requires changes only to the analysis.
 
