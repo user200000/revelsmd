@@ -2372,6 +2372,28 @@ class TestWriteToCube:
 
         assert cube_file.exists()
 
+    def test_write_to_cube_lambda_writes_rho_lambda(self, tmp_path):
+        """write_to_cube('lambda') writes rho_lambda, in Bohr^-3."""
+        from revelsMD.trajectories.numpy import NumpyTrajectory
+        from revelsMD.density.writers.cube import ANGSTROM_TO_BOHR
+        rng = np.random.default_rng(5)
+        cell = np.diag([10.0, 10.0, 10.0])
+        positions = rng.uniform(0.0, 10.0, (8, 4, 3))
+        traj = NumpyTrajectory(
+            positions, rng.normal(size=positions.shape), cell_matrix=cell,
+            species_list=["A"] * 4, temperature=300.0, units="real",
+        )
+        gs = DensityGrid(traj, "number", nbins=4)
+        gs.accumulate(traj, atom_names="A", compute_lambda=True)
+
+        path = tmp_path / "lambda.cube"
+        gs.write_to_cube("lambda", path)
+
+        values = np.array([float(x) for line in path.read_text().splitlines()[6:] for x in line.split()])
+        np.testing.assert_allclose(
+            values, gs.rho_lambda.ravel() / ANGSTROM_TO_BOHR**3, rtol=1e-4, atol=1e-12
+        )
+
     def test_write_to_cube_lambda_without_compute_raises(self, ts):
         """write_to_cube raises RuntimeError with helpful message for lambda."""
         gs = DensityGrid(ts, "number", nbins=4)
