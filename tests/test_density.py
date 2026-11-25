@@ -2362,32 +2362,6 @@ class TestWriteToCube:
         with pytest.raises(RuntimeError, match=r"not been computed yet\. Call accumulate\(\)[^.]*$"):
             gs.write_to_cube("force", "test.cube")
 
-    def test_write_to_cube_hybrid_without_threshold_raises(self, ts):
-        """write_to_cube raises ValueError if hybrid requested without threshold."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        with pytest.raises(ValueError, match="threshold is required"):
-            gs.write_to_cube("hybrid", "test.cube")
-
-    def test_write_to_cube_threshold_on_non_hybrid_raises(self, ts):
-        """write_to_cube raises ValueError if threshold passed for non-hybrid density."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        with pytest.raises(ValueError, match="only valid for 'hybrid'"):
-            gs.write_to_cube("force", "test.cube", threshold=0.01)
-
-    def test_write_to_cube_hybrid_with_threshold(self, tmp_path, ts):
-        """write_to_cube writes hybrid density when threshold is provided."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        cube_file = tmp_path / "hybrid.cube"
-        gs.write_to_cube("hybrid", cube_file, threshold=0.01)
-
-        assert cube_file.exists()
-
     def test_write_to_cube_count(self, tmp_path, ts):
         """write_to_cube writes counting density."""
         gs = DensityGrid(ts, "number", nbins=4)
@@ -2599,55 +2573,6 @@ class TestFFTForceToDensity:
             expected_coeff * other_axes_product,
             rtol=1e-10,
         )
-
-
-# ---------------------------------------------------------------------------
-# rho_hybrid tests
-# ---------------------------------------------------------------------------
-
-class TestHybridDensity:
-    """Tests for DensityGrid.rho_hybrid()."""
-
-    def test_selects_force_above_and_count_below_threshold(self, ts):
-        """Result should exactly match np.where(rho_count >= threshold, rho_force, rho_count)."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        threshold = 0.01
-        expected = np.where(gs.rho_count >= threshold, gs.rho_force, gs.rho_count)
-
-        np.testing.assert_array_equal(gs.rho_hybrid(threshold), expected)
-
-    def test_zero_threshold_returns_force_everywhere(self, ts):
-        """Threshold of zero means rho_count >= 0 always, so result equals rho_force."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        np.testing.assert_array_equal(gs.rho_hybrid(0.0), gs.rho_force)
-
-    def test_large_threshold_returns_count_everywhere(self, ts):
-        """Threshold above max rho_count means all voxels use rho_count."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        large_threshold = gs.rho_count.max() + 1.0
-
-        np.testing.assert_array_equal(gs.rho_hybrid(large_threshold), gs.rho_count)
-
-    def test_negative_threshold_raises_value_error(self, ts):
-        """Negative threshold should raise ValueError."""
-        gs = DensityGrid(ts, "number", nbins=4)
-        gs.accumulate(ts, atom_names="H", rigid=False)
-
-        with pytest.raises(ValueError, match="threshold must be non-negative"):
-            gs.rho_hybrid(-0.1)
-
-    def test_before_accumulate_raises_runtime_error(self, ts):
-        """Calling rho_hybrid before accumulate should raise RuntimeError."""
-        gs = DensityGrid(ts, "number", nbins=4)
-
-        with pytest.raises(RuntimeError, match="no density data available"):
-            gs.rho_hybrid(0.01)
 
 
 class TestFailedAccumulate:

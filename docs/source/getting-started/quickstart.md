@@ -59,13 +59,12 @@ grid = compute_density(
 )
 ```
 
-The grid carries three estimators and a hybrid:
+The grid carries three estimators:
 
 ```python
 grid.rho_count             # histogram density
 grid.rho_force             # force-sampled density
 grid.rho_lambda            # lambda-weighted density
-grid.rho_hybrid(0.1)       # force where count >= threshold, count elsewhere
 ```
 
 Export to a Gaussian cube file for visualisation in VESTA or similar:
