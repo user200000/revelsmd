@@ -1,10 +1,10 @@
 # Variance Reduction and Lambda Weighting
 
-RevelsMD provides two independent estimators for each quantity: counting-based and force-based (see [Force Sampling](force-sampling.md)). Both are unbiased, but their variance differs by region. The lambda method combines them with position-dependent weights that minimise variance, producing a single estimate with lower variance than either, given enough samples to estimate the weights.
+RevelsMD provides two estimators for each quantity (see [Force Sampling](force-sampling.md)). Both are unbiased, but their variance differs by region. The lambda method combines them with position-dependent weights that minimise variance, producing a single estimate with lower variance than either, given enough samples to estimate the weights.
 
 ## The problem
 
-For RDFs, the two estimators are the forward-integrated $g_\text{fwd}(r)$ and backward-integrated $g_\text{bwd}(r)$. Forward integration is more accurate near $r = 0$; backward integration at large $r$. For 3D densities, the two estimators are the counting-based $\rho_\text{count}(\mathbf{r})$ and the force-based $\rho_\text{force}(\mathbf{r})$. The force-based estimator has the lower variance where the density is high; where particles rarely go, the counting estimator can be the more precise.
+For RDFs, the two estimators are the forward-integrated $g_\text{fwd}(r)$ and backward-integrated $g_\text{bwd}(r)$. Forward integration is more accurate near $r = 0$; backward integration at large $r$. For 3D densities, the two estimators are the counting-based $\rho_\text{count}(\mathbf{r})$ and the force-based $\rho_\text{force}(\mathbf{r})$. On fine grids, the force-based estimator has the lower variance where the density is high; where particles rarely go, the counting estimator can be the more precise.
 
 In both cases, the optimal strategy is a position-dependent weighted average favouring whichever estimator is locally more reliable.
 

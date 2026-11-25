@@ -2,11 +2,11 @@
 
 Force sampling computes radial distribution functions (RDFs) and 3D density fields from molecular dynamics trajectories. Instead of counting how often particles visit a region, it uses the forces acting on particles to infer the underlying density. The result is the same quantity, $g(r)$ or $\rho(\mathbf{r})$, with much lower variance than a histogram on fine grids.
 
-RevelsMD implements force sampling for both RDFs and 3D density fields, with an optional stage that combines force and counting estimates to minimise variance (see [Variance Reduction and Lambda Weighting](variance-reduction.md)).
+RevelsMD implements force sampling for both RDFs and 3D density fields, with an optional stage that combines two estimates of each to minimise variance (see [Variance Reduction and Lambda Weighting](variance-reduction.md)).
 
 ## Histogram convergence
 
-A histogram estimates $g(r)$ or $\rho(\mathbf{r})$ by counting particle visits to each bin. In one configuration, the variance of its estimate in a bin of volume $h^3$ is about $\rho/h^3$ (Rotenberg 2020), so it is largest where the density is high and grows without bound as the bin shrinks. Where particles rarely go, the variance is small, but the relative error, $1/\sqrt{N_\text{bin}}$, is large.
+A histogram estimates $g(r)$ or $\rho(\mathbf{r})$ by counting particle visits to each bin. In one configuration, the variance of its estimate in a small bin of volume $v$ is about $\rho/v$ (Rotenberg 2020), so it is largest where the density is high and grows without bound as the bin shrinks. Where particles rarely go, the variance is small, but the relative error is large: about $1/\sqrt{N}$ for a bin visited $N$ times.
 
 ## The force-based alternative
 
