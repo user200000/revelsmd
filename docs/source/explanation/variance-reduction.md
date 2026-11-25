@@ -1,10 +1,10 @@
 # Variance Reduction and Lambda Weighting
 
-RevelsMD provides two independent estimators for each quantity: counting-based and force-based (see [Force Sampling](force-sampling.md)). Both are unbiased, but their variance differs by region. The lambda method combines them with position-dependent weights that minimise variance, producing a single estimate with lower variance than either, given enough samples to estimate the weights.
+RevelsMD provides two estimators for each quantity (see [Force Sampling](force-sampling.md)). Both are unbiased, but their variance differs by region. The lambda method combines them with position-dependent weights that minimise variance, producing a single estimate with lower variance than either, given enough samples to estimate the weights.
 
 ## The problem
 
-For RDFs, the two estimators are the forward-integrated $g_\text{fwd}(r)$ and backward-integrated $g_\text{bwd}(r)$. Forward integration is more accurate near $r = 0$; backward integration at large $r$. For 3D densities, the two estimators are the counting-based $\rho_\text{count}(\mathbf{r})$ and the force-based $\rho_\text{force}(\mathbf{r})$. Counting performs better in high-density regions; force-based in low-density regions.
+For RDFs, the two estimators are the forward-integrated $g_\text{fwd}(r)$ and backward-integrated $g_\text{bwd}(r)$. Forward integration is more accurate near $r = 0$; backward integration at large $r$. For 3D densities, the two estimators are the counting-based $\rho_\text{count}(\mathbf{r})$ and the force-based $\rho_\text{force}(\mathbf{r})$. On fine grids, the force-based estimator has the lower variance where the density is high; where particles rarely go, the counting estimator can be the more precise.
 
 In both cases, the optimal strategy is a position-dependent weighted average favouring whichever estimator is locally more reliable.
 
@@ -87,7 +87,9 @@ RevelsMD does not report uncertainties. To see whether lambda helps for a system
 
 ## Edge cases
 
-Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample of a half, that half's $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. That half then takes a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). These are guards against degenerate input such as identical samples; they are not a policy for poorly sampled regions. For that, use `rho_hybrid`, which switches to the counting density below a threshold you choose.
+Where $\operatorname{Var}(\delta)$ is zero, because $\delta$ is the same in every sample of a half, that half's $\lambda$ is undefined. A variance whose standard deviation is at most $10^{-10}$ of the largest estimate is rounding rather than sampling, and counts as zero. That half then takes a fixed weight: $\lambda = 0$ for RDFs at $r > 0$ (the backward estimator) and $\lambda = 1$ for 3D densities (the force estimator). These are guards against degenerate input such as identical samples.
+
+Where the counting density is zero in every block of a half and $\operatorname{Var}(\delta)$ is not, $\operatorname{Cov}(A, \delta)$ is zero, so that half's $\lambda$ is 0. A voxel that no sample reached in either half therefore has $\rho_\lambda = 0$, the counting density, even where $\rho_\text{force}$ is not zero.
 
 ## Cost
 

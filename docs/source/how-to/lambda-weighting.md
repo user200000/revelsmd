@@ -1,6 +1,4 @@
-# Use lambda and hybrid density estimators
-
-## Lambda estimator
+# Use the lambda density estimator
 
 The lambda estimator combines counting and force densities with per-voxel
 weights that minimise variance. Pass `compute_lambda=True` to `accumulate()`.
@@ -45,26 +43,10 @@ without them raises `ValueError`.
 
 Voxels where every block of a half gave the same difference between the force
 and counting densities, to within rounding, have no variance to weigh and take
-a weight of 1 (force density) in that half. This is a
-guard for degenerate input, not a treatment for poorly sampled regions; use
-the hybrid estimator below for that.
+a weight of 1 (force density) in that half. This is a guard for degenerate
+input such as identical frames.
 
-## Hybrid estimator
-
-The hybrid estimator switches between force and counting density per voxel
-based on a counting-density threshold. It does not require
-`compute_lambda=True`.
-
-```python
-grid = DensityGrid(traj, density_type='number', nbins=100)
-grid.accumulate(traj, atom_names='Li')
-
-rho = grid.rho_hybrid(threshold=0.01)
-```
-
-Voxels where `rho_count >= threshold` use `rho_force`; those below use
-`rho_count`. This removes negative artefacts from the force estimator in
-poorly sampled regions while preserving its resolution elsewhere.
-
-Choose the threshold by inspecting `grid.rho_count` -- a value near its
-noise floor is typical.
+In voxels where a half's blocks have no counts, that half's lambda is 0 unless
+the guard above applies. In voxels that no sample reached in either half,
+`rho_lambda` is therefore zero, the counting density. The force density there
+is in general not zero, and it can be negative.

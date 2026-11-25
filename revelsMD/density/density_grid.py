@@ -196,8 +196,11 @@ class DensityGrid:
         Voxels where delta is the same in every block of a half, to within
         rounding (a standard deviation at most 1e-10 of the largest density
         in the grid), take lambda = 1 in that half, i.e. the force estimator
-        (a guard for degenerate input, not a poorly-sampled-regions policy
-        -- see rho_hybrid for that).
+        (a guard for degenerate input).
+        In voxels where a half's blocks have no counts, Cov(rho_count, delta)
+        is zero, so that half's lambda is 0 unless the guard above applies;
+        in voxels no sample reached in either half, rho_lambda is therefore
+        zero, even where rho_force is not.
 
         Returns
         -------
@@ -213,52 +216,6 @@ class DensityGrid:
         if self._lambda_weights is None and self._lambda_statistics is not None:
             self._finalise_lambda()
         return self._lambda_weights
-
-    def rho_hybrid(self, threshold: float) -> np.ndarray:
-        """Threshold-switched density combining force and count estimators.
-
-        Uses the force-based density where the counting density is at or
-        above the threshold, and the counting density elsewhere. This
-        eliminates spurious negative density artefacts from the force
-        estimator in poorly sampled regions while preserving the higher
-        resolution of the force estimator in well-sampled regions.
-
-        Parameters
-        ----------
-        threshold : float
-            Density threshold (in the same units as ``rho_count``).
-            Voxels with ``rho_count >= threshold`` use the force estimate;
-            voxels below the threshold use the counting estimate.
-            For multi-species selections ``rho_count`` is the total
-            (summed) density, so a threshold expressed per species must
-            be multiplied by the number of species.
-
-        Returns
-        -------
-        np.ndarray
-            Hybrid density field, same shape as ``rho_count``.
-
-        Raises
-        ------
-        RuntimeError
-            If no data has been accumulated yet.
-        ValueError
-            If threshold is negative.
-        """
-        if threshold < 0:
-            raise ValueError(
-                f"threshold must be non-negative, got {threshold}"
-            )
-
-        rho_c = self.rho_count
-        rho_f = self.rho_force
-
-        if rho_c is None or rho_f is None:
-            raise RuntimeError(
-                "no density data available. Run accumulate() first"
-            )
-
-        return np.where(rho_c >= threshold, rho_f, rho_c)
 
     def _wrap_to_grid(self, positions: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -406,8 +363,8 @@ class DensityGrid:
         the multi-species grid, so the result depends only on which atoms
         are selected, not on how they are partitioned into species labels.
         This additivity is exact for ``rho_count`` and ``rho_force``; it
-        does not hold for ``rho_lambda`` or ``rho_hybrid``, which are
-        nonlinear in the accumulated fields. For ``density_type='charge'``
+        does not hold for ``rho_lambda``, which is nonlinear in the
+        accumulated fields. For ``density_type='charge'``
         the summed field is the total charge density of the selection (it
         integrates to the selection's net charge). Molecule-level counting
         is provided by ``rigid=True``.
@@ -991,8 +948,6 @@ class DensityGrid:
         self,
         density: str,
         filename: str | Path,
-        *,
-        threshold: float | None = None,
     ) -> None:
         """Write a density grid to a Gaussian ``.cube`` file.
 
@@ -1007,43 +962,29 @@ class DensityGrid:
         ----------
         density : str
             Name of the density to write.  One of ``"force"``,
-            ``"count"``, ``"lambda"``, or ``"hybrid"``.
+            ``"count"``, or ``"lambda"``.
         filename : str or Path
             Output file path.
-        threshold : float, optional
-            Required when *density* is ``"hybrid"``.  Passed to
-            :meth:`rho_hybrid`.
 
         Raises
         ------
         ValueError
-            If *density* is not recognised, ``"hybrid"`` is requested
-            without *threshold*, or *threshold* is passed for a
-            non-hybrid density.
+            If *density* is not recognised, or is ``"lambda"`` and either
+            half of the frames has fewer than four blocks.
         RuntimeError
             If the requested density has not been computed yet.
         """
         match density:
             case "force":
-                if threshold is not None:
-                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}")
                 grid = self.rho_force
             case "count":
-                if threshold is not None:
-                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}")
                 grid = self.rho_count
             case "lambda":
-                if threshold is not None:
-                    raise ValueError(f"threshold is only valid for 'hybrid', not {density!r}")
                 grid = self.rho_lambda
-            case "hybrid":
-                if threshold is None:
-                    raise ValueError("threshold is required when density is 'hybrid'")
-                grid = self.rho_hybrid(threshold)
             case _:
                 raise ValueError(
                     f"unknown density {density!r}. "
-                    f"Expected one of {sorted(['count', 'force', 'hybrid', 'lambda'])}"
+                    f"Expected one of {sorted(['count', 'force', 'lambda'])}"
                 )
 
         if grid is None:

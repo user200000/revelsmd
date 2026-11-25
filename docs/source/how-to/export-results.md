@@ -67,12 +67,10 @@ Export to a Gaussian cube file for VESTA or VMD:
 grid.write_to_cube("force", "force_density.cube")
 grid.write_to_cube("count", "count_density.cube")
 grid.write_to_cube("lambda", "lambda_density.cube")
-grid.write_to_cube("hybrid", "hybrid_density.cube", threshold=0.01)
 ```
 
-The first argument selects which density to write: `"force"`, `"count"`,
-`"lambda"`, or `"hybrid"`. `threshold` is required for `"hybrid"` and
-controls the force/count crossover.
+The first argument selects which density to write: `"force"`, `"count"` or
+`"lambda"`.
 
 Cube files are in atomic units, set by the grid's `density_type` whichever
 density is written: lengths in Bohr, and values in Bohr⁻³ for `'number'`,

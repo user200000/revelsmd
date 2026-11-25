@@ -12,7 +12,7 @@ entirely; there is no compatibility layer.
   forward, backward and variance-minimised (lambda) integration, and a
   histogram estimate (`g_count`).
 - `DensityGrid` and `compute_density` for force-sampled 3D number, charge and
-  polarisation densities, with counting, force, lambda and hybrid estimates.
+  polarisation densities, with counting, force and lambda estimates.
   Rigid molecules are supported, centred on their centre of mass or on a
   chosen atom.
 - Lambda is estimated in each half in time of the frames and applied to the

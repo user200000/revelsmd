@@ -129,6 +129,27 @@ def test_lambda_degenerate_blocks_return_force_estimator(geometry):
     assert not np.array_equal(grid.rho_force, grid.rho_count)
 
 
+@geometries
+def test_lambda_is_zero_where_no_sample_reached(geometry):
+    """In voxels no sample reached, each half's lambda is 0, so rho_lambda is 0 there although rho_force is not."""
+    rng = np.random.default_rng(3)
+    # Every atom stays in the corner [0.1, 0.3)^3 of the cell, so voxels away
+    # from it receive no counts in any block of either half.
+    fractional = 0.1 + 0.2 * rng.random((N_FRAMES, N_ATOMS, 3))
+    forces = rng.normal(scale=5.0, size=(N_FRAMES, N_ATOMS, 3))
+
+    trajectory = _make_trajectory(fractional, forces, geometry)
+    grid = DensityGrid(trajectory, 'number', nbins=_nbins(geometry, 10))
+    grid.accumulate(trajectory, atom_names='A', compute_lambda=True)
+
+    unreached = grid.rho_count == 0
+    assert unreached.any()
+    # The force density fills in the unreached voxels; lambda must not use it.
+    assert np.any(grid.rho_force[unreached] != 0)
+    np.testing.assert_array_equal(grid.lambda_weights[unreached], 0.0)
+    np.testing.assert_array_equal(grid.rho_lambda[unreached], 0.0)
+
+
 def _fold_blocks(frames, blocking, size):
     """Blocks of one half of an accumulate() call's frames, as lists of frame indices."""
     if blocking == 'contiguous':

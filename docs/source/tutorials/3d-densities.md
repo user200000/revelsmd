@@ -81,18 +81,6 @@ be the more precise. The lambda estimate weights the two in each voxel, with
 a weight estimated from the blocks to minimise its variance (see
 [Variance Reduction](../explanation/variance-reduction.md)).
 
-## Hybrid density
-
-The force estimator can produce negative values in poorly sampled voxels.
-`rho_hybrid` falls back to the counting estimate below a threshold:
-
-```python
-rho = grid.rho_hybrid(threshold=0.5)
-```
-
-Voxels with `rho_count >= threshold` use the force-based value; voxels below
-the threshold use the counting value.
-
 ## Using DensityGrid directly
 
 For separate control over grid construction and accumulation, use
@@ -133,6 +121,6 @@ grid.count                             # number of accumulated frames
 | `stop` | `None` | Stop frame index; `None` = all frames |
 | `period` | `1` | Frame stride |
 
-## Lambda and hybrid estimators
+## Lambda estimator
 
-Lambda and hybrid estimators are covered in the [lambda weighting how-to](../how-to/lambda-weighting.md).
+The lambda estimator is covered in the [lambda weighting how-to](../how-to/lambda-weighting.md).
